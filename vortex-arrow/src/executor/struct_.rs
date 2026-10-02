@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrowArrayExecutor;
+use crate::ArrowExportOptions;
 use crate::executor::infer_nearest_arrow_field;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
@@ -50,6 +51,7 @@ impl Matcher for ArrowStructExportable {
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
     target_fields: Option<&Fields>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -81,6 +83,7 @@ pub(super) fn to_arrow_struct(
                 &fields,
                 validity,
                 len,
+                options,
                 ctx,
             );
         }
@@ -99,6 +102,7 @@ pub(super) fn to_arrow_struct(
             &array.children(),
             None, // Pack is never null,
             len,
+            options,
             ctx,
         );
     }
@@ -129,6 +133,7 @@ pub(super) fn to_arrow_struct(
         &fields,
         validity,
         len,
+        options,
         ctx,
     )
 }
@@ -138,6 +143,7 @@ fn create_from_fields(
     vortex_fields: &[ArrayRef],
     null_buffer: Option<NullBuffer>,
     len: usize,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     match fields {
@@ -153,9 +159,10 @@ fn create_from_fields(
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
                 // Route through the session with the full Field (not just data_type) so any
                 // ARROW:extension:name metadata reaches the export-plugin dispatcher.
-                let arrow_field = ctx.session().clone().arrow().execute_arrow(
+                let arrow_field = ctx.session().clone().arrow().execute_arrow_with_options(
                     vx_field.clone(),
                     Some(field.as_ref()),
+                    options,
                     ctx,
                 )?;
                 vortex_ensure!(
@@ -183,7 +190,9 @@ fn create_from_fields(
             let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
             for (name, vx_field) in names.iter().zip_eq(vortex_fields.iter()) {
                 let inferred = infer_nearest_arrow_field(vx_field, name.as_ref(), ctx)?;
-                let arrow_array = vx_field.clone().execute_arrow(None, ctx)?;
+                let arrow_array = vx_field
+                    .clone()
+                    .execute_arrow_with_options(None, options, ctx)?;
                 // The executed array is authoritative for the physical type; only the metadata is
                 // taken from the inferred field.
                 arrow_fields.push(Arc::new(

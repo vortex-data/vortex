@@ -31,6 +31,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::ArrowExportOptions;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
 
@@ -50,6 +51,7 @@ impl Matcher for ArrowListExportable {
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     array: ArrayRef,
     elements_field: &FieldRef,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     vortex_ensure!(
@@ -62,14 +64,19 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 
     // If the Vortex array is already in List format, we can directly convert it.
     if let Some(list) = array.as_opt::<List>() {
-        return list_to_list::<O>(&list.into_owned(), elements_field, ctx);
+        return list_to_list::<O>(&list.into_owned(), elements_field, options, ctx);
     }
 
     // Converting each chunk individually, then using the fast concat logic from arrow
     if let Some(chunked) = array.as_opt::<Chunked>() {
         let mut arrow_chunks: Vec<ArrowArrayRef> = Vec::with_capacity(chunked.nchunks());
         for chunk in chunked.chunks() {
-            arrow_chunks.push(to_arrow_list::<O>(chunk.clone(), elements_field, ctx)?);
+            arrow_chunks.push(to_arrow_list::<O>(
+                chunk.clone(),
+                elements_field,
+                options,
+                ctx,
+            )?);
         }
 
         let refs = arrow_chunks.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
@@ -90,7 +97,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     } else {
         list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
     };
-    list_view_zctl::<O>(zctl, elements_field, ctx)
+    list_view_zctl::<O>(zctl, elements_field, options, ctx)
 }
 
 #[allow(rustdoc::broken_intra_doc_links)]
@@ -98,6 +105,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 fn list_to_list<O: OffsetSizeTrait + NativePType>(
     array: &ListArray,
     elements_field: &FieldRef,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // We must cast the offsets to the required offset type.
@@ -109,9 +117,10 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .to_buffer::<O>()
         .into_arrow_offset_buffer();
 
-    let elements = ctx.session().clone().arrow().execute_arrow(
+    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
         array.elements().clone(),
         Some(elements_field.as_ref()),
+        options,
         ctx,
     )?;
     vortex_ensure!(
@@ -133,14 +142,16 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
 fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     array: ListViewArray,
     elements_field: &FieldRef,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     assert!(array.is_zero_copy_to_list());
 
     if array.is_empty() {
-        let elements = ctx.session().clone().arrow().execute_arrow(
+        let elements = ctx.session().clone().arrow().execute_arrow_with_options(
             array.elements().clone(),
             Some(elements_field.as_ref()),
+            options,
             ctx,
         )?;
         return Ok(Arc::new(GenericListArray::<O>::new(
@@ -191,9 +202,10 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     });
 
     // Extract the elements array.
-    let elements = ctx.session().clone().arrow().execute_arrow(
+    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
         elements,
         Some(elements_field.as_ref()),
+        options,
         ctx,
     )?;
     vortex_ensure!(

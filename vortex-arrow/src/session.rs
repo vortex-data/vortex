@@ -69,6 +69,7 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
+use crate::ArrowExportOptions;
 use crate::IntoVortexArray;
 use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
@@ -176,6 +177,19 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
         target: &Field,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport>;
+
+    /// Export with options. Plugins that export nested arrays should propagate `options` to
+    /// their child exports. Existing plugins retain their current behavior by default.
+    fn execute_arrow_with_options(
+        &self,
+        array: ArrayRef,
+        target: &Field,
+        options: &ArrowExportOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowExport> {
+        let _ = options;
+        self.execute_arrow(array, target, ctx)
+    }
 }
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
@@ -534,11 +548,25 @@ impl ArrowSession {
     ///
     /// With `target = None` the fallback path picks the array's preferred Arrow physical type
     /// and executes directly into that, ignoring extension types.
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn execute_arrow(
         &self,
         array: ArrayRef,
         target: Option<&Field>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        self.execute_arrow_with_options(array, target, &ArrowExportOptions::default(), ctx)
+    }
+
+    /// Execute a Vortex array into Arrow with explicit export options.
+    ///
+    /// Options are propagated to nested arrays. Disabling buffer compaction preserves the
+    /// values and Arrow type, but may retain unused backing string or binary data.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    pub fn execute_arrow_with_options(
+        &self,
+        array: ArrayRef,
+        target: Option<&Field>,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
         // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
@@ -567,7 +595,7 @@ impl ArrowSession {
                     "probing plugin for converting Arrow array"
                 );
 
-                match plugin.execute_arrow(current, target_field, ctx)? {
+                match plugin.execute_arrow_with_options(current, target_field, options, ctx)? {
                     ArrowExport::Exported(arrow) => {
                         vortex_ensure!(
                             arrow.len() == len,
@@ -586,10 +614,10 @@ impl ArrowSession {
                 "unsupported Arrow extension type encountered, falling back to naive execution"
             );
 
-            return execute_arrow_naive(current, Some(target_field.data_type()), ctx);
+            return execute_arrow_naive(current, Some(target_field.data_type()), options, ctx);
         }
 
-        execute_arrow_naive(array, target.map(|field| field.data_type()), ctx)
+        execute_arrow_naive(array, target.map(|field| field.data_type()), options, ctx)
     }
 
     /// Decode an Arrow array into a Vortex array.

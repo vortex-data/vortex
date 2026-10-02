@@ -23,12 +23,14 @@ use vortex_array::dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::ArrowExportOptions;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ArrayRef,
     elements_field: &FieldRef,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -66,12 +68,13 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         array
     };
 
-    list_view_to_list_view::<O>(array, elements_field, ctx)
+    list_view_to_list_view::<O>(array, elements_field, options, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ListViewArray,
     elements_field: &FieldRef,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     let ListViewDataParts {
@@ -83,9 +86,10 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     } = array.into_data_parts();
 
     let n_elements = elements.len();
-    let elements = ctx.session().clone().arrow().execute_arrow(
+    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
         elements,
         Some(elements_field.as_ref()),
+        options,
         ctx,
     )?;
     vortex_ensure!(
