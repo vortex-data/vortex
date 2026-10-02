@@ -10857,7 +10857,9 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
 ]
 
