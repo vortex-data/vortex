@@ -76,6 +76,30 @@ public final class VortexScan implements Scan, SupportsReportStatistics {
         return CatalogV2Util.v2ColumnsToStructType(readColumns.toArray(new Column[0]));
     }
 
+    /**
+     * Returns the table schema before projection pushdown.
+     *
+     * <p>An alternative execution engine must bind {@link #pushedPredicates()} against this schema. Columns used only
+     * by those predicates may be absent from {@link #readSchema()}.
+     *
+     * @return the full table schema
+     */
+    public StructType tableSchema() {
+        return CatalogV2Util.v2ColumnsToStructType(tableColumns.toArray(new Column[0]));
+    }
+
+    /**
+     * Returns the predicates this scan has promised to evaluate completely.
+     *
+     * <p>Spark may remove its own filter for these predicates. An alternative execution engine must enforce every
+     * returned predicate or retain this scan's original reader.
+     *
+     * @return a copy of the pushed predicate array
+     */
+    public Predicate[] pushedPredicates() {
+        return pushedPredicates.clone();
+    }
+
     /** Logging-friendly readable description of the scan source. */
     @Override
     public String description() {
