@@ -86,6 +86,10 @@ pub mod masked;
 pub use masked::Masked;
 pub use masked::MaskedArray;
 
+pub mod narrow;
+pub use narrow::Narrow;
+pub use narrow::NarrowArray;
+
 pub mod null;
 pub use null::Null;
 pub use null::NullArray;
@@ -146,6 +150,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     list::initialize(session);
     listview::initialize(session);
     map::initialize(session);
+    narrow::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
     struct_::initialize(session);

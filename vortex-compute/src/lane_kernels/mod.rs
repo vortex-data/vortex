@@ -35,7 +35,8 @@ pub use source::IndexedSource;
 pub use source::LaneZip;
 
 /// Loop-tiling chunk length for the **no-mask** kernels ([`IndexedSourceExt::map_into`],
-/// [`IndexedSourceExt::try_map_into`], [`IndexedSinkExt::map_into_in_place`]).
+/// [`IndexedSourceExt::try_map_into`], [`IndexedSourceExt::map_checked_into`],
+/// [`IndexedSinkExt::map_into_in_place`]).
 ///
 /// This is a pure tuning knob: those kernels split the lane range into
 /// `len / CHUNK_LEN` full chunks plus a remainder, so any value yields correct
