@@ -264,10 +264,6 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
-            // DataFusion indexes lambda parameters past the end of the projection's input
-            // columns, and `reassign_expr_columns` only remaps `Column`s. Splitting would reshape
-            // the scan output and leave those indices pointing at the wrong columns, so read the
-            // referenced columns unchanged instead.
             let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
 
             let ProcessedProjection {
