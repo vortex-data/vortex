@@ -15,6 +15,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
@@ -54,6 +55,34 @@ pub fn delta_decompress(
 /// Performs the low-level delta decompression on primitive values.
 ///
 /// All chunks must be full 1024-element chunks (deltas length must be a multiple of 1024).
+/// Decode one 1024-value chunk into `output`, using `transposed` as scratch.
+///
+/// Chunks are independent: chunk `chunk` reads only its own lanes' bases and its own deltas, so
+/// kernels can decode just the chunks they touch into cache-resident buffers instead of
+/// materializing the whole array.
+pub(crate) fn decode_chunk<T, const LANES: usize>(
+    bases: &[T],
+    deltas: &[T],
+    chunk: usize,
+    transposed: &mut [T; 1024],
+    output: &mut [T; 1024],
+) where
+    T: NativePType + Delta + Transpose,
+{
+    let deltas = deltas[chunk * 1024..(chunk + 1) * 1024]
+        .as_chunks::<1024>()
+        .0
+        .first()
+        .vortex_expect("deltas are padded to whole 1024-value chunks");
+    let bases = bases[chunk * LANES..(chunk + 1) * LANES]
+        .as_chunks::<LANES>()
+        .0
+        .first()
+        .vortex_expect("bases hold one value per lane per chunk");
+    Delta::undelta::<LANES>(deltas, bases, transposed);
+    Transpose::untranspose(transposed, output);
+}
+
 pub(crate) fn decompress_primitive<T, const LANES: usize>(bases: &[T], deltas: &[T]) -> Buffer<T>
 where
     T: NativePType + Delta + Transpose,

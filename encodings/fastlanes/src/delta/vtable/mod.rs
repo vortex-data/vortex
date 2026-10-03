@@ -38,10 +38,15 @@ use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
+mod kernels;
 mod operations;
 mod rules;
 mod slice;
 mod validity;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernels::initialize(session);
+}
 
 /// A [`Delta`]-encoded Vortex array.
 pub type DeltaArray = Array<Delta>;
