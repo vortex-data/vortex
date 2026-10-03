@@ -114,3 +114,19 @@ column by itself. Compact sizes (MiB):
 | OpenTelemetry | 5.19 | 3.57 | 0.71 | 0.70 |
 | APT29 | 14.87 | 11.82 | 3.01 | 2.98 |
 | Online Boutique | 1.57 | 1.48 | 0.31 | 0.31 |
+
+## Single-label lookups
+
+`point::ShreddedProbe` and `point::MapProbe` read one label of one row without decoding anything
+else, and keep what they decode between reads: run ends, sparse chunk offsets, and the 1024-value
+blocks of children that reads have touched. `MapProbe` resolves a key to its dictionary codes once
+and then compares integer codes. `point_bench` compares them with a row scan over Arrow.
+
+CloudTrail, 586k rows, compressed with BtrBlocks, per lookup over 2000 random rows:
+
+| key | Arrow | `ShreddedProbe` warm | `MapProbe` warm |
+| --- | --- | --- | --- |
+| `userAgent` (dense, run-end codes) | 0.86 µs | 0.49 µs | 3.3 µs |
+| `errorMessage` (sparse, 50%) | 0.48 µs | 0.46 µs | 2.4 µs |
+| `requestParameters.policyArn` (sparse, 5%) | 0.37 µs | 0.14 µs | 3.0 µs |
+| `eventName` (dense) | 0.74 µs | 1.2 µs | 2.1 µs |

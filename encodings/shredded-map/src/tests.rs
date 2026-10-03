@@ -378,6 +378,44 @@ fn expected_distinct(rows: &[Row]) -> Vec<String> {
         .collect()
 }
 
+fn btrblocks_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
+    let session = array_session();
+    vortex_btrblocks::BtrBlocksCompressorBuilder::from_session(&session)
+        .unrestricted()
+        .build()
+        .compress(array, &mut session.create_execution_ctx())
+}
+
+fn btrblocks(shredded: &ShreddedMapArray) -> VortexResult<ShreddedMapArray> {
+    crate::compress_shredded(shredded, btrblocks_array)
+}
+
+/// Every key of every row through the retained probes, in a shuffled order so reads revisit
+/// decoded blocks out of order.
+fn check_probes(
+    rows: &[Row],
+    shredded: &ShreddedMapArray,
+    map: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let mut shredded_probe = crate::point::ShreddedProbe::new(shredded);
+    let mut map_probe = crate::point::MapProbe::new(map, ctx)?;
+    let order = (0..rows.len()).map(|i| (i * 7919) % rows.len().max(1));
+    for row in order.take(rows.len()) {
+        for key in VOCAB.iter().chain(&["missing"]) {
+            let expected = rows[row]
+                .as_ref()
+                .and_then(|r| r.iter().find(|(k, _)| k == key))
+                .and_then(|(_, v)| v.as_ref().map(LabelValue::to_label_string));
+            let got = shredded_probe.get_label(key, row, ctx)?;
+            assert_eq!(got, expected, "ShreddedProbe {key:?} row {row}");
+            let got = map_probe.get_label(key, row, ctx)?;
+            assert_eq!(got, expected, "MapProbe {key:?} row {row}");
+        }
+    }
+    Ok(())
+}
+
 fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let ctx = &mut ctx;
@@ -424,6 +462,21 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
         let got = ops::map::get_label_utf8(&map, key, ctx)?;
         assert_eq!(read_strings(&got, ctx)?, expected, "map get_label {key:?}");
     }
+
+    // Point lookups read one label of one row.
+    for (row, expected_row) in case.rows.iter().enumerate().step_by(3) {
+        for key in VOCAB.iter().chain(&["missing"]) {
+            let expected = expected_row
+                .as_ref()
+                .and_then(|r| r.iter().find(|(k, _)| k == key))
+                .and_then(|(_, v)| v.as_ref().map(LabelValue::to_label_string));
+            let got = crate::point::label_at(&shredded, key, row, ctx)?;
+            assert_eq!(got, expected, "label_at {key:?} row {row}");
+        }
+    }
+    check_probes(&case.rows, &shredded, &map, ctx)?;
+    let compressed = btrblocks(&shredded)?;
+    check_probes(&case.rows, &compressed, &btrblocks_array(&map)?, ctx)?;
 
     // All values as strings.
     let strings = expected_strings(&case.rows);
@@ -647,5 +700,59 @@ fn map_schemes_pick_a_smaller_layout() -> VortexResult<()> {
     assert!(picked.nbytes() <= plain.nbytes());
     assert_ne!(picked.encoding_id(), plain.encoding_id());
     assert_eq!(read_rows(&picked, &mut ctx)?, expected);
+    Ok(())
+}
+
+/// Probes over a BtrBlocks-compressed map large enough to produce run-end codes, chunked sparse
+/// columns and a dictionary-coded residual.
+#[test]
+fn probes_read_compressed_columns() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let mut builder = Utf8MapBuilder::new(Nullability::Nullable, Nullability::NonNullable);
+    let mut rows: Vec<Row> = Vec::new();
+    for i in 0..20_000usize {
+        let mut row = vec![("host".to_string(), Some(format!("h{}", (i / 37) % 300)))];
+        if i % 10 == 3 {
+            row.push(("err".to_string(), Some(format!("e{}", i % 7))));
+        }
+        if i % 53 == 0 {
+            row.push((
+                format!("rare{}", i % 5),
+                (i % 2 == 0).then(|| format!("r{i}")),
+            ));
+        }
+        row.sort();
+        builder.push_row(row.iter().map(|(k, v)| (k, v.as_ref())));
+        rows.push(Some(
+            row.into_iter()
+                .map(|(k, v)| (k, v.map(LabelValue::Str)))
+                .collect(),
+        ));
+    }
+    let map = builder.finish()?.into_array();
+    let shredded = shred(&map, &ShredOptions::default(), &mut ctx)?;
+    let compressed = btrblocks(&shredded)?;
+    let compressed_map = btrblocks_array(&map)?;
+    let keys = ["host", "err", "rare0", "rare1", "rare4", "missing"];
+    let mut shredded_probe = crate::point::ShreddedProbe::new(&compressed);
+    let mut map_probe = crate::point::MapProbe::new(&compressed_map, &mut ctx)?;
+    for row in (0..rows.len()).map(|i| (i * 7919) % rows.len()) {
+        for key in keys {
+            let expected = rows[row]
+                .as_ref()
+                .and_then(|r| r.iter().find(|(k, _)| k == key))
+                .and_then(|(_, v)| v.as_ref().map(LabelValue::to_label_string));
+            assert_eq!(
+                shredded_probe.get_label(key, row, &mut ctx)?,
+                expected,
+                "{key} {row}"
+            );
+            assert_eq!(
+                map_probe.get_label(key, row, &mut ctx)?,
+                expected,
+                "{key} {row}"
+            );
+        }
+    }
     Ok(())
 }
