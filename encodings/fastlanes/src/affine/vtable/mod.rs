@@ -38,6 +38,8 @@ use vortex_session::VortexSession;
 use crate::AffineData;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::VarBitPacked;
+use crate::VarBitPackedArrayExt;
 use crate::affine::array::AffineArrayExt;
 use crate::affine::array::AffineArraySlotsExt;
 use crate::affine::array::AffineSlots;
@@ -176,7 +178,11 @@ impl VTable for Affine {
         let fused = array
             .encoded()
             .as_opt::<BitPacked>()
-            .is_some_and(|bp| bp.offset() == array.offset());
+            .is_some_and(|bp| bp.offset() == array.offset())
+            || array
+                .encoded()
+                .as_opt::<VarBitPacked>()
+                .is_some_and(|vbp| vbp.offset() == array.offset());
         let array = if fused {
             array
         } else {

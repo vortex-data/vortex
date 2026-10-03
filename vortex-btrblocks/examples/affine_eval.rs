@@ -37,6 +37,7 @@ use vortex_btrblocks::schemes::integer::AffineScheme;
 use vortex_btrblocks::schemes::integer::DeltaScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
+use vortex_btrblocks::schemes::integer::VarBitPackingScheme;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::Affine;
 use vortex_fastlanes::AffineArraySlotsExt;
@@ -95,6 +96,21 @@ fn configs() -> Vec<(&'static str, BtrBlocksCompressor)> {
         ("affine-slope", base().with_new_scheme(&AFFINE_SLOPE).build()),
         ("affine-all", base().with_new_scheme(&AFFINE_ALL).build()),
         ("leco-vortex", base().with_new_scheme(&AFFINE_LECO).build()),
+        ("varbp", base().with_new_scheme(&VarBitPackingScheme).build()),
+        (
+            "affine+varbp",
+            base()
+                .with_new_scheme(&AFFINE_AUTO)
+                .with_new_scheme(&VarBitPackingScheme)
+                .build(),
+        ),
+        (
+            "leco-vortex+varbp",
+            base()
+                .with_new_scheme(&AFFINE_LECO)
+                .with_new_scheme(&VarBitPackingScheme)
+                .build(),
+        ),
         ("compact", base().with_compact().build()),
         (
             "compact+affine",

@@ -11,6 +11,7 @@ mod rle;
 mod runend;
 mod sequence;
 mod sparse;
+mod var_bitpacking;
 mod zigzag;
 
 #[cfg(feature = "pco")]
@@ -30,6 +31,7 @@ pub(crate) use rle::rle_compress;
 pub use runend::RunEndScheme;
 pub use sequence::SequenceScheme;
 pub use sparse::SparseScheme;
+pub use var_bitpacking::VarBitPackingScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::IntDictScheme;
 pub use vortex_compressor::stats::IntegerStats;

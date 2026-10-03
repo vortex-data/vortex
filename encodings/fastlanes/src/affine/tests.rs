@@ -23,6 +23,7 @@ use crate::AffineArrayExt;
 use crate::BitPackedData;
 use crate::AffineArraySlotsExt;
 use crate::AffineOptions;
+use crate::VarBitPacked;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
@@ -208,6 +209,37 @@ fn fused_bitpacked(#[case] values: PrimitiveArray, #[case] bit_width: u8) -> Vor
         .into_array();
         assert_arrays_eq!(fused, values, &mut ctx);
         for range in [1500..2600, 1024..2048, 7..900] {
+            let expected = values.clone().into_array().slice(range.clone())?;
+            assert_arrays_eq!(fused.slice(range)?, expected, &mut ctx);
+        }
+    }
+    Ok(())
+}
+
+/// Residuals packed at one width per chunk decode fused with the model, including slices.
+#[rstest]
+#[case::grid(grid_timestamps())]
+#[case::jitter(jittered_timestamps())]
+#[case::prices(prices())]
+#[case::nullable(nullable_ids())]
+#[case::unsigned_extremes(unsigned_extremes())]
+fn fused_var_bitpacked(#[case] values: PrimitiveArray) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    for options in MODES {
+        let affine = Affine::encode(&values, options, &mut ctx)?;
+        let residuals = affine.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let packed = VarBitPacked::encode(&residuals, &mut ctx)?.into_array();
+        let fused = Affine::try_new(
+            packed,
+            affine.references().clone(),
+            affine.scales().clone(),
+            affine.slopes().clone(),
+            0,
+            affine.slope_shift(),
+        )?
+        .into_array();
+        assert_arrays_eq!(fused, values, &mut ctx);
+        for range in [1500..2000, 1024..2048, 7..900] {
             let expected = values.clone().into_array().slice(range.clone())?;
             assert_arrays_eq!(fused.slice(range)?, expected, &mut ctx);
         }

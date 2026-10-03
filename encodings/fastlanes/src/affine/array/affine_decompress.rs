@@ -33,12 +33,15 @@ use vortex_array::IntoArray;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
+use crate::VarBitPacked;
+use crate::VarBitPackedArrayExt;
 use crate::affine::array::AffineArrayExt;
 use crate::affine::array::AffineArraySlotsExt;
 use crate::affine::array::slope_term;
 use crate::affine::array::slope_term_split;
 use crate::affine::array::split_slope;
 use crate::unpack_iter::for_each_packed_chunk;
+use crate::varbitpacked::unpack_chunk;
 
 /// One parameter per chunk: either shared by every chunk or read from a primitive child.
 pub(crate) enum ChunkParam<T> {
@@ -105,6 +108,13 @@ pub fn decompress(array: &AffineArray, ctx: &mut ExecutionCtx) -> VortexResult<P
             match_each_unsigned_integer_ptype!(encoded_ptype, |U| {
                 decompress_narrow::<T, U>(array, ctx)
             })
+        });
+    }
+    if let Some(vbp) = array.encoded().as_opt::<VarBitPacked>()
+        && vbp.offset() == array.offset()
+    {
+        return match_each_integer_ptype!(array.ptype(), |T| {
+            fused_var_decompress_typed::<T>(array, vbp, ctx)
         });
     }
     match array.encoded().as_opt::<BitPacked>() {
@@ -231,6 +241,53 @@ where
     Ok(PrimitiveArray::new(values.freeze(), bp.validity()?))
 }
 
+/// [`fused_decompress_typed`] for residuals packed at one width per chunk, with no patches.
+fn fused_var_decompress_typed<T>(
+    array: &AffineArray,
+    vbp: ArrayView<'_, VarBitPacked>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray>
+where
+    T: PhysicalPType<Physical: BitPacking + FoR> + AsPrimitive<T::Physical> + PrimInt + WrappingAdd + WrappingMul,
+    i64: AsPrimitive<T>,
+{
+    let len = vbp.len();
+    let params = Params::<T>::new(array);
+    let offset = usize::from(vbp.offset());
+    let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+    // SAFETY: `T::Physical` is `T` with the same size and alignment, and every unpack below
+    // initializes the whole destination before it is read.
+    let output = unsafe {
+        mem::transmute::<&mut [MaybeUninit<T>], &mut [T::Physical]>(
+            &mut values.spare_capacity_mut()[..len],
+        )
+    };
+    let mut scratch = [T::Physical::default(); FL_CHUNK_SIZE];
+    vbp.data().for_each_chunk::<T::Physical>(len, |packed, bit_width, range| {
+        let chunk_idx = range.start / FL_CHUNK_SIZE;
+        let skip = offset.saturating_sub(range.start);
+        let dst = &mut output[range.start + skip - offset..range.end - offset];
+        if dst.len() == FL_CHUNK_SIZE {
+            if params.is_flat(chunk_idx) {
+                let reference = params.references.get(chunk_idx).as_();
+                // SAFETY: `packed` holds one chunk at `bit_width` and `dst` is a whole chunk.
+                unsafe { FoR::unchecked_unfor_pack(bit_width, packed, reference, dst) };
+            } else {
+                unpack_chunk(packed, bit_width, dst);
+                params.apply_chunk(chunk_idx, 0, physical_as_logical::<T>(dst));
+            }
+        } else {
+            unpack_chunk(packed, bit_width, &mut scratch);
+            let chunk = &mut scratch[skip..range.len()];
+            params.apply_chunk(chunk_idx, skip, physical_as_logical::<T>(chunk));
+            dst.copy_from_slice(chunk);
+        }
+    });
+    // SAFETY: the loop above initialized every value.
+    unsafe { values.set_len(len) };
+    Ok(PrimitiveArray::new(values.freeze(), VarBitPackedArrayExt::validity(&vbp)))
+}
+
 /// Decode residuals stored in the unsigned type `U`, narrower than the array's type `T`.
 ///
 /// Each chunk unpacks into a narrow scratch chunk that stays in L1, then one pass widens, scales,
@@ -250,6 +307,21 @@ where
     let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
     let output = &mut values.spare_capacity_mut()[..len];
 
+    if let Some(vbp) = array.encoded().as_opt::<VarBitPacked>()
+        && vbp.offset() == array.offset()
+    {
+        let offset = usize::from(vbp.offset());
+        let mut scratch = [U::default(); FL_CHUNK_SIZE];
+        vbp.data().for_each_chunk::<U>(len, |packed, bit_width, range| {
+            unpack_chunk(packed, bit_width, &mut scratch);
+            let skip = offset.saturating_sub(range.start);
+            let dst = &mut output[range.start + skip - offset..range.end - offset];
+            params.apply_narrow(range.start / FL_CHUNK_SIZE, skip, &scratch[skip..range.len()], dst);
+        });
+        // SAFETY: the loop above initialized every value.
+        unsafe { values.set_len(len) };
+        return Ok(PrimitiveArray::new(values.freeze(), VarBitPackedArrayExt::validity(&vbp)));
+    }
     let validity = match array.encoded().as_opt::<BitPacked>() {
         Some(bp) if bp.offset() == array.offset() => {
             let offset = usize::from(bp.offset());
