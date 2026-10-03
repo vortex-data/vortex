@@ -30,3 +30,9 @@ pub(in crate::scalar_fn::unstable::row) use tuple::decoded_source;
 mod utf8;
 pub use utf8::Utf8Column;
 pub use utf8::Utf8View;
+
+mod utf8_offset;
+pub use utf8_offset::Utf8OffsetColumn;
+
+#[cfg(test)]
+mod test_support;
