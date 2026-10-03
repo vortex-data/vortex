@@ -4,6 +4,7 @@
 //! Streaming chunked decompression for run-end encoded primitive arrays: runs are expanded one
 //! chunk at a time, so the full-length decoded buffer is never written.
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
@@ -19,7 +20,6 @@ use vortex_error::vortex_err;
 use crate::RunEnd;
 use crate::RunEndArrayExt;
 use crate::RunEndArraySlotsExt;
-use crate::iter::trimmed_ends_iter;
 
 pub(crate) fn supports_decompress_chunks(_array: ArrayView<'_, RunEnd>) -> bool {
     true
@@ -32,25 +32,34 @@ pub(crate) fn decompress_chunks(
 ) -> VortexResult<()> {
     let ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
     let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
-    let (offset, len) = (array.offset(), array.len());
-    // Resolving the ends once keeps the per-run loop to a load and a fill.
-    let ends: Vec<usize> = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-        trimmed_ends_iter(ends.as_slice::<E>(), offset, len).collect()
-    });
     vortex_ensure!(
         ends.len() == values.len(),
         "RunEnd has {} ends but {} values",
         ends.len(),
         values.len()
     );
-    match_each_native_ptype!(values.ptype(), |T| {
-        stream_runs(&ends, values.as_slice::<T>(), len, sink)
+    let (offset, len) = (array.offset(), array.len());
+    match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+        match_each_native_ptype!(values.ptype(), |T| {
+            stream_runs(
+                ends.as_slice::<E>(),
+                offset,
+                values.as_slice::<T>(),
+                len,
+                sink,
+            )
+        })
     })
 }
 
-/// Expand the runs ending at `ends` (relative to the array) with `values` into `len` rows.
-fn stream_runs<T: NativePType>(
-    ends: &[usize],
+/// Expand the runs ending at `ends` with `values` into `len` rows starting at row `offset` of
+/// the runs.
+///
+/// Each run's end is resolved as the stream reaches it, so the ends are read once, in their
+/// stored type, with no intermediate buffer of them.
+fn stream_runs<T: NativePType, E: NativePType + AsPrimitive<usize>>(
+    ends: &[E],
+    offset: usize,
     values: &[T],
     len: usize,
     sink: &mut dyn ChunkSink,
@@ -59,9 +68,13 @@ fn stream_runs<T: NativePType>(
     stream_from_fn(len, sink, |chunk: &mut [T], rows| {
         let mut row = rows.start;
         while row < rows.end {
-            let end = *ends
+            let end: usize = ends
                 .get(run)
-                .ok_or_else(|| vortex_err!("RunEnd runs end before row {row}"))?;
+                .ok_or_else(|| vortex_err!("RunEnd runs end before row {row}"))?
+                .as_();
+            let end = end
+                .checked_sub(offset)
+                .ok_or_else(|| vortex_err!("run end {end} must be >= offset {offset}"))?;
             let fill_end = end.min(rows.end);
             if fill_end > row {
                 chunk[row - rows.start..fill_end - rows.start].fill(values[run]);
