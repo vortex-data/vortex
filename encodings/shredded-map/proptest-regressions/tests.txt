@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
 # Seeds for failure cases proptest has generated in the past. It is
 # automatically read and these particular cases re-run before any
 # novel cases are generated.
