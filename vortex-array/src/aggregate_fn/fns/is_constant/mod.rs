@@ -379,6 +379,10 @@ impl AggregateFnVTable for IsConstant {
 
         match batch {
             Columnar::Constant(c) => {
+                if c.is_empty() {
+                    return Ok(());
+                }
+
                 partial.check_value(c.scalar().clone().into_nullable());
                 Ok(())
             }

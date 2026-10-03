@@ -22,3 +22,6 @@ pub mod null_count;
 pub mod sum;
 pub mod sum_v2;
 pub mod uncompressed_size_in_bytes;
+
+#[cfg(test)]
+mod empty_constant_tests;
