@@ -20,7 +20,9 @@ pub use element::OutputBuffer;
 pub use element::OutputElement;
 pub use element::Utf8Column;
 pub use element::Utf8OffsetColumn;
+pub use element::Utf8OffsetLengthColumn;
 pub use element::Utf8View;
+pub use element::Utf8ViewLengthColumn;
 pub(super) use element::batch_const;
 pub(in crate::scalar_fn::unstable::row) use element::decoded_source;
 

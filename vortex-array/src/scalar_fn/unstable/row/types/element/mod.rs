@@ -31,5 +31,9 @@ mod utf8;
 pub use utf8::Utf8Column;
 pub use utf8::Utf8View;
 
+mod utf8_length;
+pub use utf8_length::Utf8OffsetLengthColumn;
+pub use utf8_length::Utf8ViewLengthColumn;
+
 mod utf8_offset;
 pub use utf8_offset::Utf8OffsetColumn;
