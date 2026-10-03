@@ -75,6 +75,10 @@ impl AggregateFnVTable for Min {
     type Options = NumericalAggregateOpts;
     type Partial = MinPartial;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.min");
         *ID

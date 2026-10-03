@@ -88,6 +88,14 @@ impl AggregateFnRef {
         self.0.return_dtype(input_dtype)
     }
 
+    /// Whether this bound function permits result reuse after an input representation change.
+    ///
+    /// See [`AggregateFnVTable::is_representation_invariant`] for the same input contract. Bound
+    /// options remain part of the function identity; this does not permit reuse across options.
+    pub fn is_representation_invariant(&self) -> bool {
+        self.0.is_representation_invariant()
+    }
+
     /// Recover a partial scalar using [`AggregateFnVTable::partial_from_result`].
     ///
     /// `result` must describe this aggregate with its bound options over `input_dtype`. The returned

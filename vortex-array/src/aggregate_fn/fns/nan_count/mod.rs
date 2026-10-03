@@ -85,6 +85,10 @@ impl AggregateFnVTable for NanCount {
     type Options = EmptyOptions;
     type Partial = u64;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.nan_count");
         *ID

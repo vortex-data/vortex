@@ -3,6 +3,7 @@
 
 use rstest::rstest;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -16,6 +17,9 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::combined::BinaryCombined;
+use crate::aggregate_fn::combined::Combined;
+use crate::aggregate_fn::combined::CombinedOptions;
 use crate::aggregate_fn::combined::PairOptions;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
@@ -295,5 +299,175 @@ impl AggregateFnVTable for WrongPartialDType {
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         NullCount.finalize_scalar(args, partial)
+    }
+}
+
+#[rstest]
+#[case::physical(UncompressedSizeInBytes.bind(EmptyOptions))]
+#[case::custom(WrongPartialDType.bind(EmptyOptions))]
+fn result_scope_defaults_to_the_physical_input(#[case] aggregate: AggregateFnRef) {
+    assert!(!aggregate.is_representation_invariant());
+}
+
+#[rstest]
+#[case::logical(Mean::combined().bind(PairOptions(NumericalAggregateOpts::skip_nans(), NumericalAggregateOpts::skip_nans())), true)]
+#[case::physical_left(Combined::new(LeftResult(UncompressedSizeInBytes, NullCount)).bind(PairOptions(EmptyOptions, EmptyOptions)), false)]
+#[case::physical_right(Combined::new(LeftResult(NullCount, UncompressedSizeInBytes)).bind(PairOptions(EmptyOptions, EmptyOptions)), false)]
+#[case::custom(Combined::new(LeftResult(NullCount, WrongPartialDType)).bind(PairOptions(EmptyOptions, EmptyOptions)), false)]
+fn combined_result_scope_requires_portable_children(
+    #[case] aggregate: AggregateFnRef,
+    #[case] expected: bool,
+) {
+    assert_eq!(aggregate.is_representation_invariant(), expected);
+}
+
+#[rstest]
+#[case::skip(NumericalAggregateOpts::skip_nans())]
+#[case::include(NumericalAggregateOpts::include_nans())]
+fn result_scope_forwards_bound_options(#[case] options: NumericalAggregateOpts) {
+    assert_eq!(
+        OptionScopedCount
+            .bind(options)
+            .is_representation_invariant(),
+        options.skip_nans
+    );
+    for aggregate in [
+        Combined::new(LeftResult(OptionScopedCount, Count))
+            .bind(PairOptions(options, NumericalAggregateOpts::skip_nans())),
+        Combined::new(LeftResult(Count, OptionScopedCount))
+            .bind(PairOptions(NumericalAggregateOpts::skip_nans(), options)),
+    ] {
+        assert_eq!(aggregate.is_representation_invariant(), options.skip_nans);
+    }
+}
+
+#[derive(Clone)]
+struct OptionScopedCount;
+
+impl AggregateFnVTable for OptionScopedCount {
+    type Options = NumericalAggregateOpts;
+    type Partial = u64;
+
+    fn id(&self) -> AggregateFnId {
+        static ID: CachedId = CachedId::new("test.option_scoped_count");
+        *ID
+    }
+
+    fn is_representation_invariant(&self, options: &Self::Options) -> bool {
+        options.skip_nans
+    }
+
+    fn return_dtype(&self, options: &Self::Options, input: &DType) -> Option<DType> {
+        Count.return_dtype(options, input)
+    }
+
+    fn partial_dtype(&self, options: &Self::Options, input: &DType) -> Option<DType> {
+        Count.partial_dtype(options, input)
+    }
+
+    fn empty_partial(&self, args: AggregateArgs<'_, Self::Options>) -> VortexResult<Self::Partial> {
+        Count.empty_partial(args)
+    }
+
+    fn partial_from_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        scalar: Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Count.partial_from_scalar(args, scalar)
+    }
+
+    fn merge_partials(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        Count.merge_partials(args, first, second)
+    }
+
+    fn to_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        Count.to_scalar(args, partial)
+    }
+
+    fn is_saturated(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> bool {
+        Count.is_saturated(args, partial)
+    }
+
+    fn accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &Columnar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        Count.accumulate(args, partial, batch, ctx)
+    }
+
+    fn finalize(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        states: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Count.finalize(args, states)
+    }
+
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        Count.finalize_scalar(args, partial)
+    }
+}
+
+#[derive(Clone)]
+struct LeftResult<L, R>(L, R);
+
+impl<L: AggregateFnVTable, R: AggregateFnVTable> BinaryCombined for LeftResult<L, R> {
+    type Left = L;
+    type Right = R;
+
+    fn id(&self) -> AggregateFnId {
+        static ID: CachedId = CachedId::new("test.left_result");
+        *ID
+    }
+
+    fn left(&self) -> Self::Left {
+        self.0.clone()
+    }
+
+    fn right(&self) -> Self::Right {
+        self.1.clone()
+    }
+
+    fn return_dtype(&self, options: &CombinedOptions<Self>, input: &DType) -> Option<DType> {
+        self.0.return_dtype(&options.0, input)
+    }
+
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, CombinedOptions<Self>>,
+        left: ArrayRef,
+        _right: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Ok(left)
+    }
+
+    fn finalize_scalar(
+        &self,
+        _args: AggregateArgs<'_, CombinedOptions<Self>>,
+        left: Scalar,
+        _right: Scalar,
+    ) -> VortexResult<Scalar> {
+        Ok(left)
     }
 }

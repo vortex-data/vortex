@@ -44,6 +44,7 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
 
     fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction;
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType>;
+    fn is_representation_invariant(&self) -> bool;
     fn partial_from_result(
         &self,
         input_dtype: &DType,
@@ -93,6 +94,10 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
 
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
         V::return_dtype(&self.vtable, &self.options, input_dtype)
+    }
+
+    fn is_representation_invariant(&self) -> bool {
+        V::is_representation_invariant(&self.vtable, &self.options)
     }
 
     fn partial_from_result(

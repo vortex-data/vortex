@@ -36,6 +36,10 @@ impl AggregateFnVTable for Count {
     type Options = NumericalAggregateOpts;
     type Partial = u64;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.count");
         *ID

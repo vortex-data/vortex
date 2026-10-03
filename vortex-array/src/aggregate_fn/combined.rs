@@ -233,6 +233,11 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         BinaryCombined::return_dtype(&self.0, options, input_dtype)
     }
 
+    fn is_representation_invariant(&self, options: &Self::Options) -> bool {
+        self.0.left().is_representation_invariant(&options.0)
+            && self.0.right().is_representation_invariant(&options.1)
+    }
+
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         let l = self.0.left().partial_dtype(&options.0, input_dtype)?;
         let r = self.0.right().partial_dtype(&options.1, input_dtype)?;
