@@ -85,7 +85,6 @@ impl Scheme for BitPackingScheme {
         let primitive_array = primitive_array.into_owned();
         let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
 
-        let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
         let mut parts = BitPacked::into_parts(packed);
 
@@ -105,9 +104,13 @@ impl Scheme for BitPackingScheme {
 
             match patches {
                 None => array,
-                Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?
-                    .with_stats_set(packed_stats)
-                    .into_array(),
+                Some(p) => {
+                    let patched = Patched::from_array_and_patches(array, &p, exec_ctx)?;
+                    patched
+                        .aggregations()
+                        .inherit_from(data.array().aggregations());
+                    patched.into_array()
+                }
             }
         } else {
             // Compress patches and place back into BitPackedArray.
@@ -117,7 +120,7 @@ impl Scheme for BitPackingScheme {
                 .map(|p| compress_patches(p, exec_ctx))
                 .transpose()?;
             parts.patches = patches;
-            BitPacked::try_new(
+            let packed = BitPacked::try_new(
                 parts.packed,
                 ptype,
                 parts.validity,
@@ -125,11 +128,103 @@ impl Scheme for BitPackingScheme {
                 parts.bit_width,
                 parts.len,
                 parts.offset,
-            )?
-            .with_stats_set(packed_stats)
-            .into_array()
+            )?;
+            packed
+                .aggregations()
+                .inherit_from(data.array().aggregations());
+            packed.into_array()
         };
 
         Ok(array)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::ArrayId;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::count::Count;
+    use vortex_array::array_session;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision;
+    use vortex_compressor::scheme::CompressionEstimate;
+    use vortex_compressor::scheme::EstimateVerdict;
+    use vortex_error::VortexResult;
+
+    use super::BitPackingScheme;
+    use crate::ArrayAndStats;
+    use crate::BtrBlocksCompressorBuilder;
+    use crate::CascadingCompressor;
+    use crate::CompressorContext;
+    use crate::Scheme;
+
+    #[derive(Debug)]
+    struct WarmBitPackingScheme;
+
+    impl Scheme for WarmBitPackingScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.warm-bitpacking"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            BitPackingScheme.matches(canonical)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            BitPackingScheme.produced_encodings()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+        }
+
+        fn compress(
+            &self,
+            compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            let count = Count.bind(NumericalAggregateOpts::skip_nans());
+            data.array()
+                .aggregations()
+                .compute_result(&count, exec_ctx)?;
+
+            BitPackingScheme.compress(compressor, data, compress_ctx, exec_ctx)
+        }
+    }
+
+    #[test]
+    fn reconstruction_preserves_generic_count() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_iter((0..1024u32).map(|i| if i == 17 { 1000 } else { i % 4 }))
+                .into_array();
+        let session = array_session();
+        vortex_fastlanes::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let count = Count.bind(NumericalAggregateOpts::skip_nans());
+        let compressed = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&WarmBitPackingScheme)
+            .build()
+            .compress(&array, &mut ctx)?;
+        assert_ne!(compressed.encoding_id(), array.encoding_id());
+        assert_eq!(
+            compressed.aggregations().get_result_as::<u64>(&count)?,
+            Precision::Exact(1024)
+        );
+        assert_arrays_eq!(array, compressed, &mut ctx);
+        Ok(())
     }
 }

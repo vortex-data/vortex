@@ -197,17 +197,17 @@ impl Array<Chunked> {
         }
         // This is the slow path that will be hit at most once per execution since the second one
         // *MUST* have execlusive access due to this copy.
-        let stats = self.statistics().to_owned();
         let mut data = self.data().clone();
         data.next_builder_slot = next_builder_slot;
         // SAFETY: we only modified next_builder_slot which doesn't affect array invariants.
-        unsafe {
+        let array = unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
                     .with_slots(self.slots().iter().cloned().collect::<ArraySlots>()),
             )
-        }
-        .with_stats_set(stats)
+        };
+        array.aggregations().inherit_from(self.aggregations());
+        array
     }
 
     /// Constructs a new `ChunkedArray`.

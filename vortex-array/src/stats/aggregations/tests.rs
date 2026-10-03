@@ -43,10 +43,16 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::count::Count;
+use crate::aggregate_fn::fns::is_constant::IS_CONSTANT;
+use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::aggregate_fn::fns::is_sorted::IS_SORTED;
+use crate::aggregate_fn::fns::is_sorted::IS_STRICT_SORTED;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
 use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::sum::Sum;
@@ -61,6 +67,7 @@ use crate::array::vtable::ValidityVTable;
 use crate::array_session;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::propagate_take_results;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -845,6 +852,108 @@ fn detached_transfer_checks_source_dtype_and_length(
             .get_result(Stat::Sum.finalized_aggregate_fn())
             .is_exact(),
         transfer
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::increasing(vec![1i32, 2, 3], false, true)]
+#[case::constant(vec![1i32, 1, 1], true, false)]
+fn slices_keep_only_true_flags(
+    #[case] values: Vec<i32>,
+    #[case] constant: bool,
+    #[case] strict: bool,
+) -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter(values).into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    for aggregate in [&*IS_CONSTANT, &*IS_SORTED, &*IS_STRICT_SORTED] {
+        array.aggregations().compute_result(aggregate, &mut ctx)?;
+    }
+    let sum = Sum.bind(NumericalAggregateOpts::skip_nans());
+    array.aggregations().compute_result(&sum, &mut ctx)?;
+
+    let sliced = array.slice(1..3)?;
+    for (aggregate, expected) in [
+        (&*IS_CONSTANT, constant),
+        (&*IS_SORTED, true),
+        (&*IS_STRICT_SORTED, strict),
+    ] {
+        assert_eq!(
+            sliced.aggregations().get_result_as::<bool>(aggregate)?,
+            if expected {
+                Precision::Exact(true)
+            } else {
+                Precision::Absent
+            },
+        );
+    }
+    assert_eq!(sliced.aggregations().get_result(&sum), Precision::Absent);
+
+    let empty = array.slice(0..0)?;
+    assert_eq!(
+        empty.aggregations().get_result(&IS_CONSTANT),
+        Precision::Absent
+    );
+    assert!(!is_constant(&empty, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn gathered_bounds_yield_to_exact_results() -> VortexResult<()> {
+    let source = buffer![10i32, 20, 30].into_array();
+    let indices = buffer![1u32].into_array();
+    let target = buffer![20i32].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    min_max(&source, &mut ctx, NumericalAggregateOpts::skip_nans())?;
+
+    propagate_take_results(&source, &target, &indices)?;
+    for (aggregate, bound) in [(&*MIN_SKIP_NANS, 10), (&*MAX_SKIP_NANS, 30)] {
+        assert_eq!(
+            target.aggregations().get_result_as::<i32>(aggregate)?,
+            Precision::Inexact(bound)
+        );
+    }
+
+    min_max(&target, &mut ctx, NumericalAggregateOpts::skip_nans())?;
+    propagate_take_results(&source, &target, &indices)?;
+    for aggregate in [&*MIN_SKIP_NANS, &*MAX_SKIP_NANS] {
+        assert_eq!(
+            target.aggregations().get_result_as::<i32>(aggregate)?,
+            Precision::Exact(20)
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case::nonnullable(vec![Some(0u32)], vec![Some(42i32)], true)]
+#[case::nullable(vec![None, Some(0u32)], vec![None, Some(42i32)], false)]
+#[case::empty(vec![], vec![], false)]
+fn gathered_constantness_requires_values_and_nonnull_indices(
+    #[case] indices: Vec<Option<u32>>,
+    #[case] values: Vec<Option<i32>>,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let source = buffer![42i32, 42].into_array();
+    let indices = if indices.iter().all(Option::is_some) {
+        PrimitiveArray::from_iter(indices.into_iter().flatten()).into_array()
+    } else {
+        PrimitiveArray::from_option_iter(indices).into_array()
+    };
+    let target = PrimitiveArray::from_option_iter(values).into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    source
+        .aggregations()
+        .compute_result(&IS_CONSTANT, &mut ctx)?;
+
+    propagate_take_results(&source, &target, &indices)?;
+    assert_eq!(
+        target.aggregations().get_result_as::<bool>(&IS_CONSTANT)?,
+        if expected {
+            Precision::Exact(true)
+        } else {
+            Precision::Absent
+        },
     );
     Ok(())
 }

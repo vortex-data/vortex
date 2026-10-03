@@ -27,11 +27,33 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::fns::is_constant::IS_CONSTANT;
+use crate::aggregate_fn::fns::is_sorted::IS_SORTED;
+use crate::aggregate_fn::fns::is_sorted::IS_STRICT_SORTED;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::expr::stats::Precision;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
+
+/// Preserve true constantness and sortedness when selecting a contiguous slice.
+///
+/// False flags and other aggregates do not describe the sliced input.
+pub(crate) fn inherit_slice_results(source: &ArrayRef, sliced: &ArrayRef) {
+    for aggregate in [&*IS_CONSTANT, &*IS_SORTED, &*IS_STRICT_SORTED] {
+        if sliced.is_empty() && aggregate == &*IS_CONSTANT {
+            continue;
+        }
+        if let Precision::Exact(result) = source.aggregations().get_result(aggregate)
+            && result.as_bool().value() == Some(true)
+        {
+            sliced
+                .aggregations()
+                .insert_result(aggregate.clone(), Precision::Exact(result));
+        }
+    }
+}
 
 pub trait SliceReduce: VTable {
     /// Slice an array with the provided range without reading buffers.
