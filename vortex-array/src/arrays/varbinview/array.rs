@@ -32,6 +32,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::VarBinView;
+use crate::arrays::utf8;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -333,6 +334,7 @@ impl VarBinViewData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let check_utf8 = Self::check_nullability(dtype, validity)?;
+        let utf8_buffers = Self::utf8_buffers(views, buffers, check_utf8, validity);
         match validity {
             // Array-backed validity is the only variant that needs an execution context: execute it
             // into a mask once and zip it with the views, validating only the valid (non-null)
@@ -341,7 +343,7 @@ impl VarBinViewData {
                 let mask = validity.execute_mask(views.len(), ctx)?;
                 for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
                     if valid {
-                        Self::validate_view(idx, view, buffers, check_utf8)?;
+                        Self::validate_view(idx, view, buffers, check_utf8, &utf8_buffers)?;
                     }
                 }
             }
@@ -350,7 +352,7 @@ impl VarBinViewData {
             // No nulls: validate every view.
             Validity::NonNullable | Validity::AllValid => {
                 for (idx, view) in views.iter().enumerate() {
-                    Self::validate_view(idx, view, buffers, check_utf8)?;
+                    Self::validate_view(idx, view, buffers, check_utf8, &utf8_buffers)?;
                 }
             }
         }
@@ -366,6 +368,7 @@ impl VarBinViewData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Buffer<BinaryView>> {
         let check_utf8 = Self::check_nullability(dtype, validity)?;
+        let utf8_buffers = Self::utf8_buffers(&views, buffers, check_utf8, validity);
         let empty = BinaryView::empty_view();
         let len = views.len();
 
@@ -377,7 +380,13 @@ impl VarBinViewData {
                         let slice = views.as_mut_slice();
                         for (idx, valid) in mask.iter().enumerate() {
                             if valid {
-                                Self::validate_view(idx, &slice[idx], buffers, check_utf8)?;
+                                Self::validate_view(
+                                    idx,
+                                    &slice[idx],
+                                    buffers,
+                                    check_utf8,
+                                    &utf8_buffers,
+                                )?;
                             } else {
                                 slice[idx] = empty;
                             }
@@ -388,7 +397,7 @@ impl VarBinViewData {
                         let mut needs_replace = false;
                         for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
                             if valid {
-                                Self::validate_view(idx, view, buffers, check_utf8)?;
+                                Self::validate_view(idx, view, buffers, check_utf8, &utf8_buffers)?;
                             } else if *view != empty {
                                 needs_replace = true;
                             }
@@ -421,7 +430,7 @@ impl VarBinViewData {
             // No nulls: validate every view, nothing to replace.
             Validity::NonNullable | Validity::AllValid => {
                 for (idx, view) in views.iter().enumerate() {
-                    Self::validate_view(idx, view, buffers, check_utf8)?;
+                    Self::validate_view(idx, view, buffers, check_utf8, &utf8_buffers)?;
                 }
                 Ok(views)
             }
@@ -439,18 +448,49 @@ impl VarBinViewData {
         Ok(is_utf8)
     }
 
+    /// For each data buffer, whether it is valid UTF-8 as a whole, so that a string in it only has
+    /// to start and end on character boundaries. Empty when UTF-8 is not checked, or when no buffer
+    /// is worth validating whole; a buffer marked `false` has its strings validated one by one.
+    fn utf8_buffers(
+        views: &[BinaryView],
+        buffers: &[ByteBuffer],
+        check_utf8: bool,
+        validity: &Validity,
+    ) -> Vec<bool> {
+        if !check_utf8 || buffers.is_empty() || matches!(validity, Validity::AllInvalid) {
+            return Vec::new();
+        }
+        let mut referenced = vec![0u64; buffers.len()];
+        for view in views {
+            if !view.is_inlined() {
+                let view = view.as_view();
+                if let Some(bytes) = referenced.get_mut(view.buffer_index as usize) {
+                    *bytes = bytes.saturating_add(u64::from(view.size));
+                }
+            }
+        }
+        buffers
+            .iter()
+            .zip(referenced)
+            .map(|(buffer, referenced)| {
+                utf8::worth_validating_whole(buffer.len(), referenced)
+                    && simdutf8::basic::from_utf8(buffer.as_slice()).is_ok()
+            })
+            .collect()
+    }
+
     fn validate_view(
         idx: usize,
         view: &BinaryView,
         buffers: &Arc<[ByteBuffer]>,
         check_utf8: bool,
+        utf8_buffers: &[bool],
     ) -> VortexResult<()> {
-        let valid_utf8 = |bytes: &[u8]| !check_utf8 || simdutf8::basic::from_utf8(bytes).is_ok();
         if view.is_inlined() {
             // Validate the inline bytestring
             let bytes = &view.as_inlined().data[..view.len() as usize];
             vortex_ensure!(
-                valid_utf8(bytes),
+                !check_utf8 || utf8::is_utf8_short(bytes),
                 InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
             );
         } else {
@@ -483,9 +523,17 @@ impl VarBinViewData {
                 InvalidArgument: "VarBinView prefix does not match full string"
             );
 
-            // Validate the full string
+            // Validate the full string: within a buffer that is valid UTF-8 as a whole, a string
+            // is valid exactly when it starts and ends on character boundaries.
+            let valid_utf8 = !check_utf8
+                || if utf8_buffers.get(buf_index).copied().unwrap_or(false) {
+                    utf8::is_char_boundary(buf.as_slice(), start_offset)
+                        && utf8::is_char_boundary(buf.as_slice(), end_offset)
+                } else {
+                    simdutf8::basic::from_utf8(bytes).is_ok()
+                };
             vortex_ensure!(
-                valid_utf8(bytes),
+                valid_utf8,
                 InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
             );
         }
