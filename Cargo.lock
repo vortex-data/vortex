@@ -11170,6 +11170,7 @@ dependencies = [
  "vortex-array",
  "vortex-bench-support",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-mask",

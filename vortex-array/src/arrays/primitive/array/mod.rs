@@ -3,7 +3,6 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::iter::repeat;
 
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
@@ -485,31 +484,6 @@ impl Array<Primitive> {
             buffer: data.buffer,
             validity,
         }
-    }
-
-    pub fn map_each_with_validity<T, R, F>(self, ctx: &mut ExecutionCtx, f: F) -> VortexResult<Self>
-    where
-        T: NativePType,
-        R: NativePType,
-        F: FnMut((T, bool)) -> R,
-    {
-        let validity = PrimitiveArrayExt::validity(&self);
-        let data = self.into_data();
-        let buf_iter = data.to_buffer::<T>().into_iter();
-
-        let buffer = match &validity {
-            Validity::NonNullable | Validity::AllValid => {
-                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(repeat(true)).map(f))
-            }
-            Validity::AllInvalid => {
-                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(repeat(false)).map(f))
-            }
-            Validity::Array(val) => {
-                let val = val.clone().execute::<BoolArray>(ctx)?.into_bit_buffer();
-                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(val.iter()).map(f))
-            }
-        };
-        Ok(PrimitiveArray::new(buffer, validity))
     }
 }
 
