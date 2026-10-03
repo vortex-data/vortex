@@ -148,7 +148,11 @@ struct SumSink<T> {
 impl<T: Fold> ChunkSink for SumSink<T> {
     #[inline]
     fn accept(&mut self, chunk: ChunkMut<'_>, _rows: Range<usize>) -> VortexResult<()> {
-        self.total = T::fold(self.total, chunk.as_slice::<T>());
+        // Fold full chunks as whole blocks, with a constant length, as the fused kernels do.
+        self.total = match chunk.as_block::<T>() {
+            Some(block) => T::fold(self.total, block),
+            None => T::fold(self.total, chunk.as_slice::<T>()),
+        };
         Ok(())
     }
 }

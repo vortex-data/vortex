@@ -69,6 +69,7 @@ use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
@@ -191,6 +192,17 @@ impl<'a> ChunkMut<'a> {
         assert_eq!(T::PTYPE, self.ptype, "ChunkMut ptype mismatch");
         // SAFETY: constructed from a valid, exclusively borrowed `&mut [T]` with matching ptype.
         unsafe { std::slice::from_raw_parts_mut(self.data.cast(), self.len) }
+    }
+
+    /// View a full chunk as a fixed-size block, or `None` for a shorter one (a sliced first or
+    /// last block, a filtered block), so consumers can process the common full chunk with a
+    /// constant length, as a kernel written for whole blocks would.
+    ///
+    /// # Panics
+    /// Panics if `T::PTYPE` does not match the chunk's ptype.
+    #[inline]
+    pub fn as_block<T: NativePType>(&self) -> Option<&[T; DECOMPRESS_CHUNK_LEN]> {
+        self.as_slice::<T>().try_into().ok()
     }
 
     /// Re-tag the chunk as values of `U`, a type of the same width, after transforming its values
@@ -492,7 +504,12 @@ pub fn execute_via_chunks(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let len = array.len();
-    let validity_mask = array.validity()?.execute_mask(len, ctx)?;
+    // A non-nullable tree is all valid; asking its encodings would only walk the tree to say so.
+    let validity_mask = if array.dtype().is_nullable() {
+        array.validity()?.execute_mask(len, ctx)?
+    } else {
+        Mask::new_true(len)
+    };
     match_each_native_ptype!(array.dtype().as_ptype(), |T| {
         let mut builder = PrimitiveBuilder::<T>::with_capacity_in(
             array.dtype().nullability(),
@@ -509,7 +526,8 @@ pub fn execute_via_chunks(
             // SAFETY: the chunk stream covers 0..len contiguously.
             let dst = unsafe { uninit_range.slice_uninit_mut(0, len) };
             let mut sink = BuilderSink::<T> { dst };
-            array.decompress_chunks(ctx, &mut sink)?;
+            // The caller checked that the tree streams; an encoding that does not errors out.
+            array.decompress_chunks_unchecked(ctx, &mut sink)?;
         }
         // SAFETY: mask appended for len rows and all len values initialized above.
         unsafe {
@@ -560,12 +578,22 @@ pub fn emit_with<T: NativePType>(
     decode: impl FnOnce(&mut [T]) -> VortexResult<()>,
 ) -> VortexResult<()> {
     if let Some(destination) = sink.destination(row_range.clone()) {
-        decode(destination.retype::<T>().as_slice_mut::<T>())?;
+        with_block_len(destination.retype::<T>().as_slice_mut::<T>(), decode)?;
         return sink.accept_written(row_range);
     }
     let chunk = &mut scratch.values()[..row_range.len()];
-    decode(chunk)?;
+    with_block_len(chunk, decode)?;
     sink.accept(ChunkMut::new(chunk).retype_to(ptype), row_range)
+}
+
+/// Call `f` with `values`, through a fixed-size block when they fill one, so that `f`, inlined,
+/// decodes the common full chunk with a constant length.
+#[inline]
+fn with_block_len<T, R>(values: &mut [T], f: impl FnOnce(&mut [T]) -> R) -> R {
+    match <&mut [T; DECOMPRESS_CHUNK_LEN]>::try_from(&mut *values) {
+        Ok(block) => f(block),
+        Err(_) => f(values),
+    }
 }
 
 /// Stream `len` rows through `sink`, each chunk written by `fill` into the sink's destination
@@ -708,7 +736,7 @@ where
             && rows.start.is_multiple_of(DECOMPRESS_CHUNK_LEN)
             && let Ok(block) = <&[I; DECOMPRESS_CHUNK_LEN]>::try_from(input)
         {
-            return decode_block(
+            return emit_block(
                 rows.start / DECOMPRESS_CHUNK_LEN,
                 block,
                 &mut self.decode,
@@ -729,7 +757,7 @@ where
             input = &input[take..];
             if self.pending_len == DECOMPRESS_CHUNK_LEN {
                 self.pending_len = 0;
-                decode_block(
+                emit_block(
                     row / DECOMPRESS_CHUNK_LEN - 1,
                     pending,
                     &mut self.decode,
@@ -744,8 +772,14 @@ where
     }
 }
 
-/// Decode block `index` of the stream and forward the rows of it within `window`.
-fn decode_block<I, O, D>(
+/// Decode block `index` of a stream with `decode` and forward the rows of it within `window`,
+/// tagged `output_ptype`: a whole block decodes straight into the sink's destination when it
+/// offers one, and a partial one into `output` first.
+///
+/// [`BlockDecodeSink`] uses this for the blocks it regroups from a child's stream; decoders that
+/// read whole blocks of their input themselves, e.g. straight from bit-packed storage, call it
+/// directly.
+pub fn emit_block<I, O, D>(
     index: usize,
     input: &[I; DECOMPRESS_CHUNK_LEN],
     decode: &mut D,

@@ -3,29 +3,37 @@
 
 //! Streaming chunked decompression for RLE arrays.
 //!
-//! The indices stream up from their own encoding (typically bit-packed), and each 1024-index
-//! chunk is gathered from its chunk's run values while L1-resident, so neither the indices nor
-//! the output are materialized.
+//! Bit-packed indices, the common case, are unpacked one block at a time; indices in any other
+//! streaming encoding stream up and are regrouped into blocks. Either way each 1024-index block is
+//! gathered from its chunk's run values while L1-resident, so neither the indices nor the output
+//! are materialized.
 
+use fastlanes::BitPacking;
 use fastlanes::RLE as FastLanesRLE;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::chunk_iter::BlockDecodeSink;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ScratchChunk;
+use vortex_array::chunk_iter::emit_block;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
 use crate::rle::array::rle_decompress::ChunkDecoder;
 use crate::rle::array::rle_decompress::load_values_idx_offsets;
+use crate::unpack_iter::for_each_packed_chunk;
 
 pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, RLE>) -> bool {
     matches!(array.indices().dtype().as_ptype(), PType::U8 | PType::U16)
@@ -76,8 +84,17 @@ fn stream_chunks<V, I>(
 ) -> VortexResult<()>
 where
     V: NativePType + FastLanesRLE,
-    I: NativePType + Ord + Into<usize>,
+    I: NativePType + Ord + Into<usize> + PhysicalPType<Physical = I> + BitPacking,
 {
+    // Bit-packed indices, the common case, unpack block by block right here rather than
+    // streaming up through their own encoding and being regrouped into blocks.
+    if let Some(bp) = array.indices().as_opt::<BitPacked>()
+        && bp.patches().is_none()
+        && bp.offset() == 0
+    {
+        let decoder = decoder.with_index_bound(1 << bp.bit_width());
+        return stream_bitpacked_indices::<V, I>(array, &decoder, bp, sink);
+    }
     let mut adapter = BlockDecodeSink::new(
         array.offset(),
         array.len(),
@@ -88,6 +105,51 @@ where
         sink,
     );
     array.indices().decompress_chunks(ctx, &mut adapter)
+}
+
+/// Decode each block of `array` from its bit-packed indices, unpacked one block at a time.
+fn stream_bitpacked_indices<V, I>(
+    array: ArrayView<'_, RLE>,
+    decoder: &ChunkDecoder<'_, V>,
+    bp: ArrayView<'_, BitPacked>,
+    sink: &mut dyn ChunkSink,
+) -> VortexResult<()>
+where
+    V: NativePType + FastLanesRLE,
+    I: NativePType + Ord + Into<usize> + PhysicalPType<Physical = I> + BitPacking,
+{
+    let window = array.offset()..array.offset() + array.len();
+    let bit_width = bp.bit_width() as usize;
+    let mut indices = [I::default(); FL_CHUNK_SIZE];
+    let mut output = ScratchChunk::new();
+    let mut decode = |block, indices: &[I; FL_CHUNK_SIZE], out: &mut [V; FL_CHUNK_SIZE]| {
+        decoder.decode(block, indices, out)
+    };
+    let mut result = Ok(());
+    for_each_packed_chunk::<I, _>(
+        bp.packed_slice::<I>(),
+        bit_width,
+        0,
+        bp.len(),
+        |packed, rows| {
+            let block = rows.start / FL_CHUNK_SIZE;
+            if result.is_err() || rows.end <= window.start || rows.start >= window.end {
+                return;
+            }
+            // SAFETY: `packed` holds one chunk at `bit_width`, and `indices` holds a full chunk.
+            unsafe { I::unchecked_unpack(bit_width, packed, &mut indices) };
+            result = emit_block(
+                block,
+                &indices,
+                &mut decode,
+                &mut output,
+                window.clone(),
+                V::PTYPE,
+                &mut *sink,
+            );
+        },
+    )?;
+    result
 }
 
 #[cfg(test)]

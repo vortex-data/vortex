@@ -17,6 +17,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 use crate::rle::RLEArrayExt;
@@ -73,6 +75,7 @@ where
     let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
     let values = values.as_slice::<V>();
 
+    let index_bound = bitpacked_index_bound(array.indices());
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
     let indices_validity = indices.validity()?.execute_mask(indices.len(), ctx)?;
@@ -89,7 +92,8 @@ where
         values_idx_offsets,
         num_chunks,
         validity_bits.as_ref(),
-    )?;
+    )?
+    .with_index_bound(index_bound);
 
     let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
     let (out_buf, _) = buffer.spare_capacity_mut().as_chunks_mut::<FL_CHUNK_SIZE>();
@@ -116,6 +120,15 @@ where
     ))
 }
 
+/// The bound on indices that their encoding guarantees: bit-packed indices without patches are
+/// below `1 << bit_width`.
+pub(crate) fn bitpacked_index_bound(indices: &ArrayRef) -> usize {
+    indices
+        .as_opt::<BitPacked>()
+        .filter(|bp| bp.patches().is_none())
+        .map_or(usize::MAX, |bp| 1 << bp.bit_width())
+}
+
 /// Decodes RLE chunks from their indices: the run values, where each chunk's values start, and
 /// which indices are valid.
 pub(crate) struct ChunkDecoder<'a, V> {
@@ -124,6 +137,9 @@ pub(crate) struct ChunkDecoder<'a, V> {
     num_chunks: usize,
     /// `None` means every index is valid.
     validity_bits: Option<&'a BitBuffer>,
+    /// Every index is below this, as their encoding guarantees, e.g. bit-packed indices are below
+    /// `1 << bit_width`. Chunks with at least this many values need no bounds check.
+    index_bound: usize,
 }
 
 impl<'a, V: NativePType + RLE> ChunkDecoder<'a, V> {
@@ -156,7 +172,15 @@ impl<'a, V: NativePType + RLE> ChunkDecoder<'a, V> {
             values_idx_offsets,
             num_chunks,
             validity_bits,
+            index_bound: usize::MAX,
         })
+    }
+
+    /// Declare that every index is below `index_bound`, so chunks with at least that many values
+    /// skip their bounds check.
+    pub(crate) fn with_index_bound(mut self, index_bound: usize) -> Self {
+        self.index_bound = index_bound;
+        self
     }
 
     /// Decode chunk `chunk_idx`, counted from the first chunk of the indices, into `out`.
@@ -203,6 +227,7 @@ impl<'a, V: NativePType + RLE> ChunkDecoder<'a, V> {
                 chunk_values,
                 chunk_indices,
                 num_chunk_values,
+                self.index_bound,
                 chunk_idx,
                 out,
             )
@@ -227,9 +252,45 @@ impl<'a, V: NativePType + RLE> ChunkDecoder<'a, V> {
                     sanitized[i] = NumCast::from(chunk_indices[i])
                         .vortex_expect("RLE indices are always less than u16");
                 });
-            decode_chunk_checked(chunk_values, &sanitized, num_chunk_values, chunk_idx, out)
+            decode_chunk_checked(
+                chunk_values,
+                &sanitized,
+                num_chunk_values,
+                self.index_bound,
+                chunk_idx,
+                out,
+            )
         }
     }
+}
+
+/// The largest index in the chunk.
+///
+/// The check guards every decoded chunk, so it runs with AVX2 where available: the baseline x86
+/// target has no unsigned 16-bit max, which the portable reduction emulates in several
+/// instructions per vector.
+#[inline]
+fn max_index<I: Copy + Ord + Default>(chunk_indices: &[I; FL_CHUNK_SIZE]) -> I {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    if std::arch::is_x86_feature_detected!("avx2") {
+        // SAFETY: AVX2 is available.
+        return unsafe { max_index_avx2(chunk_indices) };
+    }
+    max_index_portable(chunk_indices)
+}
+
+#[cfg(all(target_arch = "x86_64", not(miri)))]
+#[target_feature(enable = "avx2")]
+fn max_index_avx2<I: Copy + Ord + Default>(chunk_indices: &[I; FL_CHUNK_SIZE]) -> I {
+    max_index_portable(chunk_indices)
+}
+
+/// Reduce in the index type, which is unsigned: widening every index to `usize` first is several
+/// times slower.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn max_index_portable<I: Copy + Ord + Default>(chunk_indices: &[I; FL_CHUNK_SIZE]) -> I {
+    chunk_indices.iter().copied().fold(I::default(), Ord::max)
 }
 
 /// Bound-checks every index in the chunk, then runs the unchecked fastlanes gather.
@@ -240,21 +301,24 @@ fn decode_chunk_checked<V, I>(
     chunk_values: &[V],
     chunk_indices: &[I; FL_CHUNK_SIZE],
     num_chunk_values: u16,
+    index_bound: usize,
     chunk_idx: usize,
     out: &mut [V; FL_CHUNK_SIZE],
 ) -> VortexResult<()>
 where
     V: RLE,
-    I: Copy + Ord + Into<usize>,
+    I: Copy + Ord + Default + Into<usize>,
 {
-    // Reduce in the index type: widening every index to `usize` first is several times slower.
-    let max_index: usize = chunk_indices.iter().copied().max().map_or(0, Into::into);
-    vortex_ensure!(
-        max_index < num_chunk_values as usize,
-        "RLE index {max_index} out of bounds for chunk {chunk_idx} with {num_chunk_values} values"
-    );
-    // SAFETY: just checked that every index in the chunk is below `num_chunk_values`,
-    // which the caller's offset validation bounds by `chunk_values.len()`.
+    if index_bound > num_chunk_values as usize {
+        let max_index: usize = max_index(chunk_indices).into();
+        vortex_ensure!(
+            max_index < num_chunk_values as usize,
+            "RLE index {max_index} out of bounds for chunk {chunk_idx} with {num_chunk_values} values"
+        );
+    }
+    // SAFETY: every index in the chunk is below `num_chunk_values`, checked above unless their
+    // encoding bounds them by at most that, and the caller's offset validation bounds it by
+    // `chunk_values.len()`.
     unsafe { V::decode_unchecked(chunk_values, chunk_indices, out) };
     Ok(())
 }

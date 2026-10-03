@@ -98,6 +98,9 @@ where
     C: NativePType + Ord + AsPrimitive<usize>,
     V: NativePType,
 {
+    // `out` has a constant length for a full chunk; giving `codes` the same lets both loops below
+    // run a known number of times.
+    let codes = &codes[..out.len()];
     let max_code = codes.iter().copied().max().map_or(0, |code| code.as_());
     if max_code < values.len() {
         for (out, code) in out.iter_mut().zip(codes) {
