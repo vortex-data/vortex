@@ -21,6 +21,7 @@ vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
@@ -44,6 +45,9 @@ harness = false
 
 [[example]]
 name = "prom_labels_report"
+
+[[example]]
+name = "shred_sweep"
 
 [lints]
 workspace = true

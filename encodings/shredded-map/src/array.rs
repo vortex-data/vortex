@@ -266,16 +266,31 @@ pub fn compress_shredded(
     let columns = array
         .columns()
         .iter()
-        .map(|column| match column.as_opt::<Dict>() {
-            Some(dict) => Ok(DictArray::try_new(
-                compress(dict.codes())?,
-                compress(dict.values())?,
-            )?
-            .into_array()),
-            None => compress(column),
-        })
+        .map(|column| compress_column(column, &mut compress))
         .collect::<VortexResult<Vec<_>>>()?;
     ShreddedMap::try_new(residual, array.data().columns().to_vec(), columns)
+}
+
+/// Compresses a shredded column through its dictionary and sparse layers.
+fn compress_column(
+    column: &ArrayRef,
+    compress: &mut impl FnMut(&ArrayRef) -> VortexResult<ArrayRef>,
+) -> VortexResult<ArrayRef> {
+    if let Some(dict) = column.as_opt::<Dict>() {
+        let codes = compress(dict.codes())?;
+        let values = compress(dict.values())?;
+        return Ok(DictArray::try_new(codes, values)?.into_array());
+    }
+    if column.is::<vortex_sparse::Sparse>() {
+        let slots = column
+            .slots()
+            .iter()
+            .map(|slot| slot.as_ref().map(|c| compress_column(c, compress)).transpose())
+            .collect::<VortexResult<_>>()?;
+        // SAFETY: compression keeps every child's dtype, length and values.
+        return unsafe { column.clone().with_slots(slots) };
+    }
+    compress(column)
 }
 
 /// Compresses the output of [`encode`](crate::encode) child by child, see [`compress_shredded`].

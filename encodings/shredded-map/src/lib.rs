@@ -30,6 +30,7 @@ mod tests;
 
 /// Registers the shredded map encoding in the given session.
 pub fn initialize(session: &VortexSession) {
+    vortex_sparse::initialize(session);
     session.arrays().register(ShreddedMap);
     session.arrays().register(keyset::KeySetMap);
 }

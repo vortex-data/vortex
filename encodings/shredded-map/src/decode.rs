@@ -11,6 +11,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::Dict;
+use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::varbinview::BinaryView;
@@ -34,6 +36,7 @@ use crate::gather::Positions;
 use crate::rowcmp::RowCmp;
 use crate::gather::Source;
 use crate::gather::gather;
+use crate::flat::to_usize_vec;
 use crate::flat::utf8_from_views;
 
 /// The borrowed parts of a shredded map.
@@ -92,12 +95,43 @@ pub(crate) fn repeated_rows(
 ) -> VortexResult<BitBuffer> {
     let mut repeats = BitBuffer::collect_bool(flat.len, |row| flat.repeats_prev(row));
     for column in column_arrays {
-        if repeats.true_count() == 0 {
-            break;
+        // Sharing pays off only when many rows repeat; stop comparing once few can.
+        if repeats.true_count() * 10 < flat.len {
+            return Ok(BitBuffer::new_unset(flat.len));
         }
         repeats = &repeats & &RowCmp::new(column, ctx)?.same_as_prev_bits(flat.len);
     }
     Ok(repeats)
+}
+
+fn for_each_set(mask: &Mask, mut f: impl FnMut(usize)) {
+    match mask.bit_buffer() {
+        AllOr::All => (0..mask.len()).for_each(f),
+        AllOr::None => {}
+        AllOr::Some(bits) => bits.for_each_set_index(&mut f),
+    }
+}
+
+/// Transposes the column masks into per-row lists of present column indices, in column order.
+fn present_columns(masks: &[Mask], len: usize) -> (Vec<u32>, Vec<u16>) {
+    let mut starts = vec![0u32; len + 1];
+    for mask in masks {
+        for_each_set(mask, |row| starts[row + 1] += 1);
+    }
+    for row in 0..len {
+        starts[row + 1] += starts[row];
+    }
+    let mut cursor = starts.clone();
+    let mut columns = vec![0u16; starts[len] as usize];
+    for (k, mask) in masks.iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let k = k as u16;
+        for_each_set(mask, |row| {
+            columns[cursor[row] as usize] = k;
+            cursor[row] += 1;
+        });
+    }
+    (starts, columns)
 }
 
 pub(crate) fn plan_merge(
@@ -127,9 +161,30 @@ pub(crate) fn plan_merge(
         AllOr::None => false,
         AllOr::Some(bits) => bits.value(row),
     };
+    // Per-row column lists cost one pass over the present entries; per-row lookups cost one check
+    // per column for every row that does not repeat. Build the lists when they are cheaper.
+    let merged_rows = flat.len - repeats.true_count();
+    let present_entries: usize = column_masks.iter().map(Mask::true_count).sum();
+    let row_columns = (merged_rows.saturating_mul(keys.len()) > present_entries)
+        .then(|| present_columns(column_masks, flat.len));
+    let mut row_buf: Vec<usize> = Vec::with_capacity(keys.len());
+    let columns_of = |row: usize, buf: &mut Vec<usize>| {
+        buf.clear();
+        match &row_columns {
+            Some((starts, cols)) => buf.extend(
+                cols[starts[row] as usize..starts[row + 1] as usize]
+                    .iter()
+                    .map(|&k| k as usize),
+            ),
+            None => buf.extend((0..keys.len()).filter(|&k| present(row, k))),
+        }
+    };
     let total = (0..flat.len)
         .filter(|&row| !repeats.value(row))
-        .map(|row| flat.range(row).len() + (0..keys.len()).filter(|&k| present(row, k)).count())
+        .map(|row| {
+            columns_of(row, &mut row_buf);
+            flat.range(row).len() + row_buf.len()
+        })
         .sum::<usize>();
     let mut offsets = Vec::with_capacity(flat.len);
     let mut sizes = Vec::with_capacity(flat.len);
@@ -145,7 +200,8 @@ pub(crate) fn plan_merge(
         let start = key_views.len();
         let range = flat.range(row);
         let mut j = range.start;
-        for k in (0..keys.len()).filter(|&k| present(row, k)) {
+        columns_of(row, &mut row_buf);
+        for &k in &row_buf {
             let column_key = keys[k].as_bytes();
             while j < range.end && residual_keys.get(j) < column_key {
                 key_views.push(residual_keys.views[j]);
@@ -198,32 +254,95 @@ fn gather_values(
 ) -> VortexResult<ArrayRef> {
     let mut sources = Vec::with_capacity(columns.len() + 1);
     sources.push(Source::Array(flat.values.clone()));
-    // Dictionary columns are gathered from their values through their codes, so only the
-    // referenced rows' codes are read and the per-row values are never materialized.
-    let mut codes: Vec<Option<Vec<u32>>> = Vec::with_capacity(columns.len());
+    // Sparse and dictionary columns are gathered from their innermost values: a sparse layer maps
+    // a row to its rank among the present rows, a dictionary layer maps a position to its code.
+    // Only the referenced positions are read and per-row values are never materialized.
+    let mut remaps: Vec<Vec<Remap>> = Vec::with_capacity(columns.len());
     for (column, array) in columns.iter().zip(column_arrays) {
-        let (array, column_codes) = match array.as_opt::<Dict>() {
-            Some(dict) => (dict.values().clone(), Some(codes_u32(dict.codes(), ctx)?)),
-            None => (array.clone(), None),
-        };
-        codes.push(column_codes);
+        let (array, layers) = unwrap_layers(array, ctx)?;
+        remaps.push(layers);
         sources.push(match column.variant {
             Some(child) => Source::Variant { child, array },
             None => Source::Array(array),
         });
     }
-    if codes.iter().all(Option::is_none) {
+    if remaps.iter().all(Vec::is_empty) {
         return gather(value_dtype, sources, &plan.take, ctx);
     }
+    // Column positions arrive in ascending row order, so a sparse outermost layer is resolved
+    // with a moving cursor instead of a search.
+    let mut cursors = vec![0usize; remaps.len()];
     let mut positions = Positions::with_capacity(plan.take.len());
     for (&src, &pos) in plan.take.src.iter().zip(&plan.take.pos) {
-        let pos = match src.checked_sub(1).and_then(|k| codes[k as usize].as_ref()) {
-            Some(codes) => codes[pos as usize] as usize,
-            None => pos as usize,
-        };
+        let mut pos = pos as usize;
+        if let Some(k) = src.checked_sub(1) {
+            let k = k as usize;
+            let mut layers = remaps[k].iter();
+            if let Some(Remap::Rank(rows)) = remaps[k].first() {
+                let cursor = &mut cursors[k];
+                if rows.get(*cursor).is_some_and(|&r| r > pos) {
+                    *cursor = rows.partition_point(|&r| r < pos);
+                }
+                while rows.get(*cursor).is_some_and(|&r| r < pos) {
+                    *cursor += 1;
+                }
+                pos = *cursor;
+                layers.next();
+            }
+            for remap in layers {
+                pos = remap.apply(pos);
+            }
+        }
         positions.push(src, pos);
     }
     gather(value_dtype, sources, &positions, ctx)
+}
+
+/// A position mapping through one encoding layer of a column.
+pub(crate) enum Remap {
+    /// A dictionary: position to code.
+    Codes(Vec<u32>),
+    /// A sparse array: row to its rank among the ascending present rows.
+    Rank(Vec<usize>),
+}
+
+impl Remap {
+    #[inline]
+    pub fn apply(&self, pos: usize) -> usize {
+        match self {
+            Self::Codes(codes) => codes[pos] as usize,
+            Self::Rank(rows) => rows.partition_point(|&r| r < pos),
+        }
+    }
+}
+
+/// Peels sparse and dictionary layers off a column, returning its innermost values and the
+/// position mappings to reach them, outermost first.
+pub(crate) fn unwrap_layers(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ArrayRef, Vec<Remap>)> {
+    let mut array = array.clone();
+    let mut layers = Vec::new();
+    loop {
+        if let Some(dict) = array.as_opt::<Dict>() {
+            layers.push(Remap::Codes(codes_u32(dict.codes(), ctx)?));
+            array = dict.values().clone();
+            continue;
+        }
+        if let Some(sparse) = array.as_opt::<Sparse>()
+            && sparse.patches().offset() == 0
+            && sparse.fill_scalar().is_null()
+        {
+            let patches = sparse.patches();
+            let rows = to_usize_vec(patches.indices(), ctx)?;
+            let values = patches.values().clone();
+            layers.push(Remap::Rank(rows));
+            array = values;
+            continue;
+        }
+        return Ok((array, layers));
+    }
 }
 
 /// The codes of a dictionary as `u32`, with nulls read as zero.

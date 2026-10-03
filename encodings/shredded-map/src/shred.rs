@@ -10,6 +10,8 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::scalar::Scalar;
+use vortex_sparse::Sparse;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::arrays::PrimitiveArray;
@@ -17,6 +19,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::arrays::UnionArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::dtype::DType;
@@ -53,16 +56,20 @@ pub struct ShredOptions {
     /// [`encode`] deduplicates rows when at most this fraction of rows starts a new run of equal
     /// label maps.
     pub max_distinct_rows: f64,
+    /// With [`dictionary`](Self::dictionary), a column present on fewer than this fraction of
+    /// rows stores only its present rows, as a sparse array.
+    pub sparse_below: f64,
 }
 
 impl Default for ShredOptions {
     fn default() -> Self {
         Self {
-            min_frequency: 0.05,
-            max_columns: 64,
+            min_frequency: 0.01,
+            max_columns: 256,
             typed: true,
             dictionary: true,
             max_distinct_rows: 0.5,
+            sparse_below: 0.8,
         }
     }
 }
@@ -87,11 +94,9 @@ fn compact(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
 /// values. Value types the dictionary encoder does not support keep the entry codes.
 fn dedup_values(
     codes: Vec<u32>,
-    valid: BitBuffer,
     values: ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(ArrayRef, ArrayRef)> {
-    let validity = Validity::from_bit_buffer(valid, Nullability::Nullable);
+) -> VortexResult<(Vec<u32>, ArrayRef)> {
     let encodable = matches!(
         values.dtype(),
         DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_)
@@ -104,10 +109,42 @@ fn dedup_values(
         }
         _ => (codes, values),
     };
-    Ok((
-        PrimitiveArray::new(Buffer::from(codes), validity).into_array(),
-        values,
-    ))
+    Ok((codes, values))
+}
+
+/// Builds a dictionary column from per-row codes. A column present on fewer than
+/// `sparse_below` of the rows stores only its present rows, as a sparse array over a null fill.
+fn dictionary_column(
+    codes: Vec<u32>,
+    valid: BitBuffer,
+    values: ArrayRef,
+    sparse_below: f64,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let len = codes.len();
+    let (codes, values) = dedup_values(codes, values, ctx)?;
+    let values = into_nullable(values, ctx)?;
+    let present = valid.true_count();
+    #[allow(clippy::cast_precision_loss)]
+    // Sparse arrays over union values are not supported by every kernel yet.
+    let sparse_supported = !matches!(values.dtype(), DType::Union(..));
+    if sparse_supported && (present as f64) < sparse_below * len as f64 {
+        let rows: Vec<u64> = valid.set_indices().map(|i| i as u64).collect();
+        let present_codes: Vec<u32> = valid.set_indices().map(|i| codes[i]).collect();
+        let fill = Scalar::null(values.dtype().as_nullable());
+        let values = DictArray::try_new(
+            PrimitiveArray::new(Buffer::from(present_codes), Validity::NonNullable).into_array(),
+            values,
+        )?
+        .into_array();
+        let rows = PrimitiveArray::new(Buffer::from(rows), Validity::NonNullable).into_array();
+        return Ok(Sparse::try_new(rows, values, len, fill)?.into_array());
+    }
+    let codes = PrimitiveArray::new(
+        Buffer::from(codes),
+        Validity::from_bit_buffer(valid, Nullability::Nullable),
+    );
+    Ok(DictArray::try_new(codes.into_array(), values)?.into_array())
 }
 
 /// Makes `array` nullable without changing its values.
@@ -150,6 +187,47 @@ fn repeated_rows(flat: &FlatMap, ctx: &mut ExecutionCtx) -> VortexResult<Vec<boo
         .collect())
 }
 
+/// Assigns every row the id of its distinct label map, returning the ids and the first row of
+/// each distinct map. String values are matched across the whole array; other value types only
+/// against the previous row.
+fn row_dictionary(flat: &FlatMap, ctx: &mut ExecutionCtx) -> VortexResult<(Vec<u32>, Vec<usize>)> {
+    let mut codes = Vec::with_capacity(flat.len);
+    let mut first_rows: Vec<usize> = Vec::new();
+    if matches!(flat.values.dtype(), DType::Utf8(_)) {
+        let keys = Strings::new(&flat.keys);
+        let values = flat.values.clone().execute::<VarBinViewArray>(ctx)?;
+        let value_valid = values.validity()?.execute_mask(values.len(), ctx)?;
+        let strings = Strings::new(&values);
+        let mut ids: HashMap<Option<Vec<(&[u8], Option<&[u8]>)>>, u32> = HashMap::new();
+        for row in 0..flat.len {
+            if flat.repeats_prev(row) {
+                codes.push(codes[row - 1]);
+                continue;
+            }
+            let signature = flat.row_valid.value(row).then(|| {
+                flat.range(row)
+                    .map(|j| (keys.get(j), value_valid.value(j).then(|| strings.get(j))))
+                    .collect::<Vec<_>>()
+            });
+            let next = u32::try_from(first_rows.len())?;
+            let id = *ids.entry(signature).or_insert_with(|| {
+                first_rows.push(row);
+                next
+            });
+            codes.push(id);
+        }
+        return Ok((codes, first_rows));
+    }
+    for (row, repeat) in repeated_rows(flat, ctx)?.into_iter().enumerate() {
+        if !repeat {
+            first_rows.push(row);
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        codes.push((first_rows.len() - 1) as u32);
+    }
+    Ok((codes, first_rows))
+}
+
 /// Encodes a label map as `Dict(codes, ShreddedMap)`: runs of rows with equal label maps become
 /// one code each, and only the distinct label maps are shredded.
 ///
@@ -167,25 +245,18 @@ pub fn encode(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let flat = FlatMap::new(map, ctx)?;
-    let repeats = repeated_rows(&flat, ctx)?;
-    let distinct = repeats.iter().filter(|&&r| !r).count();
+    let (codes, first_rows) = row_dictionary(&flat, ctx)?;
+    let distinct = first_rows.len();
     #[allow(clippy::cast_precision_loss)]
     if distinct as f64 > options.max_distinct_rows * flat.len as f64 {
         return Ok(shred(map, options, ctx)?.into_array());
     }
 
-    let mut codes = Vec::with_capacity(flat.len);
-    let mut offsets = Vec::with_capacity(distinct);
-    let mut sizes = Vec::with_capacity(distinct);
+    let offsets = first_rows.iter().map(|&r| flat.offsets[r] as u64).collect();
+    let sizes = first_rows.iter().map(|&r| flat.sizes[r] as u64).collect();
     let mut valid = BitBufferMut::with_capacity(distinct);
-    for (row, &repeat) in repeats.iter().enumerate() {
-        if !repeat {
-            offsets.push(flat.offsets[row] as u64);
-            sizes.push(flat.sizes[row] as u64);
-            valid.append(flat.row_valid.value(row));
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        codes.push((offsets.len() - 1) as u32);
+    for &row in &first_rows {
+        valid.append(flat.row_valid.value(row));
     }
     let unique = build_map(
         &flat.map_dtype,
@@ -372,8 +443,7 @@ pub fn shred(
         // Compact so the column does not pin the source's string buffers.
         let values = compact(source.take(entries)?, ctx)?;
         column_arrays.push(if options.dictionary {
-            let (codes, values) = dedup_values(index, valid.freeze(), values, ctx)?;
-            DictArray::try_new(codes, into_nullable(values, ctx)?)?.into_array()
+            dictionary_column(index, valid.freeze(), values, options.sparse_below, ctx)?
         } else {
             let indices = PrimitiveArray::new(
                 Buffer::from(index),

@@ -132,8 +132,9 @@ fn case_strategy() -> impl Strategy<Value = Case> {
                 any::<bool>(),
                 any::<bool>(),
                 0.0f64..=1.0,
+                0.0f64..=1.0,
             )
-                .prop_map(move |(rows, min_frequency, max_columns, typed, dictionary, max_distinct_rows)| {
+                .prop_map(move |(rows, min_frequency, max_columns, typed, dictionary, max_distinct_rows, sparse_below)| {
                     let mut out: Vec<Row> = Vec::with_capacity(rows.len());
                     let mut repeats = Vec::with_capacity(rows.len());
                     for (i, (row, repeat, share)) in rows.into_iter().enumerate() {
@@ -169,6 +170,7 @@ fn case_strategy() -> impl Strategy<Value = Case> {
                             typed,
                             dictionary,
                             max_distinct_rows,
+                            sparse_below,
                         },
                     }
                 })

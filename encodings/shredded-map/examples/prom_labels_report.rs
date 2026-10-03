@@ -168,6 +168,9 @@ fn main() {
         mib(common::compress_shredded_with(&data.shredded, true).nbytes())
     );
 
+    if std::env::var("REPORT_VERIFY").as_deref() == Ok("0") {
+        return;
+    }
     // Every label of every row must match between the canonical and shredded maps.
     let start = Instant::now();
     let keys = ops::map::distinct_label_names(&data.map, &mut ctx).unwrap();

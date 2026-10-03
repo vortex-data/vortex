@@ -20,9 +20,14 @@ use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
+
+use crate::flat::to_usize_vec;
 use vortex_mask::Mask;
 
 enum Values {
@@ -41,6 +46,11 @@ enum Values {
         child_of_tag: Box<[usize; 256]>,
         children: Vec<RowCmp>,
     },
+    /// A sparse column: ascending present rows and a comparator over the patch values.
+    Sparse {
+        rows: Vec<usize>,
+        values: Box<RowCmp>,
+    },
     /// No cheap comparison: every row counts as changed.
     Unknown,
 }
@@ -57,6 +67,19 @@ impl RowCmp {
         // costs a missed repeat.
         if let Some(dict) = array.as_opt::<Dict>() {
             return Self::new(dict.codes(), ctx);
+        }
+        if let Some(sparse) = array.as_opt::<Sparse>()
+            && sparse.patches().offset() == 0
+            && sparse.fill_scalar().is_null()
+        {
+            let patches = sparse.patches();
+            return Ok(Self {
+                validity: None,
+                values: Values::Sparse {
+                    rows: to_usize_vec(patches.indices(), ctx)?,
+                    values: Box::new(Self::new(patches.values(), ctx)?),
+                },
+            });
         }
         let validity = if array.dtype().is_nullable() {
             Some(array.validity()?.execute_mask(array.len(), ctx)?)
@@ -94,6 +117,24 @@ impl RowCmp {
 
     /// For every row, whether it equals the previous row. Row 0 is never set.
     pub fn same_as_prev_bits(&self, len: usize) -> BitBuffer {
+        if let Values::Sparse { rows, values } = &self.values {
+            // Absent rows equal absent rows; a present row equals a present predecessor with an
+            // equal value at the previous rank.
+            let mut present = BitBufferMut::new_unset(len);
+            for &row in rows {
+                present.set(row);
+            }
+            let present = present.freeze();
+            let mut same = BitBufferMut::collect_bool(len, |i| {
+                i > 0 && !present.value(i) && !present.value(i - 1)
+            });
+            for (rank, &row) in rows.iter().enumerate() {
+                if rank > 0 && row > 0 && rows[rank - 1] == row - 1 && values.equal(rank, rank - 1) {
+                    same.set(row);
+                }
+            }
+            return same.freeze();
+        }
         let values = match &self.values {
             Values::Ints(a) => match_each_integer_ptype!(a.ptype(), |P| {
                 let values = a.as_slice::<P>();
@@ -150,6 +191,13 @@ impl RowCmp {
                         Some(m) if !m.value(i) => true,
                         _ => child.values_equal(i, j),
                     }
+                }
+            }
+            Values::Sparse { rows, values } => {
+                match (rows.binary_search(&i), rows.binary_search(&j)) {
+                    (Ok(a), Ok(b)) => values.equal(a, b),
+                    (Err(_), Err(_)) => true,
+                    _ => false,
                 }
             }
             Values::Unknown => false,
