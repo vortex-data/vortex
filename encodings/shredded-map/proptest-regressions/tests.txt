@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b0ea9b6a72b8958910bdbd03bf9a404c4cc605a829518fca92f6647e9e346ab6 # shrinks to case = Case { rows: [Some([("__name__", Some(Str(""))), ("__name__", Some(Str("")))])], nullable_values: false, nullable_rows: false, options: ShredOptions { min_frequency: 0.0, max_columns: 1, typed: false } }, projection = ["__name__"], selection = [0, 0]
