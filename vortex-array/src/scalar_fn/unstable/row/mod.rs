@@ -45,8 +45,10 @@ pub use types::SinkResult;
 pub use types::UninitElementSink;
 pub use types::Utf8Column;
 pub use types::Utf8OffsetColumn;
+pub use types::Utf8OffsetLengthColumn;
 pub use types::Utf8Sink;
 pub use types::Utf8View;
+pub use types::Utf8ViewLengthColumn;
 pub use types::Utf8Writer;
 pub use types::ViewLen;
 
