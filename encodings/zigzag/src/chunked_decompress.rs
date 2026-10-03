@@ -11,6 +11,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::chunk_iter::ChunkMut;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
@@ -21,8 +22,8 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::ZigZag;
 use crate::ZigZagArraySlotsExt;
 
-pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, ZigZag>) -> bool {
-    array.encoded().supports_decompress_chunks()
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, ZigZag>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype()).filter(|_| array.encoded().supports_decompress_chunks())
 }
 
 pub(crate) fn decompress_chunks(

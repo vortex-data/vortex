@@ -8,6 +8,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::chunk_iter::ChunkPatches;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::chunk_iter::stream_from_fn;
 use vortex_array::match_each_native_ptype;
 use vortex_error::VortexResult;
@@ -15,8 +16,8 @@ use vortex_error::VortexResult;
 use crate::Sparse;
 use crate::SparseExt;
 
-pub(crate) fn supports_decompress_chunks(_array: ArrayView<'_, Sparse>) -> bool {
-    true
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, Sparse>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype())
 }
 
 pub(crate) fn decompress_chunks(

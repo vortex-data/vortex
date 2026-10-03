@@ -39,6 +39,7 @@ use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -189,8 +190,8 @@ impl VTable for Filter {
         ))
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        chunked_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

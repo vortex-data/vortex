@@ -18,9 +18,10 @@ use crate::arrays::Slice;
 use crate::arrays::slice::SliceArraySlotsExt;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 
-pub(super) fn supports_decompress_chunks(array: ArrayView<'_, Slice>) -> bool {
-    array.child().supports_decompress_chunks()
+pub(super) fn decompress_chunks_type(array: ArrayView<'_, Slice>) -> Option<ValueType> {
+    array.child().decompress_chunks_type()
 }
 
 pub(super) fn decompress_chunks(
@@ -28,8 +29,12 @@ pub(super) fn decompress_chunks(
     ctx: &mut ExecutionCtx,
     sink: &mut dyn ChunkSink,
 ) -> VortexResult<()> {
+    // The resolved slice must stream the same type, which a decimal tree's may not: one chunk
+    // sliced out of several streams its own type rather than the chunked array's.
     if let Some(resolved) = array.array().try_execute_parent_kernels(ctx)?
-        && resolved.supports_decompress_chunks()
+        && let Some(resolved_type) = resolved.decompress_chunks_type()
+        && ValueType::primitive(array.dtype()).or_else(|| decompress_chunks_type(array))
+            == Some(resolved_type)
     {
         return resolved.decompress_child_chunks(ctx, sink);
     }

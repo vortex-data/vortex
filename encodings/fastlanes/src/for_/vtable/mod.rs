@@ -21,6 +21,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::DType;
 use vortex_array::require_child;
 use vortex_array::scalar::Scalar;
@@ -162,8 +163,8 @@ impl VTable for FoR {
         Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        for_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        for_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

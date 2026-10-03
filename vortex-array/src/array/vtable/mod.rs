@@ -187,17 +187,22 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// incorrectly contains null values.
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
-    /// Returns whether this encoding can stream decompressed chunks via
-    /// [`decompress_chunks`](Self::decompress_chunks) without materializing anything.
+    /// Returns the type of the values this encoding streams via
+    /// [`decompress_chunks`](Self::decompress_chunks) without materializing anything, or `None`
+    /// if it cannot stream them.
     ///
-    /// Defaults to `false`: streaming is an explicit capability, never a silent fallback. Leaf
-    /// encodings that override `decompress_chunks` return `true`; wrapper encodings must
-    /// propagate the check into the children their implementation streams from (e.g. via
-    /// [`ArrayRef::supports_decompress_chunks`](crate::ArrayRef::supports_decompress_chunks)),
-    /// so support of the whole tree is decided before any chunk is emitted.
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+    /// Only fixed-width arrays stream, so this is only asked of arrays with a primitive or
+    /// decimal dtype. A primitive array must stream its dtype's ptype; a decimal array streams
+    /// the integer type [`execute`](Self::execute) would store its values in.
+    ///
+    /// Defaults to `None`: streaming is an explicit capability, never a silent fallback. Wrapper
+    /// encodings must propagate the check into the children their implementation streams from
+    /// (e.g. via
+    /// [`ArrayRef::decompress_chunks_type`](crate::ArrayRef::decompress_chunks_type)), so support
+    /// of the whole tree is decided before any chunk is emitted.
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<crate::chunk_iter::ValueType> {
         _ = array;
-        false
+        None
     }
 
     /// Stream the array's decompressed values through `sink` in cache-resident chunks.

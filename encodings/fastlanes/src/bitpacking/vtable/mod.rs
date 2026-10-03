@@ -19,6 +19,7 @@ use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
@@ -211,8 +212,8 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn supports_decompress_chunks(_array: ArrayView<'_, Self>) -> bool {
-        true
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        ValueType::primitive(array.dtype())
     }
 
     fn decompress_chunks(

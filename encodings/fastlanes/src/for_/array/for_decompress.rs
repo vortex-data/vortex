@@ -21,6 +21,7 @@ use vortex_array::builders::UninitRange;
 use vortex_array::chunk_iter::ChunkMut;
 use vortex_array::chunk_iter::ChunkPatches;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
@@ -367,10 +368,10 @@ fn apply_patches<T: NativePType + WrappingAdd>(
     Ok(())
 }
 
-/// Whether [`decompress_chunks`] can stream: whenever the encoded child streams, which includes
-/// every [`BitPacked`] child, fused or not.
-pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, crate::FoR>) -> bool {
-    array.encoded().supports_decompress_chunks()
+/// What [`decompress_chunks`] streams: the FoR's values whenever the encoded child streams, which
+/// includes every [`BitPacked`] child, fused or not.
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, crate::FoR>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype()).filter(|_| array.encoded().supports_decompress_chunks())
 }
 
 /// Stream the decompressed values of a FoR array through `sink`, one FastLanes chunk at a time.

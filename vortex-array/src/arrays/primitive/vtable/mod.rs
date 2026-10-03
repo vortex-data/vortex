@@ -18,6 +18,7 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::chunk_iter::stream_slice_chunks;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -183,8 +184,8 @@ impl VTable for Primitive {
         Ok(ExecutionResult::done(array))
     }
 
-    fn supports_decompress_chunks(_array: ArrayView<'_, Self>) -> bool {
-        true
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        ValueType::primitive(array.dtype())
     }
 
     fn decompress_chunks(

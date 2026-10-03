@@ -42,7 +42,9 @@
 //!   costs no copy out of scratch.
 //! - Validity is *not* streamed. Positions that are logically null hold unspecified but
 //!   initialized values, matching what `execute` produces; read `array.validity()` separately.
-//! - Primitive-typed arrays only.
+//! - Fixed-width arrays only: primitives, and decimals, which stream the integers that store them.
+//!   Each chunk is tagged with the [`ValueType`] of its values, which is the array's
+//!   [`ArrayRef::decompress_chunks_type`] throughout the stream.
 //!
 //! # Cost model
 //!
@@ -66,23 +68,32 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
+use vortex_error::vortex_err;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
-use crate::builders::PrimitiveBuilder;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
+use crate::dtype::i256;
 use crate::executor::DonePredicate;
+use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::matcher::Matcher;
 use crate::patches::Patches;
+use crate::validity::Validity;
 
 /// The target number of elements per streamed chunk.
 ///
@@ -90,6 +101,113 @@ use crate::patches::Patches;
 /// buffer to the sink without copying. Producers may emit shorter chunks (e.g. a sliced first or
 /// last block).
 pub const DECOMPRESS_CHUNK_LEN: usize = 1024;
+
+/// The physical type of streamed values: a primitive, or one of the wide integers that store
+/// decimals. A decimal whose values are stored in 64 bits or fewer streams as the signed primitive
+/// integer that stores them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ValueType {
+    /// A primitive value.
+    Primitive(PType),
+    /// A 128-bit signed integer.
+    I128,
+    /// A 256-bit signed integer.
+    I256,
+}
+
+impl ValueType {
+    /// The primitive value type of a primitive `dtype`, or `None` for any other dtype.
+    #[inline]
+    pub fn primitive(dtype: &DType) -> Option<Self> {
+        match dtype {
+            DType::Primitive(ptype, _) => Some(Self::Primitive(*ptype)),
+            _ => None,
+        }
+    }
+
+    /// The number of bytes each value occupies.
+    #[inline]
+    pub const fn byte_width(self) -> usize {
+        match self {
+            Self::Primitive(ptype) => ptype.byte_width(),
+            Self::I128 => 16,
+            Self::I256 => 32,
+        }
+    }
+
+    /// The decimal storage type with these values, or `None` for a type that does not store
+    /// decimals (unsigned integers and floats).
+    pub fn decimal_type(self) -> Option<DecimalType> {
+        Some(match self {
+            Self::Primitive(PType::I8) => DecimalType::I8,
+            Self::Primitive(PType::I16) => DecimalType::I16,
+            Self::Primitive(PType::I32) => DecimalType::I32,
+            Self::Primitive(PType::I64) => DecimalType::I64,
+            Self::I128 => DecimalType::I128,
+            Self::I256 => DecimalType::I256,
+            Self::Primitive(_) => return None,
+        })
+    }
+}
+
+impl From<PType> for ValueType {
+    #[inline]
+    fn from(ptype: PType) -> Self {
+        Self::Primitive(ptype)
+    }
+}
+
+impl From<DecimalType> for ValueType {
+    #[inline]
+    fn from(decimal_type: DecimalType) -> Self {
+        match decimal_type {
+            DecimalType::I8 => Self::Primitive(PType::I8),
+            DecimalType::I16 => Self::Primitive(PType::I16),
+            DecimalType::I32 => Self::Primitive(PType::I32),
+            DecimalType::I64 => Self::Primitive(PType::I64),
+            DecimalType::I128 => Self::I128,
+            DecimalType::I256 => Self::I256,
+        }
+    }
+}
+
+/// A Rust type a chunk can hold: every native primitive type, and the wide decimal integers.
+pub trait ChunkValue: Copy + Default + Send + Sync + 'static {
+    /// The value type chunks of this type are tagged with.
+    const VALUE_TYPE: ValueType;
+}
+
+impl<T: NativePType> ChunkValue for T {
+    const VALUE_TYPE: ValueType = ValueType::Primitive(T::PTYPE);
+}
+
+impl ChunkValue for i128 {
+    const VALUE_TYPE: ValueType = ValueType::I128;
+}
+
+impl ChunkValue for i256 {
+    const VALUE_TYPE: ValueType = ValueType::I256;
+}
+
+/// Dispatch on a [`ValueType`], binding the matching [`ChunkValue`] type to `$T` in `$body`.
+#[macro_export]
+macro_rules! match_each_value_type {
+    ($value_type:expr, | $T:ident | $body:block) => {{
+        match $value_type {
+            $crate::chunk_iter::ValueType::Primitive(ptype) => {
+                $crate::match_each_native_ptype!(ptype, |$T| $body)
+            }
+            $crate::chunk_iter::ValueType::I128 => {
+                type $T = i128;
+                $body
+            }
+            $crate::chunk_iter::ValueType::I256 => {
+                type $T = $crate::dtype::i256;
+                $body
+            }
+        }
+    }};
+}
 
 /// A stack scratch chunk for producers to decode into where their sink offers no destination.
 ///
@@ -101,7 +219,7 @@ pub struct ScratchChunk<T> {
     zeroed: bool,
 }
 
-impl<T: NativePType> ScratchChunk<T> {
+impl<T: ChunkValue> ScratchChunk<T> {
     /// A scratch chunk that is not zeroed until first used.
     #[inline]
     pub fn new() -> Self {
@@ -129,19 +247,19 @@ impl<T: NativePType> ScratchChunk<T> {
     }
 }
 
-impl<T: NativePType> Default for ScratchChunk<T> {
+impl<T: ChunkValue> Default for ScratchChunk<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// A type-erased, mutable view over one chunk of decompressed primitive values.
+/// A type-erased, mutable view over one chunk of decompressed fixed-width values.
 ///
-/// This is a `(PType, *mut, len)` triple rather than a generic slice so it can cross the
+/// This is a `(ValueType, *mut, len)` triple rather than a generic slice so it can cross the
 /// `dyn ChunkSink` boundary; sinks recover the typed slice with [`Self::as_slice_mut`]. The
 /// erasure cost is paid once per chunk, not per element.
 pub struct ChunkMut<'a> {
-    ptype: PType,
+    value_type: ValueType,
     data: *mut u8,
     len: usize,
     _marker: PhantomData<&'a mut u8>,
@@ -149,19 +267,19 @@ pub struct ChunkMut<'a> {
 
 impl<'a> ChunkMut<'a> {
     /// Wrap a typed slice of decompressed values.
-    pub fn new<T: NativePType>(values: &'a mut [T]) -> Self {
+    pub fn new<T: ChunkValue>(values: &'a mut [T]) -> Self {
         Self {
-            ptype: T::PTYPE,
+            value_type: T::VALUE_TYPE,
             data: values.as_mut_ptr().cast(),
             len: values.len(),
             _marker: PhantomData,
         }
     }
 
-    /// The primitive type of the values in this chunk.
+    /// The type of the values in this chunk.
     #[inline]
-    pub fn ptype(&self) -> PType {
-        self.ptype
+    pub fn value_type(&self) -> ValueType {
+        self.value_type
     }
 
     /// The number of values in this chunk.
@@ -174,23 +292,32 @@ impl<'a> ChunkMut<'a> {
     /// View the chunk as a typed slice.
     ///
     /// # Panics
-    /// Panics if `T::PTYPE` does not match the chunk's ptype.
+    /// Panics if `T` is not the chunk's value type.
     #[inline]
-    pub fn as_slice<T: NativePType>(&self) -> &[T] {
-        assert_eq!(T::PTYPE, self.ptype, "ChunkMut ptype mismatch");
-        // SAFETY: constructed from a valid `&mut [T]` with matching ptype; the lifetime is tied
-        // to the original borrow via `_marker`.
+    pub fn as_slice<T: ChunkValue>(&self) -> &[T] {
+        assert_eq!(
+            T::VALUE_TYPE,
+            self.value_type,
+            "ChunkMut value type mismatch"
+        );
+        // SAFETY: constructed from a valid `&mut [T]` of a matching value type; the lifetime is
+        // tied to the original borrow via `_marker`.
         unsafe { std::slice::from_raw_parts(self.data.cast(), self.len) }
     }
 
     /// View the chunk as a mutable typed slice.
     ///
     /// # Panics
-    /// Panics if `T::PTYPE` does not match the chunk's ptype.
+    /// Panics if `T` is not the chunk's value type.
     #[inline]
-    pub fn as_slice_mut<T: NativePType>(&mut self) -> &mut [T] {
-        assert_eq!(T::PTYPE, self.ptype, "ChunkMut ptype mismatch");
-        // SAFETY: constructed from a valid, exclusively borrowed `&mut [T]` with matching ptype.
+    pub fn as_slice_mut<T: ChunkValue>(&mut self) -> &mut [T] {
+        assert_eq!(
+            T::VALUE_TYPE,
+            self.value_type,
+            "ChunkMut value type mismatch"
+        );
+        // SAFETY: constructed from a valid, exclusively borrowed `&mut [T]` of a matching value
+        // type.
         unsafe { std::slice::from_raw_parts_mut(self.data.cast(), self.len) }
     }
 
@@ -199,39 +326,40 @@ impl<'a> ChunkMut<'a> {
     /// constant length, as a kernel written for whole blocks would.
     ///
     /// # Panics
-    /// Panics if `T::PTYPE` does not match the chunk's ptype.
+    /// Panics if `T` is not the chunk's value type.
     #[inline]
-    pub fn as_block<T: NativePType>(&self) -> Option<&[T; DECOMPRESS_CHUNK_LEN]> {
+    pub fn as_block<T: ChunkValue>(&self) -> Option<&[T; DECOMPRESS_CHUNK_LEN]> {
         self.as_slice::<T>().try_into().ok()
     }
 
     /// Re-tag the chunk as values of `U`, a type of the same width, after transforming its values
     /// in place (e.g. decoding ALP integers into floats).
     ///
-    /// The bytes are not converted, which is sound because every primitive type is valid for
+    /// The bytes are not converted, which is sound because every chunk value type is valid for
     /// any bit pattern.
     ///
     /// # Panics
-    /// Panics if `U` is not the same width as the chunk's ptype.
+    /// Panics if `U` is not the same width as the chunk's value type.
     #[inline]
-    pub fn retype<U: NativePType>(self) -> ChunkMut<'a> {
-        self.retype_to(U::PTYPE)
+    pub fn retype<U: ChunkValue>(self) -> ChunkMut<'a> {
+        self.retype_to(U::VALUE_TYPE)
     }
 
-    /// Re-tag the chunk as values of `ptype`, as [`Self::retype`] does for a type chosen at
+    /// Re-tag the chunk as values of `value_type`, as [`Self::retype`] does for a type chosen at
     /// runtime, e.g. to decode a signed type through its unsigned counterpart.
     ///
     /// # Panics
-    /// Panics if `ptype` is not the same width as the chunk's ptype.
+    /// Panics if `value_type` is not the same width as the chunk's value type.
     #[inline]
-    pub fn retype_to(self, ptype: PType) -> ChunkMut<'a> {
+    pub fn retype_to(self, value_type: impl Into<ValueType>) -> ChunkMut<'a> {
+        let value_type = value_type.into();
         assert_eq!(
-            ptype.byte_width(),
-            self.ptype.byte_width(),
+            value_type.byte_width(),
+            self.value_type.byte_width(),
             "ChunkMut can only be re-tagged to a type of the same width"
         );
         ChunkMut {
-            ptype,
+            value_type,
             data: self.data,
             len: self.len,
             _marker: PhantomData,
@@ -250,9 +378,9 @@ impl<'a> ChunkMut<'a> {
             self.len
         );
         ChunkMut {
-            ptype: self.ptype,
+            value_type: self.value_type,
             // SAFETY: `range.start` is within the chunk, so the offset stays in its allocation.
-            data: unsafe { self.data.add(range.start * self.ptype.byte_width()) },
+            data: unsafe { self.data.add(range.start * self.value_type.byte_width()) },
             len: range.len(),
             _marker: PhantomData,
         }
@@ -262,7 +390,7 @@ impl<'a> ChunkMut<'a> {
     #[inline]
     pub fn reborrow(&mut self) -> ChunkMut<'_> {
         ChunkMut {
-            ptype: self.ptype,
+            value_type: self.value_type,
             data: self.data,
             len: self.len,
             _marker: PhantomData,
@@ -311,10 +439,32 @@ where
 }
 
 impl ArrayRef {
+    /// The type of the values this array (recursively, through wrapper encodings) streams via
+    /// [`Self::decompress_chunks`] without materializing anything, or `None` if it cannot stream.
+    ///
+    /// A primitive array streams its dtype's ptype. A decimal array streams the integer type that
+    /// executing it would store its values in, which may be narrower than its precision needs.
+    pub fn decompress_chunks_type(&self) -> Option<ValueType> {
+        if !matches!(self.dtype(), DType::Primitive(..) | DType::Decimal(..)) {
+            return None;
+        }
+        let value_type = self.dyn_array().decompress_chunks_type(self);
+        debug_assert!(
+            value_type.is_none()
+                || !self.dtype().is_primitive()
+                || value_type == ValueType::primitive(self.dtype()),
+            "{} streams {value_type:?} for dtype {}",
+            self.encoding_id(),
+            self.dtype()
+        );
+        value_type
+    }
+
     /// Returns whether this array (recursively, through wrapper encodings) can stream its
     /// decompressed values via [`Self::decompress_chunks`] without materializing anything.
+    #[inline]
     pub fn supports_decompress_chunks(&self) -> bool {
-        self.dtype().is_primitive() && self.dyn_array().supports_decompress_chunks(self)
+        self.decompress_chunks_type().is_some()
     }
 
     /// Returns whether the executor will canonicalize this array by streaming chunks when
@@ -355,8 +505,8 @@ impl ArrayRef {
         sink: &mut dyn ChunkSink,
     ) -> VortexResult<()> {
         vortex_ensure!(
-            self.dtype().is_primitive(),
-            "decompress_chunks requires a primitive-typed array, got {}",
+            matches!(self.dtype(), DType::Primitive(..) | DType::Decimal(..)),
+            "decompress_chunks requires a fixed-width array, got {}",
             self.dtype()
         );
         if self.supports_decompress_chunks() {
@@ -367,14 +517,14 @@ impl ArrayRef {
     }
 
     /// Stream a child of an encoding's [`VTable::decompress_chunks`] without first checking that
-    /// it streams, because the encoding's own [`VTable::supports_decompress_chunks`] already
-    /// required it. [`Self::decompress_chunks`] would walk the child's tree again at every level.
+    /// it streams, because the encoding's own [`VTable::decompress_chunks_type`] already required
+    /// it. [`Self::decompress_chunks`] would walk the child's tree again at every level.
     ///
     /// Called on a tree that does not stream, it errors when it reaches the unsupported encoding,
     /// possibly after emitting earlier chunks.
     ///
     /// [`VTable::decompress_chunks`]: crate::vtable::VTable::decompress_chunks
-    /// [`VTable::supports_decompress_chunks`]: crate::vtable::VTable::supports_decompress_chunks
+    /// [`VTable::decompress_chunks_type`]: crate::vtable::VTable::decompress_chunks_type
     pub fn decompress_child_chunks(
         &self,
         ctx: &mut ExecutionCtx,
@@ -385,7 +535,7 @@ impl ArrayRef {
             let mut checked = CoverageCheckSink {
                 inner: sink,
                 next_row: 0,
-                ptype: self.dtype().as_ptype(),
+                value_type: self.decompress_chunks_type(),
             };
             self.dyn_array()
                 .decompress_chunks(self, ctx, &mut checked)?;
@@ -497,59 +647,80 @@ fn spine_reaches(array: &ArrayRef, depth: usize) -> bool {
 pub(crate) fn should_execute_via_chunks(array: &ArrayRef, is_done: DonePredicate) -> bool {
     CHUNKED_EXECUTE_ENABLED.load(Ordering::Relaxed)
         && !CHUNKED_EXECUTE_SUPPRESSED.get()
-        // Only primitive arrays stream, and the dtype is the cheapest thing to check.
-        && array.dtype().is_primitive()
+        // Only fixed-width arrays stream, and the dtype is the cheapest thing to check.
+        && matches!(array.dtype(), DType::Primitive(..) | DType::Decimal(..))
         && spine_reaches(array, MIN_STREAMING_CHAIN)
         && streaming_chain_len(array, is_done).is_some_and(|len| len >= MIN_STREAMING_CHAIN)
 }
 
-/// Execute a streaming-capable primitive array tree to a canonical [`PrimitiveArray`] by
-/// decompressing chunks straight into the output buffer: each block is decoded and transformed
-/// while L1-resident, and the only full-length write is the final copy into the builder.
+/// Execute a streaming-capable fixed-width array tree to a canonical [`PrimitiveArray`] or
+/// [`DecimalArray`] by decompressing chunks straight into the output buffer: each block is decoded
+/// and transformed while L1-resident, and the only full-length write is the output itself.
 ///
 /// The caller must have checked [`ArrayRef::supports_decompress_chunks`].
-pub fn execute_via_chunks(
-    array: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+pub fn execute_via_chunks(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let value_type = array.decompress_chunks_type().ok_or_else(|| {
+        vortex_err!(
+            "decompress_chunks is not supported by encoding {}",
+            array.encoding_id()
+        )
+    })?;
     let len = array.len();
     // A non-nullable tree is all valid; asking its encodings would only walk the tree to say so.
-    let validity_mask = if array.dtype().is_nullable() {
-        array.validity()?.execute_mask(len, ctx)?
-    } else {
-        Mask::new_true(len)
-    };
-    match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-        let mut builder = PrimitiveBuilder::<T>::with_capacity_in(
+    let validity = if array.dtype().is_nullable() {
+        Validity::from_mask(
+            array.validity()?.execute_mask(len, ctx)?,
             array.dtype().nullability(),
-            len,
-            ctx.allocator(),
-        );
-        let mut uninit_range = builder.uninit_range(len);
-        // SAFETY: the range is only finished below once every value slot is initialized.
-        unsafe {
-            uninit_range.append_mask(&validity_mask);
+        )
+    } else {
+        Validity::NonNullable
+    };
+    Ok(match array.dtype() {
+        DType::Primitive(ptype, _) => match_each_native_ptype!(*ptype, |T| {
+            PrimitiveArray::new(stream_into_buffer::<T>(array, ctx)?, validity).into_array()
+        }),
+        DType::Decimal(decimal_dtype, _) => {
+            let values_type = value_type.decimal_type().ok_or_else(|| {
+                vortex_err!("decimal {} streams {value_type:?}", array.encoding_id())
+            })?;
+            match_each_decimal_value_type!(values_type, |D| {
+                DecimalArray::new(
+                    stream_into_buffer::<D>(array, ctx)?,
+                    *decimal_dtype,
+                    validity,
+                )
+                .into_array()
+            })
         }
-        {
-            // SAFETY: `BuilderSink` initializes the slots it accepts, and the stream must cover
-            // 0..len contiguously before the range is finished.
-            let dst = unsafe { uninit_range.slice_uninit_mut(0, len) };
-            let mut sink = BuilderSink::<T> { dst, written: 0 };
-            // The caller checked that the tree streams; an encoding that does not errors out.
-            array.decompress_child_chunks(ctx, &mut sink)?;
-            vortex_ensure!(
-                sink.written == len,
-                "decompress_chunks of {} streamed {} of {len} rows",
-                array.encoding_id(),
-                sink.written
-            );
-        }
-        // SAFETY: mask appended for len rows, and the stream initialized all len values.
-        unsafe {
-            uninit_range.finish();
-        }
-        Ok(builder.finish_into_primitive())
+        _ => vortex_bail!(
+            "decompress_chunks requires a fixed-width array, got {}",
+            array.dtype()
+        ),
     })
+}
+
+/// Stream `array`'s values of `T` into a new buffer.
+fn stream_into_buffer<T: ChunkValue>(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Buffer<T>> {
+    let len = array.len();
+    let mut buffer = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+    let mut sink = BuilderSink::<T> {
+        dst: &mut buffer.spare_capacity_mut()[..len],
+        written: 0,
+    };
+    // The caller checked that the tree streams; an encoding that does not errors out.
+    array.decompress_child_chunks(ctx, &mut sink)?;
+    vortex_ensure!(
+        sink.written == len,
+        "decompress_chunks of {} streamed {} of {len} rows",
+        array.encoding_id(),
+        sink.written
+    );
+    // SAFETY: the stream initialized all `len` values, contiguously from the first.
+    unsafe { buffer.set_len(len) };
+    Ok(buffer.freeze())
 }
 
 struct BuilderSink<'a, T> {
@@ -573,7 +744,7 @@ impl<T> BuilderSink<'_, T> {
     }
 }
 
-impl<T: NativePType> ChunkSink for BuilderSink<'_, T> {
+impl<T: ChunkValue> ChunkSink for BuilderSink<'_, T> {
     #[inline]
     fn accept(&mut self, chunk: ChunkMut<'_>, row_range: Range<usize>) -> VortexResult<()> {
         self.advance(&row_range)?;
@@ -602,15 +773,15 @@ impl<T: NativePType> ChunkSink for BuilderSink<'_, T> {
     }
 }
 
-/// Emit rows `row_range`, at most one chunk, of a stream of `ptype` values, decoded by `decode`:
-/// straight into the sink's destination when it offers one, else into `scratch`.
+/// Emit rows `row_range`, at most one chunk, of a stream of `value_type` values, decoded by
+/// `decode`: straight into the sink's destination when it offers one, else into `scratch`.
 ///
-/// `T` may differ from `ptype` in signedness only, so signed types decode through their unsigned
-/// counterparts.
+/// `T` may differ from `value_type` in signedness only, so signed types decode through their
+/// unsigned counterparts.
 #[inline]
-pub fn emit_with<T: NativePType>(
+pub fn emit_with<T: ChunkValue>(
     sink: &mut dyn ChunkSink,
-    ptype: PType,
+    value_type: impl Into<ValueType>,
     row_range: Range<usize>,
     scratch: &mut ScratchChunk<T>,
     decode: impl FnOnce(&mut [T]) -> VortexResult<()>,
@@ -621,7 +792,7 @@ pub fn emit_with<T: NativePType>(
     }
     let chunk = &mut scratch.values()[..row_range.len()];
     with_block_len(chunk, decode)?;
-    sink.accept(ChunkMut::new(chunk).retype_to(ptype), row_range)
+    sink.accept(ChunkMut::new(chunk).retype_to(value_type), row_range)
 }
 
 /// Call `f` with `values`, through a fixed-size block when they fill one, so that `f`, inlined,
@@ -637,7 +808,7 @@ fn with_block_len<T, R>(values: &mut [T], f: impl FnOnce(&mut [T]) -> R) -> R {
 /// Stream `len` rows through `sink`, each chunk written by `fill` into the sink's destination
 /// when it offers one, else into one stack scratch chunk. This is the shape of every leaf producer
 /// that generates its values (constants, sequences, runs) or copies them out of a buffer.
-pub fn stream_from_fn<T: NativePType>(
+pub fn stream_from_fn<T: ChunkValue>(
     len: usize,
     sink: &mut dyn ChunkSink,
     mut fill: impl FnMut(&mut [T], Range<usize>) -> VortexResult<()>,
@@ -646,7 +817,7 @@ pub fn stream_from_fn<T: NativePType>(
     let mut start = 0;
     while start < len {
         let end = (start + DECOMPRESS_CHUNK_LEN).min(len);
-        emit_with(sink, T::PTYPE, start..end, &mut scratch, |chunk| {
+        emit_with(sink, T::VALUE_TYPE, start..end, &mut scratch, |chunk| {
             fill(chunk, start..end)
         })?;
         start = end;
@@ -871,7 +1042,8 @@ where
 struct CoverageCheckSink<'a> {
     inner: &'a mut dyn ChunkSink,
     next_row: usize,
-    ptype: PType,
+    /// The type the array streams, unknown if it does not stream.
+    value_type: Option<ValueType>,
 }
 
 #[cfg(debug_assertions)]
@@ -883,7 +1055,13 @@ impl ChunkSink for CoverageCheckSink<'_> {
             chunk.len(),
             "chunk/row_range length mismatch"
         );
-        debug_assert_eq!(chunk.ptype(), self.ptype, "chunk ptype mismatch");
+        debug_assert!(
+            self.value_type
+                .is_none_or(|value_type| chunk.value_type() == value_type),
+            "chunk of {:?} in a stream of {:?}",
+            chunk.value_type(),
+            self.value_type
+        );
         debug_assert!(
             chunk.len() <= DECOMPRESS_CHUNK_LEN,
             "chunk exceeds the chunk length"
@@ -907,8 +1085,8 @@ impl ChunkSink for CoverageCheckSink<'_> {
     }
 }
 
-/// Fallback chunked decompression: execute the array to a canonical [`PrimitiveArray`], then
-/// stream copies of its values in [`DECOMPRESS_CHUNK_LEN`]-sized chunks.
+/// Fallback chunked decompression: execute the array to a canonical [`PrimitiveArray`] or
+/// [`DecimalArray`], then stream copies of its values in [`DECOMPRESS_CHUNK_LEN`]-sized chunks.
 ///
 /// This is the two-pass baseline.
 pub fn decompress_chunks_via_canonical(
@@ -916,15 +1094,23 @@ pub fn decompress_chunks_via_canonical(
     ctx: &mut ExecutionCtx,
     sink: &mut dyn ChunkSink,
 ) -> VortexResult<()> {
-    let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
-    match_each_native_ptype!(primitive.ptype(), |T| {
-        stream_slice_chunks::<T>(primitive.as_slice::<T>(), sink)
-    })
+    match array.clone().execute::<Canonical>(ctx)? {
+        Canonical::Primitive(primitive) => match_each_native_ptype!(primitive.ptype(), |T| {
+            stream_slice_chunks::<T>(primitive.as_slice::<T>(), sink)
+        }),
+        Canonical::Decimal(decimal) => match_each_decimal_value_type!(decimal.values_type(), |D| {
+            stream_slice_chunks::<D>(&decimal.buffer::<D>(), sink)
+        }),
+        _ => vortex_bail!(
+            "decompress_chunks requires a fixed-width array, got {}",
+            array.dtype()
+        ),
+    }
 }
 
 /// Stream copies of `values` through `sink`, one stack scratch chunk at a time, since sinks receive
 /// exclusive, mutable chunks.
-pub fn stream_slice_chunks<T: NativePType>(
+pub fn stream_slice_chunks<T: ChunkValue>(
     values: &[T],
     sink: &mut dyn ChunkSink,
 ) -> VortexResult<()> {
@@ -936,20 +1122,32 @@ pub fn stream_slice_chunks<T: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_mask::Mask;
 
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::FilterArray;
     use crate::arrays::Patched;
+    use crate::arrays::SliceArray;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::BigCast;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::patches::Patches;
+    use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::test_harness::assert_streams_like_execute;
 
     fn collect_chunks<T: NativePType>(array: &ArrayRef) -> VortexResult<Vec<T>> {
         let mut ctx = array_session().create_execution_ctx();
@@ -961,6 +1159,66 @@ mod tests {
             Ok(())
         })?;
         Ok(out)
+    }
+
+    /// Decimals of every storage type stream through the leaf and the structural encodings, in
+    /// the type executing them stores.
+    #[rstest]
+    fn decimals_stream_like_execute(
+        #[values(
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+            DecimalType::I256
+        )]
+        values_type: DecimalType,
+    ) -> VortexResult<()> {
+        const LEN: usize = 3000;
+        let mut ctx = array_session().create_execution_ctx();
+        match_each_decimal_value_type!(values_type, |D| {
+            let decimal_dtype = DecimalDType::new(D::MAX_PRECISION, 2);
+            let values = (0..LEN as i64)
+                .map(|i| <D as BigCast>::from(i % 199 - 99).vortex_expect("fits"))
+                .collect::<Buffer<D>>();
+            let validity = Validity::from_iter((0..LEN).map(|i| i % 7 != 3));
+            let decimal = DecimalArray::new(values, decimal_dtype, validity).into_array();
+            assert_eq!(decimal.decompress_chunks_type(), Some(values_type.into()));
+            assert_streams_like_execute(&decimal, &mut ctx)?;
+
+            let sliced = SliceArray::new(decimal.clone(), 517..2900).into_array();
+            assert_streams_like_execute(&sliced, &mut ctx)?;
+            let mask = Mask::from_iter((0..LEN).map(|i| i % 3 != 0));
+            let filtered = FilterArray::try_new(decimal.clone(), mask)?.into_array();
+            assert_streams_like_execute(&filtered, &mut ctx)?;
+            let chunks = vec![decimal.slice(0..1000)?, decimal.slice(1000..LEN)?];
+            let chunked = ChunkedArray::try_new(chunks, decimal.dtype().clone())?.into_array();
+            assert_streams_like_execute(&chunked, &mut ctx)?;
+            let codes = PrimitiveArray::from_iter((0..5000u32).map(|i| (i * 7 % 3000) as u16));
+            let dict = DictArray::try_new(codes.into_array(), decimal.clone())?.into_array();
+            assert_streams_like_execute(&dict, &mut ctx)?;
+
+            let value = <D as BigCast>::from(-42i64).vortex_expect("fits");
+            let scalar = Scalar::decimal(
+                DecimalValue::from(value),
+                decimal_dtype,
+                Nullability::Nullable,
+            );
+            assert_streams_like_execute(&ConstantArray::new(scalar, 2500).into_array(), &mut ctx)?;
+        });
+        Ok(())
+    }
+
+    /// A null decimal constant streams in the smallest type for its precision, as canonicalizing it
+    /// stores it.
+    #[test]
+    fn null_decimal_constant_streams_like_execute() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Decimal(DecimalDType::new(30, 2), Nullability::Nullable);
+        let array = ConstantArray::new(Scalar::null(dtype), 2500).into_array();
+        assert_eq!(array.decompress_chunks_type(), Some(ValueType::I128));
+        assert_streams_like_execute(&array, &mut ctx)
     }
 
     /// The builder exposes every row a stream claims to have written, so it rejects gaps.

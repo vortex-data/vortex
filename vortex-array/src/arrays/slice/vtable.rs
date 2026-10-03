@@ -35,6 +35,7 @@ use crate::arrays::slice::chunked_decompress;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -151,8 +152,8 @@ impl VTable for Slice {
         vortex_bail!("Slice array is not serializable")
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        chunked_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

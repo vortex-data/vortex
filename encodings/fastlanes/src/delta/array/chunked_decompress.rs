@@ -16,6 +16,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::chunk_iter::BlockDecodeSink;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
@@ -26,8 +27,8 @@ use crate::FL_CHUNK_SIZE;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
 
-pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, Delta>) -> bool {
-    array.deltas().supports_decompress_chunks()
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, Delta>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype()).filter(|_| array.deltas().supports_decompress_chunks())
 }
 
 pub(crate) fn decompress_chunks(

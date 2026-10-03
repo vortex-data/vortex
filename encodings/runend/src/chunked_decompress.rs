@@ -9,6 +9,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::chunk_iter::stream_from_fn;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
@@ -21,8 +22,8 @@ use crate::RunEnd;
 use crate::RunEndArrayExt;
 use crate::RunEndArraySlotsExt;
 
-pub(crate) fn supports_decompress_chunks(_array: ArrayView<'_, RunEnd>) -> bool {
-    true
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, RunEnd>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype())
 }
 
 pub(crate) fn decompress_chunks(

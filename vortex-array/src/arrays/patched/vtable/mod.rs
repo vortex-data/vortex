@@ -50,6 +50,7 @@ use crate::builders::PrimitiveBuilder;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkPatches;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -315,8 +316,8 @@ impl VTable for Patched {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        array.inner().supports_decompress_chunks()
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        ValueType::primitive(array.dtype()).filter(|_| array.inner().supports_decompress_chunks())
     }
 
     fn decompress_chunks(

@@ -24,14 +24,16 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkSink;
 use crate::chunk_iter::ScratchChunk;
+use crate::chunk_iter::ValueType;
 use crate::chunk_iter::emit_with;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::Cast;
 
-pub(super) fn supports_decompress_chunks(array: ArrayView<'_, ScalarFn>) -> bool {
-    widened_child(&array).is_some_and(|child| child.supports_decompress_chunks())
+pub(super) fn decompress_chunks_type(array: ArrayView<'_, ScalarFn>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype())
+        .filter(|_| widened_child(&array).is_some_and(|child| child.supports_decompress_chunks()))
 }
 
 pub(super) fn decompress_chunks(

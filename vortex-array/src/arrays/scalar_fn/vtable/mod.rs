@@ -35,6 +35,7 @@ use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -180,8 +181,8 @@ impl VTable for ScalarFn {
         RULES.evaluate(array)
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        chunked_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

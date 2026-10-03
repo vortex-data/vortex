@@ -16,6 +16,7 @@ use std::ops::Range;
 
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ExecutionCtx;
@@ -25,11 +26,12 @@ use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::execute::buffer::ChunkCompactor;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkSink;
-use crate::dtype::NativePType;
-use crate::match_each_native_ptype;
+use crate::chunk_iter::ChunkValue;
+use crate::chunk_iter::ValueType;
+use crate::match_each_value_type;
 
-pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, Filter>) -> bool {
-    array.child().supports_decompress_chunks()
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, Filter>) -> Option<ValueType> {
+    array.child().decompress_chunks_type()
 }
 
 pub(crate) fn decompress_chunks(
@@ -42,15 +44,20 @@ pub(crate) fn decompress_chunks(
         Mask::AllFalse(_) | Mask::AllTrue(0) => Ok(()),
         // Nothing is filtered out: forward the child's chunks untouched.
         Mask::AllTrue(_) => array.child().decompress_child_chunks(ctx, sink),
-        Mask::Values(values) => match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-            let mut adapter = FilterChunkSink::<T> {
-                bits: values.bit_buffer(),
-                compactor: ChunkCompactor::new(values.density()),
-                out_row: 0,
-                inner: sink,
-            };
-            array.child().decompress_child_chunks(ctx, &mut adapter)
-        }),
+        Mask::Values(values) => {
+            let value_type = ValueType::primitive(array.dtype())
+                .or_else(|| decompress_chunks_type(array))
+                .ok_or_else(|| vortex_err!("Filter of {} does not stream", array.dtype()))?;
+            match_each_value_type!(value_type, |T| {
+                let mut adapter = FilterChunkSink::<T> {
+                    bits: values.bit_buffer(),
+                    compactor: ChunkCompactor::new(values.density()),
+                    out_row: 0,
+                    inner: sink,
+                };
+                array.child().decompress_child_chunks(ctx, &mut adapter)
+            })
+        }
     }
 }
 
@@ -64,7 +71,7 @@ struct FilterChunkSink<'a, T> {
     inner: &'a mut dyn ChunkSink,
 }
 
-impl<T: NativePType> ChunkSink for FilterChunkSink<'_, T> {
+impl<T: ChunkValue> ChunkSink for FilterChunkSink<'_, T> {
     fn accept(&mut self, mut chunk: ChunkMut<'_>, child_rows: Range<usize>) -> VortexResult<()> {
         let values = chunk.as_slice_mut::<T>();
         let kept = self.compactor.compact(values, &self.bits.slice(child_rows));

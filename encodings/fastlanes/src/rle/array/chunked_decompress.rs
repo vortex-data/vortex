@@ -16,6 +16,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::chunk_iter::BlockDecodeSink;
 use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::chunk_iter::ScratchChunk;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::chunk_iter::emit_block;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -35,9 +36,11 @@ use crate::rle::array::rle_decompress::ChunkDecoder;
 use crate::rle::array::rle_decompress::load_values_idx_offsets;
 use crate::unpack_iter::for_each_packed_chunk;
 
-pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, RLE>) -> bool {
-    matches!(array.indices().dtype().as_ptype(), PType::U8 | PType::U16)
-        && array.indices().supports_decompress_chunks()
+pub(crate) fn decompress_chunks_type(array: ArrayView<'_, RLE>) -> Option<ValueType> {
+    ValueType::primitive(array.dtype()).filter(|_| {
+        matches!(array.indices().dtype().as_ptype(), PType::U8 | PType::U16)
+            && array.indices().supports_decompress_chunks()
+    })
 }
 
 pub(crate) fn decompress_chunks(

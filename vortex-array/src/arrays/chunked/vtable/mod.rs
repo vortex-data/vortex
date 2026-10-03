@@ -39,6 +39,7 @@ use crate::arrays::chunked::vtable::canonical::_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -254,8 +255,8 @@ impl VTable for Chunked {
         }
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        chunked_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

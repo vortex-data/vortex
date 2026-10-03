@@ -22,6 +22,9 @@ use crate::arrays::fixed_width::vtable as fixed_width;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
+use crate::chunk_iter::stream_slice_chunks;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
@@ -185,6 +188,22 @@ impl VTable for Decimal {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        Some(array.values_type().into())
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        // Already decompressed: chunks are handed out mutably, so the shared buffer is copied
+        // through one L1-resident scratch chunk rather than exposed directly.
+        match_each_decimal_value_type!(array.values_type(), |D| {
+            stream_slice_chunks(&array.buffer::<D>(), sink)
+        })
     }
 
     fn append_to_builder(

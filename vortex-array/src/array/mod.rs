@@ -222,8 +222,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult>;
 
-    /// Returns whether this encoding (recursively) supports streaming chunked decompression.
-    fn supports_decompress_chunks(&self, this: &ArrayRef) -> bool;
+    /// Returns the type of the values this encoding (recursively) streams via chunked
+    /// decompression, or `None` if it cannot stream them.
+    fn decompress_chunks_type(&self, this: &ArrayRef) -> Option<crate::chunk_iter::ValueType>;
 
     /// Stream the array's decompressed values through `sink` in cache-resident chunks.
     fn decompress_chunks(
@@ -534,10 +535,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         V::execute(typed, ctx)
     }
 
-    fn supports_decompress_chunks(&self, this: &ArrayRef) -> bool {
+    fn decompress_chunks_type(&self, this: &ArrayRef) -> Option<crate::chunk_iter::ValueType> {
         // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::supports_decompress_chunks(view)
+        V::decompress_chunks_type(view)
     }
 
     fn decompress_chunks(

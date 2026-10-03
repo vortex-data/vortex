@@ -49,6 +49,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
@@ -194,8 +195,8 @@ impl VTable for Dict {
         DictSlots::NAMES[idx].to_string()
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        chunked_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

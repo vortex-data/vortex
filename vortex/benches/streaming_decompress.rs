@@ -34,6 +34,7 @@ use mimalloc::MiMalloc;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -42,21 +43,28 @@ use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::chunk_iter::ChunkMut;
 use vortex::array::chunk_iter::ChunkSink;
+use vortex::array::chunk_iter::ChunkValue;
 use vortex::array::chunk_iter::execute_via_chunks;
 use vortex::array::chunk_iter::set_chunked_execute_enabled;
 use vortex::array::dtype::DType;
+use vortex::array::dtype::DecimalDType;
+use vortex::array::dtype::NativeDecimalType;
 use vortex::array::dtype::NativePType;
 use vortex::array::dtype::Nullability;
 use vortex::array::dtype::PType;
 use vortex::array::patches::Patches;
 use vortex::array::scalar::Scalar;
 use vortex::array::scalar_fn::fns::cast::Cast;
+use vortex::array::validity::Validity;
+use vortex::buffer::Buffer;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
 use vortex::encodings::alp::alp_encode;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::Delta;
@@ -113,7 +121,7 @@ fn primitive(array: &ArrayRef) -> PrimitiveArray {
 // ---------------------------------------------------------------------------------------------
 
 /// Folds values into a checksum, so every variant reads every value once.
-trait Fold: NativePType {
+trait Fold: ChunkValue {
     fn fold(acc: u64, values: &[Self]) -> u64;
 }
 
@@ -137,6 +145,17 @@ impl Fold for f64 {
     #[inline]
     fn fold(acc: u64, values: &[Self]) -> u64 {
         acc.wrapping_add(values.iter().sum::<f64>().to_bits())
+    }
+}
+
+impl Fold for i128 {
+    #[inline]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the checksum keeps the low bits"
+    )]
+    fn fold(acc: u64, values: &[Self]) -> u64 {
+        acc.wrapping_add(values.iter().fold(0i128, |acc, &v| acc.wrapping_add(v)) as u64)
     }
 }
 
@@ -193,7 +212,7 @@ fn sum_streaming<T: Fold>(bencher: Bencher, array: ArrayRef) {
         });
 }
 
-fn sum_levelwise<T: Fold>(bencher: Bencher, array: ArrayRef) {
+fn sum_levelwise<T: Fold + NativePType>(bencher: Bencher, array: ArrayRef) {
     bencher
         .with_inputs(|| (array.clone(), ctx()))
         .bench_values(|(array, mut ctx)| {
@@ -812,6 +831,106 @@ mod for_cast_slice_bp_i64 {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// DecimalByteParts: decimals whose most significant parts are FoR(BitPacked), as the compressor
+// leaves them. Without lower parts (up to 18 digits), the parts are the values; with one (up to
+// 38 digits), streaming assembles each chunk of parts with its lower words.
+// ---------------------------------------------------------------------------------------------
+
+/// `values` as byte parts, the most significant part bit-packed under a frame of reference.
+fn dbp(decimal: DecimalArray) -> ArrayRef {
+    let parts = DecimalByteParts::encode(&decimal, &mut ctx()).vortex_expect("dbp");
+    let msp = primitive(parts.msp());
+    let min = msp
+        .as_slice::<i64>()
+        .iter()
+        .copied()
+        .min()
+        .unwrap_or_default();
+    let shifted = PrimitiveArray::from_iter(msp.as_slice::<i64>().iter().map(|&v| v - min));
+    let bp = bitpack_encode(&shifted, 10, None, &mut ctx()).vortex_expect("bitpack");
+    let msp = FoR::try_new(bp.into_array(), Scalar::from(min)).vortex_expect("for");
+    DecimalByteParts::try_new_with_lower_parts(
+        msp.into_array(),
+        parts.lower_parts().to_vec(),
+        decimal.decimal_dtype(),
+    )
+    .vortex_expect("dbp")
+    .into_array()
+}
+
+fn dbp_i64() -> ArrayRef {
+    let values = (0..i64::from(LEN_U32)).map(|i| (i * 7) % 1000 - 271);
+    dbp(DecimalArray::new(
+        values.collect::<Buffer<i64>>(),
+        DecimalDType::new(18, 2),
+        Validity::NonNullable,
+    ))
+}
+
+fn dbp_i128() -> ArrayRef {
+    let values = (0..i128::from(LEN_U32)).map(|i| ((i * 7) % 1000 - 271) * (1 << 64) + i * 7919);
+    dbp(DecimalArray::new(
+        values.collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    ))
+}
+
+fn materialize_levelwise_decimal(bencher: Bencher, array: ArrayRef) {
+    bencher
+        .with_inputs(|| (array.clone(), ctx()))
+        .bench_values(|(array, mut ctx)| {
+            array
+                .execute::<DecimalArray>(&mut ctx)
+                .vortex_expect("bench")
+                .len()
+        });
+}
+
+fn sum_levelwise_decimal<T: Fold + NativeDecimalType>(bencher: Bencher, array: ArrayRef) {
+    bencher
+        .with_inputs(|| (array.clone(), ctx()))
+        .bench_values(|(array, mut ctx)| {
+            let values = array
+                .execute::<DecimalArray>(&mut ctx)
+                .vortex_expect("bench");
+            T::fold(0, &values.buffer::<T>())
+        });
+}
+
+/// Generate the four benchmarks for one decimal tree, which has no fused kernel.
+macro_rules! decimal_benches {
+    ($tree:ident : $T:ty) => {
+        mod $tree {
+            use super::*;
+
+            #[divan::bench]
+            fn materialize_streaming(bencher: Bencher) {
+                super::materialize_streaming(bencher, super::$tree());
+            }
+
+            #[divan::bench]
+            fn materialize_levelwise(bencher: Bencher) {
+                super::materialize_levelwise_decimal(bencher, super::$tree());
+            }
+
+            #[divan::bench]
+            fn sum_streaming(bencher: Bencher) {
+                super::sum_streaming::<$T>(bencher, super::$tree());
+            }
+
+            #[divan::bench]
+            fn sum_levelwise(bencher: Bencher) {
+                super::sum_levelwise_decimal::<$T>(bencher, super::$tree());
+            }
+        }
+    };
+}
+
+decimal_benches!(dbp_i64: i64);
+decimal_benches!(dbp_i128: i128);
+
 /// Every fused kernel must agree with execution, or its timing means nothing.
 fn check_fused_kernels() {
     fn check<T: NativePType>(array: ArrayRef, kernel: fn(&ArrayRef) -> Vec<T>) {
@@ -841,6 +960,14 @@ fn check_fused_kernels() {
             array.supports_decompress_chunks(),
             "{} does not stream",
             array.encoding_id()
+        );
+    }
+    // The decimal trees are deep enough that the executor streams them.
+    for array in [dbp_i64(), dbp_i128()] {
+        assert!(
+            array.should_execute_via_chunks(),
+            "{} does not stream",
+            array.dtype()
         );
     }
 }

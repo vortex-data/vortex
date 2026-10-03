@@ -276,8 +276,7 @@ impl ArrayRef {
             {
                 let stats = current_array.statistics().to_array_stats();
                 let result = crate::chunk_iter::execute_via_chunks(&current_array, ctx)?;
-                trace_op!(record_execute_done(&result.as_ref()));
-                let result = result.into_array();
+                trace_op!(record_execute_done(&result));
                 result
                     .statistics()
                     .set_iter(StatsSet::from(stats).into_iter());

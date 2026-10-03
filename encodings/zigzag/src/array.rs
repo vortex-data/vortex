@@ -20,6 +20,7 @@ use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -138,8 +139,8 @@ impl VTable for ZigZag {
         ZigZagSlots::NAMES[idx].to_string()
     }
 
-    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
-        chunked_decompress::supports_decompress_chunks(array)
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
     }
 
     fn decompress_chunks(

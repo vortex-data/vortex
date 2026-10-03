@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Streaming chunked decompression for dictionaries of primitive values.
+//! Streaming chunked decompression for dictionaries of fixed-width values.
 //!
 //! The codes stream up from their own encoding (typically bit-packed), and each chunk of codes is
 //! gathered from the dictionary while L1-resident, straight into the output when materializing,
@@ -12,24 +12,37 @@ use std::ops::Range;
 
 use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::arrays::Dict;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ChunkValue;
 use crate::chunk_iter::ScratchChunk;
+use crate::chunk_iter::ValueType;
 use crate::chunk_iter::emit_with;
+use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 
-pub(super) fn supports_decompress_chunks(array: ArrayView<'_, Dict>) -> bool {
-    array.codes().supports_decompress_chunks()
+pub(super) fn decompress_chunks_type(array: ArrayView<'_, Dict>) -> Option<ValueType> {
+    if !array.codes().supports_decompress_chunks() {
+        return None;
+    }
+    match array.dtype() {
+        // Gathering keeps the values' storage type, which only a streaming tree can tell up front.
+        DType::Decimal(..) => array.values().decompress_chunks_type(),
+        dtype => ValueType::primitive(dtype),
+    }
 }
 
 pub(super) fn decompress_chunks(
@@ -38,21 +51,44 @@ pub(super) fn decompress_chunks(
     sink: &mut dyn ChunkSink,
 ) -> VortexResult<()> {
     let codes = array.codes();
-    let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
     // Null codes may hold any value, so a code that is out of bounds is only an error where the
     // code is valid.
     let codes_validity = codes.validity()?.execute_mask(codes.len(), ctx)?;
-    match_each_native_ptype!(values.ptype(), |V| {
-        match_each_integer_ptype!(codes.dtype().as_ptype(), |C| {
-            let mut adapter = GatherSink::<C, V> {
-                values: values.as_slice::<V>(),
-                codes_validity: &codes_validity,
-                scratch: ScratchChunk::new(),
-                inner: sink,
-                _codes: PhantomData,
-            };
-            codes.decompress_child_chunks(ctx, &mut adapter)
-        })
+    match array.values().clone().execute::<Canonical>(ctx)? {
+        Canonical::Primitive(values) => match_each_native_ptype!(values.ptype(), |V| {
+            gather_codes(codes, values.as_slice::<V>(), &codes_validity, ctx, sink)
+        }),
+        Canonical::Decimal(values) => {
+            let values_type = ValueType::from(values.values_type());
+            vortex_ensure!(
+                Some(values_type) == decompress_chunks_type(array),
+                "Dict values executed to {values_type:?}, not the type they stream"
+            );
+            match_each_decimal_value_type!(values.values_type(), |V| {
+                gather_codes(codes, &values.buffer::<V>(), &codes_validity, ctx, sink)
+            })
+        }
+        _ => vortex_bail!("Dict of {} does not stream", array.dtype()),
+    }
+}
+
+/// Stream `codes`, gathering each chunk of them from `values`.
+fn gather_codes<V: ChunkValue>(
+    codes: &ArrayRef,
+    values: &[V],
+    codes_validity: &Mask,
+    ctx: &mut ExecutionCtx,
+    sink: &mut dyn ChunkSink,
+) -> VortexResult<()> {
+    match_each_integer_ptype!(codes.dtype().as_ptype(), |C| {
+        let mut adapter = GatherSink::<C, V> {
+            values,
+            codes_validity,
+            scratch: ScratchChunk::new(),
+            inner: sink,
+            _codes: PhantomData,
+        };
+        codes.decompress_child_chunks(ctx, &mut adapter)
     })
 }
 
@@ -69,7 +105,7 @@ struct GatherSink<'a, C, V> {
 impl<C, V> ChunkSink for GatherSink<'_, C, V>
 where
     C: NativePType + Ord + AsPrimitive<usize>,
-    V: NativePType,
+    V: ChunkValue,
 {
     #[inline]
     fn accept(&mut self, chunk: ChunkMut<'_>, rows: Range<usize>) -> VortexResult<()> {
@@ -77,7 +113,7 @@ where
         let (values, codes_validity) = (self.values, self.codes_validity);
         emit_with(
             &mut *self.inner,
-            V::PTYPE,
+            V::VALUE_TYPE,
             rows.clone(),
             &mut self.scratch,
             |out| gather(codes, values, codes_validity, rows, out),
@@ -96,7 +132,7 @@ fn gather<C, V>(
 ) -> VortexResult<()>
 where
     C: NativePType + Ord + AsPrimitive<usize>,
-    V: NativePType,
+    V: ChunkValue,
 {
     // `out` has a constant length for a full chunk; giving `codes` the same lets both loops below
     // run a known number of times.
