@@ -19,6 +19,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }
+vortex-runend = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
@@ -48,6 +49,12 @@ name = "prom_labels_report"
 
 [[example]]
 name = "shred_sweep"
+
+[[example]]
+name = "point_bench"
+
+[[example]]
+name = "layout"
 
 [lints]
 workspace = true

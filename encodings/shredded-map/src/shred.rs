@@ -12,6 +12,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::scalar::Scalar;
+use vortex_array::patches::PATCH_CHUNK_SIZE;
+use vortex_array::patches::Patches;
 use vortex_sparse::Sparse;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::dict_encode;
@@ -139,8 +141,23 @@ fn dictionary_column(
             values,
         )?
         .into_array();
+        // Chunk offsets let a point lookup jump to its 1024-row chunk instead of binary
+        // searching every patch index.
+        let n_chunks = len.div_ceil(PATCH_CHUNK_SIZE);
+        let mut chunk_offsets = Vec::with_capacity(n_chunks);
+        let mut next = 0usize;
+        for chunk in 0..n_chunks {
+            let chunk_start = (chunk * PATCH_CHUNK_SIZE) as u64;
+            while next < rows.len() && rows[next] < chunk_start {
+                next += 1;
+            }
+            chunk_offsets.push(next as u64);
+        }
         let rows = PrimitiveArray::new(Buffer::from(rows), Validity::NonNullable).into_array();
-        return Ok(Sparse::try_new(rows, values, len, fill)?.into_array());
+        let chunk_offsets =
+            PrimitiveArray::new(Buffer::from(chunk_offsets), Validity::NonNullable).into_array();
+        let patches = Patches::new(len, 0, rows, values, Some(chunk_offsets))?;
+        return Ok(Sparse::try_new_from_patches(patches, fill)?.into_array());
     }
     let codes = PrimitiveArray::new(
         Buffer::from(codes),

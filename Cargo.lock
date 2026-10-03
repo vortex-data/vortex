@@ -11745,6 +11745,7 @@ dependencies = [
  "vortex-compressor",
  "vortex-error",
  "vortex-mask",
+ "vortex-runend",
  "vortex-session",
  "vortex-sparse",
  "vortex-utils",

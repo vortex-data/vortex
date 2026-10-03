@@ -21,6 +21,7 @@ mod gather;
 pub mod keyset;
 pub mod labels;
 pub mod ops;
+pub mod point;
 mod rowcmp;
 mod rules;
 pub mod scheme;
