@@ -146,7 +146,10 @@ fn series_batch(
                     UInt32Array::from(vec![0u32; n]),
                     StringArray::from(vec![*value]),
                 ),
-                None => (UInt32Array::new_null(n), StringArray::from(Vec::<&str>::new())),
+                None => (
+                    UInt32Array::new_null(n),
+                    StringArray::from(Vec::<&str>::new()),
+                ),
             };
             Ok(Arc::new(DictionaryArray::<UInt32Type>::try_new(
                 keys,
@@ -212,10 +215,7 @@ mod tests {
         merge_metric_file(CPU, &mut series)?;
         merge_metric_file(LATER, &mut series)?;
 
-        let keys: Vec<&str> = series
-            .keys()
-            .map(|labels| labels[1].1.as_str())
-            .collect();
+        let keys: Vec<&str> = series.keys().map(|labels| labels[1].1.as_str()).collect();
         assert_eq!(keys, vec!["0", "1"], "series sorted by label set");
 
         let cpu0 = series.values().next().expect("two series");

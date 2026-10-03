@@ -32,8 +32,8 @@ pub struct Lo2Benchmark {
 impl Lo2Benchmark {
     pub fn new() -> Result<Self> {
         let data_path = DATASET_NAME.to_data_path();
-        let data_url = Url::from_directory_path(data_path)
-            .map_err(|_| anyhow::anyhow!("bad data path"))?;
+        let data_url =
+            Url::from_directory_path(data_path).map_err(|_| anyhow::anyhow!("bad data path"))?;
         Ok(Self { data_url })
     }
 
@@ -77,11 +77,8 @@ impl Benchmark for Lo2Benchmark {
             );
         }
 
-        let archive_path = download_data(
-            self.file_path("raw/light-oauth2-metrics.zip")?,
-            ARCHIVE_URL,
-        )
-        .await?;
+        let archive_path =
+            download_data(self.file_path("raw/light-oauth2-metrics.zip")?, ARCHIVE_URL).await?;
 
         let parquet_path = self.file_path(&format!("parquet/{TABLE_NAME}.parquet"))?;
         idempotent(&parquet_path, |tmp_path| {
