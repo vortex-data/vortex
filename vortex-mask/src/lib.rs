@@ -209,6 +209,48 @@ impl Mask {
         }))
     }
 
+    /// Create a new [`Mask`] from a [`BitBuffer`] and the ranges of its set bits, which are cached
+    /// on the mask so they need not be recomputed from the buffer.
+    ///
+    /// `slices` must be sorted, non-overlapping `(start, end)` ranges that cover exactly the set
+    /// bits of `buffer`. This is only checked in debug builds.
+    pub fn from_buffer_with_slices(buffer: BitBuffer, slices: Vec<(usize, usize)>) -> Self {
+        let len = buffer.len();
+        #[cfg(debug_assertions)]
+        {
+            Self::check_slices(len, &slices);
+            for &(start, end) in &slices {
+                assert_eq!(
+                    buffer.count_range(start, end),
+                    end - start,
+                    "Slice ({start}, {end}) is not fully set in the buffer"
+                );
+            }
+        }
+
+        let true_count = slices.iter().map(|(start, end)| end - start).sum();
+        debug_assert_eq!(
+            true_count,
+            buffer.true_count(),
+            "Slices must cover every set bit of the buffer"
+        );
+
+        if true_count == 0 {
+            return Self::AllFalse(len);
+        }
+        if true_count == len {
+            return Self::AllTrue(len);
+        }
+
+        Self::Values(Arc::new(MaskValues {
+            buffer,
+            indices: Default::default(),
+            slices: OnceLock::from(slices),
+            true_count,
+            density: true_count as f64 / len as f64,
+        }))
+    }
+
     /// Create a new [`Mask`] from sorted, unique indices.
     pub fn from_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> Self {
         let indices = indices.into_iter().collect::<Vec<_>>();
