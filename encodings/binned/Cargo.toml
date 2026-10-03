@@ -1,0 +1,43 @@
+[package]
+name = "vortex-binned"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex binned tANS numeric codec"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+half = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-edition = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+pco = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-alp = { workspace = true }
+vortex-arrow = { workspace = true }
+vortex-btrblocks = { workspace = true, features = ["binned", "pco"] }
+vortex-datetime-parts = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-pco = { workspace = true }
+vortex-runend = { workspace = true }
+vortex-sequence = { workspace = true }
+vortex-sparse = { workspace = true }
+vortex-zigzag = { workspace = true }
+rstest = { workspace = true }
+serde_json = { workspace = true }

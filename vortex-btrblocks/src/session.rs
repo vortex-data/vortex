@@ -57,6 +57,8 @@ impl Default for CompressionSession {
                 &DELTA_SCHEME,
                 #[cfg(feature = "pco")]
                 &integer::PcoScheme,
+                #[cfg(feature = "binned")]
+                &integer::BinnedScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Float schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -67,6 +69,8 @@ impl Default for CompressionSession {
                 &float::FloatRLEScheme,
                 #[cfg(feature = "pco")]
                 &float::PcoScheme,
+                #[cfg(feature = "binned")]
+                &float::BinnedScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // String schemes.
                 ////////////////////////////////////////////////////////////////////////////////////

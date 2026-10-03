@@ -10579,6 +10579,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-arrow",
+ "vortex-binned",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -10797,6 +10798,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-binned"
+version = "0.1.0"
+dependencies = [
+ "half",
+ "pco",
+ "prost 0.14.4",
+ "rstest",
+ "serde_json",
+ "vortex-alp",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-btrblocks",
+ "vortex-buffer",
+ "vortex-datetime-parts",
+ "vortex-decimal-byte-parts",
+ "vortex-edition",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-pco",
+ "vortex-runend",
+ "vortex-sequence",
+ "vortex-session",
+ "vortex-sparse",
+ "vortex-zigzag",
+]
+
+[[package]]
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
@@ -10809,6 +10837,7 @@ dependencies = [
  "rstest",
  "vortex-alp",
  "vortex-array",
+ "vortex-binned",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-datetime-parts",
@@ -11223,6 +11252,7 @@ dependencies = [
  "url",
  "vortex-alp",
  "vortex-array",
+ "vortex-binned",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",

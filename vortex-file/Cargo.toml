@@ -48,6 +48,7 @@ vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-onpair = { workspace = true }
+vortex-binned = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
@@ -87,5 +88,10 @@ tokio = [
     "vortex-layout/tokio",
 ]
 wasm-bindgen = ["vortex-layout/wasm-bindgen"]
-zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
+zstd = [
+    "dep:vortex-zstd",
+    "vortex-btrblocks/zstd",
+    "vortex-btrblocks/pco",
+    "vortex-btrblocks/binned",
+]
 tensor = ["dep:vortex-tensor"]

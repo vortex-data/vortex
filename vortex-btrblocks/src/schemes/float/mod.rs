@@ -8,11 +8,15 @@ mod alprd;
 mod rle;
 mod sparse;
 
+#[cfg(feature = "binned")]
+mod binned;
 #[cfg(feature = "pco")]
 mod pco;
 
 pub use alp::ALPScheme;
 pub use alprd::ALPRDScheme;
+#[cfg(feature = "binned")]
+pub use binned::BinnedScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
 pub use rle::FloatRLEScheme;

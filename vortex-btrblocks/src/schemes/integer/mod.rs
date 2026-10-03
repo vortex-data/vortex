@@ -12,6 +12,8 @@ mod sequence;
 mod sparse;
 mod zigzag;
 
+#[cfg(feature = "binned")]
+mod binned;
 #[cfg(feature = "pco")]
 mod pco;
 
@@ -19,6 +21,8 @@ pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub(crate) use for_::FOR_V1;
 pub use for_::FoRScheme;
+#[cfg(feature = "binned")]
+pub use binned::BinnedScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
 pub use rle::IntRLEScheme;

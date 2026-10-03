@@ -278,6 +278,11 @@ pub mod encodings {
         pub use vortex_parquet_variant::*;
     }
 
+    /// Binned tANS numeric compression encoding with block-level random access.
+    pub mod binned {
+        pub use vortex_binned::*;
+    }
+
     /// Pco numeric compression encoding.
     pub mod pco {
         pub use vortex_pco::*;

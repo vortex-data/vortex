@@ -173,6 +173,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_fsst::initialize(session);
     vortex_onpair::initialize(session);
     vortex_zigzag::initialize(session);
+    vortex_binned::initialize(session);
     #[cfg(feature = "zstd")]
     vortex_zstd::initialize(session);
 

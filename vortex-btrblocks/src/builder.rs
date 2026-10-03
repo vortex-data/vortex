@@ -29,9 +29,10 @@ use crate::schemes::string;
 pub(crate) enum CompressionMode {
     /// Excludes nothing. Set by [`empty`](BtrBlocksCompressorBuilder::empty).
     All,
-    /// Excludes Zstd and Pco. Set by [`from_session`](BtrBlocksCompressorBuilder::from_session).
+    /// Excludes Zstd, Pco and Binned. Set by [`from_session`](BtrBlocksCompressorBuilder::from_session).
     Default,
-    /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco for numerics.
+    /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco and Binned for
+    /// numerics.
     /// Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
     Compact,
     /// Excludes schemes without CUDA kernel support, keeping FSST for strings and both Zstd
@@ -55,6 +56,8 @@ impl CompressionMode {
                 ]);
                 #[cfg(feature = "pco")]
                 excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
+                #[cfg(feature = "binned")]
+                excluded.extend([integer::BinnedScheme.id(), float::BinnedScheme.id()]);
             }
             Self::Compact => {
                 #[cfg(feature = "zstd")]
@@ -84,6 +87,8 @@ impl CompressionMode {
                 excluded.push(string::ZstdScheme.id());
                 #[cfg(feature = "pco")]
                 excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
+                #[cfg(feature = "binned")]
+                excluded.extend([integer::BinnedScheme.id(), float::BinnedScheme.id()]);
             }
         }
         excluded
