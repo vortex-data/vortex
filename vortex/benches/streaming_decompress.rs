@@ -15,7 +15,8 @@
 //!   once. This is the bound the generic mechanism is measured against.
 //!
 //! Trees hold 64Ki rows, the size of a typical scan split, with no nulls and no slicing so the
-//! fused kernels can stay minimal.
+//! fused kernels can stay minimal. The real scan stacks at the end, found in TPC-H, have no fused
+//! kernel and compare streaming with level-wise execution only.
 
 use std::f64::consts::PI;
 use std::marker::PhantomData;
@@ -36,6 +37,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::SliceArray;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::chunk_iter::ChunkMut;
@@ -48,6 +50,7 @@ use vortex::array::dtype::Nullability;
 use vortex::array::dtype::PType;
 use vortex::array::patches::Patches;
 use vortex::array::scalar::Scalar;
+use vortex::array::scalar_fn::fns::cast::Cast;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
@@ -73,6 +76,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -715,6 +719,95 @@ tree_benches!(
     alp_for_bp_f64_sum
 );
 
+// ---------------------------------------------------------------------------------------------
+// Real scan stacks. In a census of the arrays the TPC-H SF1 queries execute, these are the trees
+// that stream: a scan filters or slices FoR(BitPacked) and casts it to the nullability of its
+// table schema, and FoR pushes both into its values, leaving FoR(Cast(Filter|Slice(BitPacked))).
+// They have no fused kernel; the question is whether streaming beats level-wise execution.
+// ---------------------------------------------------------------------------------------------
+
+/// FoR over a cast of `values` that only makes them nullable, as scans leave it.
+fn for_cast_i64(values: ArrayRef) -> ArrayRef {
+    let cast = Cast::new(values, DType::Primitive(PType::I64, Nullability::Nullable));
+    FoR::try_new(cast.into_array(), Scalar::from(1_000_000i64))
+        .vortex_expect("for")
+        .into_array()
+}
+
+/// Bit-packed i64 values, with a patch every 97 rows when `patched`.
+fn bp_i64(patched: bool) -> ArrayRef {
+    let values = PrimitiveArray::from_iter((0..i64::from(LEN_U32)).map(|i| {
+        if patched && i % 97 == 0 {
+            100_000 + i
+        } else {
+            (i * 7) % 1000
+        }
+    }));
+    bitpack_encode(&values, 10, None, &mut ctx())
+        .vortex_expect("bitpack")
+        .into_array()
+}
+
+/// Rows kept out of every 16, so the filter's selectivity is `keep / 16`.
+const FILTER_KEEP: &[usize] = &[1, 4, 12];
+
+fn for_cast_filter_bp_i64(keep: usize) -> ArrayRef {
+    let mask = Mask::from_iter((0..LEN).map(|i| i % 16 < keep));
+    for_cast_i64(bp_i64(false).filter(mask).vortex_expect("filter"))
+}
+
+fn for_cast_slice_bp_i64() -> ArrayRef {
+    for_cast_i64(SliceArray::new(bp_i64(true), 517..LEN - 300).into_array())
+}
+
+mod for_cast_filter_bp_i64 {
+    use super::*;
+
+    #[divan::bench(args = FILTER_KEEP)]
+    fn materialize_streaming(bencher: Bencher, keep: usize) {
+        super::materialize_streaming(bencher, for_cast_filter_bp_i64(keep));
+    }
+
+    #[divan::bench(args = FILTER_KEEP)]
+    fn materialize_levelwise(bencher: Bencher, keep: usize) {
+        super::materialize_levelwise(bencher, for_cast_filter_bp_i64(keep));
+    }
+
+    #[divan::bench(args = FILTER_KEEP)]
+    fn sum_streaming(bencher: Bencher, keep: usize) {
+        super::sum_streaming::<i64>(bencher, for_cast_filter_bp_i64(keep));
+    }
+
+    #[divan::bench(args = FILTER_KEEP)]
+    fn sum_levelwise(bencher: Bencher, keep: usize) {
+        super::sum_levelwise::<i64>(bencher, for_cast_filter_bp_i64(keep));
+    }
+}
+
+mod for_cast_slice_bp_i64 {
+    use super::*;
+
+    #[divan::bench]
+    fn materialize_streaming(bencher: Bencher) {
+        super::materialize_streaming(bencher, for_cast_slice_bp_i64());
+    }
+
+    #[divan::bench]
+    fn materialize_levelwise(bencher: Bencher) {
+        super::materialize_levelwise(bencher, for_cast_slice_bp_i64());
+    }
+
+    #[divan::bench]
+    fn sum_streaming(bencher: Bencher) {
+        super::sum_streaming::<i64>(bencher, for_cast_slice_bp_i64());
+    }
+
+    #[divan::bench]
+    fn sum_levelwise(bencher: Bencher) {
+        super::sum_levelwise::<i64>(bencher, for_cast_slice_bp_i64());
+    }
+}
+
 /// Every fused kernel must agree with execution, or its timing means nothing.
 fn check_fused_kernels() {
     fn check<T: NativePType>(array: ArrayRef, kernel: fn(&ArrayRef) -> Vec<T>) {
@@ -733,4 +826,17 @@ fn check_fused_kernels() {
     check(dict_bp_i64(), dict_bp_i64_materialize);
     check(delta_for_bp_u32(), delta_for_bp_u32_materialize);
     check(alp_for_bp_f64(), alp_for_bp_f64_materialize);
+
+    // The real stacks have no fused kernel, so check that they stream as the benchmarks assume.
+    for array in FILTER_KEEP
+        .iter()
+        .map(|&keep| for_cast_filter_bp_i64(keep))
+        .chain([for_cast_slice_bp_i64()])
+    {
+        assert!(
+            array.supports_decompress_chunks(),
+            "{} does not stream",
+            array.encoding_id()
+        );
+    }
 }
