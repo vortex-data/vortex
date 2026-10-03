@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
@@ -59,6 +60,41 @@ pub trait FoRArrayExt: FoRArraySlotsExt {
 }
 
 impl<T: TypedArrayRef<crate::FoR>> FoRArrayExt for T {}
+
+/// The owned children and offset of a FoR array.
+pub(crate) struct FoRParts {
+    pub(crate) encoded: ArrayRef,
+    pub(crate) references: ArrayRef,
+    pub(crate) offset: u16,
+}
+
+pub(crate) trait FoRArrayOwnedExt {
+    /// Take the children of the array without a clone when this handle is the unique owner.
+    fn into_parts(self) -> FoRParts;
+}
+
+impl FoRArrayOwnedExt for Array<crate::FoR> {
+    fn into_parts(self) -> FoRParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let slots = FoRSlots::from_slots(parts.slots);
+                FoRParts {
+                    encoded: slots.encoded,
+                    references: slots.references,
+                    offset: parts.data.offset,
+                }
+            }
+            Err(array) => {
+                let view = FoRSlotsView::from_slots(array.as_ref().slots());
+                FoRParts {
+                    encoded: view.encoded.clone(),
+                    references: view.references.clone(),
+                    offset: array.offset(),
+                }
+            }
+        }
+    }
+}
 
 impl Display for FoRData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

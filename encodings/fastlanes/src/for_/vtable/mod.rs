@@ -157,7 +157,7 @@ impl VTable for FoR {
         } else {
             require_child!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
         };
-        Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
+        Ok(ExecutionResult::done(decompress(array, ctx)?.into_array()))
     }
 }
 
