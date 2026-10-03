@@ -366,17 +366,10 @@ fn float_mult_candidates<T: Numeric>(sample: &[T]) -> Vec<Mode> {
         .filter(|f| f.is_finite())
         .collect();
     let mut bases = Vec::new();
-    // Decimal-like data: the coarsest 10^k that most values are exact multiples of, plus the
-    // next finer one in case the rest need it.
-    let is_multiple = |x: f64, k: i32| {
-        let scaled = x * 10f64.powi(-k);
-        scaled.abs() < 1e15 && (scaled.round() * 10f64.powi(k) - x).abs() <= x.abs() * 1e-15
-    };
-    if let Some(k) = (-12..=6).rev().find(|&k| {
-        floats.iter().filter(|&&x| is_multiple(x, k)).count() * 10 >= floats.len() * 9
-    }) {
+    // Decimal-like data: multiples of 10^k, exact or close (the secondary stream absorbs the
+    // remainder).
+    for k in -12..=6 {
         bases.push(10f64.powi(k));
-        bases.push(10f64.powi(k - 1));
     }
     // Multiples of a power of two, from trailing mantissa zeros.
     let units: Vec<i32> = floats
@@ -453,6 +446,22 @@ pub fn choose_mode<T: Numeric>(values: &[T], config: &Config) -> Mode {
     } else if T::PRECISION_BITS > 8 {
         candidates.extend(int_mult_candidates(&sample));
     }
+    // Screen every candidate on two blocks of the sample, then score the most promising few on
+    // all of it.
+    if sample.len() > 2 * BLOCK_SIZE && candidates.len() > SHORTLIST {
+        let mid = sample.len() / 2;
+        let screen: Vec<T> = sample[..BLOCK_SIZE]
+            .iter()
+            .chain(&sample[mid..mid + BLOCK_SIZE])
+            .copied()
+            .collect();
+        let mut scored: Vec<(f64, Mode)> = candidates
+            .iter()
+            .map(|&mode| (estimated_bits(&screen, mode, config), mode))
+            .collect();
+        scored.sort_by(|a, b| a.0.total_cmp(&b.0));
+        candidates = scored.into_iter().take(SHORTLIST).map(|(_, m)| m).collect();
+    }
     let classic = estimated_bits(&sample, Mode::Classic, config);
     let mut best = (Mode::Classic, classic * (1.0 - MIN_RELATIVE_SAVINGS));
     for mode in candidates {
@@ -463,6 +472,9 @@ pub fn choose_mode<T: Numeric>(values: &[T], config: &Config) -> Mode {
     }
     best.0
 }
+
+/// Candidates scored on the whole sample after screening.
+const SHORTLIST: usize = 3;
 
 #[derive(Clone, Debug)]
 pub struct Encoded<T: Number> {
