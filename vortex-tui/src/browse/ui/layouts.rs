@@ -213,18 +213,16 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .style(Style::new().bold())
             .height(1);
 
-        let rows = array.statistics().with_iter(|iter| {
-            iter.map(|(stat, value)| {
-                let value = value.clone().into_scalar(
-                    stat.dtype(array.dtype())
-                        .vortex_expect("stat invalid for dtype"),
-                );
-                let stat = Cell::from(Text::from(format!("{stat}")));
+        let results = array.aggregations().snapshot_results();
+        let rows = results
+            .iter()
+            .filter(|(_, value)| !value.is_absent())
+            .map(|(aggregate, value)| {
+                let aggregate = Cell::from(Text::from(format!("{aggregate}")));
                 let value = Cell::from(Text::from(format!("{value}")));
-                Row::new(vec![stat, value])
+                Row::new(vec![aggregate, value])
             })
-            .collect::<Vec<_>>()
-        });
+            .collect::<Vec<_>>();
 
         let layout = Layout::default()
             .direction(Direction::Horizontal)
