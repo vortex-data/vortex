@@ -12,9 +12,7 @@ use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
 use core::arch::aarch64::vtbl1_u8;
 
-use vortex_mask::MaskValues;
-
-use super::super::slice::for_each_mask_word;
+use super::super::slice::MaskWords;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
@@ -32,16 +30,18 @@ fn density_band<T>() -> Option<std::ops::Range<f64>> {
 }
 
 /// Choose the kernel for this element width, if one applies to this mask.
-pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
-    if !density_band::<T>()?.contains(&mask.density()) {
+pub(super) fn select_kernel<T, const IN_PLACE: bool, W: MaskWords>(
+    density: f64,
+) -> Option<Kernel<W>> {
+    if !density_band::<T>()?.contains(&density) {
         return None;
     }
 
     match size_of::<T>() {
-        1 => Some(compress_neon_8::<IN_PLACE> as Kernel),
-        2 => Some(compress_neon_16::<IN_PLACE> as Kernel),
-        4 => Some(compress_neon_32::<IN_PLACE> as Kernel),
-        8 => Some(compress_neon_64::<IN_PLACE> as Kernel),
+        1 => Some(compress_neon_8::<IN_PLACE, W> as Kernel<W>),
+        2 => Some(compress_neon_16::<IN_PLACE, W> as Kernel<W>),
+        4 => Some(compress_neon_32::<IN_PLACE, W> as Kernel<W>),
+        8 => Some(compress_neon_64::<IN_PLACE, W> as Kernel<W>),
         _ => None,
     }
 }
@@ -130,13 +130,13 @@ macro_rules! neon_compress_kernel {
         ///
         /// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
         /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
-        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
+        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool, W: MaskWords>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            mask: &W,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            mask.for_each_word(|word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
