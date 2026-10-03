@@ -72,15 +72,15 @@ impl FlatReader {
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
-        // We create the segment_fut here to ensure we give the segment reader visibility into
-        // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
-
         let mut cached = self.array.lock();
         if let Some(array) = cached.as_ref().and_then(WeakShared::upgrade) {
             return array;
         }
+
+        // We create the segment_fut here, before the returned future is polled, to give the
+        // segment reader visibility into how to prioritize this segment. A decode that is still
+        // shared above already holds a request for the same segment.
+        let segment_fut = self.segment_source.request(self.layout.segment_id());
 
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
@@ -247,6 +247,8 @@ impl LayoutReader for FlatReader {
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
@@ -266,6 +268,9 @@ mod test {
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -386,6 +391,61 @@ mod test {
 
             let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
             assert_arrays_eq!(result, expected, &mut ctx);
+        })
+    }
+
+    struct CountingSegmentSource {
+        inner: Arc<TestSegments>,
+        requests: Arc<AtomicUsize>,
+    }
+
+    impl SegmentSource for CountingSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            self.inner.request(id)
+        }
+    }
+
+    #[test]
+    fn splits_share_one_decode_until_dropped() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::from_iter(0..100i32).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let requests = Arc::new(AtomicUsize::new(0));
+            let source = Arc::new(CountingSegmentSource {
+                inner: segments,
+                requests: Arc::clone(&requests),
+            });
+            let reader = layout.new_reader("".into(), source, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+
+            // Two splits of the same layout, both outstanding: one segment request, one decode.
+            let first = reader.projection_evaluation(&(0..50), &expr, MaskFuture::new_true(50))?;
+            let second =
+                reader.projection_evaluation(&(50..100), &expr, MaskFuture::new_true(50))?;
+            assert_eq!(requests.load(Ordering::Relaxed), 1);
+            assert_arrays_eq!(first.await?, array.slice(0..50)?, &mut ctx);
+            assert_arrays_eq!(second.await?, array.slice(50..100)?, &mut ctx);
+
+            // With every split done the decode is released, so a later split decodes again.
+            let third =
+                reader.projection_evaluation(&(0..100), &expr, MaskFuture::new_true(100))?;
+            assert_eq!(requests.load(Ordering::Relaxed), 2);
+            assert_arrays_eq!(third.await?, array, &mut ctx);
+            Ok(())
         })
     }
 }
