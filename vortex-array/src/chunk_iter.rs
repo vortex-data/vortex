@@ -344,7 +344,7 @@ impl ArrayRef {
             self.encoding_id(),
             self.dtype()
         );
-        self.decompress_chunks_unchecked(ctx, sink)
+        self.decompress_child_chunks(ctx, sink)
     }
 
     /// Stream chunks if the tree supports it, otherwise fall back to executing the array to
@@ -360,13 +360,22 @@ impl ArrayRef {
             self.dtype()
         );
         if self.supports_decompress_chunks() {
-            self.decompress_chunks_unchecked(ctx, sink)
+            self.decompress_child_chunks(ctx, sink)
         } else {
             decompress_chunks_via_canonical(self, ctx, sink)
         }
     }
 
-    fn decompress_chunks_unchecked(
+    /// Stream a child of an encoding's [`VTable::decompress_chunks`] without first checking that
+    /// it streams, because the encoding's own [`VTable::supports_decompress_chunks`] already
+    /// required it. [`Self::decompress_chunks`] would walk the child's tree again at every level.
+    ///
+    /// Called on a tree that does not stream, it errors when it reaches the unsupported encoding,
+    /// possibly after emitting earlier chunks.
+    ///
+    /// [`VTable::decompress_chunks`]: crate::vtable::VTable::decompress_chunks
+    /// [`VTable::supports_decompress_chunks`]: crate::vtable::VTable::supports_decompress_chunks
+    pub fn decompress_child_chunks(
         &self,
         ctx: &mut ExecutionCtx,
         sink: &mut dyn ChunkSink,
@@ -517,19 +526,25 @@ pub fn execute_via_chunks(
             ctx.allocator(),
         );
         let mut uninit_range = builder.uninit_range(len);
-        // SAFETY: every value slot is initialized by the chunk stream below, which covers
-        // exactly 0..len (checked in debug builds).
+        // SAFETY: the range is only finished below once every value slot is initialized.
         unsafe {
             uninit_range.append_mask(&validity_mask);
         }
         {
-            // SAFETY: the chunk stream covers 0..len contiguously.
+            // SAFETY: `BuilderSink` initializes the slots it accepts, and the stream must cover
+            // 0..len contiguously before the range is finished.
             let dst = unsafe { uninit_range.slice_uninit_mut(0, len) };
-            let mut sink = BuilderSink::<T> { dst };
+            let mut sink = BuilderSink::<T> { dst, written: 0 };
             // The caller checked that the tree streams; an encoding that does not errors out.
-            array.decompress_chunks_unchecked(ctx, &mut sink)?;
+            array.decompress_child_chunks(ctx, &mut sink)?;
+            vortex_ensure!(
+                sink.written == len,
+                "decompress_chunks of {} streamed {} of {len} rows",
+                array.encoding_id(),
+                sink.written
+            );
         }
-        // SAFETY: mask appended for len rows and all len values initialized above.
+        // SAFETY: mask appended for len rows, and the stream initialized all len values.
         unsafe {
             uninit_range.finish();
         }
@@ -539,11 +554,29 @@ pub fn execute_via_chunks(
 
 struct BuilderSink<'a, T> {
     dst: &'a mut [MaybeUninit<T>],
+    /// Rows accepted so far. Chunks must arrive contiguously, so `dst[..written]` is initialized.
+    written: usize,
+}
+
+impl<T> BuilderSink<'_, T> {
+    /// Record that rows `row_range` follow the rows accepted so far. Checked in release builds
+    /// too, because the builder exposes every row the stream claims to have written.
+    #[inline]
+    fn advance(&mut self, row_range: &Range<usize>) -> VortexResult<()> {
+        vortex_ensure!(
+            row_range.start == self.written,
+            "decompress_chunks streamed rows {row_range:?} after {} rows",
+            self.written
+        );
+        self.written = row_range.end;
+        Ok(())
+    }
 }
 
 impl<T: NativePType> ChunkSink for BuilderSink<'_, T> {
     #[inline]
     fn accept(&mut self, chunk: ChunkMut<'_>, row_range: Range<usize>) -> VortexResult<()> {
+        self.advance(&row_range)?;
         self.dst[row_range].write_copy_of_slice(chunk.as_slice::<T>());
         Ok(())
     }
@@ -559,8 +592,13 @@ impl<T: NativePType> ChunkSink for BuilderSink<'_, T> {
     }
 
     #[inline]
-    fn accept_written(&mut self, _row_range: Range<usize>) -> VortexResult<()> {
-        Ok(())
+    fn accept_written(&mut self, row_range: Range<usize>) -> VortexResult<()> {
+        vortex_ensure!(
+            row_range.end <= self.dst.len(),
+            "decompress_chunks wrote rows {row_range:?} past {} rows",
+            self.dst.len()
+        );
+        self.advance(&row_range)
     }
 }
 
@@ -684,6 +722,9 @@ impl<T: NativePType> ChunkPatches<T> {
 /// Input chunks are read as `I` and output chunks are tagged `output_ptype`, each of which may
 /// differ from the stream's type in signedness only, so signed types decode through their
 /// unsigned counterparts.
+///
+/// Call [`Self::finish`] once the child's stream ends, which rejects a stream that stopped part
+/// way through a block.
 pub struct BlockDecodeSink<'a, I, O, D> {
     offset: usize,
     len: usize,
@@ -720,6 +761,17 @@ where
             output: ScratchChunk::new(),
             inner,
         }
+    }
+
+    /// Check that the child's stream ended on a block boundary. A trailing partial block cannot
+    /// be decoded, so its rows would otherwise be missing from the output.
+    pub fn finish(self) -> VortexResult<()> {
+        vortex_ensure!(
+            self.pending_len == 0,
+            "block decoder input ended {} rows into a {DECOMPRESS_CHUNK_LEN}-row block",
+            self.pending_len
+        );
+        Ok(())
     }
 }
 
@@ -909,6 +961,46 @@ mod tests {
             Ok(())
         })?;
         Ok(out)
+    }
+
+    /// The builder exposes every row a stream claims to have written, so it rejects gaps.
+    #[test]
+    fn builder_sink_rejects_gaps() -> VortexResult<()> {
+        let mut dst = [MaybeUninit::<u32>::uninit(); 8];
+        let mut sink = BuilderSink {
+            dst: &mut dst,
+            written: 0,
+        };
+        sink.accept(ChunkMut::new(&mut [1u32, 2]), 0..2)?;
+        assert!(sink.accept(ChunkMut::new(&mut [3u32]), 3..4).is_err());
+        assert!(sink.accept_written(5..6).is_err());
+        assert!(sink.accept_written(2..9).is_err());
+        sink.accept_written(2..8)?;
+        assert_eq!(sink.written, 8);
+        Ok(())
+    }
+
+    /// A child stream that stops part way through a block cannot be decoded.
+    #[test]
+    fn block_decode_sink_rejects_partial_block() -> VortexResult<()> {
+        let decode = |_: usize,
+                      input: &[u32; DECOMPRESS_CHUNK_LEN],
+                      out: &mut [u32; DECOMPRESS_CHUNK_LEN]| {
+            out.copy_from_slice(input);
+            Ok(())
+        };
+        let mut rows = 0;
+        let mut count = |chunk: ChunkMut<'_>, _: Range<usize>| -> VortexResult<()> {
+            rows += chunk.len();
+            Ok(())
+        };
+        let mut input = [7u32; 1500];
+        let mut sink = BlockDecodeSink::new(0, 1500, PType::U32, decode, &mut count);
+        sink.accept(ChunkMut::new(&mut input[..1000]), 0..1000)?;
+        sink.accept(ChunkMut::new(&mut input[1000..]), 1000..1500)?;
+        assert!(sink.finish().is_err());
+        assert_eq!(rows, DECOMPRESS_CHUNK_LEN);
+        Ok(())
     }
 
     #[test]

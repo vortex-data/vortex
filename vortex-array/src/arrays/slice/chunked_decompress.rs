@@ -31,13 +31,13 @@ pub(super) fn decompress_chunks(
     if let Some(resolved) = array.array().try_execute_parent_kernels(ctx)?
         && resolved.supports_decompress_chunks()
     {
-        return resolved.decompress_chunks(ctx, sink);
+        return resolved.decompress_child_chunks(ctx, sink);
     }
     let mut adapter = TrimSink {
         range: array.slice_range().clone(),
         inner: sink,
     };
-    array.child().decompress_chunks(ctx, &mut adapter)
+    array.child().decompress_child_chunks(ctx, &mut adapter)
 }
 
 /// Forwards only the rows of the child's stream that fall in `range`, renumbered from its start.

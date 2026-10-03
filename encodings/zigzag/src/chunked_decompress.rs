@@ -51,7 +51,7 @@ fn decompress_chunks_typed<T: NativePType>(
         inner: sink,
         _value: PhantomData,
     };
-    array.encoded().decompress_chunks(ctx, &mut adapter)
+    array.encoded().decompress_child_chunks(ctx, &mut adapter)
 }
 
 /// Decodes each chunk of unsigned integers into the signed integers of the same width in place.

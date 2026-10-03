@@ -51,7 +51,7 @@ pub(super) fn decompress_chunks(
                 inner: sink,
                 _codes: PhantomData,
             };
-            codes.decompress_chunks(ctx, &mut adapter)
+            codes.decompress_child_chunks(ctx, &mut adapter)
         })
     })
 }
@@ -101,10 +101,16 @@ where
     // `out` has a constant length for a full chunk; giving `codes` the same lets both loops below
     // run a known number of times.
     let codes = &codes[..out.len()];
-    let max_code = codes.iter().copied().max().map_or(0, |code| code.as_());
-    if max_code < values.len() {
+    // Reduce in the code type, which vectorizes. A negative signed code would wrap to a huge
+    // index, so the chunk takes the unchecked path only when its smallest code is non-negative
+    // too; for unsigned codes that check folds away.
+    let in_bounds = match (codes.iter().copied().min(), codes.iter().copied().max()) {
+        (Some(min), Some(max)) => min >= C::default() && max.as_() < values.len(),
+        _ => true,
+    };
+    if in_bounds {
         for (out, code) in out.iter_mut().zip(codes) {
-            // SAFETY: every code in the chunk is at most `max_code`, which is in bounds.
+            // SAFETY: every code in the chunk lies in `0..values.len()`.
             *out = unsafe { *values.get_unchecked(code.as_()) };
         }
         return Ok(());
@@ -179,6 +185,32 @@ mod tests {
         })?;
         assert_eq!(streamed.len(), 5);
         assert_eq!([streamed[0], streamed[2], streamed[4]], [10, 20, 20]);
+        Ok(())
+    }
+
+    /// Negative signed codes wrap to huge indices, so they must take the checked gather: an
+    /// error where valid, a default where null.
+    #[test]
+    fn dict_negative_signed_codes() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = buffer![10i32, 20, 30].into_array();
+        let codes = PrimitiveArray::new(
+            buffer![0i16, -1, 2, i16::MIN, 1],
+            Validity::from_iter([true, false, true, false, true]),
+        );
+        let array = DictArray::try_new(codes.into_array(), values.clone())?.into_array();
+        let mut streamed = Vec::new();
+        array.decompress_chunks(&mut ctx, &mut |chunk: ChunkMut<'_>, _rows: Range<usize>| {
+            streamed.extend_from_slice(chunk.as_slice::<i32>());
+            Ok(())
+        })?;
+        assert_eq!([streamed[0], streamed[2], streamed[4]], [10, 30, 20]);
+
+        // Construction does not check codes against the values, so the gather must.
+        let invalid = DictArray::try_new(buffer![0i16, -1, 2].into_array(), values)?.into_array();
+        let result =
+            invalid.decompress_chunks(&mut ctx, &mut |_: ChunkMut<'_>, _: Range<usize>| Ok(()));
+        assert!(result.is_err());
         Ok(())
     }
 }

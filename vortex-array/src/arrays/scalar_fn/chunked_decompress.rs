@@ -43,7 +43,7 @@ pub(super) fn decompress_chunks(
         widened_child(&array).ok_or_else(|| vortex_err!("only lossless primitive casts stream"))?;
     let (from, to) = (child.dtype().as_ptype(), array.dtype().as_ptype());
     if from == to {
-        return child.decompress_chunks(ctx, sink);
+        return child.decompress_child_chunks(ctx, sink);
     }
     match_each_native_ptype!(from, |F| {
         match_each_native_ptype!(to, |T| {
@@ -52,7 +52,7 @@ pub(super) fn decompress_chunks(
                 inner: sink,
                 _from: PhantomData,
             };
-            child.decompress_chunks(ctx, &mut adapter)
+            child.decompress_child_chunks(ctx, &mut adapter)
         })
     })
 }

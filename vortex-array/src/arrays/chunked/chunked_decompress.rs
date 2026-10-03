@@ -31,7 +31,7 @@ pub(super) fn decompress_chunks(
         inner: sink,
     };
     for chunk in array.non_empty_chunks() {
-        chunk.decompress_chunks(ctx, &mut adapter)?;
+        chunk.decompress_child_chunks(ctx, &mut adapter)?;
         adapter.start += chunk.len();
     }
     Ok(())

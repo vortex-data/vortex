@@ -65,12 +65,11 @@ fn bench_execute(bencher: Bencher, array: ArrayRef, streaming: bool) {
                     .vortex_expect("bench")
                     .len()
             } else {
-                vortex_array::chunk_iter::set_chunked_execute_enabled(false);
-                let result = array
-                    .execute::<PrimitiveArray>(&mut ctx)
-                    .vortex_expect("bench");
-                vortex_array::chunk_iter::set_chunked_execute_enabled(true);
-                result.len()
+                vortex_array::chunk_iter::without_chunked_execute(|| {
+                    array.execute::<PrimitiveArray>(&mut ctx)
+                })
+                .vortex_expect("bench")
+                .len()
             }
         });
 }
@@ -135,11 +134,10 @@ fn filter_bp_sum_execute_then_read(bencher: Bencher, keep: usize) {
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            vortex_array::chunk_iter::set_chunked_execute_enabled(false);
-            let primitive = array
-                .execute::<PrimitiveArray>(&mut ctx)
-                .vortex_expect("bench");
-            vortex_array::chunk_iter::set_chunked_execute_enabled(true);
+            let primitive = vortex_array::chunk_iter::without_chunked_execute(|| {
+                array.execute::<PrimitiveArray>(&mut ctx)
+            })
+            .vortex_expect("bench");
             primitive
                 .as_slice::<u32>()
                 .iter()

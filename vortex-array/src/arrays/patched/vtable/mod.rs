@@ -360,7 +360,7 @@ impl VTable for Patched {
                 )),
                 inner: sink,
             };
-            array.inner().decompress_chunks(ctx, &mut adapter)
+            array.inner().decompress_child_chunks(ctx, &mut adapter)
         })
     }
 }

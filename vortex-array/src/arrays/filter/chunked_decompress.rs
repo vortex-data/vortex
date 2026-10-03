@@ -41,7 +41,7 @@ pub(crate) fn decompress_chunks(
     match array.filter_mask() {
         Mask::AllFalse(_) | Mask::AllTrue(0) => Ok(()),
         // Nothing is filtered out: forward the child's chunks untouched.
-        Mask::AllTrue(_) => array.child().decompress_chunks(ctx, sink),
+        Mask::AllTrue(_) => array.child().decompress_child_chunks(ctx, sink),
         Mask::Values(values) => match_each_native_ptype!(array.dtype().as_ptype(), |T| {
             let mut adapter = FilterChunkSink::<T> {
                 bits: values.bit_buffer(),
@@ -49,7 +49,7 @@ pub(crate) fn decompress_chunks(
                 out_row: 0,
                 inner: sink,
             };
-            array.child().decompress_chunks(ctx, &mut adapter)
+            array.child().decompress_child_chunks(ctx, &mut adapter)
         }),
     }
 }

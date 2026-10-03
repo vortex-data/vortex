@@ -14,7 +14,6 @@ use num_traits::PrimInt;
 use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::Constant;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
@@ -368,14 +367,10 @@ fn apply_patches<T: NativePType + WrappingAdd>(
     Ok(())
 }
 
-/// Whether [`decompress_chunks`] can stream: either the fused unpack applies to a [`BitPacked`]
-/// child, or the encoded child streams and each chunk gets its references added on the way up.
+/// Whether [`decompress_chunks`] can stream: whenever the encoded child streams, which includes
+/// every [`BitPacked`] child, fused or not.
 pub(crate) fn supports_decompress_chunks(array: ArrayView<'_, crate::FoR>) -> bool {
-    let fused = array
-        .encoded()
-        .as_opt::<BitPacked>()
-        .is_some_and(|bp| array.references().is::<Constant>() || bp.offset() == array.offset());
-    fused || array.encoded().supports_decompress_chunks()
+    array.encoded().supports_decompress_chunks()
 }
 
 /// Stream the decompressed values of a FoR array through `sink`, one FastLanes chunk at a time.
@@ -413,14 +408,14 @@ fn decompress_chunks_typed<
             return fused_decompress_chunks(bp, |_| reference, ctx, sink);
         }
         if reference == T::zero() {
-            return encoded.decompress_chunks(ctx, sink);
+            return encoded.decompress_child_chunks(ctx, sink);
         }
         let mut adapter = AddReferenceSink {
             chunk_reference: |_| reference,
             offset,
             inner: sink,
         };
-        return encoded.decompress_chunks(ctx, &mut adapter);
+        return encoded.decompress_child_chunks(ctx, &mut adapter);
     }
 
     // One reference per chunk: a small child, materialized once like patches are.
@@ -436,7 +431,7 @@ fn decompress_chunks_typed<
         offset,
         inner: sink,
     };
-    encoded.decompress_chunks(ctx, &mut adapter)
+    encoded.decompress_child_chunks(ctx, &mut adapter)
 }
 
 /// Unpack each chunk of `bp` with its reference added by the fused kernel, straight into the

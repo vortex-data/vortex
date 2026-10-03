@@ -43,7 +43,7 @@ pub(crate) fn decompress_chunks(
             patches,
             inner: sink,
         };
-        array.encoded().decompress_chunks(ctx, &mut adapter)
+        array.encoded().decompress_child_chunks(ctx, &mut adapter)
     })
 }
 

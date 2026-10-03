@@ -104,7 +104,8 @@ where
         },
         sink,
     );
-    array.indices().decompress_chunks(ctx, &mut adapter)
+    array.indices().decompress_child_chunks(ctx, &mut adapter)?;
+    adapter.finish()
 }
 
 /// Decode each block of `array` from its bit-packed indices, unpacked one block at a time.
@@ -176,17 +177,19 @@ mod tests {
     }
 
     /// Rebuild `rle` with its indices re-encoded by `reencode`.
-    fn with_indices(rle: &ArrayRef, reencode: impl FnOnce(ArrayRef) -> ArrayRef) -> ArrayRef {
+    fn with_indices(
+        rle: &ArrayRef,
+        reencode: impl FnOnce(ArrayRef) -> VortexResult<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
         let rle = rle.as_::<RLE>();
-        RLE::try_new(
+        Ok(RLE::try_new(
             rle.values().clone(),
-            reencode(rle.indices().clone()),
+            reencode(rle.indices().clone())?,
             rle.values_idx_offsets().clone(),
             0,
             rle.len(),
-        )
-        .unwrap()
-        .into_array()
+        )?
+        .into_array())
     }
 
     #[rstest]
@@ -199,21 +202,17 @@ mod tests {
         let array = match indices {
             0 => rle,
             1 => with_indices(&rle, |indices| {
-                let indices = indices.execute::<PrimitiveArray>(&mut ctx).unwrap();
-                BitPackedData::encode(&indices.into_array(), 6, &mut ctx)
-                    .unwrap()
-                    .into_array()
-            }),
+                let indices = indices.execute::<PrimitiveArray>(&mut ctx)?;
+                Ok(BitPackedData::encode(&indices.into_array(), 6, &mut ctx)?.into_array())
+            })?,
             // Chunks of indices that straddle the RLE chunks are buffered into whole chunks.
             _ => with_indices(&rle, |indices| {
                 let pieces = [0, 700, 1500, 2600, 4000, indices.len()]
                     .windows(2)
-                    .map(|w| indices.slice(w[0]..w[1]).unwrap())
-                    .collect::<Vec<_>>();
-                ChunkedArray::try_new(pieces, indices.dtype().clone())
-                    .unwrap()
-                    .into_array()
-            }),
+                    .map(|w| indices.slice(w[0]..w[1]))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                Ok(ChunkedArray::try_new(pieces, indices.dtype().clone())?.into_array())
+            })?,
         };
         assert_streams_like_execute(&array, &mut ctx)?;
         assert_streams_like_execute(&array.slice(517..4013)?, &mut ctx)

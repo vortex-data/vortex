@@ -86,7 +86,8 @@ where
         },
         sink,
     );
-    deltas.decompress_chunks(ctx, &mut adapter)
+    deltas.decompress_child_chunks(ctx, &mut adapter)?;
+    adapter.finish()
 }
 
 #[cfg(test)]
