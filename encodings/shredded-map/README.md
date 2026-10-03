@@ -95,3 +95,22 @@ Compressed sizes (MiB), `Map<Utf8, Utf8>`:
 | OpenTelemetry | 1.81 | 39.22 | 5.19 | 3.63 | 1.22 | 0.71 |
 | APT29 | 9.44 | 47.11 | 14.87 | 15.04 | 4.60 | 3.01 |
 | Online Boutique | 0.30 | 6.15 | 1.57 | 1.53 | 0.80 | 0.31 |
+
+## Key-set layout and map compressor schemes
+
+`keyset::KeySetMap` is a second map layout: one copy of each distinct key set, plus a per-row key
+set id and value offset, so keys are stored once per set rather than once per entry. It supports
+the same operations as the other layouts.
+
+`scheme` registers the layouts as BtrBlocks map schemes (`KEYSET_SCHEME`, `KEYSET_ROWS_SCHEME`,
+`SHREDDED_SCHEME`), so a compressor with them registered picks the smallest layout for a map
+column by itself. Compact sizes (MiB):
+
+| dataset | `Map` | key sets | `encode` | BtrBlocks pick |
+| --- | --- | --- | --- | --- |
+| LO2 | 1.37 | 1.22 | 0.015 | 0.015 |
+| CloudTrail | 29.95 | 27.97 | 23.62 | 23.58 |
+| OpenStack | 7.70 | 6.04 | 2.40 | 2.32 |
+| OpenTelemetry | 5.19 | 3.57 | 0.71 | 0.70 |
+| APT29 | 14.87 | 11.82 | 3.01 | 2.98 |
+| Online Boutique | 1.57 | 1.48 | 0.31 | 0.31 |

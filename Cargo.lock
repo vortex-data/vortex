@@ -11742,6 +11742,7 @@ dependencies = [
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-compressor",
  "vortex-error",
  "vortex-mask",
  "vortex-session",

@@ -466,6 +466,49 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
     let got = ops::encoded::to_map(&got, ctx)?.into_array();
     assert_eq!(read_rows(&got, ctx)?, projected, "encoded project");
 
+    // The key-set encoding, with and without value deduplication.
+    for dedup_values in [false, true] {
+        let ks =
+            crate::keyset::keyset_encode(&map, crate::keyset::KeySetOptions { dedup_values }, ctx)?
+                .into_array();
+        assert_eq!(read_rows(&ks, ctx)?, case.rows, "keyset scalar_at");
+        let got = ops::encoded::to_map(&ks, ctx)?.into_array();
+        assert_eq!(read_rows(&got, ctx)?, case.rows, "keyset to_map");
+        let got = ops::encoded::label_names(&ks, ctx)?.into_array();
+        assert_eq!(read_string_lists(&got, ctx)?, names, "keyset label_names");
+        assert_eq!(ops::encoded::distinct_label_names(&ks, ctx)?, distinct);
+        for key in VOCAB.iter().chain(&["missing"]) {
+            let got = ops::encoded::get_label_utf8(&ks, key, ctx)?;
+            assert_eq!(
+                read_strings(&got, ctx)?,
+                expected_label(&case.rows, key),
+                "keyset get_label {key:?}"
+            );
+        }
+        let got = ops::encoded::project(&ks, projection, ctx)?;
+        let got = ops::encoded::to_map(&got, ctx)?.into_array();
+        assert_eq!(read_rows(&got, ctx)?, projected, "keyset project");
+        let len = case.rows.len();
+        if len > 0 {
+            let (start, end) = (selection[0] % len, selection[1] % (len + 1));
+            let (start, end) = (start.min(end), start.max(end));
+            let got = ks.slice(start..end)?;
+            assert_eq!(
+                read_rows(&got, ctx)?,
+                case.rows[start..end].to_vec(),
+                "keyset slice"
+            );
+            let indices: Vec<u64> = selection.iter().map(|&i| (i % len) as u64).collect();
+            let take = PrimitiveArray::new(Buffer::from(indices.clone()), Validity::NonNullable);
+            let got = ks.take(take.into_array())?;
+            let expected: Vec<Row> = indices
+                .iter()
+                .map(|&i| case.rows[i as usize].clone())
+                .collect();
+            assert_eq!(read_rows(&got, ctx)?, expected, "keyset take");
+        }
+    }
+
     // Slice, take and filter keep the children aligned.
     let len = case.rows.len();
     if len > 0 {
@@ -566,5 +609,43 @@ fn shreds_frequent_keys_into_typed_columns() -> VortexResult<()> {
         (columns[1].key.as_ref(), columns[1].variant),
         ("job", Some(0))
     );
+    Ok(())
+}
+
+/// With the map schemes registered, BtrBlocks picks a map layout at least as small as compressing
+/// the map's children, and the result reads back the same rows.
+#[test]
+fn map_schemes_pick_a_smaller_layout() -> VortexResult<()> {
+    let session = array_session();
+    let mut ctx = session.create_execution_ctx();
+    let mut builder = Utf8MapBuilder::new(Nullability::Nullable, Nullability::NonNullable);
+    for i in 0..20_000usize {
+        let mut row = vec![
+            ("host".to_string(), Some(format!("h{}", (i / 37) % 300))),
+            ("job".to_string(), Some("node".to_string())),
+        ];
+        if i % 10 == 3 {
+            row.push(("err".to_string(), Some(format!("e{}", i % 7))));
+        }
+        row.sort();
+        builder.push_row(row.iter().map(|(k, v)| (k, v.as_ref())));
+    }
+    let map = builder.finish()?.into_array();
+    let expected = read_rows(&map, &mut ctx)?;
+
+    let plain = vortex_btrblocks::BtrBlocksCompressorBuilder::from_session(&session)
+        .unrestricted()
+        .build()
+        .compress(&map, &mut ctx)?;
+    let picked = vortex_btrblocks::BtrBlocksCompressorBuilder::from_session(&session)
+        .with_new_scheme(&crate::scheme::KEYSET_SCHEME)
+        .with_new_scheme(&crate::scheme::KEYSET_ROWS_SCHEME)
+        .with_new_scheme(&crate::scheme::SHREDDED_SCHEME)
+        .unrestricted()
+        .build()
+        .compress(&map, &mut ctx)?;
+    assert!(picked.nbytes() <= plain.nbytes());
+    assert_ne!(picked.encoding_id(), plain.encoding_id());
+    assert_eq!(read_rows(&picked, &mut ctx)?, expected);
     Ok(())
 }

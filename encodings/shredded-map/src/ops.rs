@@ -331,6 +331,9 @@ pub mod encoded {
     use super::*;
     use crate::decode::codes_u32;
     use crate::flat::to_usize_vec;
+    use crate::keyset;
+    use crate::keyset::KeySetMap;
+    use crate::keyset::KeySetMapArray;
 
     enum View {
         Dict {
@@ -338,6 +341,7 @@ pub mod encoded {
             values: ShreddedMapArray,
         },
         Shredded(ShreddedMapArray),
+        KeySet(KeySetMapArray),
         Map(ArrayRef),
     }
 
@@ -352,7 +356,10 @@ pub mod encoded {
         }
         match array.clone().try_downcast::<ShreddedMap>() {
             Ok(shredded) => View::Shredded(shredded),
-            Err(array) => View::Map(array),
+            Err(array) => match array.try_downcast::<KeySetMap>() {
+                Ok(keyset) => View::KeySet(keyset),
+                Err(array) => View::Map(array),
+            },
         }
     }
 
@@ -404,6 +411,7 @@ pub mod encoded {
                 expand_map(&shredded::to_map(&values, ctx)?, &codes, ctx)
             }
             View::Shredded(s) => shredded::to_map(&s, ctx),
+            View::KeySet(k) => keyset::decode(&k, ctx),
             View::Map(m) => m.execute::<MapArray>(ctx),
         }
     }
@@ -415,6 +423,7 @@ pub mod encoded {
                 expand_listview(&shredded::label_names(&values, ctx)?, &codes, ctx)
             }
             View::Shredded(s) => shredded::label_names(&s, ctx),
+            View::KeySet(k) => keyset::label_names(&k, ctx),
             View::Map(m) => map::label_names(&m, ctx),
         }
     }
@@ -428,6 +437,7 @@ pub mod encoded {
             View::Dict { values, .. } | View::Shredded(values) => {
                 shredded::distinct_label_names(&values, ctx)
             }
+            View::KeySet(k) => keyset::distinct_label_names(&k, ctx),
             View::Map(m) => map::distinct_label_names(&m, ctx),
         }
     }
@@ -445,6 +455,7 @@ pub mod encoded {
             )?
             .into_array()),
             View::Shredded(s) => shredded::get_label_utf8(&s, key, ctx),
+            View::KeySet(k) => keyset::get_label_utf8(&k, key, ctx),
             View::Map(m) => map::get_label_utf8(&m, key, ctx),
         }
     }
@@ -456,6 +467,7 @@ pub mod encoded {
                 expand_map(&shredded::to_utf8_map(&values, ctx)?, &codes, ctx)
             }
             View::Shredded(s) => shredded::to_utf8_map(&s, ctx),
+            View::KeySet(k) => map::to_utf8_map(&keyset::decode(&k, ctx)?.into_array(), ctx),
             View::Map(m) => map::to_utf8_map(&m, ctx),
         }
     }
@@ -472,6 +484,7 @@ pub mod encoded {
                     .into_array()
             }
             View::Shredded(s) => shredded::project(&s, keys, ctx)?.into_array(),
+            View::KeySet(k) => keyset::project(&k, keys, ctx)?.into_array(),
             View::Map(m) => map::project(&m, keys, ctx)?.into_array(),
         })
     }

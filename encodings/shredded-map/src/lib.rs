@@ -18,10 +18,12 @@ mod columnar;
 mod decode;
 mod flat;
 mod gather;
+pub mod keyset;
 pub mod labels;
 pub mod ops;
 mod rowcmp;
 mod rules;
+pub mod scheme;
 mod shred;
 
 #[cfg(test)]
@@ -31,4 +33,5 @@ mod tests;
 pub fn initialize(session: &VortexSession) {
     vortex_sparse::initialize(session);
     session.arrays().register(ShreddedMap);
+    session.arrays().register(keyset::KeySetMap);
 }
