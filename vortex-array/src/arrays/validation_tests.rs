@@ -223,4 +223,36 @@ mod tests {
         assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
         assert!(result.is_err());
     }
+
+    #[rstest::rstest]
+    #[case::whole(vec![0, 2, 3], "éa".as_bytes().to_vec(), Validity::NonNullable, true)]
+    #[case::inside_a_char(vec![0, 1, 3], "éa".as_bytes().to_vec(), Validity::NonNullable, false)]
+    #[case::invalid_bytes(vec![0, 1, 2], vec![b'a', 0xFF], Validity::NonNullable, false)]
+    #[case::invalid_bytes_at_a_null(
+        vec![0, 1, 2, 3],
+        vec![b'a', 0xFF, b'b'],
+        Validity::from_iter([true, false, true]),
+        true
+    )]
+    #[case::decreasing_offsets(vec![0, 2, 1], "abc".as_bytes().to_vec(), Validity::NonNullable, false)]
+    #[case::offset_past_the_end(vec![0, 5, 1], "abc".as_bytes().to_vec(), Validity::NonNullable, false)]
+    fn test_varbin_utf8_validation(
+        #[case] offsets: Vec<i32>,
+        #[case] bytes: Vec<u8>,
+        #[case] validity: Validity,
+        #[case] ok: bool,
+    ) {
+        let nullability = if matches!(validity, Validity::NonNullable) {
+            Nullability::NonNullable
+        } else {
+            Nullability::Nullable
+        };
+        let result = VarBinArray::try_new(
+            Buffer::from(offsets).into_array(),
+            ByteBuffer::from(bytes),
+            DType::Utf8(nullability),
+            validity,
+        );
+        assert_eq!(result.is_ok(), ok);
+    }
 }

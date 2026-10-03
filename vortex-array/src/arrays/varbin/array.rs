@@ -32,6 +32,12 @@ use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
+/// Returns `true` if `index` is the end of `bytes` or the start of a UTF-8 char in it.
+fn is_char_boundary_at(bytes: &[u8], index: usize) -> bool {
+    // Continuation bytes have the form `0b10xx_xxxx`.
+    index == bytes.len() || bytes[index] & 0b1100_0000 != 0b1000_0000
+}
+
 #[array_slots(VarBin)]
 pub struct VarBinSlots {
     /// The offsets array defining the start/end of each variable-length binary element.
@@ -241,7 +247,12 @@ impl VarBinData {
     #[allow(clippy::disallowed_methods)]
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
-            let string_bytes = &bytes[start..end];
+            let string_bytes = bytes.get(start..end).ok_or_else(|| {
+                vortex_err!(
+                    InvalidArgument: "offsets {start}..{end} at index {i} are out of order or out of bounds for bytes of length {}",
+                    bytes.len()
+                )
+            })?;
             simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
                 #[expect(clippy::unwrap_used)]
                 // run validation using `compat` package to get more detailed error message
@@ -276,6 +287,21 @@ impl VarBinData {
                 last_offset,
                 bytes.len()
             );
+
+            // When the offsets never decrease, the strings tile `bytes[first..last]`. If that range
+            // is valid UTF-8 as a whole, every string is valid UTF-8 if and only if every offset
+            // falls on a char boundary. Otherwise, for example for invalid bytes at a null, check
+            // the strings one by one.
+            let first_offset: usize = offsets_slice[0].as_();
+            if offsets_slice.windows(2).all(|o| o[0] <= o[1])
+                && first_offset <= last_offset
+                && simdutf8::basic::from_utf8(&bytes[first_offset..last_offset]).is_ok()
+                && offsets_slice
+                    .iter()
+                    .all(|&o| is_char_boundary_at(bytes, o.as_()))
+            {
+                return Ok(());
+            }
 
             for (i, (start, end)) in offsets_slice
                 .windows(2)
