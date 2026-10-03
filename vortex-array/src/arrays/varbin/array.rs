@@ -247,7 +247,12 @@ impl VarBinData {
     #[allow(clippy::disallowed_methods)]
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
-            let string_bytes = &bytes[start..end];
+            let string_bytes = bytes.get(start..end).ok_or_else(|| {
+                vortex_err!(
+                    InvalidArgument: "offsets {start}..{end} at index {i} are out of order or out of bounds for bytes of length {}",
+                    bytes.len()
+                )
+            })?;
             simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
                 #[expect(clippy::unwrap_used)]
                 // run validation using `compat` package to get more detailed error message

@@ -234,6 +234,8 @@ mod tests {
         Validity::from_iter([true, false, true]),
         true
     )]
+    #[case::decreasing_offsets(vec![0, 2, 1], "abc".as_bytes().to_vec(), Validity::NonNullable, false)]
+    #[case::offset_past_the_end(vec![0, 5, 1], "abc".as_bytes().to_vec(), Validity::NonNullable, false)]
     fn test_varbin_utf8_validation(
         #[case] offsets: Vec<i32>,
         #[case] bytes: Vec<u8>,
