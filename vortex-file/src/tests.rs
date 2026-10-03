@@ -2528,6 +2528,8 @@ async fn test_sub_splitting_max_rows_caps_scan_batches() -> VortexResult<()> {
 #[rstest]
 #[case::unaligned(33_333)]
 #[case::exceeds_file(300_000)]
+// Hundreds of splits share one decode of the flat chunk while they are in flight.
+#[case::many_small(1_000)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_flat_chunk_scan_with_row_count_splits(
