@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
@@ -8,15 +12,25 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::SessionExt;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::Array;
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::Columnar;
+use crate::EqMode;
 use crate::ExecutionCtx;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::Accumulator;
@@ -39,10 +53,16 @@ use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::session::AggregateFnSession;
+use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::VTable;
+use crate::array::vtable::NotSupported;
+use crate::array::vtable::ValidityVTable;
 use crate::array_session;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
+use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -50,7 +70,9 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
+use crate::serde::ArrayChildren;
 use crate::stats::StatsSet;
+use crate::validity::Validity;
 
 #[test]
 fn helpers_and_fixed_facade_share_the_store() -> VortexResult<()> {
@@ -535,4 +557,294 @@ fn cache_removal_drops_custom_functions_after_unlock(#[case] clear_one: bool) {
             .next()
             .is_none()
     );
+}
+
+#[rstest]
+#[case::single_unique(false, false)]
+#[case::single_held(false, true)]
+#[case::iterative_unique(true, false)]
+#[case::iterative_held(true, true)]
+fn execution_snapshots_preserve_unique_input_ownership(
+    #[case] iterative: bool,
+    #[case] hold_input: bool,
+) -> VortexResult<()> {
+    let values = Buffer::copy_from([1i32, 2, 3]);
+    let original_ptr = values.as_ptr();
+    let clones = Arc::new(AtomicUsize::new(0));
+    let array = Array::try_from_parts(ArrayParts::new(
+        OwnershipProbe,
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        values.len(),
+        OwnershipProbeData {
+            values,
+            clones: Arc::clone(&clones),
+        },
+    ))?
+    .into_array();
+    let sum = Stat::Sum.finalized_aggregate_fn();
+    let result = Precision::Exact(Scalar::primitive(6i64, Nullability::Nullable));
+    array
+        .aggregations()
+        .insert_result(sum.clone(), result.clone());
+    array.statistics().set(
+        Stat::UncompressedSizeInBytes,
+        Precision::Exact(12u64.into()),
+    );
+    let held = hold_input.then(|| array.clone());
+    let mut ctx = array_session().create_execution_ctx();
+
+    let output = if iterative {
+        array.execute_until::<Primitive>(&mut ctx)?
+    } else {
+        array.execute::<ArrayRef>(&mut ctx)?
+    };
+
+    assert_eq!(clones.load(Ordering::Relaxed), usize::from(hold_input));
+    let output_ptr = output.as_::<Primitive>().as_slice::<i32>().as_ptr();
+    assert_eq!(output_ptr == original_ptr, !hold_input);
+    assert_eq!(output.aggregations().get_result(sum), result);
+    assert_eq!(
+        output.statistics().get(Stat::UncompressedSizeInBytes),
+        Precision::Absent
+    );
+    assert_arrays_eq!(output, buffer![1i32, 2, 3].into_array(), &mut ctx);
+    drop(held);
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct OwnershipProbe;
+
+#[derive(Debug)]
+struct OwnershipProbeData {
+    values: Buffer<i32>,
+    clones: Arc<AtomicUsize>,
+}
+
+impl Clone for OwnershipProbeData {
+    fn clone(&self) -> Self {
+        self.clones.fetch_add(1, Ordering::Relaxed);
+        Self {
+            values: self.values.clone(),
+            clones: Arc::clone(&self.clones),
+        }
+    }
+}
+
+impl Display for OwnershipProbeData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ownership-probe")
+    }
+}
+
+impl ArrayHash for OwnershipProbeData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _eq_mode: EqMode) {
+        self.values.hash(state);
+    }
+}
+
+impl ArrayEq for OwnershipProbeData {
+    fn array_eq(&self, other: &Self, _eq_mode: EqMode) -> bool {
+        self.values == other.values
+    }
+}
+
+impl ValidityVTable<OwnershipProbe> for OwnershipProbe {
+    fn validity(_array: ArrayView<'_, OwnershipProbe>) -> VortexResult<Validity> {
+        Ok(Validity::NonNullable)
+    }
+}
+
+impl VTable for OwnershipProbe {
+    type TypedArrayData = OwnershipProbeData;
+    type OperationsVTable = NotSupported;
+    type ValidityVTable = Self;
+
+    fn id(&self) -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.test.ownership-probe");
+        *ID
+    }
+
+    fn validate(
+        &self,
+        data: &Self::TypedArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            dtype == &DType::Primitive(PType::I32, Nullability::NonNullable),
+            "OwnershipProbe requires non-nullable I32, got {dtype}"
+        );
+        vortex_ensure!(
+            len == data.values.len(),
+            "OwnershipProbe requires length {}, got {len}",
+            data.values.len()
+        );
+        vortex_ensure!(
+            slots.is_empty(),
+            "OwnershipProbe requires no slots, got {}",
+            slots.len()
+        );
+        Ok(())
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        1
+    }
+
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
+        assert_eq!(idx, 0);
+        BufferHandle::new_host(array.data().values.clone().into_byte_buffer())
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
+        (idx == 0).then(|| "values".to_string())
+    }
+
+    fn with_buffers(
+        &self,
+        _array: ArrayView<'_, Self>,
+        _buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_bail!("OwnershipProbe cannot replace buffers")
+    }
+
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    fn deserialize(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_bail!("OwnershipProbe cannot be deserialized")
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        vortex_panic!("OwnershipProbe slot index {idx} out of bounds")
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let data = match array.try_into_parts() {
+            Ok(parts) => parts.data,
+            Err(array) => array.data().clone(),
+        };
+        // A retained parent forces both the data clone and a copy when converting to a mutable buffer.
+        let values = data.values.into_mut();
+        Ok(ExecutionResult::done(PrimitiveArray::new(
+            values.freeze(),
+            Validity::NonNullable,
+        )))
+    }
+}
+
+#[test]
+fn detached_transfer_preserves_keys_bounds_and_portability() -> VortexResult<()> {
+    let array = buffer![1.0f64, f64::NAN, 3.0].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    let skip_sum = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let include_sum = Sum.bind(NumericalAggregateOpts::include_nans());
+    array.aggregations().compute_result(&skip_sum, &mut ctx)?;
+    array
+        .aggregations()
+        .compute_result(&include_sum, &mut ctx)?;
+    let bound = Max.bind(NumericalAggregateOpts::skip_nans());
+    array.aggregations().insert_result(
+        bound.clone(),
+        Precision::Inexact(Scalar::primitive(5.0f64, Nullability::Nullable)),
+    );
+    let custom = TwiceRows {
+        calls: Arc::new(AtomicUsize::new(0)),
+        _drop_probe: None,
+    }
+    .bind(EmptyOptions);
+    array.aggregations().compute_result(&custom, &mut ctx)?;
+    array
+        .statistics()
+        .compute_uncompressed_size_in_bytes(&mut ctx);
+    let results = array.aggregations().snapshot_results();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+    drop(array);
+
+    let output = buffer![1.0f64, f64::NAN, 3.0].into_array();
+    output
+        .aggregations()
+        .inherit_from_snapshot(&results, &dtype, len);
+
+    for key in [&skip_sum, &include_sum, &bound] {
+        assert_eq!(
+            output.aggregations().get_result(key),
+            results.get_result(key)
+        );
+    }
+    assert_eq!(output.aggregations().get_result(&custom), Precision::Absent);
+    assert_eq!(
+        output.statistics().get(Stat::UncompressedSizeInBytes),
+        Precision::Absent
+    );
+    Ok(())
+}
+
+#[test]
+fn detached_transfer_preserves_exact_null() -> VortexResult<()> {
+    let array = buffer![u64::MAX, 1].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    let result = sum(&array, &mut ctx)?;
+    assert!(result.is_null());
+    let results = array.aggregations().snapshot_results();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+    drop(array);
+
+    let output = buffer![u64::MAX, 1].into_array();
+    output
+        .aggregations()
+        .inherit_from_snapshot(&results, &dtype, len);
+
+    assert_eq!(
+        output
+            .aggregations()
+            .get_result(Stat::Sum.finalized_aggregate_fn()),
+        Precision::Exact(result)
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::matching(DType::Primitive(PType::U32, Nullability::NonNullable), 2, true)]
+#[case::different_dtype(DType::Primitive(PType::U32, Nullability::Nullable), 2, false)]
+#[case::different_length(DType::Primitive(PType::U32, Nullability::NonNullable), 1, false)]
+fn detached_transfer_checks_source_dtype_and_length(
+    #[case] source_dtype: DType,
+    #[case] source_len: usize,
+    #[case] transfer: bool,
+) -> VortexResult<()> {
+    let array = buffer![1u32, 2].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    sum(&array, &mut ctx)?;
+    let results = array.aggregations().snapshot_results();
+    let output = buffer![1u32, 2].into_array();
+
+    output
+        .aggregations()
+        .inherit_from_snapshot(&results, &source_dtype, source_len);
+
+    assert_eq!(
+        output
+            .aggregations()
+            .get_result(Stat::Sum.finalized_aggregate_fn())
+            .is_exact(),
+        transfer
+    );
+    Ok(())
 }

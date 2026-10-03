@@ -487,7 +487,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let source = this.clone();
+        let encoding_id = this.encoding_id();
+        // Retaining the input handle would prevent encodings from taking unique ownership.
+        let source = this.aggregations().snapshot_results();
+        // Execution can consume the data backing `self`, so do not access it after dispatch.
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
@@ -495,19 +498,19 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 vortex_ensure!(
                     result.array().len() == len,
                     "Result length mismatch for {:?}",
-                    self.vtable
+                    encoding_id
                 );
                 vortex_ensure!(
                     result.array().dtype() == &dtype,
                     "Executed canonical dtype mismatch for {:?}",
-                    self.vtable
+                    encoding_id
                 );
             }
 
             result
                 .array()
                 .aggregations()
-                .inherit_from(source.aggregations());
+                .inherit_from_snapshot(&source, &dtype, len);
         }
 
         Ok(result)

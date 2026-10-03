@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::scalar::Scalar;
 use crate::stats::AggregateResults;
@@ -152,6 +153,27 @@ impl AggregationsRef<'_> {
                 .map(|index| entries.remove(index))
         };
         drop(removed);
+    }
+
+    /// Transfer detached results after consuming the array they describe.
+    ///
+    /// The caller must associate the snapshot with its source dtype and length, and preserve logical
+    /// values, validity, and order. The guards and portability filter match [`Self::inherit_from`].
+    pub(crate) fn inherit_from_snapshot(
+        &self,
+        source: &AggregateResults,
+        source_dtype: &DType,
+        source_len: usize,
+    ) {
+        if self.array.dtype() != source_dtype || self.array.len() != source_len {
+            return;
+        }
+
+        for (aggregate, result) in source.iter() {
+            if aggregate.is_representation_invariant() {
+                self.insert_result(aggregate.clone(), result.clone());
+            }
+        }
     }
 
     /// Transfer results when the caller preserves logical values, validity, and order.
