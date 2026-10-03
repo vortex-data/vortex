@@ -10814,6 +10814,7 @@ dependencies = [
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
+ "vortex-entropy-bins",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
@@ -11134,6 +11135,19 @@ name = "vortex-edition"
 version = "0.1.0"
 dependencies = [
  "parking_lot",
+ "vortex-error",
+ "vortex-session",
+]
+
+[[package]]
+name = "vortex-entropy-bins"
+version = "0.1.0"
+dependencies = [
+ "pco",
+ "prost 0.14.4",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
  "vortex-error",
  "vortex-session",
 ]

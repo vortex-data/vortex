@@ -12,11 +12,15 @@ mod sequence;
 mod sparse;
 mod zigzag;
 
+#[cfg(feature = "entropy-bins")]
+mod entropy_bins;
 #[cfg(feature = "pco")]
 mod pco;
 
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
+#[cfg(feature = "entropy-bins")]
+pub use entropy_bins::EntropyBinsScheme;
 pub(crate) use for_::FOR_V1;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]

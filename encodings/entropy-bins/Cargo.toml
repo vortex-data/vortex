@@ -1,0 +1,29 @@
+[package]
+name = "vortex-entropy-bins"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex entropy-coded bins array: pco bins with a SIMD tANS id stream and variable-width offsets"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+pco = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }

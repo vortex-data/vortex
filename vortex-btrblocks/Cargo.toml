@@ -27,6 +27,7 @@ vortex-compressor = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
+vortex-entropy-bins = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
@@ -48,6 +49,7 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
+entropy-bins = ["dep:pco", "dep:vortex-entropy-bins"]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 

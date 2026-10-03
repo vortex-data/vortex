@@ -54,6 +54,7 @@ members = [
     "encodings/datetime-parts",
     "encodings/fsst",
     "encodings/pco",
+    "encodings/entropy-bins",
     "encodings/sparse",
     "encodings/zigzag",
     "encodings/zstd",
@@ -325,6 +326,7 @@ vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-feature
 vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
+vortex-entropy-bins = { version = "0.1.0", path = "./encodings/entropy-bins", default-features = false }
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
