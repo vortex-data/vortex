@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decode-kernel microbenchmark: ChunkDelta over per-chunk bit-packed deltas vs plain bit-packing
-//! of the same width, 64K values (L2-resident), best of 2000 runs.
+//! Decode-kernel microbenchmark: ChunkDelta over per-chunk bit-packed deltas vs FastLanes Delta,
+//! and the unpack alone, on the same values, 64K values (L2-resident), best of 2000 runs.
 
 #![expect(clippy::unwrap_used)]
 
@@ -15,8 +15,12 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
+use vortex_fastlanes::BitPackedData;
 use vortex_fastlanes::ChunkDelta;
 use vortex_fastlanes::ChunkDeltaArraySlotsExt;
+use vortex_fastlanes::Delta;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::VarBitPacked;
 
 const N: usize = 1 << 16;
@@ -75,6 +79,33 @@ fn run(name: &str, values: PrimitiveArray) {
     .unwrap()
     .into_array();
     bench(&format!("{name}: ChunkDelta fused"), &fused);
+
+    // FastLanes Delta on the same values: over plain deltas (its undelta kernel alone), and over
+    // deltas FoR-encoded and bit-packed per chunk, as a compressed tree holds them.
+    let (bases, deltas) = vortex_fastlanes::delta_compress(&values, &mut ctx).unwrap();
+    let plain_delta = Delta::try_new(bases.clone().into_array(), deltas.clone().into_array(), 0, N)
+        .unwrap()
+        .into_array();
+    bench(&format!("{name}: FastLanes Delta, plain deltas"), &plain_delta);
+    let for_ = FoR::encode_chunked(deltas, &mut ctx).unwrap();
+    let width = bits(for_.encoded(), &mut ctx);
+    let for_bp = FoR::try_new_chunked(
+        BitPackedData::encode(for_.encoded(), width, &mut ctx).unwrap().into_array(),
+        for_.references().clone(),
+        0,
+    )
+    .unwrap()
+    .into_array();
+    let packed_delta = Delta::try_new(bases.into_array(), for_bp, 0, N).unwrap().into_array();
+    bench(&format!("{name}: FastLanes Delta, FoR+bitpacked"), &packed_delta);
+}
+
+fn bits(a: &ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> u8 {
+    let p = a.clone().execute::<PrimitiveArray>(ctx).unwrap();
+    let max = vortex_array::match_each_integer_ptype!(p.ptype(), |T| {
+        p.as_slice::<T>().iter().map(|&v| v as u64).max().unwrap_or(0)
+    });
+    (64 - max.leading_zeros()).max(1) as u8
 }
 
 fn main() {
