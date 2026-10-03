@@ -15,8 +15,8 @@ use crate::Sequence;
 
 /// Sequence-specific is_sorted kernel.
 ///
-/// A sequence `A[i] = base + i * multiplier` is sorted iff multiplier >= 0,
-/// and strict sorted iff multiplier > 0.
+/// A sequence with at least two rows is sorted iff multiplier >= 0,
+/// and strict sorted iff multiplier > 0. Shorter sequences are always strictly sorted.
 #[derive(Debug)]
 pub(crate) struct SequenceIsSortedKernel;
 
@@ -36,15 +36,16 @@ impl DynAggregateKernel for SequenceIsSortedKernel {
         };
 
         let m = array.multiplier();
-        let result = match_each_native_ptype!(m.ptype(), |P| {
-            m.cast::<P>().map(|x| {
-                if options.strict {
-                    x > zero::<P>()
-                } else {
-                    x >= zero::<P>()
-                }
-            })
-        })?;
+        let result = array.len() <= 1
+            || match_each_native_ptype!(m.ptype(), |P| {
+                m.cast::<P>().map(|x| {
+                    if options.strict {
+                        x > zero::<P>()
+                    } else {
+                        x >= zero::<P>()
+                    }
+                })
+            })?;
 
         Ok(Some(IsSorted::make_partial(
             batch,

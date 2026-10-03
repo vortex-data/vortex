@@ -449,9 +449,9 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    fn stats(multiplier: PValue) -> StatsSet {
-        // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
-        // and strictly sorted iff multiplier > 0.
+    fn stats(multiplier: PValue, length: usize) -> StatsSet {
+        // With at least two rows, A[i] = base + i * multiplier is sorted iff multiplier >= 0,
+        // and strictly sorted iff multiplier > 0. Shorter sequences have no unordered pair.
         let (is_sorted, is_strict_sorted) = match_each_pvalue!(
             multiplier,
             uint: |v| { (true, v > 0) },
@@ -462,10 +462,13 @@ impl Sequence {
         // SAFETY: we don't have duplicate stats.
         unsafe {
             StatsSet::new_unchecked(smallvec![
-                (Stat::IsSorted, StatPrecision::Exact(is_sorted.into())),
+                (
+                    Stat::IsSorted,
+                    StatPrecision::Exact((length <= 1 || is_sorted).into())
+                ),
                 (
                     Stat::IsStrictSorted,
-                    StatPrecision::Exact(is_strict_sorted.into()),
+                    StatPrecision::Exact((length <= 1 || is_strict_sorted).into()),
                 ),
             ])
         }
@@ -488,7 +491,7 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let (base, multiplier) = SequenceData::normalize(base, multiplier, ptype)
             .vortex_expect("SequenceArray parts must be representable in the output ptype");
-        let stats = Self::stats(multiplier);
+        let stats = Self::stats(multiplier, length);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
             .with_stats_set(stats)
@@ -504,7 +507,7 @@ impl Sequence {
     ) -> VortexResult<SequenceArray> {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
-        let stats = Self::stats(data.multiplier());
+        let stats = Self::stats(data.multiplier(), length);
         Ok(
             unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
                 .with_stats_set(stats),
@@ -521,7 +524,7 @@ impl Sequence {
         let ptype = T::PTYPE;
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
-        let stats = Self::stats(data.multiplier());
+        let stats = Self::stats(data.multiplier(), length);
         Ok(
             unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
                 .with_stats_set(stats),
@@ -539,6 +542,12 @@ mod tests {
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -610,6 +619,97 @@ mod tests {
     fn test_sequence_too_big() {
         assert!(Sequence::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
         assert!(Sequence::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+    }
+
+    #[rstest]
+    #[case::descending(-1i64)]
+    #[case::constant(0i64)]
+    #[case::ascending(1i64)]
+    fn singleton_sequence_has_sorted_seeds(
+        #[case] multiplier: i64,
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let arrays = [
+            Sequence::try_new_typed(10i64, multiplier, nullability, 1)?,
+            Sequence::try_new(10i64.into(), multiplier.into(), PType::I64, nullability, 1)?,
+        ];
+
+        for array in arrays {
+            for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+                assert_eq!(
+                    array
+                        .statistics()
+                        .with_typed_stats_set(|s| s.get_as::<bool>(stat)),
+                    StatPrecision::Exact(true),
+                );
+            }
+            assert!(is_sorted(array.as_ref(), &mut ctx)?);
+            assert!(is_strict_sorted(array.as_ref(), &mut ctx)?);
+        }
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::descending(-1i64)]
+    #[case::constant(0i64)]
+    #[case::ascending(1i64)]
+    fn singleton_sequence_slice_has_sorted_seeds(#[case] multiplier: i64) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array =
+            Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 3)?.slice(1..2)?;
+
+        for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+            assert_eq!(
+                array
+                    .statistics()
+                    .with_typed_stats_set(|s| s.get_as::<bool>(stat)),
+                StatPrecision::Exact(true),
+            );
+        }
+        assert!(is_sorted(&array, &mut ctx)?);
+        assert!(is_strict_sorted(&array, &mut ctx)?);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::descending(-1i64)]
+    #[case::constant(0i64)]
+    #[case::ascending(1i64)]
+    fn singleton_sequence_sortedness_kernel(#[case] multiplier: i64) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array =
+            Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 3)?.slice(1..2)?;
+        for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+            array.statistics().clear(stat);
+        }
+
+        for strict in [false, true] {
+            let mut accumulator =
+                Accumulator::try_new(IsSorted, IsSortedOptions { strict }, array.dtype().clone())?;
+            accumulator.accumulate(&array, &mut ctx)?;
+            assert!(bool::try_from(&accumulator.finish()?)?);
+        }
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::descending(-1i64)]
+    #[case::constant(0i64)]
+    #[case::ascending(1i64)]
+    fn empty_sequence_slice_is_sorted(#[case] multiplier: i64) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 0).is_err());
+
+        let array =
+            Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 3)?.slice(1..1)?;
+        assert!(is_sorted(&array, &mut ctx)?);
+        assert!(is_strict_sorted(&array, &mut ctx)?);
+
+        Ok(())
     }
 
     #[test]
