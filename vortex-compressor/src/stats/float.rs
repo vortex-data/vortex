@@ -16,7 +16,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -196,10 +195,7 @@ where
         });
     }
 
-    let null_count = array
-        .statistics()
-        .compute_null_count(ctx)
-        .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+    let null_count = array.invalid_count(ctx)?;
     let value_count = array.len() - null_count;
 
     // Keep a HashMap of T, then convert the keys into PValue afterward since value is
