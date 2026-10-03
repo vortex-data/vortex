@@ -15,6 +15,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::chunk_iter::ChunkMut;
 use vortex_array::chunk_iter::ChunkPatches;
 use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ScratchChunk;
 use vortex_array::chunk_iter::emit_with;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
@@ -62,7 +63,7 @@ where
         return Ok(());
     }
     let offset = usize::from(bp.offset());
-    let mut scratch = [T::default(); FL_CHUNK_SIZE];
+    let mut scratch = ScratchChunk::<T>::new();
     let mut result = Ok(());
     for_each_packed_chunk::<T, _>(
         bp.packed_slice::<T::Physical>(),
@@ -85,7 +86,8 @@ where
                     Ok(())
                 })
             } else {
-                unpack(chunk, packed, physical_mut(&mut scratch));
+                let scratch = scratch.values();
+                unpack(chunk, packed, physical_mut(scratch));
                 let values = &mut scratch[skip..skip + rows.len()];
                 patches.apply(values, start);
                 sink.accept(ChunkMut::new(values), rows)

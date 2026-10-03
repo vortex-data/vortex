@@ -23,7 +23,7 @@ use crate::arrays::primitive::compute::cast::casts_losslessly_to;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkSink;
-use crate::chunk_iter::DECOMPRESS_CHUNK_LEN;
+use crate::chunk_iter::ScratchChunk;
 use crate::chunk_iter::emit_with;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -48,7 +48,7 @@ pub(super) fn decompress_chunks(
     match_each_native_ptype!(from, |F| {
         match_each_native_ptype!(to, |T| {
             let mut adapter = WidenSink::<F, T> {
-                scratch: [T::default(); DECOMPRESS_CHUNK_LEN],
+                scratch: ScratchChunk::new(),
                 inner: sink,
                 _from: PhantomData,
             };
@@ -74,7 +74,7 @@ fn widened_child<'a>(array: &'a ArrayView<'_, ScalarFn>) -> Option<&'a ArrayRef>
 
 /// Converts each chunk of `F` values from the child to `T` and forwards it.
 struct WidenSink<'a, F, T> {
-    scratch: [T; DECOMPRESS_CHUNK_LEN],
+    scratch: ScratchChunk<T>,
     inner: &'a mut dyn ChunkSink,
     _from: PhantomData<F>,
 }

@@ -90,6 +90,50 @@ use crate::patches::Patches;
 /// last block).
 pub const DECOMPRESS_CHUNK_LEN: usize = 1024;
 
+/// A stack scratch chunk for producers to decode into where their sink offers no destination.
+///
+/// It is zeroed on first use rather than up front: a materializing stream decodes whole chunks
+/// straight into its sink's destination and may never touch it, and zeroing 8 KiB per stream is
+/// measurable on small arrays.
+pub struct ScratchChunk<T> {
+    values: [MaybeUninit<T>; DECOMPRESS_CHUNK_LEN],
+    zeroed: bool,
+}
+
+impl<T: NativePType> ScratchChunk<T> {
+    /// A scratch chunk that is not zeroed until first used.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            values: [const { MaybeUninit::uninit() }; DECOMPRESS_CHUNK_LEN],
+            zeroed: false,
+        }
+    }
+
+    /// The scratch values, zeroed the first time they are asked for.
+    #[inline]
+    pub fn values(&mut self) -> &mut [T; DECOMPRESS_CHUNK_LEN] {
+        if !self.zeroed {
+            self.zero();
+        }
+        // SAFETY: every value was initialized when the chunk was zeroed, and `MaybeUninit<T>`
+        // has `T`'s layout.
+        unsafe { &mut *self.values.as_mut_ptr().cast::<[T; DECOMPRESS_CHUNK_LEN]>() }
+    }
+
+    #[cold]
+    fn zero(&mut self) {
+        self.values.fill(MaybeUninit::new(T::default()));
+        self.zeroed = true;
+    }
+}
+
+impl<T: NativePType> Default for ScratchChunk<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A type-erased, mutable view over one chunk of decompressed primitive values.
 ///
 /// This is a `(PType, *mut, len)` triple rather than a generic slice so it can cross the
@@ -502,9 +546,8 @@ impl<T: NativePType> ChunkSink for BuilderSink<'_, T> {
     }
 }
 
-/// Emit rows `row_range` of a stream of `ptype` values, decoded by `decode`: straight into the
-/// sink's destination when it offers one, else into `scratch`, which must hold at least
-/// `row_range.len()` values.
+/// Emit rows `row_range`, at most one chunk, of a stream of `ptype` values, decoded by `decode`:
+/// straight into the sink's destination when it offers one, else into `scratch`.
 ///
 /// `T` may differ from `ptype` in signedness only, so signed types decode through their unsigned
 /// counterparts.
@@ -513,14 +556,14 @@ pub fn emit_with<T: NativePType>(
     sink: &mut dyn ChunkSink,
     ptype: PType,
     row_range: Range<usize>,
-    scratch: &mut [T],
+    scratch: &mut ScratchChunk<T>,
     decode: impl FnOnce(&mut [T]) -> VortexResult<()>,
 ) -> VortexResult<()> {
     if let Some(destination) = sink.destination(row_range.clone()) {
         decode(destination.retype::<T>().as_slice_mut::<T>())?;
         return sink.accept_written(row_range);
     }
-    let chunk = &mut scratch[..row_range.len()];
+    let chunk = &mut scratch.values()[..row_range.len()];
     decode(chunk)?;
     sink.accept(ChunkMut::new(chunk).retype_to(ptype), row_range)
 }
@@ -533,7 +576,7 @@ pub fn stream_from_fn<T: NativePType>(
     sink: &mut dyn ChunkSink,
     mut fill: impl FnMut(&mut [T], Range<usize>) -> VortexResult<()>,
 ) -> VortexResult<()> {
-    let mut scratch = [T::default(); DECOMPRESS_CHUNK_LEN];
+    let mut scratch = ScratchChunk::new();
     let mut start = 0;
     while start < len {
         let end = (start + DECOMPRESS_CHUNK_LEN).min(len);
@@ -618,9 +661,9 @@ pub struct BlockDecodeSink<'a, I, O, D> {
     len: usize,
     output_ptype: PType,
     decode: D,
-    pending: [I; DECOMPRESS_CHUNK_LEN],
+    pending: ScratchChunk<I>,
     pending_len: usize,
-    output: [O; DECOMPRESS_CHUNK_LEN],
+    output: ScratchChunk<O>,
     inner: &'a mut dyn ChunkSink,
 }
 
@@ -644,9 +687,9 @@ where
             len,
             output_ptype,
             decode,
-            pending: [I::default(); DECOMPRESS_CHUNK_LEN],
+            pending: ScratchChunk::new(),
             pending_len: 0,
-            output: [O::default(); DECOMPRESS_CHUNK_LEN],
+            output: ScratchChunk::new(),
             inner,
         }
     }
@@ -679,7 +722,8 @@ where
         let mut row = rows.start;
         while !input.is_empty() {
             let take = (DECOMPRESS_CHUNK_LEN - self.pending_len).min(input.len());
-            self.pending[self.pending_len..][..take].copy_from_slice(&input[..take]);
+            let pending = self.pending.values();
+            pending[self.pending_len..][..take].copy_from_slice(&input[..take]);
             self.pending_len += take;
             row += take;
             input = &input[take..];
@@ -687,7 +731,7 @@ where
                 self.pending_len = 0;
                 decode_block(
                     row / DECOMPRESS_CHUNK_LEN - 1,
-                    &self.pending,
+                    pending,
                     &mut self.decode,
                     &mut self.output,
                     self.offset..self.offset + self.len,
@@ -705,7 +749,7 @@ fn decode_block<I, O, D>(
     index: usize,
     input: &[I; DECOMPRESS_CHUNK_LEN],
     decode: &mut D,
-    output: &mut [O; DECOMPRESS_CHUNK_LEN],
+    output: &mut ScratchChunk<O>,
     window: Range<usize>,
     output_ptype: PType,
     inner: &mut dyn ChunkSink,
@@ -731,6 +775,7 @@ where
         decode(index, input, out)?;
         return inner.accept_written(rows);
     }
+    let output = output.values();
     decode(index, input, output)?;
     let chunk = ChunkMut::new(&mut output[start - block_start..end - block_start]);
     inner.accept(chunk.retype_to(output_ptype), rows)

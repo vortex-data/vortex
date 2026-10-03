@@ -22,7 +22,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::chunk_iter::ChunkMut;
 use crate::chunk_iter::ChunkSink;
-use crate::chunk_iter::DECOMPRESS_CHUNK_LEN;
+use crate::chunk_iter::ScratchChunk;
 use crate::chunk_iter::emit_with;
 use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
@@ -47,7 +47,7 @@ pub(super) fn decompress_chunks(
             let mut adapter = GatherSink::<C, V> {
                 values: values.as_slice::<V>(),
                 codes_validity: &codes_validity,
-                scratch: [V::default(); DECOMPRESS_CHUNK_LEN],
+                scratch: ScratchChunk::new(),
                 inner: sink,
                 _codes: PhantomData,
             };
@@ -61,7 +61,7 @@ pub(super) fn decompress_chunks(
 struct GatherSink<'a, C, V> {
     values: &'a [V],
     codes_validity: &'a Mask,
-    scratch: [V; DECOMPRESS_CHUNK_LEN],
+    scratch: ScratchChunk<V>,
     inner: &'a mut dyn ChunkSink,
     _codes: PhantomData<C>,
 }
