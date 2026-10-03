@@ -3,6 +3,12 @@
 
 //! Core cascading compression flow.
 
+use std::iter;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use rand::RngExt;
+use rand::prelude::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -32,7 +38,13 @@ use vortex_error::VortexResult;
 
 use super::CascadingCompressor;
 use super::constant;
+use super::select::WinnerEstimate;
+use crate::plan::Plan;
+use crate::plan::PlanRecorder;
+use crate::plan::Selection;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -57,13 +69,64 @@ impl CascadingCompressor {
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
-        let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
+        let compact = Self::canonicalize_input(array, exec_ctx)?;
         let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
         Ok(compressed)
+    }
+
+    /// Compresses an array following `plan`.
+    ///
+    /// Sites the plan leaves [`Plan::Adaptive`], and sites where its scheme does not apply or
+    /// fails, are compressed by estimate-based selection as in [`compress`](Self::compress).
+    /// Following a plan skips sampling, and computes only the stats of the planned schemes.
+    ///
+    /// The plan applies to leaf arrays. The fields of nested arrays are compressed adaptively.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
+    pub fn compress_with_plan(
+        &self,
+        array: &ArrayRef,
+        plan: &Plan,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let compact = Self::canonicalize_input(array, exec_ctx)?;
+        let compress_ctx = CompressorContext::new()
+            .with_selection(Selection::follow(plan.clone(), Selection::Estimate));
+        self.compress_canonical(compact, compress_ctx, exec_ctx)
+    }
+
+    /// Compresses an array like [`compress`](Self::compress), and returns the plan it applied.
+    ///
+    /// Following the returned plan with [`compress_with_plan`](Self::compress_with_plan)
+    /// reproduces the same compressed array. Nested arrays return [`Plan::Adaptive`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
+    pub fn compress_recording_plan(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<(ArrayRef, Plan)> {
+        let compact = Self::canonicalize_input(array, exec_ctx)?;
+        let recorder = Arc::new(PlanRecorder::new(None));
+        let compress_ctx = CompressorContext::new().with_recorder(Some(Arc::clone(&recorder)));
+        let compressed = self.compress_canonical(compact, compress_ctx, exec_ctx)?;
+        Ok((compressed, recorder.get(0).unwrap_or(Plan::Adaptive)))
+    }
+
+    /// Canonicalizes and compacts an input array before compression.
+    pub(crate) fn canonicalize_input(
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
+        canonical.compact(exec_ctx)
     }
 
     /// Compresses a child array produced by a cascading scheme.
@@ -85,6 +148,7 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         if parent_ctx.finished_cascading() {
             trace::cascade_exhausted(parent_id, child_index);
+            parent_ctx.record_child(parent_id, child_index, Plan::Canonical);
             return Ok(child.clone());
         }
 
@@ -102,7 +166,7 @@ impl CascadingCompressor {
     /// # Errors
     ///
     /// Returns an error if compression of any sub-array fails.
-    pub(super) fn compress_canonical(
+    pub(crate) fn compress_canonical(
         &self,
         array: Canonical,
         compress_ctx: CompressorContext,
@@ -172,7 +236,7 @@ impl CascadingCompressor {
                 // Try scheme-based compression first.
                 let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
-                    compress_ctx,
+                    compress_ctx.clone(),
                     exec_ctx,
                 )?;
 
@@ -197,6 +261,8 @@ impl CascadingCompressor {
                 if scheme_compressed.nbytes() < storage_compressed.nbytes() {
                     Ok(scheme_compressed)
                 } else {
+                    // The storage was compressed adaptively, so no plan describes it.
+                    compress_ctx.record(Plan::Adaptive);
                     Ok(storage_compressed)
                 }
             }
@@ -222,18 +288,17 @@ impl CascadingCompressor {
 
     /// The main scheme-selection entry point for a single leaf array.
     ///
-    /// Filters allowed schemes by [`matches`] and exclusion rules, merges their [`stats_options`]
-    /// into a single [`GenerateStatsOptions`], and picks the winner by estimated compression
-    /// ratio.
+    /// Filters allowed schemes by [`matches`] and exclusion rules, then chooses a scheme as the
+    /// context's selection mode directs: by estimated compression ratio (the default), by
+    /// following a [`Plan`], at random, or by exhaustive search.
     ///
-    /// If a winner is found and its compressed output is actually smaller, that output is
-    /// returned. Otherwise, the original array is returned unchanged.
+    /// If the chosen scheme's compressed output is actually smaller, that output is returned.
+    /// Otherwise, the original array is returned unchanged.
     ///
     /// Empty, all-null, and constant arrays are handled by the compressor itself before any
     /// scheme evaluation (constant detection is skipped while compressing samples).
     ///
     /// [`matches`]: Scheme::matches
-    /// [`stats_options`]: Scheme::stats_options
     fn choose_and_compress(
         &self,
         canonical: Canonical,
@@ -250,68 +315,213 @@ impl CascadingCompressor {
         let array: ArrayRef = canonical.into();
 
         if array.is_empty() {
+            compress_ctx.record(Plan::Canonical);
             return Ok(array);
         }
 
         if array.all_invalid(exec_ctx)? {
+            compress_ctx.record(Plan::Constant);
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             );
         }
 
-        let before_nbytes = array.nbytes();
+        let Selection::Follow { plan, fallback } = compress_ctx.selection().clone() else {
+            return self.select_and_compress(array, &eligible_schemes, compress_ctx, exec_ctx);
+        };
 
-        let merged_opts = eligible_schemes
+        match plan {
+            Plan::Scheme {
+                scheme: planned, ..
+            } => {
+                if let Some(&scheme) = eligible_schemes.iter().find(|s| s.id() == planned) {
+                    // Only the planned scheme's stats are needed, so only those are computed.
+                    let (data, compress_ctx) =
+                        Self::prepare_site(array.clone(), &[scheme], compress_ctx.clone());
+                    if let Some(compressed) =
+                        Self::try_compress_constant(&data, &compress_ctx, exec_ctx)?
+                    {
+                        return Ok(compressed);
+                    }
+                    if let Ok(compressed) = self.compress_with_scheme(
+                        scheme,
+                        &data,
+                        compress_ctx.clone(),
+                        None,
+                        true,
+                        exec_ctx,
+                    ) {
+                        return Ok(compressed);
+                    }
+                }
+            }
+            Plan::Canonical => {
+                let (data, compress_ctx) = Self::prepare_site(array, &[], compress_ctx);
+                if let Some(compressed) =
+                    Self::try_compress_constant(&data, &compress_ctx, exec_ctx)?
+                {
+                    return Ok(compressed);
+                }
+                compress_ctx.record(Plan::Canonical);
+                return Ok(data.into_array());
+            }
+            Plan::Adaptive | Plan::Constant => {}
+        }
+
+        // The plan does not decide this site, or its scheme cannot be applied here.
+        let compress_ctx = compress_ctx.with_selection(fallback.as_ref().clone());
+        self.select_and_compress(array, &eligible_schemes, compress_ctx, exec_ctx)
+    }
+
+    /// Chooses and applies a scheme by estimate, at random, or by exhaustive search.
+    ///
+    /// The caller must have handled empty and all-null arrays.
+    fn select_and_compress(
+        &self,
+        array: ArrayRef,
+        eligible_schemes: &[&'static dyn Scheme],
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let (data, compress_ctx) = Self::prepare_site(array, eligible_schemes, compress_ctx);
+
+        if let Some(compressed) = Self::try_compress_constant(&data, &compress_ctx, exec_ctx)? {
+            return Ok(compressed);
+        }
+
+        if eligible_schemes.is_empty() {
+            compress_ctx.record(Plan::Canonical);
+            return Ok(data.into_array());
+        }
+
+        match compress_ctx.selection().clone() {
+            Selection::Random(rng) => {
+                self.compress_randomly(&data, eligible_schemes, compress_ctx, &rng, exec_ctx)
+            }
+            Selection::Exhaustive { cost, iterations } => self.compress_exhaustively(
+                &data,
+                eligible_schemes,
+                compress_ctx,
+                &cost,
+                iterations,
+                exec_ctx,
+            ),
+            Selection::Estimate | Selection::Follow { .. } => {
+                // Estimation compresses samples, which must not record into this site.
+                let estimate_ctx = compress_ctx.clone().with_recorder(None);
+                let Some((winner, winner_estimate)) =
+                    self.choose_best_scheme(eligible_schemes, &data, estimate_ctx, exec_ctx)?
+                else {
+                    compress_ctx.record(Plan::Canonical);
+                    return Ok(data.into_array());
+                };
+                self.compress_with_scheme(
+                    winner,
+                    &data,
+                    compress_ctx,
+                    Some(winner_estimate),
+                    false,
+                    exec_ctx,
+                )
+            }
+        }
+    }
+
+    /// Bundles `array` with the stats that `schemes` need, and records those stats options in the
+    /// context.
+    fn prepare_site(
+        array: ArrayRef,
+        schemes: &[&'static dyn Scheme],
+        compress_ctx: CompressorContext,
+    ) -> (ArrayAndStats, CompressorContext) {
+        let merged_opts = schemes
             .iter()
             .fold(GenerateStatsOptions::default(), |acc, s| {
                 acc.merge(s.stats_options())
             });
-        let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
+        (
+            ArrayAndStats::new(array, merged_opts),
+            compress_ctx.with_merged_stats_options(merged_opts),
+        )
+    }
 
-        let data = ArrayAndStats::new(array, merged_opts);
-
-        // Constant detection is built into the compressor: a constant leaf always short-circuits
-        // scheme selection. Samples are exempt because a constant sample does not imply that the
-        // full array is constant.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&data, exec_ctx)? {
-            let _winner_span =
-                trace::winner_compress_span(constant::CONSTANT_SCHEME_ID, before_nbytes).entered();
-            let compressed = constant::compress_constant(data.array(), exec_ctx)?;
-
-            let after_nbytes = compressed.nbytes();
-            let actual_ratio =
-                (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
-            let accepted = after_nbytes < before_nbytes;
-            trace::record_winner_compress_result(after_nbytes, None, actual_ratio, accepted);
-
-            return if accepted {
-                Ok(compressed)
-            } else {
-                Ok(data.into_array())
-            };
+    /// Encodes the array as a constant if it is one, returning `None` otherwise.
+    ///
+    /// Constant detection is built into the compressor: a constant leaf always short-circuits
+    /// scheme selection. Samples are exempt because a constant sample does not imply that the
+    /// full array is constant.
+    fn try_compress_constant(
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if compress_ctx.is_sample() || !constant::is_constant_for_compression(data, exec_ctx)? {
+            return Ok(None);
         }
 
-        if eligible_schemes.is_empty() {
-            return Ok(data.into_array());
+        let before_nbytes = data.array().nbytes();
+        let _winner_span =
+            trace::winner_compress_span(constant::CONSTANT_SCHEME_ID, before_nbytes).entered();
+        let compressed = constant::compress_constant(data.array(), exec_ctx)?;
+
+        let after_nbytes = compressed.nbytes();
+        let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
+        let accepted = after_nbytes < before_nbytes;
+        trace::record_winner_compress_result(after_nbytes, None, actual_ratio, accepted);
+
+        if accepted {
+            compress_ctx.record(Plan::Constant);
+            Ok(Some(compressed))
+        } else {
+            compress_ctx.record(Plan::Canonical);
+            Ok(Some(data.array().clone()))
         }
+    }
 
-        let Some((winner, winner_estimate)) =
-            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
-        else {
-            return Ok(data.into_array());
-        };
+    /// Compresses the array with `scheme`, keeping the result only if it is smaller.
+    ///
+    /// Records the applied plan, including the plans of the scheme's children, when the context
+    /// is recording. Failures are reported as error events, or as debug events when `exploring`
+    /// (the scheme was chosen by a plan or at random, and the caller recovers from failures).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the scheme fails to compress the array.
+    fn compress_with_scheme(
+        &self,
+        scheme: &'static dyn Scheme,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        estimate: Option<WinnerEstimate>,
+        exploring: bool,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let before_nbytes = data.array().nbytes();
+        let children = compress_ctx
+            .recorder()
+            .map(|_| Arc::new(PlanRecorder::new(Some(scheme.id()))));
+        let scheme_ctx = compress_ctx.clone().with_recorder(children.clone());
 
-        // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
-        // scheme name and cascade history before propagating.
-        let error_ctx = trace::enabled_error_context(&compress_ctx);
-        let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
-        let compressed = winner
-            .compress(self, &data, compress_ctx, exec_ctx)
+        // Run the scheme's `compress`. On failure, emit an event carrying the scheme name and
+        // cascade history before propagating.
+        let error_ctx = trace::enabled_error_context(&scheme_ctx);
+        let _winner_span = trace::winner_compress_span(scheme.id(), before_nbytes).entered();
+        let compressed = scheme
+            .compress(self, data, scheme_ctx, exec_ctx)
             .inspect_err(|err| {
                 // NB: this is the only way we can tell which scheme panicked / bailed on their
                 // data, especially for third-party schemes where the error site may not carry any
                 // compressor context.
-                trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), err);
+                if exploring {
+                    trace::candidate_failed(scheme.id(), err);
+                } else {
+                    trace::scheme_compress_failed(
+                        scheme.id(),
+                        before_nbytes,
+                        error_ctx.as_ref(),
+                        err,
+                    );
+                }
             })?;
 
         let after_nbytes = compressed.nbytes();
@@ -321,15 +531,81 @@ impl CascadingCompressor {
 
         trace::record_winner_compress_result(
             after_nbytes,
-            winner_estimate.trace_ratio(),
+            estimate.and_then(WinnerEstimate::trace_ratio),
             actual_ratio,
             accepted,
         );
 
         if accepted {
+            if let Some(children) = children {
+                compress_ctx.record(Plan::Scheme {
+                    scheme: scheme.id(),
+                    children: children.children(scheme.num_children()),
+                });
+            }
             Ok(compressed)
         } else {
-            Ok(data.into_array())
+            compress_ctx.record(Plan::Canonical);
+            Ok(data.array().clone())
         }
+    }
+
+    /// Compresses the array with canonical or a randomly chosen scheme.
+    ///
+    /// Schemes that fail on the array are dropped and another is drawn, so this always succeeds.
+    fn compress_randomly(
+        &self,
+        data: &ArrayAndStats,
+        eligible_schemes: &[&'static dyn Scheme],
+        compress_ctx: CompressorContext,
+        rng: &Mutex<StdRng>,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let probe_ctx = compress_ctx.clone().with_recorder(None);
+        let mut options: Vec<Option<&'static dyn Scheme>> = iter::once(None)
+            .chain(
+                self.candidate_schemes(eligible_schemes, data, &probe_ctx, exec_ctx)
+                    .into_iter()
+                    .map(Some),
+            )
+            .collect();
+
+        loop {
+            let index = rng.lock().random_range(0..options.len());
+            let Some(scheme) = options.swap_remove(index) else {
+                compress_ctx.record(Plan::Canonical);
+                return Ok(data.array().clone());
+            };
+            if let Ok(compressed) =
+                self.compress_with_scheme(scheme, data, compress_ctx.clone(), None, true, exec_ctx)
+            {
+                return Ok(compressed);
+            }
+        }
+    }
+
+    /// Returns the schemes worth trying on the array: those whose estimate does not rule them
+    /// out.
+    ///
+    /// Only immediate [`EstimateVerdict::Skip`] verdicts are honored. They encode preconditions
+    /// such as "FoR needs a child to bit-pack" or "the minimum is already zero". Deferred
+    /// estimates are not resolved, since the caller compresses the full array anyway.
+    pub(crate) fn candidate_schemes(
+        &self,
+        eligible_schemes: &[&'static dyn Scheme],
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> Vec<&'static dyn Scheme> {
+        eligible_schemes
+            .iter()
+            .copied()
+            .filter(|scheme| {
+                !matches!(
+                    scheme.expected_compression_ratio(data, compress_ctx.clone(), exec_ctx),
+                    CompressionEstimate::Verdict(EstimateVerdict::Skip)
+                )
+            })
+            .collect()
     }
 }

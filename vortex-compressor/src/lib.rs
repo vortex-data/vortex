@@ -42,6 +42,14 @@
 //! # }
 //! ```
 //!
+//! # Plans and search
+//!
+//! A [`Plan`](plan::Plan) fixes the scheme applied at each compression site instead of letting the
+//! compressor estimate. [`CascadingCompressor::compress_recording_plan`] returns the plan the
+//! compressor chose, and [`CascadingCompressor::compress_with_plan`] replays a plan without
+//! sampling. The [`search`] module finds plans offline on a training sample, trading compressed
+//! size against compression and decompression time.
+//!
 //! # Observability
 //!
 //! The compressor emits a small set of `tracing` spans and events on a single target so you can
@@ -63,7 +71,9 @@
 //! with a short `jq` query.
 
 pub mod builtins;
+pub mod plan;
 pub mod scheme;
+pub mod search;
 pub mod stats;
 
 mod compressor;

@@ -4,10 +4,14 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 
 use crate::compressor::ROOT_SCHEME_ID;
+use crate::plan::Plan;
+use crate::plan::PlanRecorder;
+use crate::plan::Selection;
 use crate::scheme::SchemeId;
 use crate::stats::GenerateStatsOptions;
 
@@ -38,6 +42,12 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+
+    /// How the compressor chooses a scheme at this compression site.
+    selection: Selection,
+
+    /// Where this compression site records the plan it applied, if the caller is recording.
+    recorder: Option<Arc<PlanRecorder>>,
 }
 
 impl CompressorContext {
@@ -50,6 +60,8 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            selection: Selection::Estimate,
+            recorder: None,
         }
     }
 }
@@ -108,9 +120,60 @@ impl CompressorContext {
     }
 
     /// Returns a context marked as sample compression.
+    ///
+    /// Samples are always compressed by estimate-based selection, and never recorded.
     pub(crate) fn with_sampling(mut self) -> Self {
         self.is_sample = true;
+        self.selection = Selection::Estimate;
+        self.recorder = None;
         self
+    }
+
+    /// Returns how the compressor chooses a scheme at this compression site.
+    pub(crate) fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    /// Returns a context that chooses schemes with `selection`.
+    pub(crate) fn with_selection(mut self, selection: Selection) -> Self {
+        self.selection = selection;
+        self
+    }
+
+    /// Returns the recorder this compression site records into, if any.
+    pub(crate) fn recorder(&self) -> Option<&Arc<PlanRecorder>> {
+        self.recorder.as_ref()
+    }
+
+    /// Returns a context that records into `recorder`.
+    pub(crate) fn with_recorder(mut self, recorder: Option<Arc<PlanRecorder>>) -> Self {
+        self.recorder = recorder;
+        self
+    }
+
+    /// Returns the parent scheme and child index of this compression site, or `(None, 0)` at the
+    /// top level.
+    pub(crate) fn site(&self) -> (Option<SchemeId>, usize) {
+        match self.cascade_history.last() {
+            Some(&(scheme, child_index)) => (Some(scheme), child_index),
+            None => (None, 0),
+        }
+    }
+
+    /// Records `plan` as the plan applied at this compression site.
+    pub(crate) fn record(&self, plan: Plan) {
+        if let Some(recorder) = &self.recorder {
+            let (parent, child_index) = self.site();
+            recorder.record(parent, child_index, plan);
+        }
+    }
+
+    /// Records `plan` as the plan applied to child `child_index` of `parent`, which is being
+    /// compressed at this site.
+    pub(crate) fn record_child(&self, parent: SchemeId, child_index: usize, plan: Plan) {
+        if let Some(recorder) = &self.recorder {
+            recorder.record(Some(parent), child_index, plan);
+        }
     }
 
     /// Descends one level in the cascade, recording the current scheme and which child is
@@ -124,6 +187,7 @@ impl CompressorContext {
             .checked_sub(1)
             .vortex_expect("cannot descend: cascade depth exhausted");
         self.cascade_history.push((id, child_index));
+        self.selection = self.selection.descend(id, child_index);
         self
     }
 }
