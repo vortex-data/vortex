@@ -25,6 +25,7 @@ mod aggregations;
 pub(crate) use aggregations::Aggregations;
 pub use aggregations::AggregationsRef;
 pub mod bind;
+pub mod compat;
 pub mod expr;
 pub mod flatbuffers;
 mod results;
