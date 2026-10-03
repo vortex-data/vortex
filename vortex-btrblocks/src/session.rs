@@ -12,6 +12,7 @@ use vortex_session::SessionVar;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
+use crate::schemes::bool::BoolRunEndScheme;
 use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -57,6 +58,10 @@ impl Default for CompressionSession {
                 &DELTA_SCHEME,
                 #[cfg(feature = "pco")]
                 &integer::PcoScheme,
+                ////////////////////////////////////////////////////////////////////////////////////
+                // Bool schemes.
+                ////////////////////////////////////////////////////////////////////////////////////
+                &BoolRunEndScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Float schemes.
                 ////////////////////////////////////////////////////////////////////////////////////

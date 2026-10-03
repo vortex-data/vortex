@@ -276,7 +276,7 @@ impl CascadingCompressor {
         if !compress_ctx.is_sample() && constant::is_constant_for_compression(&data, exec_ctx)? {
             let _winner_span =
                 trace::winner_compress_span(constant::CONSTANT_SCHEME_ID, before_nbytes).entered();
-            let compressed = constant::compress_constant(data.array(), exec_ctx)?;
+            let compressed = constant::compress_constant(self, data.array(), exec_ctx)?;
 
             let after_nbytes = compressed.nbytes();
             let actual_ratio =
