@@ -61,6 +61,7 @@ members = [
     "encodings/parquet-variant",
     "encodings/onpair",
     "encodings/uuid",
+    "encodings/shredded-map",
     # Benchmarks
     "benchmarks/bench-support",
     "benchmarks/lance-bench",
@@ -218,6 +219,7 @@ percent-encoding = "2.3.2"
 pin-project-lite = "0.2.15"
 primitive-types = { version = "0.14.0" }
 proc-macro2 = "1.0.95"
+proptest = "1.7"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"

@@ -1,0 +1,55 @@
+[package]
+name = "vortex-shredded-map"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex map encoding that shreds frequent keys into dedicated columns"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+vortex-sparse = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+arrow-select = { workspace = true }
+bytes = { workspace = true }
+divan = { workspace = true }
+mimalloc = { workspace = true }
+parquet = { workspace = true, features = ["arrow", "zstd"] }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-btrblocks = { workspace = true, features = ["pco", "zstd"] }
+
+[[bench]]
+name = "prom_labels"
+harness = false
+
+[[example]]
+name = "prom_labels_report"
+
+[[example]]
+name = "shred_sweep"
+
+[[example]]
+name = "layout"
+
+[lints]
+workspace = true
