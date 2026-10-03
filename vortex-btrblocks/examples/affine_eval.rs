@@ -25,20 +25,34 @@ use std::time::Duration;
 use std::time::Instant;
 
 use mimalloc::MiMalloc;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::ArrayAndStats;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::CascadingCompressor;
+use vortex_btrblocks::CompressorContext;
+use vortex_btrblocks::GenerateStatsOptions;
+use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::AffineScheme;
+use vortex_btrblocks::schemes::integer::ChunkDeltaScheme;
 use vortex_btrblocks::schemes::integer::DeltaScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_btrblocks::schemes::integer::VarBitPackingScheme;
 use vortex_buffer::Buffer;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::EstimateVerdict;
+use vortex_error::VortexResult;
 use vortex_fastlanes::Affine;
 use vortex_fastlanes::AffineArraySlotsExt;
 use vortex_fastlanes::AffineOptions;
@@ -62,6 +76,71 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     vortex_zigzag::initialize(&session);
     session
 });
+
+/// FastLanes Delta, unchanged, but estimated by compressing whole sampled chunks through the full
+/// cascade, as Affine and ChunkDelta are, instead of from the span of its deltas.
+#[derive(Debug)]
+struct CascadedDelta;
+
+impl Scheme for CascadedDelta {
+    fn scheme_name(&self) -> &'static str {
+        "eval.delta.cascaded"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        DeltaScheme::default().matches(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        DeltaScheme::default().produced_encodings()
+    }
+
+    fn num_children(&self) -> usize {
+        DeltaScheme::default().num_children()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        if compress_ctx.finished_cascading() || compress_ctx.is_sample() || data.array_len() < 1024 {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
+        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+            |compressor, data, _best, compress_ctx, exec_ctx| {
+                let array = data.array().clone();
+                let chunks = array.len().div_ceil(1024);
+                let picked = (0..16.min(chunks))
+                    .map(|i| {
+                        let start = i * chunks / 16.min(chunks) * 1024;
+                        array.slice(start..(start + 1024).min(array.len()))
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let sample = ChunkedArray::try_new(picked, array.dtype().clone())?
+                    .into_array()
+                    .execute::<PrimitiveArray>(exec_ctx)?
+                    .into_array();
+                let n = sample.len();
+                let stats = ArrayAndStats::new(sample, GenerateStatsOptions::default());
+                let compressed = DeltaScheme::default().compress(compressor, &stats, compress_ctx, exec_ctx)?;
+                let bits = compressed.nbytes() as f64 * 8.0 / n as f64;
+                Ok(EstimateVerdict::Ratio(array.dtype().as_ptype().bit_width() as f64 / bits.max(1e-3)))
+            },
+        )))
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        DeltaScheme::default().compress(compressor, data, compress_ctx, exec_ctx)
+    }
+}
 
 static AFFINE_AUTO: AffineScheme = AffineScheme::auto();
 static AFFINE_SCALE: AffineScheme = AffineScheme::fixed(AffineOptions::SCALE);
@@ -102,6 +181,33 @@ fn configs() -> Vec<(&'static str, BtrBlocksCompressor)> {
             base()
                 .with_new_scheme(&AFFINE_AUTO)
                 .with_new_scheme(&VarBitPackingScheme)
+                .build(),
+        ),
+        (
+            "affine+varbp+cdelta",
+            base()
+                .with_new_scheme(&AFFINE_AUTO)
+                .with_new_scheme(&VarBitPackingScheme)
+                .with_new_scheme(&ChunkDeltaScheme)
+                .build(),
+        ),
+        (
+            "affine+varbp+fldelta",
+            base()
+                .exclude_schemes([DeltaScheme::default().id()])
+                .with_new_scheme(&CascadedDelta)
+                .with_new_scheme(&AFFINE_AUTO)
+                .with_new_scheme(&VarBitPackingScheme)
+                .build(),
+        ),
+        (
+            "affine+varbp+cdelta+fldelta",
+            base()
+                .exclude_schemes([DeltaScheme::default().id()])
+                .with_new_scheme(&CascadedDelta)
+                .with_new_scheme(&AFFINE_AUTO)
+                .with_new_scheme(&VarBitPackingScheme)
+                .with_new_scheme(&ChunkDeltaScheme)
                 .build(),
         ),
         (

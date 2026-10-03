@@ -29,6 +29,7 @@
 
 pub use affine::*;
 pub use bitpacking::*;
+pub use chunk_delta::*;
 pub use delta::*;
 pub use for_::*;
 pub use rle::*;
@@ -45,6 +46,7 @@ use vortex_error::VortexResult;
 mod affine;
 pub mod bit_transpose;
 mod bitpacking;
+mod chunk_delta;
 mod delta;
 mod for_;
 mod rle;
@@ -97,6 +99,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(RLE);
     session.arrays().register(TransposedBool);
     session.arrays().register(VarBitPackedPlugin);
+    session.arrays().register(ChunkDeltaPlugin);
     bitpacking::initialize(session);
     for_::initialize(session);
     rle::initialize(session);

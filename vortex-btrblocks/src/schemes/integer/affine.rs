@@ -284,7 +284,7 @@ pub fn choose_mode(
 
 /// Up to [`SAMPLE_CHUNKS`] evenly spaced chunks, kept aligned to chunk boundaries so that each
 /// sampled chunk is fitted exactly as in the full array.
-fn sample_chunks(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+pub(crate) fn sample_chunks(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let num_chunks = array.len().div_ceil(FL_CHUNK_SIZE);
     if num_chunks <= SAMPLE_CHUNKS {
         return Ok(array.clone());
