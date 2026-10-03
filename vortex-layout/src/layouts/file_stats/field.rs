@@ -97,10 +97,21 @@ impl FieldAccumulator {
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(min_max) = &mut self.min_max {
+        // Empty constants carry a scalar, but contribute no extremum or flag boundary.
+        if !array.is_empty()
+            && let Some(min_max) = &mut self.min_max
+        {
             min_max.push_chunk(array, ctx)?;
         }
         for accumulator in &mut self.accumulators {
+            if array.is_empty()
+                && (accumulator.aggregate.is::<Min>()
+                    || accumulator.aggregate.is::<Max>()
+                    || accumulator.aggregate.is::<IsConstant>()
+                    || accumulator.aggregate.is::<IsSorted>())
+            {
+                continue;
+            }
             accumulator.push_chunk(array, ctx)?;
         }
         self.seen_input = true;

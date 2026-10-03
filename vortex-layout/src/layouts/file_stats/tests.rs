@@ -28,7 +28,6 @@ use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSiz
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::array_session;
-#[cfg(target_pointer_width = "64")]
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -272,13 +271,15 @@ fn sum_distinguishes_missing_input_from_zero(
     Ok(())
 }
 
-#[test]
-fn empty_chunk_preserves_counts() -> VortexResult<()> {
-    let array = PrimitiveArray::empty::<f64>(Nullability::NonNullable).into_array();
+#[rstest]
+#[case::primitive(PrimitiveArray::empty::<f64>(Nullability::NonNullable).into_array())]
+#[case::constant(ConstantArray::new(Scalar::from(42f64), 0).into_array())]
+fn empty_chunk_preserves_counts(#[case] array: ArrayRef) -> VortexResult<()> {
     let requests = [
         NullCount.bind(EmptyOptions),
         NanCount.bind(EmptyOptions),
         UncompressedSizeInBytes.bind(EmptyOptions),
+        Sum.bind(NumericalAggregateOpts::skip_nans()),
         Min.bind(NumericalAggregateOpts::skip_nans()),
         Max.bind(NumericalAggregateOpts::skip_nans()),
         IsConstant.bind(EmptyOptions),
@@ -297,8 +298,15 @@ fn empty_chunk_preserves_counts() -> VortexResult<()> {
         results.get_result(&requests[2]),
         Precision::Exact(Scalar::from(0u64))
     );
-    for request in &requests[3..] {
+    assert_eq!(
+        results.get_result(&requests[3]),
+        Precision::Exact(Scalar::primitive(0f64, Nullability::Nullable))
+    );
+    for request in &requests[4..] {
         assert!(results.get_result(request).is_absent());
+    }
+    for stat in [Stat::Min, Stat::Max, Stat::IsConstant, Stat::IsSorted] {
+        assert!(array.statistics().get(stat).is_absent());
     }
     Ok(())
 }
@@ -519,5 +527,29 @@ fn fused_min_max_reuses_exact_chunk_extrema() -> VortexResult<()> {
         results.get_result(&max),
         Precision::Exact(Scalar::primitive(7i32, Nullability::Nullable))
     );
+    Ok(())
+}
+
+#[rstest]
+#[case::min(vec![Min.bind(NumericalAggregateOpts::skip_nans())], vec![1, 2], vec![Scalar::primitive(1i32, Nullability::Nullable)])]
+#[case::max(vec![Max.bind(NumericalAggregateOpts::skip_nans())], vec![1, 2], vec![Scalar::primitive(2i32, Nullability::Nullable)])]
+#[case::fused(vec![Min.bind(NumericalAggregateOpts::skip_nans()), Max.bind(NumericalAggregateOpts::skip_nans())], vec![1, 2], vec![Scalar::primitive(1i32, Nullability::Nullable), Scalar::primitive(2i32, Nullability::Nullable)])]
+#[case::constant(vec![IsConstant.bind(EmptyOptions)], vec![1, 1], vec![Scalar::from(true)])]
+#[case::sorted(vec![IsSorted.bind(IsSortedOptions { strict: false })], vec![1, 2], vec![Scalar::from(true)])]
+#[case::strict_sorted(vec![IsSorted.bind(IsSortedOptions { strict: true })], vec![1, 2], vec![Scalar::from(true)])]
+fn empty_constants_do_not_add_values_or_boundaries(
+    #[case] requests: Vec<AggregateFnRef>,
+    #[case] values: Vec<i32>,
+    #[case] expected: Vec<Scalar>,
+) -> VortexResult<()> {
+    let chunks = [
+        ConstantArray::new(Scalar::from(42i32), 0).into_array(),
+        PrimitiveArray::from_iter(values).into_array(),
+        ConstantArray::new(Scalar::from(-42i32), 0).into_array(),
+    ];
+    let results = accumulate(chunks[0].dtype(), &requests, &chunks, 64)?;
+    for (request, expected) in requests.iter().zip(expected) {
+        assert_eq!(results.get_result(request), Precision::Exact(expected));
+    }
     Ok(())
 }
