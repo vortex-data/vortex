@@ -175,7 +175,8 @@ impl Scheme for DeltaScheme {
                 let deltas = deltas.into_array();
 
                 // A zero span means constant deltas, which SequenceScheme captures more cheaply.
-                let delta_stats = ArrayAndStats::new(deltas.clone(), GenerateStatsOptions::default());
+                let delta_stats =
+                    ArrayAndStats::new(deltas.clone(), GenerateStatsOptions::default());
                 if delta_stats.integer_stats(exec_ctx).erased().max_minus_min() == 0 {
                     return Ok(EstimateVerdict::Skip);
                 }
