@@ -34,8 +34,8 @@ pub struct WestermoBenchmark {
 impl WestermoBenchmark {
     pub fn new() -> Result<Self> {
         let data_path = DATASET_NAME.to_data_path();
-        let data_url = Url::from_directory_path(data_path)
-            .map_err(|_| anyhow::anyhow!("bad data path"))?;
+        let data_url =
+            Url::from_directory_path(data_path).map_err(|_| anyhow::anyhow!("bad data path"))?;
         Ok(Self { data_url })
     }
 
