@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use vortex_array::stats::rewrite::falsify;
+use vortex_array::stats::rewrite::satisfy;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -128,6 +129,14 @@ impl StatsRewriteRule for BinaryNanCountStatsRewrite {
     ) -> VortexResult<Option<BoundExpression>> {
         binary_falsify::<NanCountProof>(expr, session)
     }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        binary_satisfy::<NanCountProof>(expr, session)
+    }
 }
 
 #[derive(Debug)]
@@ -144,6 +153,14 @@ impl StatsRewriteRule for BinaryAllNonNanStatsRewrite {
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         binary_falsify::<AllNonNanProof>(expr, session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        binary_satisfy::<AllNonNanProof>(expr, session)
     }
 }
 
@@ -221,6 +238,73 @@ fn binary_falsify<P: NonNanProof>(
     })
 }
 
+// Unlike falsifiers, satisfiers must also prove that no operand is null: a null operand makes the
+// comparison null, which a filter treats as false.
+fn binary_satisfy<P: NonNanProof>(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Binary>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    let value_predicate = match operator {
+        // Every lhs value equals every rhs value only when both sides are the same single value.
+        Operator::Eq => min(lhs).zip(max(rhs)).zip(max(lhs).zip(min(rhs))).map(
+            |((min_lhs, max_rhs), (max_lhs, min_rhs))| {
+                and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs))
+            },
+        ),
+        Operator::NotEq => {
+            let below = max(lhs).zip(min(rhs)).map(|(a, b)| lt(a, b));
+            let above = min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b));
+            or_collect(below.into_iter().chain(above))
+        }
+        Operator::Gt => min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b)),
+        Operator::Gte => min(lhs).zip(max(rhs)).map(|(a, b)| gt_eq(a, b)),
+        Operator::Lt => max(lhs).zip(min(rhs)).map(|(a, b)| lt(a, b)),
+        Operator::Lte => max(lhs).zip(min(rhs)).map(|(a, b)| lt_eq(a, b)),
+        Operator::And => {
+            // Check before recursing, for the same reason as `Or` in `binary_falsify`.
+            if !P::EMIT_UNGUARDED_REWRITES {
+                return Ok(None);
+            }
+
+            return Ok(match (satisfy(lhs, session)?, satisfy(rhs, session)?) {
+                (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
+                _ => None,
+            });
+        }
+        Operator::Or => {
+            if !P::EMIT_UNGUARDED_REWRITES {
+                return Ok(None);
+            }
+
+            let lhs_satisfier = satisfy(lhs, session)?;
+            let rhs_satisfier = satisfy(rhs, session)?;
+            return Ok(or_collect(lhs_satisfier.into_iter().chain(rhs_satisfier)));
+        }
+        Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
+    };
+
+    let Some(value_predicate) = value_predicate else {
+        return Ok(None);
+    };
+    let mut null_checks = Vec::new();
+    for operand in [lhs, rhs] {
+        match non_null_check(operand) {
+            NullCheck::NotNeeded => {}
+            NullCheck::Check(check) => null_checks.push(check),
+            NullCheck::Unavailable => return Ok(None),
+        }
+    }
+    let value_predicate = match and_collect(null_checks) {
+        Some(null_check) => and(null_check, value_predicate),
+        None => value_predicate,
+    };
+    with_non_nan_guards::<P>([lhs, rhs], value_predicate)
+}
+
 #[derive(Debug)]
 struct BetweenStatsRewrite;
 
@@ -242,6 +326,21 @@ impl StatsRewriteRule for BetweenStatsRewrite {
         let lhs = binary(options.lower_strict.to_operator(), lower, arr.clone());
         let rhs = binary(options.upper_strict.to_operator(), arr, upper);
         falsify(&and(lhs, rhs), session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let options = expr.as_::<Between>();
+        let arr = expr.child(0).clone();
+        let lower = expr.child(1).clone();
+        let upper = expr.child(2).clone();
+
+        let lhs = binary(options.lower_strict.to_operator(), lower, arr.clone());
+        let rhs = binary(options.upper_strict.to_operator(), arr, upper);
+        satisfy(&and(lhs, rhs), session)
     }
 }
 
@@ -719,6 +818,37 @@ fn non_nan_check(
     Ok(proof(expr))
 }
 
+enum NullCheck {
+    NotNeeded,
+    Check(BoundExpression),
+    Unavailable,
+}
+
+fn non_null_check(expr: &BoundExpression) -> NullCheck {
+    if let Some(scalar) = expr.as_opt::<Literal>() {
+        // A null literal makes the comparison null for every row, so it can never be satisfied.
+        return if scalar.is_null() {
+            NullCheck::Unavailable
+        } else {
+            NullCheck::NotNeeded
+        };
+    }
+
+    if !expr.dtype().is_nullable() {
+        return NullCheck::NotNeeded;
+    }
+
+    // A cast preserves nulls without introducing new ones, so prove the source non-null.
+    if expr.is::<Cast>() {
+        return non_null_check(expr.child(0));
+    }
+
+    match null_count(expr) {
+        Some(null_count) => NullCheck::Check(eq(null_count, lit(0u64))),
+        None => NullCheck::Unavailable,
+    }
+}
+
 fn has_nans(dtype: &DType) -> bool {
     dtype.is_float()
 }
@@ -813,6 +943,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -844,6 +975,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::lt_eq;
+    use crate::expr::not_eq;
     use crate::expr::or;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
@@ -1251,6 +1383,128 @@ mod tests {
                     default: false,
                 },
                 [stat(col("a"), Stat::Max)],
+            ))
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::gt(gt(col("a"), lit(10)), Some(gt(stat(col("a"), Stat::Min), lit(10))))]
+    #[case::gt_eq(
+        gt_eq(col("a"), lit(10)),
+        Some(gt_eq(stat(col("a"), Stat::Min), lit(10)))
+    )]
+    #[case::lt(lt(col("a"), lit(10)), Some(lt(stat(col("a"), Stat::Max), lit(10))))]
+    #[case::lt_eq(
+        lt_eq(col("a"), lit(10)),
+        Some(lt_eq(stat(col("a"), Stat::Max), lit(10)))
+    )]
+    #[case::eq(
+        eq(col("a"), lit(10)),
+        Some(and(
+            eq(stat(col("a"), Stat::Min), lit(10)),
+            eq(stat(col("a"), Stat::Max), lit(10)),
+        ))
+    )]
+    #[case::not_eq(
+        not_eq(col("a"), lit(10)),
+        Some(or(
+            lt(stat(col("a"), Stat::Max), lit(10)),
+            gt(stat(col("a"), Stat::Min), lit(10)),
+        ))
+    )]
+    #[case::column_pair(
+        lt(col("a"), col("b")),
+        Some(lt(stat(col("a"), Stat::Max), stat(col("b"), Stat::Min)))
+    )]
+    #[case::null_literal(
+        gt(
+            col("a"),
+            lit(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)))
+        ),
+        None
+    )]
+    fn rewrites_comparison_satisfier(
+        #[case] expr: Expression,
+        #[case] expected: Option<Expression>,
+    ) -> VortexResult<()> {
+        assert_rewrite_eq!(satisfy(&expr)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_boolean_satisfiers() -> VortexResult<()> {
+        let expr = and(gt_eq(col("a"), lit(10)), lt(col("a"), lit(50)));
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(and(
+                gt_eq(stat(col("a"), Stat::Min), lit(10)),
+                lt(stat(col("a"), Stat::Max), lit(50)),
+            ))
+        );
+
+        let expr = or(gt(col("a"), lit(10)), lt(col("a"), lit(5)));
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(or(
+                gt(stat(col("a"), Stat::Min), lit(10)),
+                lt(stat(col("a"), Stat::Max), lit(5)),
+            ))
+        );
+
+        // Min/max are unsupported for structs, so the struct comparison has no satisfier. A
+        // conjunction then cannot be proven, while a disjunction is proven by its other side.
+        let struct_scalar = Scalar::struct_(
+            nested_struct_dtype(),
+            vec![Scalar::primitive(1.0f32, Nullability::Nullable)],
+        );
+        let unprovable = eq(col("n"), lit(struct_scalar));
+        assert_rewrite_eq!(
+            satisfy(&and(gt(col("a"), lit(10)), unprovable.clone()))?,
+            None
+        );
+        assert_rewrite_eq!(
+            satisfy(&or(gt(col("a"), lit(10)), unprovable))?,
+            Some(gt(stat(col("a"), Stat::Min), lit(10)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_between_satisfier() -> VortexResult<()> {
+        let expr = between(
+            col("a"),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(and(
+                lt(lit(10), stat(col("a"), Stat::Min)),
+                lt_eq(stat(col("a"), Stat::Max), lit(50)),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn satisfier_guards_nullable_and_nan_operands() -> VortexResult<()> {
+        let x = get_item("x", col("n"));
+        let expr = gt(x.clone(), lit(1.0f32));
+
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(nan_guarded(
+                x.clone(),
+                and(
+                    eq(stat(x.clone(), Stat::NullCount), lit(0u64)),
+                    gt(stat(x, Stat::Min), lit(1.0f32)),
+                ),
             ))
         );
         Ok(())

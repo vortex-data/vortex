@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::BitAnd;
+use std::ops::BitOr;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -14,7 +15,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_buffer::BitBufferMut;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -29,6 +29,7 @@ use crate::SplitRange;
 use crate::VTable;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::pruning::PruningState;
+use crate::layouts::zoned::pruning::ZoneProof;
 use crate::segments::SegmentSource;
 
 pub struct ZonedReader {
@@ -117,6 +118,42 @@ impl ZonedReader {
             .saturating_mul(self.zone_len as u64)
             .min(self.row_count)
     }
+
+    /// Get the number of rows of `row_range` that fall in each zone of [`Self::zone_range`].
+    fn zone_lengths(&self, row_range: &Range<u64>) -> VortexResult<Vec<usize>> {
+        let row_count = row_range.end - row_range.start;
+        self.zone_range(row_range)
+            .map(|zone_idx| {
+                // Figure out the range in the mask that corresponds to the zone
+                let start = usize::try_from(
+                    self.first_row_offset(zone_idx)
+                        .saturating_sub(row_range.start),
+                )?;
+                let end = usize::try_from(
+                    self.first_row_offset(zone_idx + 1)
+                        .saturating_sub(row_range.start)
+                        .min(row_count),
+                )?;
+                Ok(end - start)
+            })
+            .try_collect()
+    }
+}
+
+/// Expand a per-zone mask into a per-row mask over the zones in `zone_range`.
+fn expand_zone_mask(
+    zone_mask: &Mask,
+    zone_range: Range<u64>,
+    zone_lengths: &[usize],
+    len: usize,
+) -> VortexResult<Mask> {
+    let mut builder = BitBufferMut::with_capacity(len);
+    for (zone_idx, &zone_length) in zone_range.zip_eq(zone_lengths) {
+        builder.append_n(zone_mask.value(usize::try_from(zone_idx)?), zone_length);
+    }
+    let mask = Mask::from(builder.freeze());
+    vortex_ensure!(mask.len() == len, "Mask length mismatch");
+    Ok(mask)
 }
 
 impl LayoutReader for ZonedReader {
@@ -157,29 +194,16 @@ impl LayoutReader for ZonedReader {
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
-        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
+        let Some(pruning_mask_future) = self
+            .pruning
+            .zone_proof_future(ZoneProof::Falsified, expr.clone())
+        else {
             trace!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
 
-        let row_count = row_range.end - row_range.start;
         let zone_range = self.zone_range(row_range);
-        let zone_lengths: Vec<_> = zone_range
-            .clone()
-            .map(|zone_idx| {
-                // Figure out the range in the mask that corresponds to the zone
-                let start = usize::try_from(
-                    self.first_row_offset(zone_idx)
-                        .saturating_sub(row_range.start),
-                )?;
-                let end = usize::try_from(
-                    self.first_row_offset(zone_idx + 1)
-                        .saturating_sub(row_range.start)
-                        .min(row_count),
-                )?;
-                Ok::<_, VortexError>(end - start)
-            })
-            .try_collect()?;
+        let zone_lengths = self.zone_lengths(row_range)?;
 
         let name = Arc::clone(&self.name);
         let expr = expr.clone();
@@ -188,14 +212,8 @@ impl LayoutReader for ZonedReader {
             trace!("Invoking stats pruning evaluation {}: {}", name, expr);
 
             let pruning_mask = pruning_mask_future.await?.mask()?;
-
-            let mut builder = BitBufferMut::with_capacity(mask.len());
-            for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
-                builder.append_n(!pruning_mask.value(usize::try_from(zone_idx)?), zone_length);
-            }
-
-            let stats_mask = Mask::from(builder.freeze());
-            assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
+            let stats_mask =
+                !expand_zone_mask(&pruning_mask, zone_range, &zone_lengths, mask.len())?;
 
             // Intersect the masks.
             let mask_density = mask.density();
@@ -225,7 +243,52 @@ impl LayoutReader for ZonedReader {
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        self.data_child()?.filter_evaluation(row_range, expr, mask)
+        let data_child = self.data_child()?;
+        let Some(satisfied_future) = self
+            .pruning
+            .zone_proof_future(ZoneProof::Satisfied, expr.clone())
+        else {
+            return data_child.filter_evaluation(row_range, expr, mask);
+        };
+
+        let zone_range = self.zone_range(row_range);
+        let zone_lengths = self.zone_lengths(row_range)?;
+        let data_child = Arc::clone(data_child);
+        let row_range = row_range.clone();
+        let name = Arc::clone(&self.name);
+        let expr = expr.clone();
+
+        Ok(MaskFuture::new(mask.len(), async move {
+            let satisfied_zones = satisfied_future.await?.mask()?;
+            let satisfied =
+                expand_zone_mask(&satisfied_zones, zone_range, &zone_lengths, mask.len())?;
+
+            if satisfied.all_false() {
+                return data_child.filter_evaluation(&row_range, &expr, mask)?.await;
+            }
+
+            // Rows in zones whose stats prove `expr` true for every row keep their input mask
+            // value. Only the remaining rows are evaluated by the data child, which is not read
+            // at all when every zone in the range is satisfied.
+            let input = mask.await?;
+            let satisfied_rows = (&input).bitand(&satisfied);
+            let remaining = input.clone().bitand_not(&satisfied);
+            trace!(
+                "Stats satisfied evaluation {} - {}: {} of {} rows proven",
+                name,
+                expr,
+                satisfied_rows.true_count(),
+                input.true_count(),
+            );
+            if remaining.all_false() {
+                return Ok(satisfied_rows);
+            }
+
+            let data_mask = data_child
+                .filter_evaluation(&row_range, &expr, MaskFuture::ready(remaining))?
+                .await?;
+            Ok(satisfied_rows.bitor(&data_mask))
+        }))
     }
 
     fn projection_evaluation(
@@ -244,8 +307,10 @@ impl LayoutReader for ZonedReader {
 #[cfg(test)]
 mod test {
     use std::num::NonZeroUsize;
+    use std::ops::Range;
     use std::sync::Arc;
 
+    use parking_lot::Mutex;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -256,10 +321,14 @@ mod test {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::between;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -287,6 +356,8 @@ mod test {
     use crate::layouts::zoned::ZonedLayout;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -558,5 +629,100 @@ mod test {
             invalid_layout.new_reader("".into(), segments, &session, &Default::default())
         })
         .unwrap();
+    }
+
+    /// Records every segment a reader requests.
+    struct RecordingSegments {
+        inner: Arc<dyn SegmentSource>,
+        requested: Mutex<Vec<SegmentId>>,
+    }
+
+    impl SegmentSource for RecordingSegments {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requested.lock().push(id);
+            self.inner.request(id)
+        }
+    }
+
+    fn data_segment_ids(layout: &LayoutRef) -> VortexResult<Vec<SegmentId>> {
+        let data = layout.slot(0)?.vortex_expect("data child");
+        let mut ids = Vec::new();
+        for child in data.depth_first_traversal() {
+            ids.extend(child?.segment_ids());
+        }
+        Ok(ids)
+    }
+
+    /// Zones whose min/max lie entirely inside the filter are proven true without evaluating the
+    /// data child. The fixture's zones hold `1..=3`, `4..=6` and `7..=9`.
+    #[rstest]
+    // Zones 1 and 2 are inside `[4, 9]`; the input mask already excludes zone 0, as pruning
+    // would, so no data segment is read at all.
+    #[case::all_remaining_zones_satisfied(
+        between(root(), lit(4), lit(9), BetweenOptions {
+            lower_strict: StrictComparison::NonStrict,
+            upper_strict: StrictComparison::NonStrict,
+        }),
+        0..9,
+        [false, false, false, true, true, true, true, true, true],
+        [false, false, false, true, true, true, true, true, true],
+        false,
+    )]
+    // Only zone 2 is proven; zones 0 and 1 straddle or miss the bound and are evaluated.
+    #[case::partially_satisfied(
+        gt(root(), lit(4)),
+        0..9,
+        [true; 9],
+        [false, false, false, false, true, true, true, true, true],
+        true,
+    )]
+    // Satisfied rows keep the input mask, including rows it already excluded.
+    #[case::satisfied_rows_keep_input_mask(
+        gt(root(), lit(0)),
+        0..9,
+        [true, false, true, false, true, false, true, false, true],
+        [true, false, true, false, true, false, true, false, true],
+        false,
+    )]
+    // A row range that starts and ends inside zones.
+    #[case::partial_zone_row_range(
+        gt(root(), lit(1)),
+        2..8,
+        [true; 6],
+        [true; 6],
+        true,
+    )]
+    fn filter_evaluation_skips_satisfied_zones<const N: usize>(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] expr: Expression,
+        #[case] row_range: Range<u64>,
+        #[case] input: [bool; N],
+        #[case] expected: [bool; N],
+        #[case] reads_data: bool,
+    ) -> VortexResult<()> {
+        let data_segments = data_segment_ids(&layout)?;
+        let recording = Arc::new(RecordingSegments {
+            inner: segments,
+            requested: Mutex::new(Vec::new()),
+        });
+        let source: Arc<dyn SegmentSource> = Arc::<RecordingSegments>::clone(&recording);
+
+        let result = block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), source, &session, &Default::default())?;
+            let expr = expr.bind(reader.dtype())?;
+            reader
+                .filter_evaluation(&row_range, &expr, MaskFuture::ready(Mask::from_iter(input)))?
+                .await
+        })?;
+
+        assert_eq!(result, Mask::from_iter(expected));
+        let read_data = recording
+            .requested
+            .lock()
+            .iter()
+            .any(|id| data_segments.contains(id));
+        assert_eq!(read_data, reads_data);
+        Ok(())
     }
 }

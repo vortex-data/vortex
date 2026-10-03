@@ -40,6 +40,15 @@ pub(super) type SharedPruningResult =
     Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
 type PredicateCache = Arc<OnceLock<Option<BoundExpression>>>;
 
+/// The kind of per-zone proof a stats predicate is rewritten into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ZoneProof {
+    /// A zone is `true` when the predicate is false for every row in the zone.
+    Falsified,
+    /// A zone is `true` when the predicate is true for every row in the zone.
+    Satisfied,
+}
+
 pub(super) struct PruningState {
     zone_count: usize,
     row_count: u64,
@@ -48,9 +57,9 @@ pub(super) struct PruningState {
     aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
-    pruning_result: LazyLock<DashMap<ExactBoundExpr, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<DashMap<(ZoneProof, ExactBoundExpr), Option<SharedPruningResult>>>,
     zone_map: OnceLock<SharedZoneMap>,
-    pruning_predicates: LazyLock<Arc<DashMap<ExactBoundExpr, PredicateCache>>>,
+    pruning_predicates: LazyLock<Arc<DashMap<(ZoneProof, ExactBoundExpr), PredicateCache>>>,
 }
 
 impl PruningState {
@@ -78,8 +87,14 @@ impl PruningState {
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        let key = ExactBoundExpr(expr.clone());
+    /// Returns per-zone proofs of the given kind for `expr`, or `None` when the zone map's stats
+    /// cannot prove anything about it.
+    pub(super) fn zone_proof_future(
+        &self,
+        proof: ZoneProof,
+        expr: BoundExpression,
+    ) -> Option<SharedPruningResult> {
+        let key = (proof, ExactBoundExpr(expr.clone()));
 
         if let Some(result) = self.pruning_result.get(&key) {
             return result.value().clone();
@@ -89,13 +104,13 @@ impl PruningState {
             .entry(key)
             .or_insert_with(|| {
                 let dynamic_updates = DynamicExprUpdates::new(&expr);
-                match self.pruning_predicate(expr.clone()) {
+                match self.pruning_predicate(proof, expr.clone()) {
                     None => {
-                        trace!(%expr, "no pruning predicate");
+                        trace!(%expr, ?proof, "no pruning predicate");
                         None
                     }
                     Some(predicate) => {
-                        trace!(%expr, ?predicate, "constructed pruning predicate");
+                        trace!(%expr, ?proof, ?predicate, "constructed pruning predicate");
                         let zone_map = self.zone_map();
                         let session = self.session.clone();
 
@@ -126,17 +141,27 @@ impl PruningState {
             .clone()
     }
 
-    fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
-        let key = ExactBoundExpr(expr.clone());
+    fn pruning_predicate(
+        &self,
+        proof: ZoneProof,
+        expr: BoundExpression,
+    ) -> Option<BoundExpression> {
+        let key = (proof, ExactBoundExpr(expr.clone()));
 
         self.pruning_predicates
             .entry(key)
             .or_default()
-            .get_or_init(move || match expr.falsify(&self.session) {
-                Ok(predicate) => predicate,
-                Err(error) => {
-                    trace!(%expr, %error, "failed to construct stats rewrite predicate");
-                    None
+            .get_or_init(move || {
+                let predicate = match proof {
+                    ZoneProof::Falsified => expr.falsify(&self.session),
+                    ZoneProof::Satisfied => expr.satisfy(&self.session),
+                };
+                match predicate {
+                    Ok(predicate) => predicate,
+                    Err(error) => {
+                        trace!(%expr, %error, "failed to construct stats rewrite predicate");
+                        None
+                    }
                 }
             })
             .clone()

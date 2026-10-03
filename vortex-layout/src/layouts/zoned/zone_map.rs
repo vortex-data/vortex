@@ -128,8 +128,10 @@ impl ZoneMap {
     /// Apply a pruning predicate to this zone map.
     ///
     /// `predicate` should be a stats rewrite expression such as the result of
-    /// [`BoundExpression::falsify`]. The returned mask has one value per zone, where
-    /// `true` means the zone cannot contain matching rows and can be skipped.
+    /// [`BoundExpression::falsify`] or [`BoundExpression::satisfy`]. The returned mask has one
+    /// value per zone, where `true` means the proof holds for the zone: for a falsifier, the zone
+    /// cannot contain matching rows and can be skipped; for a satisfier, every row in the zone
+    /// matches and the predicate need not be evaluated.
     ///
     /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
     /// placeholders, they are replaced after [`ArrayRef::apply_bound`] with per-zone
@@ -378,6 +380,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::and;
     use vortex_array::expr::cast;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
@@ -485,6 +488,48 @@ mod tests {
             BoolArray::from_iter([false, true, true]),
             ctx
         );
+    }
+
+    #[test]
+    fn satisfier_proves_sorted_zones_inside_range() -> VortexResult<()> {
+        // A sorted column split into zones of `0..=9`, `10..=19`, `20..=29` and `30..=39`, where
+        // the third zone also contains a null.
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let null_count = NullCount.bind(EmptyOptions);
+        let zone_map = ZoneMap::try_new(
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            StructArray::from_fields(&[
+                (
+                    max.to_string(),
+                    PrimitiveArray::new(buffer![9i32, 19, 29, 39], Validity::AllValid).into_array(),
+                ),
+                (
+                    min.to_string(),
+                    PrimitiveArray::new(buffer![0i32, 10, 20, 30], Validity::AllValid).into_array(),
+                ),
+                (
+                    null_count.to_string(),
+                    PrimitiveArray::new(buffer![0u64, 0, 1, 0], Validity::AllValid).into_array(),
+                ),
+            ])?,
+            Arc::new([max, min, null_count]),
+            10,
+            40,
+        )?;
+        let dtype = zone_map.column_dtype.clone();
+
+        // `5 <= x < 35` straddles the first and last zones, covers the second, and covers the
+        // third except for its null row.
+        let expr = and(gt_eq(root(), lit(5i32)), lt(root(), lit(35i32)));
+        let satisfier = expr.bind(&dtype)?.satisfy(&SESSION)?.unwrap();
+        let mask = zone_map.prune(&satisfier, &SESSION)?;
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, false, false]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
     }
 
     #[test]
