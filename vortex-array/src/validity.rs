@@ -25,6 +25,7 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
@@ -410,8 +411,8 @@ impl Validity {
             Self::AllInvalid => None,
             Self::Array(is_valid) => {
                 is_valid
-                    .statistics()
-                    .compute_min::<bool>(ctx)
+                    .aggregations()
+                    .compute_as::<bool>(&MIN_SKIP_NANS, ctx)
                     .vortex_expect("validity array must support min")
                     .then(|| {
                         // min true => all true
@@ -651,14 +652,21 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::count::Count;
+    use crate::aggregate_fn::fns::null_count::NULL_COUNT;
+    use crate::aggregate_fn::fns::sum::SUM_SKIP_NANS;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
+    use crate::expr::stats::Precision;
     use crate::validity::BoolArray;
     use crate::validity::Validity;
 
@@ -837,9 +845,53 @@ mod tests {
         #[case] lhs: Validity,
         #[case] rhs: Validity,
         #[case] expected: bool,
-    ) -> vortex_error::VortexResult<()> {
+    ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::all_valid([true, true, true], 3, true, false)]
+    #[case::all_invalid([false, false, false], 0, false, true)]
+    #[case::partially_valid([true, false, true], 2, false, false)]
+    fn counts_use_validity_sum_without_child_count(
+        #[case] bits: [bool; 3],
+        #[case] expected_count: usize,
+        #[case] all_valid: bool,
+        #[case] all_invalid: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let validity = BoolArray::from_iter(bits).into_array();
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::Array(validity.clone()))
+            .into_array();
+        let count = Count.bind(NumericalAggregateOpts::include_nans());
+
+        assert_eq!(
+            array.aggregations().compute_as::<u64>(&count, &mut ctx)?,
+            expected_count as u64
+        );
+        assert_eq!(array.valid_count(&mut ctx)?, expected_count);
+        assert_eq!(array.all_valid(&mut ctx)?, all_valid);
+        assert_eq!(array.all_invalid(&mut ctx)?, all_invalid);
+        assert_eq!(
+            array.aggregations().get_result_as::<u64>(&NULL_COUNT)?,
+            Precision::exact((array.len() - expected_count) as u64),
+        );
+        assert_eq!(
+            validity
+                .aggregations()
+                .get_result_as::<u64>(&SUM_SKIP_NANS)?,
+            Precision::exact(expected_count as u64),
+        );
+        assert!(validity.aggregations().get_result(&count).is_absent());
+        assert_eq!(
+            matches!(
+                Validity::Array(validity).into_non_nullable(array.len(), &mut ctx),
+                Some(Validity::NonNullable)
+            ),
+            all_valid,
+        );
         Ok(())
     }
 }

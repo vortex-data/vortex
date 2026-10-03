@@ -9,14 +9,13 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
+use crate::compute::MIN_SKIP_NANS;
 fn take_datetime_parts(
     array: ArrayView<DateTimeParts>,
     indices: &ArrayRef,
@@ -63,18 +62,20 @@ fn take_datetime_parts(
 
     let seconds_fill = array
         .seconds()
-        .statistics()
-        .get(Stat::Min)
+        .aggregations()
+        .get_result(&MIN_SKIP_NANS)
         .into_inner()
+        .filter(|s| !s.is_null())
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.seconds().dtype())?;
     let taken_seconds = taken_seconds.fill_null(seconds_fill)?;
 
     let subseconds_fill = array
         .subseconds()
-        .statistics()
-        .get(Stat::Min)
+        .aggregations()
+        .get_result(&MIN_SKIP_NANS)
         .into_inner()
+        .filter(|s| !s.is_null())
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.subseconds().dtype())?;
     let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;

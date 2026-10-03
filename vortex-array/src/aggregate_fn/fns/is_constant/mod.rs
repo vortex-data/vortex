@@ -86,7 +86,8 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     Ok(eq_result.true_count() == valid_count)
 }
 
-static IS_CONSTANT: LazyLock<AggregateFnRef> = LazyLock::new(|| IsConstant.bind(EmptyOptions));
+pub(crate) static IS_CONSTANT: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| IsConstant.bind(EmptyOptions));
 
 /// Compute whether an array has constant values.
 ///
