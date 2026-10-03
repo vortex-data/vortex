@@ -64,6 +64,13 @@ fn arrow_query(arrow: &arrow_array::MapArray, filter_key: &str, value: &str, key
     builders.iter_mut().map(StringBuilder::finish).collect()
 }
 
+/// Bytes in an Arrow array's buffers, counting only the used length of each buffer.
+fn arrow_data_bytes(data: &arrow_data::ArrayData) -> usize {
+    data.buffers().iter().map(|b| b.len()).sum::<usize>()
+        + data.nulls().map_or(0, |n| n.buffer().len())
+        + data.child_data().iter().map(arrow_data_bytes).sum::<usize>()
+}
+
 fn strings(a: &VarBinViewArray) -> Vec<Option<String>> {
     let mut ctx = common::SESSION.create_execution_ctx();
     let a = a.clone().into_array();
@@ -90,6 +97,16 @@ fn main() {
         "eventName=GetRestApis;eventName=AssumeRole;eventName=RunInstances;errorCode=AccessDenied".into()
     });
     println!("project {project:?}\n");
+    let shredded_bytes = |s: &vortex_shredded_map::ShreddedMapArray| s.clone().into_array().nbytes();
+    println!(
+        "bytes: arrow {} (buffers; {} allocated) | map {} | map_btr {} | shredded {} | shredded_btr {}\n",
+        arrow_data_bytes(&data.arrow.to_data()),
+        data.arrow.get_array_memory_size(),
+        data.map.nbytes(),
+        data.map_compressed.nbytes(),
+        shredded_bytes(&data.shredded),
+        shredded_bytes(&data.shredded_compressed),
+    );
     println!(
         "{:<28} {:>8} | {:>9} {:>9} {:>9} {:>9} {:>12}  (ms, best of 5)",
         "filter", "rows", "arrow", "map", "map_btr", "shredded", "shredded_btr"
