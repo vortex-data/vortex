@@ -60,5 +60,8 @@ name = "layout"
 [[example]]
 name = "query_bench"
 
+[[example]]
+name = "best_size"
+
 [lints]
 workspace = true
