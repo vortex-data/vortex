@@ -171,3 +171,40 @@ fn test_cuda_binary_zstd_follows_editions(
 
     Ok(())
 }
+
+/// A sparse column whose present values are all equal compresses to a masked constant whose
+/// validity, the only data left, is run-end encoded instead of stored as a raw bitmap.
+#[rstest]
+#[case::constant_under_nulls(PrimitiveArray::new(
+    vortex_buffer::Buffer::from(vec![7i64; 65_536]),
+    Validity::Array(
+        vortex_array::arrays::BoolArray::from_iter((0..65_536).map(|i| (i / 4096) % 2 == 0))
+            .into_array()
+    ),
+))]
+fn masked_constant_compresses_validity(#[case] array: PrimitiveArray) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = array.into_array();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(
+        compressed.nbytes() < 1024,
+        "compressed to {} bytes",
+        compressed.nbytes()
+    );
+    Ok(())
+}
+
+/// Long runs of booleans run-end encode.
+#[test]
+fn bool_runs_compress() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = vortex_array::arrays::BoolArray::from_iter((0..65_536).map(|i| (i / 1000) % 3 == 0))
+        .into_array();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.nbytes() < input.nbytes() / 4);
+    Ok(())
+}

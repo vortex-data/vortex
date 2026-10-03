@@ -19,6 +19,7 @@ mod flat;
 mod gather;
 pub mod labels;
 pub mod ops;
+mod rowcmp;
 mod rules;
 mod shred;
 

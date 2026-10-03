@@ -10,6 +10,9 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::UnionArray;
@@ -176,6 +179,20 @@ impl LabelMapBuilder {
         self.row_valid.append(true);
     }
 
+    /// Appends a row equal to the previous one, sharing its entries instead of copying them.
+    ///
+    /// The result is a list-view whose rows may overlap, so repeated label sets cost one
+    /// `(offset, size)` pair per row.
+    pub fn repeat_last_row(&mut self) {
+        let (offset, size, valid) = match (self.offsets.last(), self.sizes.last()) {
+            (Some(&o), Some(&s)) => (o, s, self.row_valid.value(self.row_valid.len() - 1)),
+            _ => (0, 0, true),
+        };
+        self.offsets.push(offset);
+        self.sizes.push(size);
+        self.row_valid.append(valid);
+    }
+
     /// Appends a null row.
     pub fn push_null(&mut self) {
         self.offsets.push(self.type_ids.len() as u64);
@@ -202,6 +219,96 @@ impl LabelMapBuilder {
             &label_map_dtype(self.value_nullability),
             keys,
             values,
+            self.offsets,
+            self.sizes,
+            Validity::from_bit_buffer(self.row_valid.freeze(), self.map_nullability),
+        )
+    }
+}
+
+/// `Map<Utf8, Utf8>` with sorted keys.
+pub fn utf8_map_dtype(value_nullability: Nullability) -> MapDType {
+    MapDType::try_new(
+        DType::Utf8(Nullability::NonNullable),
+        DType::Utf8(value_nullability),
+        true,
+    )
+    .vortex_expect("valid utf8 map dtype")
+}
+
+/// Builds a `Map<Utf8, Utf8>` column row by row, optionally sharing repeated rows.
+pub struct Utf8MapBuilder {
+    value_nullability: Nullability,
+    map_nullability: Nullability,
+    keys: VarBinViewBuilder,
+    values: VarBinViewBuilder,
+    entries: usize,
+    offsets: Vec<u64>,
+    sizes: Vec<u64>,
+    row_valid: BitBufferMut,
+}
+
+impl Utf8MapBuilder {
+    pub fn new(value_nullability: Nullability, map_nullability: Nullability) -> Self {
+        let allocator = BufferAllocatorRef::static_ref().clone();
+        Self {
+            value_nullability,
+            map_nullability,
+            keys: VarBinViewBuilder::with_capacity_in(
+                DType::Utf8(Nullability::NonNullable),
+                0,
+                allocator.clone(),
+            ),
+            values: VarBinViewBuilder::with_capacity_in(DType::Utf8(value_nullability), 0, allocator),
+            entries: 0,
+            offsets: Vec::new(),
+            sizes: Vec::new(),
+            row_valid: BitBufferMut::with_capacity(0),
+        }
+    }
+
+    /// Appends a row. Its keys must be sorted.
+    pub fn push_row<K: AsRef<str>, V: AsRef<str>>(
+        &mut self,
+        entries: impl IntoIterator<Item = (K, Option<V>)>,
+    ) {
+        let start = self.entries;
+        for (key, value) in entries {
+            self.keys.append_value(key.as_ref());
+            match value {
+                Some(v) => self.values.append_value(v.as_ref()),
+                None => self.values.append_null(),
+            }
+            self.entries += 1;
+        }
+        self.offsets.push(start as u64);
+        self.sizes.push((self.entries - start) as u64);
+        self.row_valid.append(true);
+    }
+
+    /// Appends a row equal to the previous one, sharing its entries.
+    pub fn repeat_last_row(&mut self) {
+        let (offset, size, valid) = match (self.offsets.last(), self.sizes.last()) {
+            (Some(&o), Some(&s)) => (o, s, self.row_valid.value(self.row_valid.len() - 1)),
+            _ => (0, 0, true),
+        };
+        self.offsets.push(offset);
+        self.sizes.push(size);
+        self.row_valid.append(valid);
+    }
+
+    /// Appends a null row.
+    pub fn push_null(&mut self) {
+        self.offsets.push(self.entries as u64);
+        self.sizes.push(0);
+        self.row_valid.append(false);
+    }
+
+    pub fn finish(mut self) -> VortexResult<MapArray> {
+        build_map(
+            &utf8_map_dtype(self.value_nullability),
+            self.keys.finish(),
+            self.values.finish(),
             self.offsets,
             self.sizes,
             Validity::from_bit_buffer(self.row_valid.freeze(), self.map_nullability),
@@ -245,6 +352,11 @@ impl Formatter {
 
 /// Formats each value of a union or scalar array as a nullable UTF-8 string.
 pub fn values_to_utf8(values: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    if let Some(dict) = values.as_opt::<Dict>() {
+        // Format each distinct value once.
+        let strings = values_to_utf8(dict.values(), ctx)?;
+        return Ok(DictArray::try_new(dict.codes().clone(), strings)?.into_array());
+    }
     let len = values.len();
     if let DType::Utf8(_) = values.dtype() {
         return Ok(values.clone());

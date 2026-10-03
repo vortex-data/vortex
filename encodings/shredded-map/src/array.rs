@@ -22,7 +22,10 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
@@ -243,6 +246,57 @@ impl ShreddedMap {
             residual,
             column_arrays,
         ))
+    }
+}
+
+/// Compresses every child of a shredded map with `compress`, keeping dictionary columns as
+/// dictionaries by compressing their codes and values separately.
+///
+/// Generic compressors canonicalize their input first, which would decode the shredded layout
+/// back into a map and every dictionary column into one value per row.
+///
+/// # Errors
+///
+/// Returns an error if `compress` fails or changes a child's dtype or length.
+pub fn compress_shredded(
+    array: &ShreddedMapArray,
+    mut compress: impl FnMut(&ArrayRef) -> VortexResult<ArrayRef>,
+) -> VortexResult<ShreddedMapArray> {
+    let residual = compress(array.residual())?;
+    let columns = array
+        .columns()
+        .iter()
+        .map(|column| match column.as_opt::<Dict>() {
+            Some(dict) => Ok(DictArray::try_new(
+                compress(dict.codes())?,
+                compress(dict.values())?,
+            )?
+            .into_array()),
+            None => compress(column),
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    ShreddedMap::try_new(residual, array.data().columns().to_vec(), columns)
+}
+
+/// Compresses the output of [`encode`](crate::encode) child by child, see [`compress_shredded`].
+///
+/// # Errors
+///
+/// Returns an error if `compress` fails or changes a child's dtype or length.
+pub fn compress_encoded(
+    array: &ArrayRef,
+    mut compress: impl FnMut(&ArrayRef) -> VortexResult<ArrayRef>,
+) -> VortexResult<ArrayRef> {
+    if let Some(dict) = array.as_opt::<Dict>()
+        && let Ok(values) = dict.values().clone().try_downcast::<ShreddedMap>()
+    {
+        let codes = compress(dict.codes())?;
+        let values = compress_shredded(&values, compress)?;
+        return Ok(DictArray::try_new(codes, values.into_array())?.into_array());
+    }
+    match array.clone().try_downcast::<ShreddedMap>() {
+        Ok(shredded) => Ok(compress_shredded(&shredded, compress)?.into_array()),
+        Err(array) => compress(&array),
     }
 }
 

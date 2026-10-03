@@ -63,6 +63,9 @@ pub mod map {
         let keys = Strings::new(&flat.keys);
         let mut seen: HashSet<&[u8]> = HashSet::new();
         for row in 0..flat.len {
+            if flat.repeats_prev(row) {
+                continue;
+            }
             for j in flat.range(row) {
                 seen.insert(keys.get(j));
             }
@@ -86,8 +89,11 @@ pub mod map {
         let needle = key.as_bytes();
         let mut indices = Vec::with_capacity(flat.len);
         let mut valid = vortex_buffer::BitBufferMut::with_capacity(flat.len);
+        let mut found = None;
         for row in 0..flat.len {
-            let found = flat.range(row).find(|&j| keys.get(j) == needle);
+            if !flat.repeats_prev(row) {
+                found = flat.range(row).find(|&j| keys.get(j) == needle);
+            }
             indices.push(found.unwrap_or(0) as u64);
             valid.append(found.is_some());
         }
@@ -130,6 +136,11 @@ pub mod map {
         let mut offsets = Vec::with_capacity(flat.len);
         let mut sizes = Vec::with_capacity(flat.len);
         for row in 0..flat.len {
+            if flat.repeats_prev(row) {
+                offsets.push(offsets[row - 1]);
+                sizes.push(sizes[row - 1]);
+                continue;
+            }
             let start = kept.len();
             for j in flat.range(row) {
                 if wanted.contains(strings.get(j)) {
@@ -282,5 +293,170 @@ pub mod shredded {
             .map(|&c| array.columns()[c].clone())
             .collect();
         ShreddedMap::try_new(residual.into_array(), columns, column_arrays)
+    }
+}
+
+/// Label operations over any encoding [`encode`](crate::encode) produces: a
+/// `Dict(codes, ShreddedMap)`, a bare [`ShreddedMapArray`] or a canonical map.
+///
+/// For a dictionary, each operation runs once per distinct label map and expands through the
+/// codes. Expanding a list-view only gathers `(offset, size)` pairs, so rows that share a label map
+/// share its entries.
+pub mod encoded {
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::dict::DictArraySlotsExt;
+    use vortex_array::arrays::listview::ListViewArrayExt;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
+    use vortex_array::arrays::map::MapArrayExt;
+    use vortex_array::arrays::map::MapArraySlotsExt;
+    use vortex_buffer::BitBufferMut;
+
+    use super::*;
+    use crate::decode::codes_u32;
+    use crate::flat::to_usize_vec;
+
+    enum View {
+        Dict {
+            codes: ArrayRef,
+            values: ShreddedMapArray,
+        },
+        Shredded(ShreddedMapArray),
+        Map(ArrayRef),
+    }
+
+    fn view(array: &ArrayRef) -> View {
+        if let Some(dict) = array.as_opt::<Dict>()
+            && let Ok(values) = dict.values().clone().try_downcast::<ShreddedMap>()
+        {
+            return View::Dict {
+                codes: dict.codes().clone(),
+                values,
+            };
+        }
+        match array.clone().try_downcast::<ShreddedMap>() {
+            Ok(shredded) => View::Shredded(shredded),
+            Err(array) => View::Map(array),
+        }
+    }
+
+    /// Repeats the rows of `list` selected by `codes`, sharing their elements.
+    fn expand_listview(
+        list: &ListViewArray,
+        codes: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ListViewArray> {
+        let codes = codes_u32(codes, ctx)?;
+        let offsets = to_usize_vec(list.offsets(), ctx)?;
+        let sizes = to_usize_vec(list.sizes(), ctx)?;
+        let valid = list.listview_validity().execute_mask(list.len(), ctx)?;
+        let mut new_offsets = Vec::with_capacity(codes.len());
+        let mut new_sizes = Vec::with_capacity(codes.len());
+        let mut new_valid = BitBufferMut::with_capacity(codes.len());
+        for &c in &codes {
+            let c = c as usize;
+            new_offsets.push(offsets[c] as u64);
+            new_sizes.push(sizes[c] as u64);
+            new_valid.append(valid.value(c));
+        }
+        let offsets = PrimitiveArray::new(Buffer::from(new_offsets), Validity::NonNullable);
+        let sizes = PrimitiveArray::new(Buffer::from(new_sizes), Validity::NonNullable);
+        ListViewArray::try_new(
+            list.elements().clone(),
+            offsets.into_array(),
+            sizes.into_array(),
+            Validity::from_bit_buffer(new_valid.freeze(), list.nullability()),
+        )
+    }
+
+    fn expand_map(
+        map: &MapArray,
+        codes: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<MapArray> {
+        let entries = map.entries().clone().execute::<ListViewArray>(ctx)?;
+        MapArray::try_new(
+            map.map_dtype().clone(),
+            expand_listview(&entries, codes, ctx)?,
+        )
+    }
+
+    /// Decompresses into a canonical map.
+    pub fn to_map(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<MapArray> {
+        match view(array) {
+            View::Dict { codes, values } => {
+                expand_map(&shredded::to_map(&values, ctx)?, &codes, ctx)
+            }
+            View::Shredded(s) => shredded::to_map(&s, ctx),
+            View::Map(m) => m.execute::<MapArray>(ctx),
+        }
+    }
+
+    /// The keys of each row as a `List<Utf8>`.
+    pub fn label_names(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ListViewArray> {
+        match view(array) {
+            View::Dict { codes, values } => {
+                expand_listview(&shredded::label_names(&values, ctx)?, &codes, ctx)
+            }
+            View::Shredded(s) => shredded::label_names(&s, ctx),
+            View::Map(m) => map::label_names(&m, ctx),
+        }
+    }
+
+    /// The distinct keys over all non-null rows, sorted.
+    pub fn distinct_label_names(
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<String>> {
+        match view(array) {
+            View::Dict { values, .. } | View::Shredded(values) => {
+                shredded::distinct_label_names(&values, ctx)
+            }
+            View::Map(m) => map::distinct_label_names(&m, ctx),
+        }
+    }
+
+    /// The value of `key` in each row formatted as a string, null when absent or null.
+    pub fn get_label_utf8(
+        array: &ArrayRef,
+        key: &str,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        match view(array) {
+            View::Dict { codes, values } => Ok(DictArray::try_new(
+                codes,
+                shredded::get_label_utf8(&values, key, ctx)?,
+            )?
+            .into_array()),
+            View::Shredded(s) => shredded::get_label_utf8(&s, key, ctx),
+            View::Map(m) => map::get_label_utf8(&m, key, ctx),
+        }
+    }
+
+    /// Decompresses into a map with every value formatted as a string.
+    pub fn to_utf8_map(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<MapArray> {
+        match view(array) {
+            View::Dict { codes, values } => {
+                expand_map(&shredded::to_utf8_map(&values, ctx)?, &codes, ctx)
+            }
+            View::Shredded(s) => shredded::to_utf8_map(&s, ctx),
+            View::Map(m) => map::to_utf8_map(&m, ctx),
+        }
+    }
+
+    /// Restricts the map to the entries whose key is in `keys`, keeping the encoding.
+    pub fn project(
+        array: &ArrayRef,
+        keys: &[&str],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(match view(array) {
+            View::Dict { codes, values } => {
+                DictArray::try_new(codes, shredded::project(&values, keys, ctx)?.into_array())?
+                    .into_array()
+            }
+            View::Shredded(s) => shredded::project(&s, keys, ctx)?.into_array(),
+            View::Map(m) => map::project(&m, keys, ctx)?.into_array(),
+        })
     }
 }

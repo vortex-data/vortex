@@ -78,8 +78,8 @@ fn main() {
     let data = LazyLock::force(&DATA);
     let mut ctx = SESSION.create_execution_ctx();
     println!(
-        "rows: {}  series: {}  load: {:.1}s  shred: {:.2}s",
-        data.rows, data.series, data.load_secs, data.shred_secs
+        "rows: {}  series: {}  load: {:.1}s  shred: {:.2}s  encode: {:.2}s",
+        data.rows, data.series, data.load_secs, data.shred_secs, data.encode_secs
     );
 
     println!("\nshredded columns (key, variant, compressed size):");
@@ -98,7 +98,7 @@ fn main() {
             column
                 .variant
                 .map(|v| ["str", "int", "float", "bool"][v])
-                .unwrap_or("union"),
+                .unwrap_or("full"),
             100.0 * valid as f64 / data.rows as f64,
             mib(array.nbytes()),
             mib(compressed.nbytes()),
@@ -117,8 +117,20 @@ fn main() {
     println!("  parquet zstd(3) Map<Utf8, Utf8>    {}  (read back in {:.3}s)", mib(parquet.len() as u64), parquet_read);
     println!("  vortex map (canonical)             {}", mib(data.map.nbytes()));
     println!("  vortex map + btrblocks             {}", mib(data.map_compressed.nbytes()));
+    println!("  vortex shared map (canonical)      {}", mib(data.map_shared.nbytes()));
+    println!("  vortex shared map + btrblocks      {}", mib(data.map_shared_compressed.nbytes()));
+    println!(
+        "  vortex shared map + compact        {}",
+        mib(common::compress_with(&data.map_shared, true).nbytes())
+    );
     println!("  shredded (canonical)               {}", mib(data.shredded.nbytes()));
     println!("  shredded + btrblocks               {}", mib(data.shredded_compressed.nbytes()));
+    println!("  encoded (canonical)                {}", mib(data.encoded.nbytes()));
+    println!("  encoded + btrblocks                {}", mib(data.encoded_compressed.nbytes()));
+    println!(
+        "  encoded + btrblocks compact        {}",
+        mib(common::compress_encoded(&data.encoded, true).nbytes())
+    );
     println!(
         "  vortex map + btrblocks compact     {}",
         mib(common::compress_with(&data.map, true).nbytes())
@@ -138,12 +150,25 @@ fn main() {
     let decoded: ArrayRef = ops::shredded::to_map(&data.shredded_compressed, &mut ctx)
         .unwrap()
         .into();
+    let decoded_encoded: ArrayRef = ops::encoded::to_map(&data.encoded_compressed, &mut ctx)
+        .unwrap()
+        .into();
     for key in &keys {
+        let t = Instant::now();
         let expected = strings(&ops::map::get_label_utf8(&data.map, key, &mut ctx).unwrap());
+        let t1 = t.elapsed();
         let got = ops::shredded::get_label_utf8(&data.shredded_compressed, key, &mut ctx).unwrap();
         assert_eq!(strings(&got), expected, "shredded label {key}");
+        let t2 = t.elapsed();
         let got = ops::map::get_label_utf8(&decoded, key, &mut ctx).unwrap();
         assert_eq!(strings(&got), expected, "decoded label {key}");
+        let got = ops::encoded::get_label_utf8(&data.encoded_compressed, key, &mut ctx).unwrap();
+        assert_eq!(strings(&got), expected, "encoded label {key}");
+        let got = ops::map::get_label_utf8(&decoded_encoded, key, &mut ctx).unwrap();
+        assert_eq!(strings(&got), expected, "decoded encoded label {key}");
+        if key == &keys[0] {
+            eprintln!("map {t1:?} shredded {:?} decoded {:?}", t2 - t1, t.elapsed() - t2);
+        }
     }
     println!(
         "\nverified {} labels on every row in {:.1}s",

@@ -26,6 +26,7 @@ use crate::ShredOptions;
 use crate::ShreddedMapArray;
 use crate::labels::LabelMapBuilder;
 use crate::labels::LabelValue;
+use crate::labels::Utf8MapBuilder;
 use crate::ops;
 use crate::shred;
 
@@ -105,30 +106,74 @@ fn row_strategy(nullable_values: bool, nullable_rows: bool) -> BoxedStrategy<Row
 #[derive(Debug, Clone)]
 struct Case {
     rows: Vec<Row>,
+    /// Rows built by sharing the previous row's entries.
+    repeats: Vec<bool>,
+    /// Build a `Map<Utf8, Utf8>` instead of a label union map.
+    utf8: bool,
     nullable_values: bool,
     nullable_rows: bool,
     options: ShredOptions,
 }
 
 fn case_strategy() -> impl Strategy<Value = Case> {
-    (any::<bool>(), any::<bool>()).prop_flat_map(|(nullable_values, nullable_rows)| {
-        (
-            prop::collection::vec(row_strategy(nullable_values, nullable_rows), 0..48),
-            0.0f64..1.0,
-            0usize..8,
-            any::<bool>(),
-        )
-            .prop_map(move |(rows, min_frequency, max_columns, typed)| Case {
-                rows,
-                nullable_values,
-                nullable_rows,
-                options: ShredOptions {
-                    min_frequency,
-                    max_columns,
-                    typed,
-                },
-            })
-    })
+    (any::<bool>(), any::<bool>(), any::<bool>()).prop_flat_map(
+        |(nullable_values, nullable_rows, utf8)| {
+            (
+                prop::collection::vec(
+                    (
+                        row_strategy(nullable_values, nullable_rows),
+                        proptest::bool::weighted(0.5),
+                        any::<bool>(),
+                    ),
+                    0..48,
+                ),
+                0.0f64..1.0,
+                0usize..8,
+                any::<bool>(),
+                any::<bool>(),
+                0.0f64..=1.0,
+            )
+                .prop_map(move |(rows, min_frequency, max_columns, typed, dictionary, max_distinct_rows)| {
+                    let mut out: Vec<Row> = Vec::with_capacity(rows.len());
+                    let mut repeats = Vec::with_capacity(rows.len());
+                    for (i, (row, repeat, share)) in rows.into_iter().enumerate() {
+                        let repeat = repeat && i > 0;
+                        let row = if repeat { out[i - 1].clone() } else { row };
+                        // A repeated row is either shared with the previous row or copied.
+                        let repeat = repeat && share;
+                        // A string map stores every value as its label string.
+                        let row = if utf8 && !(i > 0 && repeat) {
+                            row.map(|entries| {
+                                entries
+                                    .into_iter()
+                                    .map(|(k, v)| {
+                                        (k, v.map(|v| LabelValue::Str(v.to_label_string())))
+                                    })
+                                    .collect()
+                            })
+                        } else {
+                            row
+                        };
+                        out.push(row);
+                        repeats.push(repeat);
+                    }
+                    Case {
+                        rows: out,
+                        repeats,
+                        utf8,
+                        nullable_values,
+                        nullable_rows,
+                        options: ShredOptions {
+                            min_frequency,
+                            max_columns,
+                            typed,
+                            dictionary,
+                            max_distinct_rows,
+                        },
+                    }
+                })
+        },
+    )
 }
 
 fn nullability(nullable: bool) -> Nullability {
@@ -140,20 +185,38 @@ fn nullability(nullable: bool) -> Nullability {
 }
 
 fn build(case: &Case) -> VortexResult<MapArray> {
-    let mut builder = LabelMapBuilder::new(
-        nullability(case.nullable_values),
-        nullability(case.nullable_rows),
-    );
-    for row in &case.rows {
-        match row {
-            Some(entries) => builder.push_row(entries.iter().map(|(k, v)| (k, v.as_ref()))),
-            None => builder.push_null(),
+    let values = nullability(case.nullable_values);
+    let rows = nullability(case.nullable_rows);
+    if case.utf8 {
+        let mut builder = Utf8MapBuilder::new(values, rows);
+        for (row, &repeat) in case.rows.iter().zip(&case.repeats) {
+            match (repeat, row) {
+                (true, _) => builder.repeat_last_row(),
+                (false, Some(entries)) => builder.push_row(
+                    entries
+                        .iter()
+                        .map(|(k, v)| (k, v.as_ref().map(LabelValue::to_label_string))),
+                ),
+                (false, None) => builder.push_null(),
+            }
+        }
+        return builder.finish();
+    }
+    let mut builder = LabelMapBuilder::new(values, rows);
+    for (row, &repeat) in case.rows.iter().zip(&case.repeats) {
+        match (repeat, row) {
+            (true, _) => builder.repeat_last_row(),
+            (false, Some(entries)) => builder.push_row(entries.iter().map(|(k, v)| (k, v.as_ref()))),
+            (false, None) => builder.push_null(),
         }
     }
     builder.finish()
 }
 
 fn label_value(scalar: &Scalar) -> Option<LabelValue> {
+    if let Some(s) = scalar.as_utf8_opt() {
+        return s.value().map(|v| LabelValue::Str(v.to_string()));
+    }
     let union = scalar.as_union();
     let child = union.child()?;
     Some(match union.variant_name()?.as_ref() {
@@ -348,6 +411,28 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
     assert_eq!(read_rows(&got, ctx)?, projected, "shredded project");
     let got = ops::map::project(&map, projection, ctx)?.into_array();
     assert_eq!(read_rows(&got, ctx)?, projected, "map project");
+
+    // The row-dictionary encoding and its operations.
+    let encoded = crate::encode(&map, &case.options, ctx)?;
+    assert_eq!(read_rows(&encoded, ctx)?, case.rows, "encoded scalar_at");
+    let got = ops::encoded::to_map(&encoded, ctx)?.into_array();
+    assert_eq!(read_rows(&got, ctx)?, case.rows, "encoded to_map");
+    let got = ops::encoded::label_names(&encoded, ctx)?.into_array();
+    assert_eq!(read_string_lists(&got, ctx)?, names, "encoded label_names");
+    assert_eq!(ops::encoded::distinct_label_names(&encoded, ctx)?, distinct);
+    for key in VOCAB.iter().chain(&["missing"]) {
+        let got = ops::encoded::get_label_utf8(&encoded, key, ctx)?;
+        assert_eq!(
+            read_strings(&got, ctx)?,
+            expected_label(&case.rows, key),
+            "encoded get_label {key:?}"
+        );
+    }
+    let got = ops::encoded::to_utf8_map(&encoded, ctx)?.into_array();
+    assert_eq!(read_string_rows(&got, ctx)?, strings, "encoded to_utf8_map");
+    let got = ops::encoded::project(&encoded, projection, ctx)?;
+    let got = ops::encoded::to_map(&got, ctx)?.into_array();
+    assert_eq!(read_rows(&got, ctx)?, projected, "encoded project");
 
     // Slice, take and filter keep the children aligned.
     let len = case.rows.len();

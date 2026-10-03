@@ -3,10 +3,15 @@
 
 //! Label operations on real Prometheus labels (LO2v2), across representations:
 //!
-//! - `map`: canonical Vortex `Map<Utf8, Union<str, int, float, bool>>`
+//! - `map`: canonical Vortex `Map<Utf8, Utf8>` (or the label union with `LO2_VALUES=union`)
+//!   with one copy of the entries per row
 //! - `map_btr`: the same map compressed with BtrBlocks
+//! - `shared`: the map with repeated rows sharing their entries through the list-view
+//! - `shared_btr`: the shared map compressed with BtrBlocks
 //! - `shredded`: [`ShreddedMap`](vortex_shredded_map::ShreddedMap) with canonical children
 //! - `shredded_btr`: the shredded map with BtrBlocks-compressed children
+//! - `encoded`: `Dict(codes, ShreddedMap)` from `encode`, shredding only distinct label maps
+//! - `encoded_btr`: the encoded map with BtrBlocks-compressed children
 //! - `arrow`: Arrow `Map<Utf8, Utf8>`, the usual stringly-typed label column
 //!
 //! Every Vortex result is executed to [`RecursiveCanonical`] so no lazy or compressed child
@@ -35,8 +40,23 @@ use common::arrow_ops;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-const ALL: &[&str] = &["map", "map_btr", "shredded", "shredded_btr", "arrow"];
-const VORTEX: &[&str] = &["map", "map_btr", "shredded", "shredded_btr"];
+const ALL: &[&str] = &[
+    "map",
+    "map_btr",
+    "shredded",
+    "shredded_btr",
+    "encoded",
+    "encoded_btr",
+    "arrow",
+];
+const VORTEX: &[&str] = &[
+    "map",
+    "map_btr",
+    "shredded",
+    "shredded_btr",
+    "encoded",
+    "encoded_btr",
+];
 const COMMON_KEYS: &[&str] = &["__name__", "instance", "job"];
 const RARE_KEYS: &[&str] = &["cpu", "mode"];
 
@@ -65,6 +85,7 @@ fn arrow_done<T>(value: T) -> Option<RecursiveCanonical> {
 enum Input {
     Map(&'static ArrayRef),
     Shredded(&'static ShreddedMapArray),
+    Encoded(&'static ArrayRef),
     Arrow,
 }
 
@@ -72,14 +93,22 @@ fn input(name: &str) -> Input {
     match name {
         "map" => Input::Map(&DATA.map),
         "map_btr" => Input::Map(&DATA.map_compressed),
+        "shared" => Input::Map(&DATA.map_shared),
+        "shared_btr" => Input::Map(&DATA.map_shared_compressed),
         "shredded" => Input::Shredded(&DATA.shredded),
         "shredded_btr" => Input::Shredded(&DATA.shredded_compressed),
+        "encoded" => Input::Encoded(&DATA.encoded),
+        "encoded_btr" => Input::Encoded(&DATA.encoded_compressed),
         "arrow" => Input::Arrow,
         _ => unreachable!(),
     }
 }
 
-#[divan::bench(args = ["map_btr", "shredded", "shredded_btr"], sample_count = 10, sample_size = 1)]
+#[divan::bench(
+    args = ["map_btr", "shredded", "shredded_btr", "encoded", "encoded_btr"],
+    sample_count = 10,
+    sample_size = 1
+)]
 fn decompress_to_map(bencher: Bencher, name: &str) {
     bencher.bench(|| {
         let mut ctx = SESSION.create_execution_ctx();
@@ -87,6 +116,9 @@ fn decompress_to_map(bencher: Bencher, name: &str) {
             Input::Map(map) => materialize(map.clone(), &mut ctx),
             Input::Shredded(s) => {
                 materialize(ops::shredded::to_map(s, &mut ctx).unwrap().into_array(), &mut ctx)
+            }
+            Input::Encoded(e) => {
+                materialize(ops::encoded::to_map(e, &mut ctx).unwrap().into_array(), &mut ctx)
             }
             Input::Arrow => unreachable!(),
         }
@@ -106,6 +138,10 @@ fn label_names(bencher: Bencher, name: &str) {
                 ops::shredded::label_names(s, &mut ctx).unwrap().into_array(),
                 &mut ctx,
             )),
+            Input::Encoded(e) => Some(materialize(
+                ops::encoded::label_names(e, &mut ctx).unwrap().into_array(),
+                &mut ctx,
+            )),
             Input::Arrow => arrow_done(arrow_ops::label_names(&DATA.arrow)),
         }
     });
@@ -118,6 +154,7 @@ fn distinct_label_names(bencher: Bencher, name: &str) {
         match input(name) {
             Input::Map(map) => ops::map::distinct_label_names(map, &mut ctx).unwrap(),
             Input::Shredded(s) => ops::shredded::distinct_label_names(s, &mut ctx).unwrap(),
+            Input::Encoded(e) => ops::encoded::distinct_label_names(e, &mut ctx).unwrap(),
             Input::Arrow => arrow_ops::distinct_label_names(&DATA.arrow),
         }
     });
@@ -133,6 +170,10 @@ fn get_label(bencher: Bencher, name: &str, key: &str) {
             )),
             Input::Shredded(s) => Some(materialize(
                 ops::shredded::get_label_utf8(s, key, &mut ctx).unwrap(),
+                &mut ctx,
+            )),
+            Input::Encoded(e) => Some(materialize(
+                ops::encoded::get_label_utf8(e, key, &mut ctx).unwrap(),
                 &mut ctx,
             )),
             Input::Arrow => arrow_done(arrow_ops::get_label(&DATA.arrow, key)),
@@ -171,6 +212,10 @@ fn to_utf8_map(bencher: Bencher, name: &str) {
                 ops::shredded::to_utf8_map(s, &mut ctx).unwrap().into_array(),
                 &mut ctx,
             ),
+            Input::Encoded(e) => materialize(
+                ops::encoded::to_utf8_map(e, &mut ctx).unwrap().into_array(),
+                &mut ctx,
+            ),
             Input::Arrow => unreachable!(),
         }
     });
@@ -179,11 +224,17 @@ fn to_utf8_map(bencher: Bencher, name: &str) {
 fn project(bencher: Bencher, name: &str, keys: &[&str]) {
     bencher.bench(|| {
         let mut ctx = SESSION.create_execution_ctx();
+        if name == "encoded_enc" {
+            // The projected map stays encoded.
+            let projected = ops::encoded::project(&DATA.encoded, keys, &mut ctx).unwrap();
+            return Some(divan::black_box(projected));
+        }
         if name == "shredded_enc" {
             // The projected map stays shredded: no merge, only the residual is filtered.
             let projected = ops::shredded::project(&DATA.shredded, keys, &mut ctx).unwrap();
             let residual = materialize(projected.residual().clone(), &mut ctx);
-            return Some((projected, residual));
+            divan::black_box(residual);
+            return Some(projected.into_array());
         }
         match input(name) {
             Input::Map(map) => {
@@ -197,6 +248,12 @@ fn project(bencher: Bencher, name: &str, keys: &[&str]) {
                 divan::black_box(materialize(map.into_array(), &mut ctx));
                 None
             }
+            Input::Encoded(e) => {
+                let projected = ops::encoded::project(e, keys, &mut ctx).unwrap();
+                let map = ops::encoded::to_map(&projected, &mut ctx).unwrap();
+                divan::black_box(materialize(map.into_array(), &mut ctx));
+                None
+            }
             Input::Arrow => {
                 divan::black_box(arrow_ops::project(&DATA.arrow, keys));
                 None
@@ -205,7 +262,16 @@ fn project(bencher: Bencher, name: &str, keys: &[&str]) {
     });
 }
 
-const PROJECT: &[&str] = &["map", "map_btr", "shredded", "shredded_btr", "shredded_enc", "arrow"];
+const PROJECT: &[&str] = &[
+    "map",
+    "map_btr",
+    "shredded",
+    "shredded_btr",
+    "encoded",
+    "encoded_btr",
+    "shredded_enc",
+    "arrow",
+];
 
 /// Projects `__name__`, `instance` and `job` into a new map.
 #[divan::bench(args = PROJECT, sample_count = 10, sample_size = 1)]

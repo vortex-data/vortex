@@ -10,11 +10,16 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::varbinview::BinaryView;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_buffer::BitBuffer;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -26,6 +31,7 @@ use crate::flat::Strings;
 use crate::flat::build_listview;
 use crate::flat::build_map;
 use crate::gather::Positions;
+use crate::rowcmp::RowCmp;
 use crate::gather::Source;
 use crate::gather::gather;
 use crate::flat::utf8_from_views;
@@ -78,40 +84,27 @@ pub(crate) fn column_masks(
         .collect()
 }
 
-fn for_each_set(mask: &Mask, mut f: impl FnMut(usize)) {
-    match mask.bit_buffer() {
-        AllOr::All => (0..mask.len()).for_each(f),
-        AllOr::None => {}
-        AllOr::Some(bits) => bits.for_each_set_index(&mut f),
+/// Marks the rows whose residual entries and column values all equal the previous row's.
+pub(crate) fn repeated_rows(
+    flat: &FlatMap,
+    column_arrays: &[ArrayRef],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitBuffer> {
+    let mut repeats = BitBuffer::collect_bool(flat.len, |row| flat.repeats_prev(row));
+    for column in column_arrays {
+        if repeats.true_count() == 0 {
+            break;
+        }
+        repeats = &repeats & &RowCmp::new(column, ctx)?.same_as_prev_bits(flat.len);
     }
-}
-
-/// Transposes the column masks into per-row lists of present column indices, in column order.
-fn present_columns(masks: &[Mask], len: usize) -> (Vec<u32>, Vec<u16>) {
-    let mut starts = vec![0u32; len + 1];
-    for mask in masks {
-        for_each_set(mask, |row| starts[row + 1] += 1);
-    }
-    for row in 0..len {
-        starts[row + 1] += starts[row];
-    }
-    let mut cursor = starts.clone();
-    let mut columns = vec![0u16; starts[len] as usize];
-    for (k, mask) in masks.iter().enumerate() {
-        #[allow(clippy::cast_possible_truncation)]
-        let k = k as u16;
-        for_each_set(mask, |row| {
-            columns[cursor[row] as usize] = k;
-            cursor[row] += 1;
-        });
-    }
-    (starts, columns)
+    Ok(repeats)
 }
 
 pub(crate) fn plan_merge(
     flat: &FlatMap,
     keys: &[&str],
     column_masks: &[Mask],
+    repeats: &BitBuffer,
     with_take: bool,
 ) -> MergePlan {
     let residual_keys = Strings::new(&flat.keys);
@@ -126,22 +119,33 @@ pub(crate) fn plan_merge(
         })
         .collect();
 
+    // Only rows that do not repeat their predecessor are merged, so their present columns are
+    // looked up per row instead of transposing every column mask.
+    let column_bits: Vec<AllOr<&BitBuffer>> = column_masks.iter().map(Mask::bit_buffer).collect();
+    let present = |row: usize, k: usize| match column_bits[k] {
+        AllOr::All => true,
+        AllOr::None => false,
+        AllOr::Some(bits) => bits.value(row),
+    };
     let total = (0..flat.len)
-        .map(|row| flat.range(row).len())
-        .sum::<usize>()
-        + column_masks.iter().map(Mask::true_count).sum::<usize>();
+        .filter(|&row| !repeats.value(row))
+        .map(|row| flat.range(row).len() + (0..keys.len()).filter(|&k| present(row, k)).count())
+        .sum::<usize>();
     let mut offsets = Vec::with_capacity(flat.len);
     let mut sizes = Vec::with_capacity(flat.len);
     let mut key_views = Vec::with_capacity(total);
     let mut take = Positions::with_capacity(if with_take { total } else { 0 });
 
-    let (row_starts, row_columns) = present_columns(column_masks, flat.len);
     for row in 0..flat.len {
+        if repeats.value(row) {
+            offsets.push(offsets[row - 1]);
+            sizes.push(sizes[row - 1]);
+            continue;
+        }
         let start = key_views.len();
         let range = flat.range(row);
         let mut j = range.start;
-        for &k in &row_columns[row_starts[row] as usize..row_starts[row + 1] as usize] {
-            let k = k as usize;
+        for k in (0..keys.len()).filter(|&k| present(row, k)) {
             let column_key = keys[k].as_bytes();
             while j < range.end && residual_keys.get(j) < column_key {
                 key_views.push(residual_keys.views[j]);
@@ -194,16 +198,41 @@ fn gather_values(
 ) -> VortexResult<ArrayRef> {
     let mut sources = Vec::with_capacity(columns.len() + 1);
     sources.push(Source::Array(flat.values.clone()));
+    // Dictionary columns are gathered from their values through their codes, so only the
+    // referenced rows' codes are read and the per-row values are never materialized.
+    let mut codes: Vec<Option<Vec<u32>>> = Vec::with_capacity(columns.len());
     for (column, array) in columns.iter().zip(column_arrays) {
+        let (array, column_codes) = match array.as_opt::<Dict>() {
+            Some(dict) => (dict.values().clone(), Some(codes_u32(dict.codes(), ctx)?)),
+            None => (array.clone(), None),
+        };
+        codes.push(column_codes);
         sources.push(match column.variant {
-            Some(child) => Source::Variant {
-                child,
-                array: array.clone(),
-            },
-            None => Source::Array(array.clone()),
+            Some(child) => Source::Variant { child, array },
+            None => Source::Array(array),
         });
     }
-    gather(value_dtype, sources, &plan.take, ctx)
+    if codes.iter().all(Option::is_none) {
+        return gather(value_dtype, sources, &plan.take, ctx);
+    }
+    let mut positions = Positions::with_capacity(plan.take.len());
+    for (&src, &pos) in plan.take.src.iter().zip(&plan.take.pos) {
+        let pos = match src.checked_sub(1).and_then(|k| codes[k as usize].as_ref()) {
+            Some(codes) => codes[pos as usize] as usize,
+            None => pos as usize,
+        };
+        positions.push(src, pos);
+    }
+    gather(value_dtype, sources, &positions, ctx)
+}
+
+/// The codes of a dictionary as `u32`, with nulls read as zero.
+pub(crate) fn codes_u32(codes: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<u32>> {
+    let codes = codes.clone().execute::<PrimitiveArray>(ctx)?;
+    Ok(match_each_integer_ptype!(codes.ptype(), |P| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        codes.as_slice::<P>().iter().map(|&c| c as u32).collect()
+    }))
 }
 
 /// Decodes shredded parts into a canonical map array.
@@ -218,7 +247,8 @@ pub(crate) fn decode_parts(
     let len = flat.len;
     let keys: Vec<&str> = parts.columns.iter().map(|c| c.key.as_ref()).collect();
     let masks = column_masks(&parts.column_arrays, len, ctx)?;
-    let plan = plan_merge(&flat, &keys, &masks, true);
+    let repeats = repeated_rows(&flat, &parts.column_arrays, ctx)?;
+    let plan = plan_merge(&flat, &keys, &masks, &repeats, true);
     let values = gather_values(
         &parts.map_dtype.value_dtype(),
         &flat,
@@ -259,7 +289,8 @@ pub(crate) fn decode_keys(
     let flat = FlatMap::new(&parts.residual, ctx)?;
     let keys: Vec<&str> = parts.columns.iter().map(|c| c.key.as_ref()).collect();
     let masks = column_masks(&parts.column_arrays, flat.len, ctx)?;
-    let plan = plan_merge(&flat, &keys, &masks, false);
+    let repeats = repeated_rows(&flat, &parts.column_arrays, ctx)?;
+    let plan = plan_merge(&flat, &keys, &masks, &repeats, false);
     build_listview(
         utf8_from_views(plan.key_views, plan.key_buffers),
         plan.offsets,

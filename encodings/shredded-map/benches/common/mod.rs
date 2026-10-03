@@ -32,11 +32,10 @@ use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_session::VortexSession;
 use vortex_shredded_map::ShredOptions;
-use vortex_shredded_map::ShreddedMap;
 use vortex_shredded_map::ShreddedMapArray;
-use vortex_shredded_map::ShreddedMapArraySlotsExt;
 use vortex_shredded_map::labels::LabelMapBuilder;
 use vortex_shredded_map::labels::LabelValue;
+use vortex_shredded_map::labels::Utf8MapBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -49,16 +48,25 @@ pub struct Data {
     pub rows: usize,
     pub series: usize,
     pub load_secs: f64,
-    /// Canonical `Map<Utf8, Union<str, int, float, bool>>`.
+    /// Canonical map with one copy of the entries per row, as a plain writer produces it.
+    /// `Map<Utf8, Utf8>` by default, `Map<Utf8, Union<str, int, float, bool>>` with
+    /// `LO2_VALUES=union`.
     pub map: ArrayRef,
     /// The canonical map compressed with BtrBlocks.
     pub map_compressed: ArrayRef,
+    /// The same map where rows repeating the previous row's labels share its entries.
+    pub map_shared: ArrayRef,
+    pub map_shared_compressed: ArrayRef,
     pub shredded: ShreddedMapArray,
     /// The shredded map with each child compressed with BtrBlocks.
     pub shredded_compressed: ShreddedMapArray,
     /// Arrow `Map<Utf8, Utf8>`, the usual stringly-typed label column.
     pub arrow: ArrowMapArray,
     pub shred_secs: f64,
+    /// `Dict(codes, ShreddedMap)` from [`vortex_shredded_map::encode`].
+    pub encoded: ArrayRef,
+    pub encoded_compressed: ArrayRef,
+    pub encode_secs: f64,
 }
 
 pub static DATA: LazyLock<Data> = LazyLock::new(load);
@@ -101,6 +109,36 @@ fn sample_rows(series: &[(Arc<Labels>, usize)], target: usize) -> (Vec<Arc<Label
     (rows, used)
 }
 
+fn build_map(rows: &[Arc<Labels>], union: bool, share: bool) -> ArrayRef {
+    let n = Nullability::NonNullable;
+    let repeats = |i: usize| share && i > 0 && Arc::ptr_eq(&rows[i], &rows[i - 1]);
+    if union {
+        let mut builder = LabelMapBuilder::new(n, n);
+        for (i, row) in rows.iter().enumerate() {
+            if repeats(i) {
+                builder.repeat_last_row();
+                continue;
+            }
+            let typed: Vec<(&str, LabelValue)> = row
+                .iter()
+                .map(|(k, v)| (k.as_str(), LabelValue::infer(v)))
+                .collect();
+            builder.push_row(typed.iter().map(|(k, v)| (*k, Some(v))));
+        }
+        builder.finish().unwrap().into_array()
+    } else {
+        let mut builder = Utf8MapBuilder::new(n, n);
+        for (i, row) in rows.iter().enumerate() {
+            if repeats(i) {
+                builder.repeat_last_row();
+            } else {
+                builder.push_row(row.iter().map(|(k, v)| (k, Some(v))));
+            }
+        }
+        builder.finish().unwrap().into_array()
+    }
+}
+
 fn build_arrow(rows: &[Arc<Labels>]) -> ArrowMapArray {
     let mut builder = MapBuilder::new(None, StringBuilder::new(), StringBuilder::new());
     for row in rows {
@@ -133,14 +171,13 @@ pub fn compress_shredded(shredded: &ShreddedMapArray) -> ShreddedMapArray {
     compress_shredded_with(shredded, false)
 }
 
+pub fn compress_encoded(array: &ArrayRef, compact: bool) -> ArrayRef {
+    vortex_shredded_map::compress_encoded(array, |child| Ok(compress_with(child, compact))).unwrap()
+}
+
 pub fn compress_shredded_with(shredded: &ShreddedMapArray, compact: bool) -> ShreddedMapArray {
-    let residual = compress_with(shredded.residual(), compact);
-    let columns = shredded
-        .columns()
-        .iter()
-        .map(|c| compress_with(c, compact))
-        .collect();
-    ShreddedMap::try_new(residual, shredded.data().columns().to_vec(), columns).unwrap()
+    vortex_shredded_map::compress_shredded(shredded, |child| Ok(compress_with(child, compact)))
+        .unwrap()
 }
 
 fn load() -> Data {
@@ -162,15 +199,9 @@ fn load() -> Data {
     };
     drop(all_series);
 
-    let mut builder = LabelMapBuilder::new(Nullability::NonNullable, Nullability::NonNullable);
-    for row in &rows {
-        let typed: Vec<(&str, LabelValue)> = row
-            .iter()
-            .map(|(k, v)| (k.as_str(), LabelValue::infer(v)))
-            .collect();
-        builder.push_row(typed.iter().map(|(k, v)| (*k, Some(v))));
-    }
-    let map = builder.finish().unwrap().into_array();
+    let union = std::env::var("LO2_VALUES").as_deref() == Ok("union");
+    let map = build_map(&rows, union, false);
+    let map_shared = build_map(&rows, union, true);
     let arrow = build_arrow(&rows);
     let load_secs = start.elapsed().as_secs_f64();
 
@@ -183,7 +214,18 @@ fn load() -> Data {
     .unwrap();
     let shred_secs = start.elapsed().as_secs_f64();
 
+    let start = Instant::now();
+    let encoded = vortex_shredded_map::encode(
+        &map,
+        &ShredOptions::default(),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap();
+    let encode_secs = start.elapsed().as_secs_f64();
+    let encoded_compressed = compress_encoded(&encoded, false);
+
     let map_compressed = compress(&map);
+    let map_shared_compressed = compress(&map_shared);
     let shredded_compressed = compress_shredded(&shredded);
     Data {
         rows: rows.len(),
@@ -191,10 +233,15 @@ fn load() -> Data {
         load_secs,
         map,
         map_compressed,
+        map_shared,
+        map_shared_compressed,
         shredded,
         shredded_compressed,
         arrow,
         shred_secs,
+        encoded,
+        encoded_compressed,
+        encode_secs,
     }
 }
 

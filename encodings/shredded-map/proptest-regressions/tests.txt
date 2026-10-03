@@ -8,3 +8,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b0ea9b6a72b8958910bdbd03bf9a404c4cc605a829518fca92f6647e9e346ab6 # shrinks to case = Case { rows: [Some([("__name__", Some(Str(""))), ("__name__", Some(Str("")))])], nullable_values: false, nullable_rows: false, options: ShredOptions { min_frequency: 0.0, max_columns: 1, typed: false } }, projection = ["__name__"], selection = [0, 0]
+cc cb5bd2b41dea2d36951088ee68a3a21f46d754b625ffe8b4ce307e6a042caf85 # shrinks to case = Case { rows: [Some([("container_label_com_docker_compose_service", Some(Bool(false)))])], repeats: [false], utf8: false, nullable_values: false, nullable_rows: false, options: ShredOptions { min_frequency: 0.0, max_columns: 1, typed: false, dictionary: true, max_distinct_rows: 0.0 } }, projection = [], selection = [0, 0]

@@ -18,8 +18,10 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
+use crate::CascadingCompressor;
 use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 
@@ -92,12 +94,15 @@ pub(crate) fn is_constant_for_compression(
 /// Encodes an array whose valid values are all equal.
 ///
 /// Returns a [`ConstantArray`], wrapped in a [`MaskedArray`] when the array has some nulls, or a
-/// null [`ConstantArray`] when the array is all-null.
+/// null [`ConstantArray`] when the array is all-null. The validity of a [`MaskedArray`] is itself
+/// compressed with `compressor`, since it is then the only data the array stores.
 ///
 /// # Errors
 ///
-/// Returns an error if computing validity or extracting the constant scalar fails.
+/// Returns an error if computing validity, extracting the constant scalar or compressing the
+/// validity fails.
 pub(crate) fn compress_constant(
+    compressor: &CascadingCompressor,
     source: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -114,10 +119,13 @@ pub(crate) fn compress_constant(
     let const_arr = ConstantArray::new(scalar, source.len()).into_array();
 
     if mask.all_true() {
-        Ok(const_arr)
-    } else {
-        Ok(MaskedArray::try_new(const_arr, validity)?.into_array())
+        return Ok(const_arr);
     }
+    let validity = match validity {
+        Validity::Array(bits) => Validity::Array(compressor.compress(&bits, ctx)?),
+        validity => validity,
+    };
+    Ok(MaskedArray::try_new(const_arr, validity)?.into_array())
 }
 
 #[cfg(test)]

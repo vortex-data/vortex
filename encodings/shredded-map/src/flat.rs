@@ -68,7 +68,7 @@ pub(crate) struct FlatMap {
     pub values: ArrayRef,
 }
 
-fn to_usize_vec(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usize>> {
+pub(crate) fn to_usize_vec(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usize>> {
     let array = array.clone().execute::<PrimitiveArray>(ctx)?;
     Ok(match_each_integer_ptype!(array.ptype(), |P| {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -112,6 +112,16 @@ impl FlatMap {
         })
     }
 
+    /// Whether `row` has the same validity and the same entry range as the previous row.
+    #[inline]
+    pub fn repeats_prev(&self, row: usize) -> bool {
+        row > 0
+            && self.row_valid.value(row) == self.row_valid.value(row - 1)
+            && (!self.row_valid.value(row)
+                || (self.offsets[row] == self.offsets[row - 1]
+                    && self.sizes[row] == self.sizes[row - 1]))
+    }
+
     /// The entry range of a row, empty for null rows.
     #[inline]
     pub fn range(&self, row: usize) -> std::ops::Range<usize> {
@@ -133,7 +143,7 @@ pub(crate) fn mask_indices(mask: &Mask) -> ArrayRef {
     PrimitiveArray::new(indices, Validity::NonNullable).into_array()
 }
 
-/// Builds a list-view from monotonically packed offsets and sizes.
+/// Builds a list-view whose rows may share or skip entries.
 pub(crate) fn build_listview(
     elements: ArrayRef,
     offsets: Vec<u64>,
@@ -142,12 +152,10 @@ pub(crate) fn build_listview(
 ) -> VortexResult<ListViewArray> {
     let offsets = PrimitiveArray::new(Buffer::from(offsets), Validity::NonNullable).into_array();
     let sizes = PrimitiveArray::new(Buffer::from(sizes), Validity::NonNullable).into_array();
-    let listview = ListViewArray::try_new(elements, offsets, sizes, validity)?;
-    // SAFETY: every caller packs rows back to back in row order.
-    Ok(unsafe { listview.with_zero_copy_to_list(true) })
+    ListViewArray::try_new(elements, offsets, sizes, validity)
 }
 
-/// Builds a canonical map from packed entries.
+/// Builds a canonical map whose rows may share entries.
 pub(crate) fn build_map(
     map_dtype: &MapDType,
     keys: ArrayRef,

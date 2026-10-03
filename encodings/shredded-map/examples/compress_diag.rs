@@ -56,6 +56,20 @@ fn main() {
     for compact in [false, true] {
         match which.as_str() {
             "map" => show("map", &data.map, compact),
+            "shared" => show("shared", &data.map_shared, compact),
+            "encoded" => {
+                let start = Instant::now();
+                let compressed = common::compress_encoded(&data.encoded, compact);
+                println!(
+                    "=== encoded compact={compact}: {} -> {} bytes in {:.3}s",
+                    data.encoded.nbytes(),
+                    compressed.nbytes(),
+                    start.elapsed().as_secs_f64()
+                );
+                if std::env::var("TREE").is_ok() {
+                    print_tree("root", &compressed, 0);
+                }
+            }
             _ => {
                 let start = Instant::now();
                 let compressed = common::compress_shredded_with(&data.shredded, compact);

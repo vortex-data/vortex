@@ -52,6 +52,55 @@ Each map is shredded with random options and checked against a plain Rust model.
 The `prom_labels_report` example also checks every label of every row of the real dataset against
 the canonical map.
 
+## Row runs and dictionary columns
+
+Label maps are usually written series by series, so consecutive rows repeat the same labels
+(about 92 times per run in the benchmark data). Three things exploit this:
+
+- `shred` detects rows equal to their predecessor, by shared list-view range or by content. Such
+  rows share residual entries and column codes.
+- With `ShredOptions::dictionary` (the default), each column is a `Dict` of per-row codes into the
+  column's distinct values.
+- `encode` goes one step further and returns `Dict(row codes, ShreddedMap of distinct runs)`, the
+  same shape as a time-series database's series index. Every operation runs once per run and then
+  expands to rows by gathering list-view `(offset, size)` pairs, so rows that share labels also
+  share their decoded entries.
+
+`compress_shredded` and `compress_encoded` compress child by child. A generic compressor would
+otherwise canonicalize its input and undo the layout.
+
+## Results (string to string, 1M sample rows, 10.8k series)
+
+Sizes:
+
+| format | size |
+| --- | --- |
+| Parquet zstd(3) `Map<Utf8,Utf8>` | 0.46 MiB |
+| Vortex `Map` + BtrBlocks | 13.58 MiB |
+| Vortex `Map` + BtrBlocks compact (zstd/pco) | 1.06 MiB |
+| shredded + BtrBlocks | 0.22 MiB |
+| shredded + compact | 0.09 MiB |
+| encoded + BtrBlocks | 0.18 MiB |
+| encoded + compact | 0.05 MiB |
+
+Compression takes 0.51 s for the plain map, 0.12 s for the shredded map and 0.035 s for the
+encoded map. With one row per series (205k rows, no repeats), shredded + BtrBlocks is 1.41 MiB,
+against 2.91 MiB for the plain map, and shredded + compact is 0.43 MiB, against 0.47 MiB for
+Parquet.
+
+Median times, every Vortex result fully materialized:
+
+| op | Arrow | Map | Map + BtrBlocks | shredded | encoded | encoded + BtrBlocks |
+| --- | --- | --- | --- | --- | --- | --- |
+| decompress to a map | n/a | n/a | 39 ms | 98 ms | 7.9 ms | 8.6 ms |
+| label names per row | 0.4 µs | 3.8 ms | 43 ms | 83 ms | 7.0 ms | 7.6 ms |
+| distinct label names | 60 ms | 64 ms | 100 ms | 3.8 ms | 0.08 ms | 0.13 ms |
+| one label, every row (`job`) | 33 ms | 32 ms | 71 ms | 0.8 ms | 1.2 ms | 1.7 ms |
+| one label, 18% of rows (`image`) | 27 ms | 30 ms | 70 ms | 2.8 ms | 4.7 ms | 7.8 ms |
+| one label, 4% of rows (`mode`, residual) | 24 ms | 29 ms | 67 ms | 8.3 ms | 1.8 ms | 2.8 ms |
+| project 3 common keys to a map | 133 ms | 84 ms | 125 ms | 21 ms | 5.7 ms | 6.5 ms |
+| project 2 rare keys to a map | 53 ms | 52 ms | 87 ms | 21 ms | 5.7 ms | 6.1 ms |
+
 ## Dataset
 
 [LO2v2](https://zenodo.org/records/18937117) (`light-oauth2-metrics.zip`, 78 MB zipped, 1.7 GB of
@@ -67,4 +116,4 @@ LO2_PATH=/path/lo2_series.jsonl cargo run --release -p vortex-shredded-map --exa
 ```
 
 Rows are samples (long format, one label map per sample). Set `LO2_MODE=series` for one row per
-series.
+series, and `LO2_VALUES=union` for `Map<Utf8, Union<str, int, float, bool>>` values.
