@@ -57,9 +57,11 @@ impl Display for IsSortedOptions {
     }
 }
 
-pub(crate) static IS_SORTED: LazyLock<AggregateFnRef> =
+/// Prebound [`IsSorted`] key with [`IsSortedOptions::strict`] set to false.
+pub static IS_SORTED: LazyLock<AggregateFnRef> =
     LazyLock::new(|| IsSorted.bind(IsSortedOptions { strict: false }));
-pub(crate) static IS_STRICT_SORTED: LazyLock<AggregateFnRef> =
+/// Prebound [`IsSorted`] key with [`IsSortedOptions::strict`] set to true.
+pub static IS_STRICT_SORTED: LazyLock<AggregateFnRef> =
     LazyLock::new(|| IsSorted.bind(IsSortedOptions { strict: true }));
 
 /// Compute whether an array is sorted in non-decreasing order.

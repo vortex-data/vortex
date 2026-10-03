@@ -15,6 +15,7 @@ use std::sync::atomic::Ordering;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -82,6 +83,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
+use crate::stats::AggregateResults;
 use crate::stats::StatsSet;
 use crate::validity::Validity;
 
@@ -589,6 +591,7 @@ fn execution_snapshots_preserve_unique_input_ownership(
         OwnershipProbeData {
             values,
             clones: Arc::clone(&clones),
+            initial_results: None,
         },
     ))?
     .into_array();
@@ -630,6 +633,7 @@ struct OwnershipProbe;
 struct OwnershipProbeData {
     values: Buffer<i32>,
     clones: Arc<AtomicUsize>,
+    initial_results: Option<AggregateResults>,
 }
 
 impl Clone for OwnershipProbeData {
@@ -638,6 +642,7 @@ impl Clone for OwnershipProbeData {
         Self {
             values: self.values.clone(),
             clones: Arc::clone(&self.clones),
+            initial_results: self.initial_results.clone(),
         }
     }
 }
@@ -700,6 +705,10 @@ impl VTable for OwnershipProbe {
         Ok(())
     }
 
+    fn initial_results(array: ArrayView<'_, Self>) -> Option<AggregateResults> {
+        array.data().initial_results.clone()
+    }
+
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
@@ -755,6 +764,59 @@ impl VTable for OwnershipProbe {
             values.freeze(),
             Validity::NonNullable,
         )))
+    }
+}
+
+fn initial_results_probe(result: Scalar) -> VortexResult<ArrayParts<OwnershipProbe>> {
+    let min = Min.bind(NumericalAggregateOpts::skip_nans());
+    let initial_results =
+        AggregateResults::try_new(result.dtype(), [(min, Precision::Exact(result.clone()))])?;
+
+    Ok(ArrayParts::new(
+        OwnershipProbe,
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        1,
+        OwnershipProbeData {
+            values: buffer![1i32],
+            clones: Arc::new(AtomicUsize::new(0)),
+            initial_results: Some(initial_results),
+        },
+    ))
+}
+
+#[rstest]
+fn construction_publishes_intrinsic_results(
+    #[values(false, true)] unchecked: bool,
+) -> VortexResult<()> {
+    let result = Scalar::primitive(1i32, Nullability::Nullable);
+    let parts = initial_results_probe(result.clone())?;
+    let array = if unchecked {
+        // SAFETY: the fixture's one I32 value matches its dtype and length and has no slots.
+        unsafe { Array::from_parts_unchecked(parts) }
+    } else {
+        Array::try_from_parts(parts)?
+    };
+
+    assert_eq!(
+        array.aggregations().get_result(&MIN_SKIP_NANS),
+        Precision::Exact(result),
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[should_panic(expected = "VTable::initial_results must match the constructed array's dtype")]
+fn construction_rejects_intrinsic_results_for_a_different_dtype(
+    #[values(false, true)] unchecked: bool,
+) {
+    let parts = initial_results_probe(Scalar::primitive(1i64, Nullability::Nullable))
+        .vortex_expect("The fixture result is valid for nullable I64 input");
+    if unchecked {
+        // SAFETY: the fixture's array parts are valid; only the safe callback's result is wrong.
+        unsafe { Array::from_parts_unchecked(parts) };
+    } else {
+        Array::try_from_parts(parts).vortex_expect("The fixture's I32 array parts are valid");
     }
 }
 
