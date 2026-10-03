@@ -648,7 +648,7 @@ fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;

@@ -261,7 +261,7 @@ fn select<T: PrimInt>(mask: T, a: T, b: T) -> T {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
