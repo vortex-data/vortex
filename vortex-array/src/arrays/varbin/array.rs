@@ -23,6 +23,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::VarBin;
+use crate::arrays::utf8;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -276,6 +277,21 @@ impl VarBinData {
                 last_offset,
                 bytes.len()
             );
+
+            // The strings tile `bytes[first..last]` when the offsets never decrease, so a range
+            // that is valid UTF-8 as a whole has valid strings exactly when every offset falls on
+            // a character boundary. Anything else, nulls over invalid bytes included, takes the
+            // per-string loop below.
+            let first_offset: usize = offsets_slice[0].as_();
+            if first_offset <= last_offset
+                && simdutf8::basic::from_utf8(&bytes[first_offset..last_offset]).is_ok()
+                && offsets_slice.windows(2).all(|o| o[0] <= o[1])
+                && offsets_slice
+                    .iter()
+                    .all(|&o| utf8::is_char_boundary(bytes, o.as_()))
+            {
+                return Ok(());
+            }
 
             for (i, (start, end)) in offsets_slice
                 .windows(2)

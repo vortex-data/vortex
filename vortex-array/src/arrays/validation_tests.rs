@@ -223,4 +223,76 @@ mod tests {
         assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
         assert!(result.is_err());
     }
+    fn utf8_views(views: Vec<BinaryView>, buffer: Vec<u8>) -> bool {
+        VarBinViewArray::try_new(
+            Buffer::from_iter(views),
+            Arc::new([ByteBuffer::from(buffer)]),
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+            &mut array_session().create_execution_ctx(),
+        )
+        .is_ok()
+    }
+
+    #[test]
+    fn test_varbinview_utf8_view_inside_a_character_rejected() {
+        // The buffer is valid UTF-8 as a whole, but the view starts inside the two-byte `é`.
+        let data = "héllo, a string long enough to be outlined".as_bytes();
+        let view = BinaryView::make_view(&data[2..20], 0, 2);
+        assert!(!utf8_views(vec![view], data.to_vec()));
+    }
+
+    #[test]
+    fn test_varbinview_utf8_unreferenced_invalid_bytes_accepted() {
+        // Bytes no view references may be anything, even in a buffer validated as a whole first.
+        let mut data = "héllo, a string long enough to be outlined"
+            .as_bytes()
+            .to_vec();
+        let len = data.len();
+        data.push(0xFF);
+        let view = BinaryView::make_view(&data[..len], 0, 0);
+        assert!(utf8_views(vec![view], data));
+    }
+
+    #[test]
+    fn test_varbinview_utf8_inlined() {
+        assert!(utf8_views(
+            vec![BinaryView::new_inlined("héllo".as_bytes())],
+            vec![]
+        ));
+        assert!(!utf8_views(
+            vec![BinaryView::new_inlined(&[b'a', 0xC3])],
+            vec![]
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case::whole(vec![0, 2, 3], "éa".as_bytes().to_vec(), Validity::NonNullable, true)]
+    #[case::inside_a_character(vec![0, 1, 3], "éa".as_bytes().to_vec(), Validity::NonNullable, false)]
+    #[case::invalid_bytes(vec![0, 1, 2], vec![b'a', 0xFF], Validity::NonNullable, false)]
+    #[case::invalid_bytes_under_a_null(
+        vec![0, 1, 2, 3],
+        vec![b'a', 0xFF, b'b'],
+        Validity::from_iter([true, false, true]),
+        true
+    )]
+    fn test_varbin_utf8(
+        #[case] offsets: Vec<i32>,
+        #[case] bytes: Vec<u8>,
+        #[case] validity: Validity,
+        #[case] ok: bool,
+    ) {
+        let nullability = if matches!(validity, Validity::NonNullable) {
+            Nullability::NonNullable
+        } else {
+            Nullability::Nullable
+        };
+        let result = VarBinArray::try_new(
+            Buffer::from(offsets).into_array(),
+            ByteBuffer::from(bytes),
+            DType::Utf8(nullability),
+            validity,
+        );
+        assert_eq!(result.is_ok(), ok);
+    }
 }

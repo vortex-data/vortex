@@ -119,6 +119,8 @@ pub use struct_::Struct;
 pub use struct_::StructArray;
 
 pub mod union;
+
+mod utf8;
 pub use union::Union;
 pub use union::UnionArray;
 
