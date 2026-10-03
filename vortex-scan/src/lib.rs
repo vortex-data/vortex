@@ -38,7 +38,7 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::AggregateResults;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -118,8 +118,12 @@ pub trait DataSource: 'static + Send + Sync {
     /// Returns a scan over the source.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
-    /// Returns the statistics for a given field.
-    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
+    /// Returns finalized aggregate results for a field of the unfiltered source.
+    ///
+    /// Each result describes the requested field and retains its aggregate options and precision.
+    /// Missing results are unknown. Exact nulls are known values, distinct from missing results.
+    /// These results do not contain partial accumulator states.
+    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<AggregateResults>;
 }
 
 /// A request to scan a data source.
