@@ -9,14 +9,21 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::EstimateScore;
+use vortex_compressor::scheme::EstimateVerdict;
+use vortex_entropy_bins::EntropyBins;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
+
+/// How much smaller than the best other scheme the estimate must be.
+const MIN_GAIN: f64 = 1.1;
 
 /// Entropy-coded bins: pco's bins with a SIMD tANS id stream and variable-width offsets, in
 /// independently decodable 1024-value blocks. Opt-in: add it with
@@ -34,7 +41,7 @@ impl Scheme for EntropyBinsScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![vortex_entropy_bins::EntropyBins.id()]
+        vec![EntropyBins.id()]
     }
 
     fn expected_compression_ratio(
@@ -43,7 +50,27 @@ impl Scheme for EntropyBinsScheme {
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        // Sampling would train the bins on the sample and score that same sample, which
+        // overfits clustered samples of sorted or drifting data. The callback scores bins on
+        // blocks they were not trained on instead.
+        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+            |_compressor, data, best_so_far, _ctx, exec_ctx| {
+                let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
+                let raw = primitive.len() * primitive.ptype().byte_width();
+                let level = pco::DEFAULT_COMPRESSION_LEVEL;
+                let estimate =
+                    EntropyBins::estimate_nbytes(primitive.as_view(), level, false)?.min(
+                        EntropyBins::estimate_nbytes(primitive.as_view(), level, true)?,
+                    );
+                let ratio = raw as f64 / estimate.max(1) as f64;
+                // Entropy-coded blocks decode slower than bit-packing: require a clear win.
+                let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
+                if ratio <= 1.0 || threshold.is_some_and(|t| ratio <= t * MIN_GAIN) {
+                    return Ok(EstimateVerdict::Skip);
+                }
+                Ok(EstimateVerdict::Ratio(ratio))
+            },
+        )))
     }
 
     fn compress(
@@ -54,11 +81,11 @@ impl Scheme for EntropyBinsScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array_as_primitive();
+        let level = pco::DEFAULT_COMPRESSION_LEVEL;
+        let delta = EntropyBins::estimate_nbytes(primitive, level, true)?
+            < EntropyBins::estimate_nbytes(primitive, level, false)?;
         // Bins that do not fit the encoding's limits leave the array as it is.
-        match vortex_entropy_bins::EntropyBins::from_primitive(
-            primitive,
-            pco::DEFAULT_COMPRESSION_LEVEL,
-        ) {
+        match EntropyBins::from_primitive(primitive, level, delta) {
             Ok(array) => Ok(array.into_array()),
             Err(_) => Ok(primitive.array().clone()),
         }

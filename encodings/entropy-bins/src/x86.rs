@@ -175,6 +175,7 @@ pub(crate) fn merge<T: OutInt>(
     b: &BlockView<'_>,
     ids: &[u8],
     out: &mut [T],
+    seed: Option<u64>,
 ) -> bool {
     let nb = d.widths.len();
     let n = b.n;
@@ -182,15 +183,25 @@ pub(crate) fn merge<T: OutInt>(
         return false;
     }
     let o = out.as_mut_ptr().cast::<u8>();
-    macro_rules! go {
-        ($kernel:ident, $tb:literal) => {
+    let s = seed.unwrap_or(0);
+    macro_rules! go_d {
+        ($kernel:ident, $tb:literal, $delta:literal) => {
             match T::BYTES {
                 // SAFETY: AVX-512 is available (checked by the caller), `out` holds `n` values,
                 // `ids` holds the block's ids plus slack, and offsets come from a padded buffer.
-                1 => unsafe { $kernel::<$tb, 1>(d, ids, b.offsets, n, o) },
-                2 => unsafe { $kernel::<$tb, 2>(d, ids, b.offsets, n, o) },
-                4 => unsafe { $kernel::<$tb, 4>(d, ids, b.offsets, n, o) },
-                _ => unsafe { $kernel::<$tb, 8>(d, ids, b.offsets, n, o) },
+                1 => unsafe { $kernel::<$tb, 1, $delta>(d, ids, b.offsets, n, o, s) },
+                2 => unsafe { $kernel::<$tb, 2, $delta>(d, ids, b.offsets, n, o, s) },
+                4 => unsafe { $kernel::<$tb, 4, $delta>(d, ids, b.offsets, n, o, s) },
+                _ => unsafe { $kernel::<$tb, 8, $delta>(d, ids, b.offsets, n, o, s) },
+            }
+        };
+    }
+    macro_rules! go {
+        ($kernel:ident, $tb:literal) => {
+            if seed.is_some() {
+                go_d!($kernel, $tb, true)
+            } else {
+                go_d!($kernel, $tb, false)
             }
         };
     }
@@ -219,12 +230,13 @@ pub(crate) fn merge<T: OutInt>(
 /// `vpsadbw` over lane-masked widths, offsets from a 64-byte window with a funnel shift.
 /// Requires <= 64 bins and widths <= 62 (8 offsets then fit one window).
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512dq,avx512cd,avx512vbmi,avx512vbmi2")]
-unsafe fn merge8<const TB: u8, const OUT: usize>(
+unsafe fn merge8<const TB: u8, const OUT: usize, const DELTA: bool>(
     d: &ChunkDecoder,
     ids: &[u8],
     offsets: &[u8],
     n: usize,
     out: *mut u8,
+    seed: u64,
 ) {
     // SAFETY: table loads read fixed-size arrays; id and offset loads stay within the caller's
     // padded buffers; stores are masked to `n` values.
@@ -253,6 +265,14 @@ unsafe fn merge8<const TB: u8, const OUT: usize>(
         let gp = d.tl.as_ptr().cast::<i64>();
         let bp = offsets.as_ptr();
         let ip = ids.as_ptr();
+        let seedv = _mm512_set1_epi64(seed as i64);
+        let last = _mm512_set1_epi64(7);
+        let sh: [__m512i; 3] = [
+            _mm512_set_epi64(6, 5, 4, 3, 2, 1, 0, 0),
+            _mm512_set_epi64(5, 4, 3, 2, 1, 0, 0, 0),
+            _mm512_set_epi64(3, 2, 1, 0, 0, 0, 0, 0),
+        ];
+        let mut carry = zero;
         let mut basev = zero;
         let mut i = 0;
         while i < n {
@@ -287,7 +307,19 @@ unsafe fn merge8<const TB: u8, const OUT: usize>(
                 }
                 _ => _mm512_i64gather_epi64::<8>(_mm512_and_si512(idq, ff), gp),
             };
-            let o = _mm512_add_epi64(lv, r);
+            let mut o = _mm512_add_epi64(lv, r);
+            if DELTA {
+                // The block's first value is its seed; then an in-register prefix sum plus the
+                // previous vector's last value.
+                if i == 0 {
+                    o = _mm512_mask_blend_epi64(1, o, seedv);
+                }
+                o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(0xfe, sh[0], o));
+                o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(0xfc, sh[1], o));
+                o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(0xf0, sh[2], o));
+                o = _mm512_add_epi64(o, carry);
+                carry = _mm512_permutexvar_epi64(last, o);
+            }
             let km: u8 = if i + 8 <= n {
                 0xff
             } else {
@@ -309,12 +341,13 @@ unsafe fn merge8<const TB: u8, const OUT: usize>(
 /// 16 values per step in u32 lanes for outputs of at most 32 bits; arithmetic wraps mod 2^32,
 /// which is exact after truncation. Requires <= 32 bins and widths <= 31.
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512dq,avx512cd,avx512vbmi,avx512vbmi2")]
-unsafe fn merge16<const TB: u8, const OUT: usize>(
+unsafe fn merge16<const TB: u8, const OUT: usize, const DELTA: bool>(
     d: &ChunkDecoder,
     ids: &[u8],
     offsets: &[u8],
     n: usize,
     out: *mut u8,
+    seed: u64,
 ) {
     // SAFETY: as for `merge8`.
     unsafe {
@@ -329,6 +362,8 @@ unsafe fn merge16<const TB: u8, const OUT: usize>(
         let last = _mm512_set1_epi32(15);
         let bp = offsets.as_ptr();
         let ip = ids.as_ptr();
+        let seedv = _mm512_set1_epi32(seed as i32);
+        let mut carry = zero;
         let mut basev = zero;
         let mut i = 0;
         while i < n {
@@ -358,7 +393,18 @@ unsafe fn merge16<const TB: u8, const OUT: usize>(
             let hi = _mm512_permutexvar_epi32(_mm512_add_epi32(q, one), win);
             let r = _mm512_shrdv_epi32(lo, hi, bit);
             let r = _mm512_andnot_si512(sllv32(ones, w), r);
-            let o = _mm512_add_epi32(lv, r);
+            let mut o = _mm512_add_epi32(lv, r);
+            if DELTA {
+                if i == 0 {
+                    o = _mm512_mask_blend_epi32(1, o, seedv);
+                }
+                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<15>(o, zero));
+                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<14>(o, zero));
+                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<12>(o, zero));
+                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<8>(o, zero));
+                o = _mm512_add_epi32(o, carry);
+                carry = _mm512_permutexvar_epi32(last, o);
+            }
             let km: u16 = if i + 16 <= n {
                 0xffff
             } else {

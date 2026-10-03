@@ -50,6 +50,10 @@ pub struct EntropyBinsMetadata {
     /// Chunks in order; every chunk but the last holds [`CHUNK_VALUES`] values.
     #[prost(message, repeated, tag = "1")]
     pub chunks: Vec<EntropyBinsChunk>,
+    /// Values are coded as differences from the previous row, restarting at every block; each
+    /// block's first value is stored as a seed.
+    #[prost(bool, tag = "2")]
+    pub delta: bool,
 }
 
 #[cfg(test)]

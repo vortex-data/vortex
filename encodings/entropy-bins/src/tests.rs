@@ -39,9 +39,14 @@ fn skewed(len: usize, seed: u64) -> Vec<i64> {
 }
 
 fn roundtrip<T: NativePType>(values: Vec<T>) -> VortexResult<()> {
+    roundtrip_with(values.clone(), false)?;
+    roundtrip_with(values, true)
+}
+
+fn roundtrip_with<T: NativePType>(values: Vec<T>, delta: bool) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-    let encoded = EntropyBins::from_primitive(array.as_view(), 8)?;
+    let encoded = EntropyBins::from_primitive(array.as_view(), 8, delta)?;
     assert_arrays_eq!(
         encoded.clone().into_array(),
         array.clone().into_array(),
@@ -119,7 +124,7 @@ fn nullable_and_slices() -> VortexResult<()> {
     let values = skewed(5000, 3);
     let validity = Validity::from_iter((0..5000).map(|i| i % 7 != 0));
     let array = PrimitiveArray::new(Buffer::from(values), validity);
-    let encoded = EntropyBins::from_primitive(array.as_view(), 8)?.into_array();
+    let encoded = EntropyBins::from_primitive(array.as_view(), 8, true)?.into_array();
     assert_arrays_eq!(encoded, array.clone().into_array(), &mut ctx);
     for (a, b) in [(0, 1), (3, 1500), (1024, 2048), (1000, 5000), (4999, 5000)] {
         assert_arrays_eq!(
@@ -142,8 +147,13 @@ fn simd_matches_scalar() -> VortexResult<()> {
             Buffer::from(v.iter().map(|&x| x as i16).collect::<Vec<_>>()),
             Validity::NonNullable,
         );
-        for array in [wide, narrow] {
-            let encoded = EntropyBins::from_primitive(array.as_view(), 8)?.into_array();
+        for (array, delta) in [
+            (wide.clone(), false),
+            (wide, true),
+            (narrow.clone(), false),
+            (narrow, true),
+        ] {
+            let encoded = EntropyBins::from_primitive(array.as_view(), 8, delta)?.into_array();
             crate::x86::set_force_scalar(true);
             let scalar = encoded.clone().execute::<PrimitiveArray>(&mut ctx)?;
             crate::x86::set_force_scalar(false);

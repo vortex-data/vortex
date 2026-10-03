@@ -151,6 +151,7 @@ pub(crate) fn ids_scalar(t: &IdTable, b: &BlockView<'_>, out: &mut [u8], limit: 
 }
 
 /// Per-chunk decode state: bins, id tables and the transformed lower bounds.
+#[derive(Debug)]
 pub(crate) struct ChunkDecoder {
     pub(crate) table: Option<IdTable>,
     pub(crate) widths: Vec<u32>,
@@ -260,35 +261,83 @@ macro_rules! out_int {
 }
 out_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 
-/// Portable merge: `out[i] = tl[id] + offset` for the block.
+/// Portable merge: `out[i] = tl[id] + offset` for the block, or with a `seed` the running sum
+/// of those deltas starting from the seed.
 pub(crate) fn merge_scalar<T: OutInt>(
     d: &ChunkDecoder,
     b: &BlockView<'_>,
     ids: &[u8],
     out: &mut [T],
+    seed: Option<u64>,
 ) {
     let mut pos = 0usize;
+    let mut acc = seed.unwrap_or(0);
     for i in 0..b.n {
         let id = usize::from(ids[i]);
         let w = d.widths[id];
-        out[i] = T::truncate_from(d.tl[id].wrapping_add(read_bits(b.offsets, pos, w)));
+        let v = d.tl[id].wrapping_add(read_bits(b.offsets, pos, w));
         pos += w as usize;
+        out[i] = match seed {
+            None => T::truncate_from(v),
+            Some(s) if i == 0 => T::truncate_from(s),
+            Some(_) => {
+                acc = acc.wrapping_add(v);
+                T::truncate_from(acc)
+            }
+        };
     }
 }
 
-/// Decode the block `b` into `out[..b.n]`.
-pub(crate) fn decode_block<T: OutInt>(
-    d: &ChunkDecoder,
-    b: &BlockView<'_>,
-    ids: &mut [u8],
-    out: &mut [T],
-) {
-    d.ids(b, ids, usize::MAX);
+/// Decode the ids of `views` (one to four blocks of one chunk) into consecutive
+/// [`IDS_SCRATCH`]-byte slots of `ids`. Four full coded blocks decode in lockstep.
+pub(crate) fn decode_ids(d: &ChunkDecoder, views: &[BlockView<'_>], ids: &mut [u8]) {
     #[cfg(target_arch = "x86_64")]
-    if crate::x86::has_avx512() && crate::x86::merge(d, b, ids, out) {
+    if let (Some(t), [b0, b1, b2, b3]) = (&d.table, views)
+        && crate::x86::has_avx512()
+        && views
+            .iter()
+            .all(|v| v.uniform.is_none() && v.n == BLOCK_VALUES)
+    {
+        let p = ids.as_mut_ptr();
+        // SAFETY: AVX-512 is available, `ids` holds four block-sized slots, the blocks are coded
+        // and full, and their words come from a padded buffer.
+        unsafe {
+            crate::x86::ids16::<4>(
+                t,
+                [b0, b1, b2, b3],
+                [
+                    p,
+                    p.add(IDS_SCRATCH),
+                    p.add(2 * IDS_SCRATCH),
+                    p.add(3 * IDS_SCRATCH),
+                ],
+                usize::MAX,
+            )
+        };
         return;
     }
-    merge_scalar(d, b, ids, out);
+    for (k, v) in views.iter().enumerate() {
+        d.ids(
+            v,
+            &mut ids[k * IDS_SCRATCH..(k + 1) * IDS_SCRATCH],
+            usize::MAX,
+        );
+    }
+}
+
+/// Merge one block's decoded ids with its offsets into `out[..b.n]` (see [`merge_scalar`]).
+pub(crate) fn merge_block<T: OutInt>(
+    d: &ChunkDecoder,
+    b: &BlockView<'_>,
+    ids: &[u8],
+    out: &mut [T],
+    seed: Option<u64>,
+) {
+    #[cfg(target_arch = "x86_64")]
+    if crate::x86::has_avx512() && crate::x86::merge(d, b, ids, out, seed) {
+        return;
+    }
+    merge_scalar(d, b, ids, out, seed);
 }
 
 /// Block capacity of the id scratch buffer.

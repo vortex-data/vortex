@@ -386,3 +386,31 @@ fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()>
     }
     Ok(())
 }
+
+/// Estimated bits per value when bins trained on `train` encode `test`. A test value outside
+/// every trained bin costs a full-range escape, so data whose support drifts (sorted, trending)
+/// is not mistaken for data that compresses.
+pub(crate) fn held_out_bits(train: &[u64], test: &[u64], level: usize) -> VortexResult<f64> {
+    if test.is_empty() {
+        return Ok(0.0);
+    }
+    let chunk = train_bins(train, level)?;
+    let total_weight = f64::from(chunk.weights.iter().sum::<u32>().max(1));
+    let (lo, hi) = test
+        .iter()
+        .chain(train)
+        .fold((u64::MAX, 0u64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+    let n_bins = chunk.weights.len().max(1);
+    let escape = f64::from(64 - (hi - lo).leading_zeros()) + (n_bins as f64).log2() + 1.0;
+    let bits: f64 = test
+        .iter()
+        .map(|&v| match bin_of(&chunk, v) {
+            Ok(b) => {
+                -(f64::from(chunk.weights[b].max(1)) / total_weight).log2()
+                    + f64::from(chunk.widths[b])
+            }
+            Err(_) => escape,
+        })
+        .sum();
+    Ok(bits / test.len() as f64)
+}
