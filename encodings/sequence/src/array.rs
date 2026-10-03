@@ -734,6 +734,65 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::descending(-1i64, false, false)]
+    #[case::constant(0i64, true, false)]
+    fn historical_singleton_node_preserves_intrinsic_sortedness(
+        #[case] multiplier: i64,
+        #[case] historical_sorted: bool,
+        #[case] historical_strict_sorted: bool,
+    ) -> VortexResult<()> {
+        let array = Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 1)?;
+        let dtype = array.dtype().clone();
+
+        // Emulate the multiplier-only hints written before singleton sortedness was corrected.
+        for (stat, value) in [
+            (Stat::IsSorted, historical_sorted),
+            (Stat::IsStrictSorted, historical_strict_sorted),
+        ] {
+            array.statistics().set(stat, Precision::Exact(value.into()));
+            assert_eq!(
+                array
+                    .statistics()
+                    .with_typed_stats_set(|s| s.get_as::<bool>(stat)),
+                Precision::Exact(value),
+            );
+        }
+
+        let ctx = ArrayContext::empty();
+        let serialized =
+            array
+                .into_array()
+                .serialize(&ctx, &SESSION, &SerializeOptions::default())?;
+        let mut concat = ByteBufferMut::empty();
+        for buffer in serialized {
+            concat.extend_from_slice(buffer.as_ref());
+        }
+
+        let decoded = SerializedArray::try_from(concat.freeze())?.decode(
+            &dtype,
+            1,
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
+        assert!(decoded.is::<Sequence>());
+        for strict in [false, true] {
+            let aggregate = IsSorted.bind(IsSortedOptions { strict });
+            assert_eq!(
+                decoded.aggregations().get_result_as::<bool>(&aggregate)?,
+                Precision::Exact(true),
+            );
+        }
+
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([10i64]),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
         let arr = Sequence::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
