@@ -72,8 +72,13 @@ pub struct ShreddedMapSlots {
     /// Map of every entry that was not shredded, carrying the outer validity.
     #[slot(0)]
     pub residual: ArrayRef,
+    /// Optional non-nullable booleans marking rows equal to their predecessor. A set row must
+    /// equal the previous row in the residual and every column; decoding then reuses that row's
+    /// entries instead of proving the equality itself.
+    #[slot(1)]
+    pub repeats: Option<ArrayRef>,
     /// One row-aligned nullable column per shredded key, in key order.
-    #[slot(1..)]
+    #[slot(2..)]
     pub columns: Vec<ArrayRef>,
 }
 
@@ -140,6 +145,8 @@ struct ShreddedColumnProto {
 struct ShreddedMapMetadataProto {
     #[prost(message, repeated, tag = "1")]
     columns: Vec<ShreddedColumnProto>,
+    #[prost(bool, tag = "2")]
+    has_repeats: bool,
 }
 
 /// Returns the dtype a shredded column must have.
@@ -195,6 +202,14 @@ fn validate_parts(
         view.residual.dtype()
     );
     vortex_ensure!(view.residual.len() == len, "residual length mismatch");
+    if let Some(repeats) = view.repeats {
+        vortex_ensure!(
+            repeats.dtype() == &DType::Bool(vortex_array::dtype::Nullability::NonNullable),
+            "repeats must be non-nullable booleans, got {}",
+            repeats.dtype()
+        );
+        vortex_ensure!(repeats.len() == len, "repeats length mismatch");
+    }
     for (column, array) in columns.iter().zip(view.columns.iter()) {
         let expected = column_dtype(map_dtype, column)?;
         vortex_ensure!(
@@ -213,10 +228,12 @@ pub(crate) fn make_parts(
     len: usize,
     columns: Arc<[ShreddedColumn]>,
     residual: ArrayRef,
+    repeats: Option<ArrayRef>,
     column_arrays: impl IntoIterator<Item = ArrayRef>,
 ) -> ArrayParts<ShreddedMap> {
     let mut slots = ArraySlots::with_capacity(ShreddedMapSlots::COLUMNS_OFFSET + columns.len());
     slots.push(Some(residual));
+    slots.push(repeats);
     slots.extend(column_arrays.into_iter().map(Some));
     ArrayParts::new(ShreddedMap, dtype, len, ShreddedMapData { columns }).with_slots(slots)
 }
@@ -233,6 +250,20 @@ impl ShreddedMap {
         columns: Vec<ShreddedColumn>,
         column_arrays: Vec<ArrayRef>,
     ) -> VortexResult<ShreddedMapArray> {
+        Self::try_new_with_repeats(residual, None, columns, column_arrays)
+    }
+
+    /// Like [`try_new`](Self::try_new), with a [`repeats`](ShreddedMapSlots::repeats) hint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parts do not match the layout described on [`ShreddedMap`].
+    pub fn try_new_with_repeats(
+        residual: ArrayRef,
+        repeats: Option<ArrayRef>,
+        columns: Vec<ShreddedColumn>,
+        column_arrays: Vec<ArrayRef>,
+    ) -> VortexResult<ShreddedMapArray> {
         let dtype = residual.dtype().clone();
         let len = residual.len();
         vortex_ensure!(
@@ -244,6 +275,7 @@ impl ShreddedMap {
             len,
             columns.into(),
             residual,
+            repeats,
             column_arrays,
         ))
     }
@@ -268,7 +300,8 @@ pub fn compress_shredded(
         .iter()
         .map(|column| compress_column(column, &mut compress))
         .collect::<VortexResult<Vec<_>>>()?;
-    ShreddedMap::try_new(residual, array.data().columns().to_vec(), columns)
+    let repeats = array.repeats().map(&mut compress).transpose()?;
+    ShreddedMap::try_new_with_repeats(residual, repeats, array.data().columns().to_vec(), columns)
 }
 
 /// Compresses a shredded column through its dictionary and sparse layers.
@@ -381,6 +414,7 @@ impl VTable for ShreddedMap {
                     variant: c.variant.map(|v| v as u32),
                 })
                 .collect(),
+            has_repeats: array.repeats().is_some(),
         };
         Ok(Some(proto.encode_to_vec()))
     }
@@ -408,22 +442,30 @@ impl VTable for ShreddedMap {
                 variant: c.variant.map(|v| v as usize),
             })
             .collect();
+        // Children are the present slots in order, so the columns follow the optional repeats.
+        let first_column = 1 + usize::from(proto.has_repeats);
         vortex_ensure!(
-            children.len() == ShreddedMapSlots::COLUMNS_OFFSET + columns.len(),
+            children.len() == first_column + columns.len(),
             "ShreddedMapArray expected {} children, found {}",
-            ShreddedMapSlots::COLUMNS_OFFSET + columns.len(),
+            first_column + columns.len(),
             children.len()
         );
-        let residual = children.get(ShreddedMapSlots::RESIDUAL, dtype, len)?;
+        let residual = children.get(0, dtype, len)?;
+        let repeats = proto
+            .has_repeats
+            .then(|| {
+                children.get(
+                    1,
+                    &DType::Bool(vortex_array::dtype::Nullability::NonNullable),
+                    len,
+                )
+            })
+            .transpose()?;
         let column_arrays = columns
             .iter()
             .enumerate()
             .map(|(i, column)| {
-                children.get(
-                    ShreddedMapSlots::COLUMNS_OFFSET + i,
-                    &column_dtype(map_dtype, column)?,
-                    len,
-                )
+                children.get(first_column + i, &column_dtype(map_dtype, column)?, len)
             })
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(make_parts(
@@ -431,6 +473,7 @@ impl VTable for ShreddedMap {
             len,
             columns,
             residual,
+            repeats,
             column_arrays,
         ))
     }
@@ -438,6 +481,8 @@ impl VTable for ShreddedMap {
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         if idx == ShreddedMapSlots::RESIDUAL {
             "residual".to_string()
+        } else if idx == ShreddedMapSlots::REPEATS {
+            "repeats".to_string()
         } else {
             format!(
                 "column[{}]",

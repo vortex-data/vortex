@@ -181,6 +181,11 @@ fn distinct_label_names(bencher: Bencher, name: &str) {
     });
 }
 
+/// The label to read, overridable per dataset through an environment variable.
+fn label_key(var: &str, default: &str) -> String {
+    std::env::var(var).unwrap_or_else(|_| default.to_string())
+}
+
 fn get_label(bencher: Bencher, name: &str, key: &str) {
     bencher.bench(|| {
         let mut ctx = SESSION.create_execution_ctx();
@@ -205,19 +210,19 @@ fn get_label(bencher: Bencher, name: &str, key: &str) {
 /// `job` is on every row and shredded.
 #[divan::bench(args = ALL, sample_count = 10, sample_size = 1)]
 fn get_label_common(bencher: Bencher, name: &str) {
-    get_label(bencher, name, "job");
+    get_label(bencher, name, &label_key("LABEL_COMMON", "job"));
 }
 
 /// `image` is on the cAdvisor rows (~18%) and shredded.
 #[divan::bench(args = ALL, sample_count = 10, sample_size = 1)]
 fn get_label_medium(bencher: Bencher, name: &str) {
-    get_label(bencher, name, "image");
+    get_label(bencher, name, &label_key("LABEL_MEDIUM", "image"));
 }
 
 /// `mode` is on ~4% of rows and stays in the residual.
 #[divan::bench(args = ALL, sample_count = 10, sample_size = 1)]
 fn get_label_rare(bencher: Bencher, name: &str) {
-    get_label(bencher, name, "mode");
+    get_label(bencher, name, &label_key("LABEL_RARE", "mode"));
 }
 
 #[divan::bench(args = VORTEX, sample_count = 10, sample_size = 1)]

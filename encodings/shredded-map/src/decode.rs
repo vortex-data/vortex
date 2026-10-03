@@ -10,7 +10,9 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt;
 use vortex_array::arrays::PrimitiveArray;
@@ -32,6 +34,7 @@ use crate::flat::FlatMap;
 use crate::flat::Strings;
 use crate::flat::build_listview;
 use crate::flat::build_map;
+use crate::columnar::decode_columnar;
 use crate::gather::Positions;
 use crate::rowcmp::RowCmp;
 use crate::gather::Source;
@@ -45,6 +48,7 @@ pub(crate) struct ShreddedParts<'a> {
     pub columns: &'a [ShreddedColumn],
     pub column_arrays: Vec<ArrayRef>,
     pub residual: ArrayRef,
+    pub repeats: Option<ArrayRef>,
 }
 
 impl<'a> ShreddedParts<'a> {
@@ -59,6 +63,7 @@ impl<'a> ShreddedParts<'a> {
             columns: array.data().columns(),
             column_arrays: array.columns().to_vec(),
             residual: array.residual().clone(),
+            repeats: array.repeats().cloned(),
         }
     }
 }
@@ -91,15 +96,34 @@ pub(crate) fn column_masks(
 pub(crate) fn repeated_rows(
     flat: &FlatMap,
     column_arrays: &[ArrayRef],
+    hint: Option<&ArrayRef>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitBuffer> {
+    // The shredder records which rows it made share entries; trust that instead of re-deriving it.
+    if let Some(hint) = hint {
+        let bits = hint.clone().execute::<BoolArray>(ctx)?.to_bit_buffer();
+        // Row 0 never repeats, whatever a slice left there.
+        return Ok(BitBuffer::collect_bool(flat.len, |row| row > 0 && bits.value(row)));
+    }
+    let comparators = column_arrays
+        .iter()
+        .map(|c| RowCmp::new(c, ctx))
+        .collect::<VortexResult<Vec<_>>>()?;
+    // Sharing rows only pays off when most rows repeat, so estimate that on a sample first.
+    let step = (flat.len / 4096).max(1);
+    let sample: Vec<usize> = (1..flat.len).step_by(step).collect();
+    let hits = sample
+        .iter()
+        .filter(|&&row| {
+            flat.repeats_prev(row) && comparators.iter().all(|c| c.equal(row, row - 1))
+        })
+        .count();
+    if hits * 2 < sample.len() {
+        return Ok(BitBuffer::new_unset(flat.len));
+    }
     let mut repeats = BitBuffer::collect_bool(flat.len, |row| flat.repeats_prev(row));
-    for column in column_arrays {
-        // Sharing pays off only when many rows repeat; stop comparing once few can.
-        if repeats.true_count() * 10 < flat.len {
-            return Ok(BitBuffer::new_unset(flat.len));
-        }
-        repeats = &repeats & &RowCmp::new(column, ctx)?.same_as_prev_bits(flat.len);
+    for comparator in &comparators {
+        repeats = &repeats & &comparator.same_as_prev_bits(flat.len);
     }
     Ok(repeats)
 }
@@ -366,7 +390,21 @@ pub(crate) fn decode_parts(
     let len = flat.len;
     let keys: Vec<&str> = parts.columns.iter().map(|c| c.key.as_ref()).collect();
     let masks = column_masks(&parts.column_arrays, len, ctx)?;
-    let repeats = repeated_rows(&flat, &parts.column_arrays, ctx)?;
+    let repeats = repeated_rows(&flat, &parts.column_arrays, parts.repeats.as_ref(), ctx)?;
+    // Column-major decoding touches every present entry, while the row-major merge skips
+    // repeated rows outright, so it wins when most rows repeat.
+    let mostly_repeats = repeats.true_count() * 2 > len;
+    if !mostly_repeats && matches!(parts.map_dtype.value_dtype(), DType::Utf8(_)) {
+        let c = decode_columnar(&flat, &keys, &parts.column_arrays, &masks, &repeats, true, ctx)?;
+        return build_map(
+            &parts.map_dtype,
+            c.keys,
+            c.values.unwrap_or_else(|| unreachable!()),
+            c.offsets,
+            c.sizes,
+            flat.validity.clone(),
+        );
+    }
     let plan = plan_merge(&flat, &keys, &masks, &repeats, true);
     let values = gather_values(
         &parts.map_dtype.value_dtype(),
@@ -408,12 +446,16 @@ pub(crate) fn decode_keys(
     let flat = FlatMap::new(&parts.residual, ctx)?;
     let keys: Vec<&str> = parts.columns.iter().map(|c| c.key.as_ref()).collect();
     let masks = column_masks(&parts.column_arrays, flat.len, ctx)?;
-    let repeats = repeated_rows(&flat, &parts.column_arrays, ctx)?;
-    let plan = plan_merge(&flat, &keys, &masks, &repeats, false);
-    build_listview(
-        utf8_from_views(plan.key_views, plan.key_buffers),
-        plan.offsets,
-        plan.sizes,
-        flat.validity,
-    )
+    let repeats = repeated_rows(&flat, &parts.column_arrays, parts.repeats.as_ref(), ctx)?;
+    if repeats.true_count() * 2 > flat.len {
+        let plan = plan_merge(&flat, &keys, &masks, &repeats, false);
+        return build_listview(
+            utf8_from_views(plan.key_views, plan.key_buffers),
+            plan.offsets,
+            plan.sizes,
+            flat.validity,
+        );
+    }
+    let c = decode_columnar(&flat, &keys, &parts.column_arrays, &masks, &repeats, false, ctx)?;
+    build_listview(c.keys, c.offsets, c.sizes, flat.validity)
 }

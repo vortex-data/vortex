@@ -14,6 +14,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 mod array;
+mod columnar;
 mod decode;
 mod flat;
 mod gather;

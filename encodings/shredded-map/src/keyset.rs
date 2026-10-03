@@ -651,15 +651,17 @@ pub fn project(
 
     let mut value_entries = Vec::new();
     let mut value_offsets = Vec::with_capacity(p.ids.len());
-    let mut last: Option<(usize, u64)> = None;
+    // Rows sharing values share offset and key set; an empty row can share only the offset.
+    let mut last: Option<(usize, u32, u64)> = None;
     for row in 0..p.ids.len() {
         if !p.valid.value(row) {
             value_offsets.push(0);
             continue;
         }
         let offset = p.value_offsets[row];
-        if let Some((prev, new)) = last
+        if let Some((prev, id, new)) = last
             && prev == offset
+            && id == p.ids[row]
         {
             value_offsets.push(new);
             continue;
@@ -671,7 +673,7 @@ pub fn project(
                 .map(|&t| (offset + t) as u64),
         );
         value_offsets.push(new);
-        last = Some((offset, new));
+        last = Some((offset, p.ids[row], new));
     }
 
     let take = |array: &ArrayRef, idx: Vec<u64>| -> VortexResult<ArrayRef> {

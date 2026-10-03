@@ -8,6 +8,8 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::dict::TakeReduce;
 use vortex_array::arrays::dict::TakeReduceAdaptor;
 use vortex_array::arrays::filter::FilterReduce;
@@ -30,6 +32,7 @@ pub(crate) static RULES: ParentRuleSet<ShreddedMap> = ParentRuleSet::new(&[
 
 fn map_children(
     array: ArrayView<'_, ShreddedMap>,
+    repeats: Option<ArrayRef>,
     f: impl Fn(&ArrayRef) -> VortexResult<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
     let residual = f(array.residual())?;
@@ -43,6 +46,7 @@ fn map_children(
         residual.len(),
         array.data().columns().into(),
         residual,
+        repeats,
         columns,
     );
     // SAFETY: applying the same row selection to every child preserves the layout invariants.
@@ -51,19 +55,32 @@ fn map_children(
 
 impl SliceReduce for ShreddedMap {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        map_children(array, |c| c.slice(range.clone())).map(Some)
+        // A sliced row still equals its predecessor, except the new first row.
+        let repeats = array
+            .repeats()
+            .map(|r| -> VortexResult<ArrayRef> {
+                let sliced = r.slice(range.clone())?;
+                if sliced.is_empty() {
+                    return Ok(sliced);
+                }
+                let first = BoolArray::from_iter([false]).into_array();
+                let rest = sliced.slice(1..sliced.len())?;
+                Ok(ChunkedArray::try_new([first, rest], sliced.dtype().clone())?.into_array())
+            })
+            .transpose()?;
+        map_children(array, repeats, |c| c.slice(range.clone())).map(Some)
     }
 }
 
 impl TakeReduce for ShreddedMap {
     fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        map_children(array, |c| c.take(indices.clone())).map(Some)
+        map_children(array, None, |c| c.take(indices.clone())).map(Some)
     }
 }
 
 impl FilterReduce for ShreddedMap {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let indices = crate::flat::mask_indices(mask);
-        map_children(array, |c| c.take(indices.clone())).map(Some)
+        map_children(array, None, |c| c.take(indices.clone())).map(Some)
     }
 }

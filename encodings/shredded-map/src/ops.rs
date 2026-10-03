@@ -262,7 +262,12 @@ pub mod shredded {
             .iter()
             .map(|c| values_to_utf8(c, ctx)?.cast(value_dtype.as_nullable()))
             .collect::<VortexResult<Vec<_>>>()?;
-        ShreddedMap::try_new(residual, columns, column_arrays)
+        ShreddedMap::try_new_with_repeats(
+            residual,
+            array.repeats().cloned(),
+            columns,
+            column_arrays,
+        )
     }
 
     /// Decompresses into a map with every value formatted as a string.
@@ -292,7 +297,13 @@ pub mod shredded {
             .iter()
             .map(|&c| array.columns()[c].clone())
             .collect();
-        ShreddedMap::try_new(residual.into_array(), columns, column_arrays)
+        // Equal rows stay equal after projection, so the repeats hint carries over.
+        ShreddedMap::try_new_with_repeats(
+            residual.into_array(),
+            array.repeats().cloned(),
+            columns,
+            column_arrays,
+        )
     }
 }
 

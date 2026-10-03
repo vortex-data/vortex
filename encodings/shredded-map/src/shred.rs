@@ -9,6 +9,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::scalar::Scalar;
 use vortex_sparse::Sparse;
@@ -477,5 +478,9 @@ pub fn shred(
         flat.validity.clone(),
     )?;
 
-    ShreddedMap::try_new(residual.into_array(), columns, column_arrays)
+    let repeats = repeats
+        .iter()
+        .any(|&r| r)
+        .then(|| BoolArray::from_iter(repeats.iter().copied()).into_array());
+    ShreddedMap::try_new_with_repeats(residual.into_array(), repeats, columns, column_arrays)
 }
