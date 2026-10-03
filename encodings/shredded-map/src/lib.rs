@@ -26,6 +26,7 @@ mod rowcmp;
 mod rules;
 pub mod scheme;
 mod shred;
+pub mod squeeze;
 
 #[cfg(test)]
 mod tests;

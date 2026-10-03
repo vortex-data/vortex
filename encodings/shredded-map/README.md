@@ -155,3 +155,25 @@ most selective filter:
 | OpenTelemetry | 2,743 | 46.3 | 72.4 | 68.9 | 0.55 | 2.6 | 4.4 |
 | APT29 | 292 | 21.8 | 33.2 | 92.1 | 0.48 | 1.6 | 7.1 |
 | Online Boutique | 3,089 | 15.6 | 28.8 | 24.3 | 0.66 | 2.0 | 18.0 |
+
+## Squeeze
+
+BtrBlocks' compact preset compresses strings with zstd level 3 in frames of 8192 values and has no
+zstd for integers. `squeeze::squeeze` re-encodes every integer and string node of a compressed
+layout with high-level zstd over large frames wherever that is smaller, narrowing dictionary codes
+first. Row-dictionary codes follow repeating trace shapes that zstd's long-range matching captures.
+It trades random access within a frame for size.
+
+`best_size` searches shredding options and layouts, squeezes the smallest, and checks every row of
+the result. Smallest layout found (MiB):
+
+| dataset | Parquet zstd(3) | Parquet zstd(22) | Vortex | vs zstd(3) | vs zstd(22) |
+| --- | --- | --- | --- | --- | --- |
+| LO2 | 0.469 | 0.349 | 0.014 | 32.5× smaller | 24.2× smaller |
+| CloudTrail | 27.44 | 25.56 | 23.07 | 1.19× smaller | 1.11× smaller |
+| OpenStack | 5.29 | 4.05 | 2.00 | 2.64× smaller | 2.03× smaller |
+| OpenTelemetry | 1.81 | 1.20 | 0.59 | 3.08× smaller | 2.05× smaller |
+| APT29 | 9.44 | 6.94 | 2.52 | 3.75× smaller | 2.76× smaller |
+| Online Boutique | 0.298 | 0.163 | 0.052 | 5.7× smaller | 3.1× smaller |
+
+`size_breakdown` prints where the bytes of a layout go.

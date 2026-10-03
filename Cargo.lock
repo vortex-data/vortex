@@ -11750,6 +11750,7 @@ dependencies = [
  "vortex-session",
  "vortex-sparse",
  "vortex-utils",
+ "vortex-zstd",
 ]
 
 [[package]]
