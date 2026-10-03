@@ -9,6 +9,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -131,6 +132,24 @@ pub fn write_summary<'fb>(
 ) -> VortexResult<WIPOffset<fba::ArrayStats<'fb>>> {
     validate_summary_aggregates(results.iter().map(|(aggregate, _)| aggregate))?;
 
+    write_fields(results, input_dtype, fbb, false)
+}
+
+/// Project cached results onto the historical node fields. Other keys are not persisted.
+pub(crate) fn write_node_summary<'fb>(
+    results: &AggregateResults,
+    input_dtype: &DType,
+    fbb: &mut FlatBufferBuilder<'fb>,
+) -> VortexResult<WIPOffset<fba::ArrayStats<'fb>>> {
+    write_fields(results, input_dtype, fbb, true)
+}
+
+fn write_fields<'fb>(
+    results: &AggregateResults,
+    input_dtype: &DType,
+    fbb: &mut FlatBufferBuilder<'fb>,
+    node: bool,
+) -> VortexResult<WIPOffset<fba::ArrayStats<'fb>>> {
     let mut args = fba::ArrayStatsArgs::default();
     // Preserve the legacy serializer's scalar-vector order so unchanged writer output has the same
     // bytes. The table's optional numeric fields do not allocate vectors.
@@ -149,6 +168,9 @@ pub fn write_summary<'fb>(
         let Some(scalar) = value.as_ref().into_inner() else {
             continue;
         };
+        if node && !value.is_exact() && !matches!(stat, Stat::Min | Stat::Max) {
+            continue;
+        }
         let dtype = historical_dtype(stat, input_dtype)
             .ok_or_else(|| vortex_err!("File statistic {stat} does not support {input_dtype}"))?;
         vortex_ensure!(
@@ -156,6 +178,10 @@ pub fn write_summary<'fb>(
             "File statistic {stat} requires result dtype {dtype}, got {}",
             scalar.dtype()
         );
+        // Empty non-nullable inputs have null extrema, which the historical field cannot hold.
+        if node && scalar.is_null() && !dtype.is_nullable() {
+            continue;
+        }
         let scalar = Scalar::try_new(dtype, scalar.value().cloned())?;
         vortex_ensure!(
             value.is_exact() || matches!(stat, Stat::Min | Stat::Max),
@@ -193,6 +219,34 @@ pub fn write_summary<'fb>(
         }
     }
     Ok(fba::ArrayStats::create(fbb, &args))
+}
+
+/// Load validated node fields without requiring a current kernel for metadata-only results.
+pub(crate) fn load_node_summary(
+    array: &ArrayRef,
+    fb: &fba::ArrayStats<'_>,
+    session: &VortexSession,
+) -> VortexResult<()> {
+    let results = read_summary(fb, array.dtype(), session)?;
+    for (aggregate, value) in results.iter() {
+        let value = if let Some(dtype) = aggregate.return_dtype(array.dtype()) {
+            value
+                .clone()
+                .map(|scalar| {
+                    vortex_ensure!(
+                        scalar.dtype().as_nullable() == dtype.as_nullable(),
+                        "Node aggregate {aggregate} requires result dtype {dtype}, got {}",
+                        scalar.dtype()
+                    );
+                    Scalar::try_new(dtype, scalar.value().cloned())
+                })
+                .transpose()?
+        } else {
+            value.clone()
+        };
+        array.aggregations().insert_result(aggregate.clone(), value);
+    }
+    Ok(())
 }
 
 fn historical_dtype(stat: Stat, input_dtype: &DType) -> Option<DType> {
