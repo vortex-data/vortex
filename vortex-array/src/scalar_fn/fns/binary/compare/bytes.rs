@@ -68,7 +68,7 @@ impl BytesOperand {
     }
 }
 
-fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
+pub(super) fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
     let value = match scalar.dtype() {
         DType::Utf8(_) => scalar
             .as_utf8()
@@ -82,13 +82,13 @@ fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
 
 /// A resolved view over a canonical [`VarBinViewArray`]: the view structs plus borrowed slices of
 /// every data buffer, supporting cheap per-lane byte access.
-struct ViewsSide<'a> {
-    views: &'a [BinaryView],
+pub(super) struct ViewsSide<'a> {
+    pub(super) views: &'a [BinaryView],
     buffers: Vec<&'a [u8]>,
 }
 
 impl<'a> ViewsSide<'a> {
-    fn new(array: &'a VarBinViewArray) -> Self {
+    pub(super) fn new(array: &'a VarBinViewArray) -> Self {
         Self {
             views: array.views(),
             buffers: (0..array.data_buffers().len())
@@ -97,7 +97,7 @@ impl<'a> ViewsSide<'a> {
         }
     }
 
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.views.len()
     }
 
@@ -114,7 +114,7 @@ impl<'a> ViewsSide<'a> {
 
     /// The full bytes of `view`, which must belong to this side.
     #[inline]
-    fn view_bytes(&self, view: &'a BinaryView) -> &'a [u8] {
+    pub(super) fn view_bytes(&self, view: &'a BinaryView) -> &'a [u8] {
         if view.is_inlined() {
             view.as_inlined().value()
         } else {
