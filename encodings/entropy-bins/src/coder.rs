@@ -38,6 +38,8 @@ pub const BLOCK_VALUES: usize = 1024;
 pub const CHUNK_VALUES: usize = 1 << 18;
 /// Interleaved tANS lanes.
 pub(crate) const LANES: usize = 16;
+/// Largest row distance a block may code differences against.
+pub const MAX_LAG: usize = 8;
 /// Largest tANS state log; keeps both decode tables in two registers.
 const MAX_S: u32 = 7;
 /// How many rounds before the end a lane may stop refilling (3 bits per lane).

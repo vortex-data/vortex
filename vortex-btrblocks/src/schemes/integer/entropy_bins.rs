@@ -26,6 +26,10 @@ use crate::schemes::integer::RUN_LENGTH_THRESHOLD;
 /// How much smaller than the best other scheme the estimate must be.
 const MIN_GAIN: f64 = 1.1;
 
+/// Row distances tried for difference coding (zero codes the values themselves): lag 1 for
+/// smooth series, larger lags for interleaved ones.
+const LAGS: [usize; 6] = [0, 1, 2, 3, 4, 8];
+
 /// Typical cost of one run under RunEnd in half-bytes: a value plus a delta-coded end, ~12 bits.
 const HALF_BYTES_PER_RUN: usize = 3;
 
@@ -62,10 +66,7 @@ impl Scheme for EntropyBinsScheme {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let raw = primitive.len() * primitive.ptype().byte_width();
                 let level = pco::DEFAULT_COMPRESSION_LEVEL;
-                let estimate =
-                    EntropyBins::estimate_nbytes(primitive.as_view(), level, false)?.min(
-                        EntropyBins::estimate_nbytes(primitive.as_view(), level, true)?,
-                    );
+                let (_, estimate) = EntropyBins::estimate_best(primitive.as_view(), level, &LAGS)?;
                 // RunEnd's sampled estimate cuts runs at every 64-row sample edge, so on
                 // run-heavy data it looks worse than it is. Leave such arrays to RunEnd (whose
                 // children may still use this scheme) when the runs are clearly cheaper.
@@ -96,10 +97,9 @@ impl Scheme for EntropyBinsScheme {
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array_as_primitive();
         let level = pco::DEFAULT_COMPRESSION_LEVEL;
-        let delta = EntropyBins::estimate_nbytes(primitive, level, true)?
-            < EntropyBins::estimate_nbytes(primitive, level, false)?;
+        let (lag, _) = EntropyBins::estimate_best(primitive, level, &LAGS)?;
         // Bins that do not fit the encoding's limits leave the array as it is.
-        match EntropyBins::from_primitive(primitive, level, delta) {
+        match EntropyBins::from_primitive(primitive, level, lag) {
             Ok(array) => Ok(array.into_array()),
             Err(_) => Ok(primitive.array().clone()),
         }

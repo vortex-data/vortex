@@ -9,8 +9,11 @@
 //! followed by the offsets packed in value order at their bin's width, so a block decodes on its
 //! own and a single value needs only a partial decode of its block.
 //!
-//! The encoding is a leaf: transforms such as FoR, Delta, ALP or Dict are the parent encodings
-//! chosen by the cascading compressor.
+//! The encoding is a leaf: transforms such as FoR, GCD scaling, ALP or Dict are the parent
+//! encodings chosen by the cascading compressor. The one transform it fuses is a per-block
+//! difference from the row `lag` back (see [`EntropyBinsMetadata::lag`]), because the decoder
+//! folds its prefix sum into the merge and the differences of adjacent rows entropy-code better
+//! than a transposed delta's residuals.
 
 mod array;
 mod coder;
@@ -50,10 +53,10 @@ pub struct EntropyBinsMetadata {
     /// Chunks in order; every chunk but the last holds [`CHUNK_VALUES`] values.
     #[prost(message, repeated, tag = "1")]
     pub chunks: Vec<EntropyBinsChunk>,
-    /// Values are coded as differences from the previous row, restarting at every block; each
-    /// block's first value is stored as a seed.
-    #[prost(bool, tag = "2")]
-    pub delta: bool,
+    /// Values are coded as differences from the row `lag` rows back, restarting at every block;
+    /// each block's first `lag` values are stored as seeds. Zero codes the values themselves.
+    #[prost(uint32, tag = "2")]
+    pub lag: u32,
 }
 
 #[cfg(test)]

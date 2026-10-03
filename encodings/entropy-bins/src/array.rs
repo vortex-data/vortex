@@ -52,6 +52,7 @@ use crate::EntropyBinsMetadata;
 use crate::coder::BLOCK_VALUES;
 use crate::coder::CHUNK_VALUES;
 use crate::coder::IdTable;
+use crate::coder::MAX_LAG;
 use crate::coder::TAIL_PADDING;
 use crate::coder::encode_block;
 use crate::coder::held_out_bits;
@@ -100,7 +101,8 @@ pub struct EntropyBinsData {
     pub(crate) block_starts: ByteBuffer,
     /// Block segments followed by [`TAIL_PADDING`] zero bytes.
     pub(crate) data: ByteBuffer,
-    /// With delta coding, each block's first value as `ptype` bytes (little-endian); else empty.
+    /// With `lag > 0`, each block's first `lag` values as `ptype` bytes (little-endian, zero for
+    /// rows past the end); else empty.
     pub(crate) seeds: ByteBuffer,
     ptype: PType,
     unsliced_n_rows: usize,
@@ -304,85 +306,137 @@ impl EntropyBins {
         Array::try_from_parts(ArrayParts::new(EntropyBins, dtype, len, data).with_slots(slots))
     }
 
-    /// Compress an integer primitive array. Null rows are encoded with whatever value the
-    /// buffer holds; validity is kept as a child.
+    /// Compress an integer primitive array, coding each value's difference from the row `lag`
+    /// rows back (`lag <= MAX_LAG`), or the value itself when `lag == 0`. Null rows are encoded
+    /// with whatever value the buffer holds; validity is kept as a child.
     pub fn from_primitive(
         parray: ArrayView<'_, Primitive>,
         level: usize,
-        delta: bool,
+        lag: usize,
     ) -> VortexResult<EntropyBinsArray> {
         let dtype = parray.dtype().clone();
         let validity = parray.validity()?;
-        let data = EntropyBinsData::encode(parray, level, delta)?;
+        let data = EntropyBinsData::encode(parray, level, lag)?;
         Self::try_new(dtype, data, validity)
     }
 }
 
 impl EntropyBins {
-    /// Estimate the encoded size in bytes without encoding: bins are trained on every other
-    /// sampled block and scored on the blocks in between, plus the per-block and per-array
-    /// overheads.
+    /// Estimate the encoded size in bytes for each of `lags` without encoding, returning the
+    /// smallest as `(lag, bytes)`. Bins are trained on every other sampled block and scored on
+    /// the blocks in between, plus the per-block and per-array overheads.
+    pub fn estimate_best(
+        parray: ArrayView<'_, Primitive>,
+        level: usize,
+        lags: &[usize],
+    ) -> VortexResult<(usize, usize)> {
+        let ptype = parray.ptype();
+        vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
+        let wide = wide_values(parray);
+        let mut best = (0, usize::MAX);
+        for &lag in lags {
+            let bytes = estimate_wide(&wide, ptype, level, lag)?;
+            if bytes < best.1 {
+                best = (lag, bytes);
+            }
+        }
+        Ok(best)
+    }
+
+    /// [`Self::estimate_best`] for a single `lag`.
     pub fn estimate_nbytes(
         parray: ArrayView<'_, Primitive>,
         level: usize,
-        delta: bool,
+        lag: usize,
     ) -> VortexResult<usize> {
-        let ptype = parray.ptype();
-        vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
-        let latents = latents_of(parray, delta);
-        let n = latents.len();
-        // Up to 32 evenly spaced units, alternating between training and scoring.
-        let unit = if n >= 8 * BLOCK_VALUES {
-            BLOCK_VALUES
-        } else {
-            (n / 8).max(1)
-        };
-        let n_units = (n / unit).clamp(1, 32);
-        let (mut train, mut test) = (Vec::new(), Vec::new());
-        for i in 0..n_units {
-            let start = if n_units == 1 {
-                0
-            } else {
-                i * (n - unit) / (n_units - 1)
-            };
-            let dst = if i % 2 == 0 { &mut train } else { &mut test };
-            dst.extend_from_slice(&latents[start..(start + unit).min(n)]);
-        }
-        if test.is_empty() {
-            test.clone_from(&train);
-        }
-        let bits = held_out_bits(&train, &test, level)?;
-        // Per block: header, lane states, offset, part-filled lane words.
-        let per_block = 1 + 2 + 14 + 4 + 16;
-        let n_blocks = n.div_ceil(BLOCK_VALUES);
-        let fixed = TAIL_PADDING + 64 * 14 * n.div_ceil(CHUNK_VALUES);
-        let seeds = if delta {
-            ptype.byte_width() * n_blocks
-        } else {
-            0
-        };
-        // A size estimate: rounding the fractional bytes down is fine.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let coded = (bits * n as f64 / 8.0) as usize;
-        let estimate = coded + per_block * n_blocks + fixed + seeds;
-        Ok(estimate)
+        Ok(Self::estimate_best(parray, level, &[lag])?.1)
     }
 }
 
-/// Integers mapped to order-preserving `u64` latents.
-trait Latent: NativePType + OutInt + Into<PValue> {
-    fn latent(self) -> u64;
+fn estimate_wide(wide: &[u64], ptype: PType, level: usize, lag: usize) -> VortexResult<usize> {
+    let transform = Transform::new(ptype.is_signed_int(), lag)?;
+    let n = wide.len();
+    // Up to 32 evenly spaced units, alternating between training and scoring.
+    let unit = if n >= 8 * BLOCK_VALUES {
+        BLOCK_VALUES
+    } else {
+        (n / 8).max(1)
+    };
+    let n_units = (n / unit).clamp(1, 32);
+    let (mut train, mut test) = (Vec::new(), Vec::new());
+    for i in 0..n_units {
+        let start = if n_units == 1 {
+            0
+        } else {
+            i * (n - unit) / (n_units - 1)
+        };
+        let dst = if i % 2 == 0 { &mut train } else { &mut test };
+        transform.extend_latents(&wide[start..(start + unit).min(n)], dst);
+    }
+    if test.is_empty() {
+        test.clone_from(&train);
+    }
+    let bits = held_out_bits(&train, &test, level)?;
+    // Per block: header, lane states, offset, part-filled lane words.
+    let per_block = 1 + 2 + 14 + 4 + 16;
+    let n_blocks = n.div_ceil(BLOCK_VALUES);
+    let fixed = TAIL_PADDING + 64 * 14 * n.div_ceil(CHUNK_VALUES);
+    let seeds = lag * ptype.byte_width() * n_blocks;
+    // A size estimate: rounding the fractional bytes down is fine.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let coded = (bits * n as f64 / 8.0) as usize;
+    Ok(coded + per_block * n_blocks + fixed + seeds)
+}
+
+/// How rows map to latents: order-preserving values with `lag == 0` (signed values with their
+/// sign bit flipped), else the wrapping difference from the row `lag` back with its sign bit
+/// flipped, so latents order like the signed differences.
+#[derive(Clone, Copy, Debug)]
+struct Transform {
+    lag: usize,
+    signed: bool,
+}
+
+impl Transform {
+    fn new(signed: bool, lag: usize) -> VortexResult<Self> {
+        vortex_ensure!(lag <= MAX_LAG, "lag {lag} exceeds {MAX_LAG}");
+        Ok(Self { lag, signed })
+    }
+
+    /// Append the latents of one block. With a lag, the block's first `lag` slots repeat the
+    /// latents `lag` rows later (the seeds carry those rows, so the slots only need to be cheap).
+    fn extend_latents(&self, block: &[u64], out: &mut Vec<u64>) {
+        if self.lag == 0 {
+            let flip = if self.signed { SIGN } else { 0 };
+            out.extend(block.iter().map(|&w| w ^ flip));
+            return;
+        }
+        let lag = self.lag;
+        let diff = |i: usize| block[i].wrapping_sub(block[i - lag]) ^ SIGN;
+        for i in 0..lag.min(block.len()) {
+            out.push(if i + lag < block.len() {
+                diff(i + lag)
+            } else {
+                SIGN
+            });
+        }
+        out.extend((lag..block.len()).map(diff));
+    }
+
+    /// What the decoder adds to every latent (wrapping) to undo the flipped sign bit.
+    fn base(&self) -> u64 {
+        if self.lag > 0 || self.signed { SIGN } else { 0 }
+    }
+}
+
+/// Integers sign- or zero-extended to 64 bits.
+trait Wide: NativePType {
     fn wide(self) -> u64;
 }
 
-macro_rules! latent_impl {
+macro_rules! wide_impl {
     ($signed:literal: $($t:ty),*) => {$(
-        impl Latent for $t {
-            // Sign-extend to 64 bits and flip the sign bit, so order is preserved.
-            #[allow(clippy::cast_sign_loss, clippy::cast_lossless)]
-            fn latent(self) -> u64 {
-                if $signed { (self as i64 as u64) ^ SIGN } else { self as u64 }
-            }
+        impl Wide for $t {
             #[allow(clippy::cast_sign_loss, clippy::cast_lossless)]
             fn wide(self) -> u64 {
                 if $signed { self as i64 as u64 } else { self as u64 }
@@ -390,8 +444,8 @@ macro_rules! latent_impl {
         }
     )*};
 }
-latent_impl!(false: u8, u16, u32, u64);
-latent_impl!(true: i8, i16, i32, i64);
+wide_impl!(false: u8, u16, u32, u64);
+wide_impl!(true: i8, i16, i32, i64);
 
 /// The value of every row as a 64-bit integer (sign- or zero-extended).
 fn wide_values(parray: ArrayView<'_, Primitive>) -> Vec<u64> {
@@ -400,46 +454,26 @@ fn wide_values(parray: ArrayView<'_, Primitive>) -> Vec<u64> {
     })
 }
 
-/// The latents to code: order-preserving values, or per-block deltas whose first slot holds
-/// the block's next delta (the seed carries the first value, so that slot only needs to be
-/// cheap to code).
-fn latents_of(parray: ArrayView<'_, Primitive>, delta: bool) -> Vec<u64> {
-    if !delta {
-        return match_each_integer_ptype!(parray.ptype(), |T| {
-            parray.as_slice::<T>().iter().map(|&v| v.latent()).collect()
-        });
-    }
-    let wide = wide_values(parray);
-    let mut out = Vec::with_capacity(wide.len());
-    for block in wide.chunks(BLOCK_VALUES) {
-        let deltas: Vec<u64> = block
-            .windows(2)
-            .map(|w| w[1].wrapping_sub(w[0]) ^ SIGN)
-            .collect();
-        out.push(deltas.first().copied().unwrap_or(SIGN));
-        out.extend(deltas);
-    }
-    out
-}
-
 impl EntropyBinsData {
-    fn encode(parray: ArrayView<'_, Primitive>, level: usize, delta: bool) -> VortexResult<Self> {
+    fn encode(parray: ArrayView<'_, Primitive>, level: usize, lag: usize) -> VortexResult<Self> {
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
-        let latents = latents_of(parray, delta);
-        let seeds: Vec<u8> = if delta {
-            let width = ptype.byte_width();
-            wide_values(parray)
-                .chunks(BLOCK_VALUES)
-                .flat_map(|b| b[0].to_le_bytes()[..width].to_vec())
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let wide = wide_values(parray);
+        let transform = Transform::new(ptype.is_signed_int(), lag)?;
+        let mut latents = Vec::with_capacity(wide.len());
+        let mut seeds = Vec::new();
+        let width = ptype.byte_width();
+        for block in wide.chunks(BLOCK_VALUES) {
+            transform.extend_latents(block, &mut latents);
+            for i in 0..lag {
+                let v = block.get(i).copied().unwrap_or(0);
+                seeds.extend_from_slice(&v.to_le_bytes()[..width]);
+            }
+        }
         let n = latents.len();
         let mut metadata = EntropyBinsMetadata {
-            delta,
-            ..Default::default()
+            chunks: Vec::new(),
+            lag: u32::try_from(lag)?,
         };
         let mut data = Vec::new();
         let mut starts: Vec<u32> = Vec::with_capacity(n.div_ceil(BLOCK_VALUES) + 1);
@@ -529,11 +563,12 @@ impl EntropyBinsData {
             "expected {} block offsets",
             n_blocks + 1
         );
-        let expected_seeds = if self.metadata.delta {
-            n_blocks * self.ptype.byte_width()
-        } else {
-            0
-        };
+        vortex_ensure!(
+            self.lag() <= MAX_LAG,
+            "lag {} exceeds {MAX_LAG}",
+            self.metadata.lag
+        );
+        let expected_seeds = n_blocks * self.lag() * self.ptype.byte_width();
         vortex_ensure!(
             self.seeds.len() == expected_seeds,
             "expected {expected_seeds} seed bytes, got {}",
@@ -552,23 +587,30 @@ impl EntropyBinsData {
         u32::from_le_bytes([s[0], s[1], s[2], s[3]]) as usize
     }
 
-    fn base(&self) -> u64 {
-        if self.metadata.delta || self.ptype.is_signed_int() {
-            SIGN
-        } else {
-            0
+    fn lag(&self) -> usize {
+        self.metadata.lag as usize
+    }
+
+    fn transform(&self) -> Transform {
+        Transform {
+            lag: self.lag(),
+            signed: self.ptype.is_signed_int(),
         }
     }
 
-    /// The seed of block `b` with delta coding.
-    fn seed(&self, b: usize) -> Option<u64> {
-        if !self.metadata.delta {
-            return None;
-        }
+    /// The seeds of block `b`: its first `lag` values, zero-extended (only their low `ptype`
+    /// bits matter).
+    fn seeds_of(&self, b: usize) -> ([u64; MAX_LAG], usize) {
+        let lag = self.lag();
         let width = self.ptype.byte_width();
-        let mut bytes = [0u8; 8];
-        bytes[..width].copy_from_slice(&self.seeds[b * width..(b + 1) * width]);
-        Some(u64::from_le_bytes(bytes))
+        let mut seeds = [0u64; MAX_LAG];
+        let at = b * lag * width;
+        for (i, seed) in seeds[..lag].iter_mut().enumerate() {
+            let mut bytes = [0u8; 8];
+            bytes[..width].copy_from_slice(&self.seeds[at + i * width..at + (i + 1) * width]);
+            *seed = u64::from_le_bytes(bytes);
+        }
+        (seeds, lag)
     }
 
     /// The decode tables of chunk `ci`, built once.
@@ -586,7 +628,7 @@ impl EntropyBinsData {
             .get(ci)
             .ok_or_else(|| vortex_err!("missing chunk {ci}"))?;
         // A concurrent initialization may win; both build the same tables.
-        drop(slot.set(ChunkDecoder::new(chunk, self.base())?));
+        drop(slot.set(ChunkDecoder::new(chunk, self.transform().base())?));
         slot.get()
             .ok_or_else(|| vortex_err!("chunk {ci} decoder was not initialized"))
     }
@@ -637,12 +679,13 @@ impl EntropyBinsData {
                 decode_ids(decoder, &views, &mut ids);
                 for (k, view) in views.iter().enumerate() {
                     let row0 = (b + k - first) * BLOCK_VALUES;
+                    let (seeds, lag) = self.seeds_of(b + k);
                     merge_block(
                         decoder,
                         view,
                         &ids[k * IDS_SCRATCH..(k + 1) * IDS_SCRATCH],
                         &mut out[row0..row0 + view.n],
-                        self.seed(b + k),
+                        &seeds[..lag],
                     );
                 }
                 b += group;
@@ -666,11 +709,12 @@ impl EntropyBinsData {
         )?;
         let mut ids = [0u8; IDS_SCRATCH];
         decoder.ids(&view, &mut ids, pos + 1);
-        if self.metadata.delta {
-            // Deltas need the running sum up to the row: merge the block's prefix.
+        if self.lag() > 0 {
+            // Differences need the running sums up to the row: merge the block's prefix.
             let mut tmp = [T::default(); BLOCK_VALUES];
             let prefix = BlockView { n: pos + 1, ..view };
-            merge_block(decoder, &prefix, &ids, &mut tmp, self.seed(block));
+            let (seeds, lag) = self.seeds_of(block);
+            merge_block(decoder, &prefix, &ids, &mut tmp, &seeds[..lag]);
             return Ok(tmp[pos]);
         }
         Ok(T::truncate_from(decoder.value_at(&view, &ids, pos)))

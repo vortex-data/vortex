@@ -21,6 +21,7 @@ use std::sync::LazyLock;
 
 use crate::coder::IdTable;
 use crate::coder::LANES;
+use crate::coder::MAX_LAG;
 use crate::decode::BlockView;
 use crate::decode::ChunkDecoder;
 use crate::decode::OutInt;
@@ -169,39 +170,39 @@ unsafe fn ids16_kernel<const V: usize, const R: usize>(
 }
 
 /// Merge a decoded block's ids with its offsets into `out`, if a vector kernel applies.
-/// Returns `false` when the caller must use the portable merge.
+/// Returns `false` when the caller must use the portable merge. `seeds` is as for
+/// [`merge_scalar`](crate::decode::merge_scalar).
 pub(crate) fn merge<T: OutInt>(
     d: &ChunkDecoder,
     b: &BlockView<'_>,
     ids: &[u8],
     out: &mut [T],
-    seed: Option<u64>,
+    seeds: &[u64],
 ) -> bool {
     let nb = d.widths.len();
     let n = b.n;
-    if out.len() < n || ids.len() < n.div_ceil(LANES) * LANES + 16 {
+    if out.len() < n || ids.len() < n.div_ceil(LANES) * LANES + 16 || seeds.len() > MAX_LAG {
         return false;
     }
     let o = out.as_mut_ptr().cast::<u8>();
-    let s = seed.unwrap_or(0);
-    macro_rules! go_d {
-        ($kernel:ident, $tb:literal, $delta:literal) => {
+    macro_rules! go_out {
+        ($kernel:ident, $tb:literal, $prefix:literal) => {
             match T::BYTES {
                 // SAFETY: AVX-512 is available (checked by the caller), `out` holds `n` values,
                 // `ids` holds the block's ids plus slack, and offsets come from a padded buffer.
-                1 => unsafe { $kernel::<$tb, 1, $delta>(d, ids, b.offsets, n, o, s) },
-                2 => unsafe { $kernel::<$tb, 2, $delta>(d, ids, b.offsets, n, o, s) },
-                4 => unsafe { $kernel::<$tb, 4, $delta>(d, ids, b.offsets, n, o, s) },
-                _ => unsafe { $kernel::<$tb, 8, $delta>(d, ids, b.offsets, n, o, s) },
+                1 => unsafe { $kernel::<$tb, 1, $prefix>(d, ids, b.offsets, n, o, seeds) },
+                2 => unsafe { $kernel::<$tb, 2, $prefix>(d, ids, b.offsets, n, o, seeds) },
+                4 => unsafe { $kernel::<$tb, 4, $prefix>(d, ids, b.offsets, n, o, seeds) },
+                _ => unsafe { $kernel::<$tb, 8, $prefix>(d, ids, b.offsets, n, o, seeds) },
             }
         };
     }
     macro_rules! go {
         ($kernel:ident, $tb:literal) => {
-            if seed.is_some() {
-                go_d!($kernel, $tb, true)
+            if seeds.is_empty() {
+                go_out!($kernel, $tb, false)
             } else {
-                go_d!($kernel, $tb, false)
+                go_out!($kernel, $tb, true)
             }
         };
     }
@@ -226,17 +227,55 @@ pub(crate) fn merge<T: OutInt>(
     false
 }
 
+/// Index vectors and masks for an in-register lag-`k` prefix sum over `L` lanes: step `t` adds
+/// lane `j - (k << t)` into lane `j`, and the carry broadcasts each lane's last earlier value in
+/// its residue class (`L - k + j % k`) from the previous vector.
+struct LagPlan<const L: usize> {
+    shift_idx: [[u32; L]; 4],
+    shift_mask: [u32; 4],
+    carry_idx: [u32; L],
+    seeds: [u64; L],
+    seed_mask: u32,
+}
+
+impl<const L: usize> LagPlan<L> {
+    fn new(seeds: &[u64]) -> Self {
+        let lag = seeds.len().max(1);
+        let mut plan = Self {
+            shift_idx: [[0; L]; 4],
+            shift_mask: [0; 4],
+            carry_idx: [0; L],
+            seeds: [0; L],
+            seed_mask: (1u32 << seeds.len()) - 1,
+        };
+        plan.seeds[..seeds.len()].copy_from_slice(seeds);
+        for t in 0..4 {
+            let s = lag << t;
+            if s < L {
+                for j in s..L {
+                    plan.shift_idx[t][j] = (j - s) as u32;
+                }
+                plan.shift_mask[t] = ((1u32 << L) - 1) & !((1u32 << s) - 1);
+            }
+        }
+        for j in 0..L {
+            plan.carry_idx[j] = (L - lag + j % lag) as u32;
+        }
+        plan
+    }
+}
+
 /// 8 values per step in u64 lanes: widths from a byte table, exclusive bit positions from one
 /// `vpsadbw` over lane-masked widths, offsets from a 64-byte window with a funnel shift.
 /// Requires <= 64 bins and widths <= 62 (8 offsets then fit one window).
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512dq,avx512cd,avx512vbmi,avx512vbmi2")]
-unsafe fn merge8<const TB: u8, const OUT: usize, const DELTA: bool>(
+unsafe fn merge8<const TB: u8, const OUT: usize, const PREFIX: bool>(
     d: &ChunkDecoder,
     ids: &[u8],
     offsets: &[u8],
     n: usize,
     out: *mut u8,
-    seed: u64,
+    seeds: &[u64],
 ) {
     // SAFETY: table loads read fixed-size arrays; id and offset loads stay within the caller's
     // padded buffers; stores are masked to `n` values.
@@ -265,13 +304,12 @@ unsafe fn merge8<const TB: u8, const OUT: usize, const DELTA: bool>(
         let gp = d.tl.as_ptr().cast::<i64>();
         let bp = offsets.as_ptr();
         let ip = ids.as_ptr();
-        let seedv = _mm512_set1_epi64(seed as i64);
-        let last = _mm512_set1_epi64(7);
-        let sh: [__m512i; 3] = [
-            _mm512_set_epi64(6, 5, 4, 3, 2, 1, 0, 0),
-            _mm512_set_epi64(5, 4, 3, 2, 1, 0, 0, 0),
-            _mm512_set_epi64(3, 2, 1, 0, 0, 0, 0, 0),
-        ];
+        let plan = LagPlan::<8>::new(seeds);
+        let widen = |a: &[u32; 8]| _mm512_cvtepu32_epi64(_mm256_loadu_si256(a.as_ptr().cast()));
+        let sh: [__m512i; 3] = std::array::from_fn(|t| widen(&plan.shift_idx[t]));
+        let shm: [u8; 3] = std::array::from_fn(|t| plan.shift_mask[t] as u8);
+        let cidx = widen(&plan.carry_idx);
+        let seedv = _mm512_loadu_si512(plan.seeds.as_ptr().cast());
         let mut carry = zero;
         let mut basev = zero;
         let mut i = 0;
@@ -308,17 +346,17 @@ unsafe fn merge8<const TB: u8, const OUT: usize, const DELTA: bool>(
                 _ => _mm512_i64gather_epi64::<8>(_mm512_and_si512(idq, ff), gp),
             };
             let mut o = _mm512_add_epi64(lv, r);
-            if DELTA {
-                // The block's first value is its seed; then an in-register prefix sum plus the
-                // previous vector's last value.
+            if PREFIX {
+                // The block's first `lag` values are its seeds; then an in-register lag prefix
+                // sum plus the previous vector's carries.
                 if i == 0 {
-                    o = _mm512_mask_blend_epi64(1, o, seedv);
+                    o = _mm512_mask_blend_epi64(plan.seed_mask as u8, o, seedv);
                 }
-                o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(0xfe, sh[0], o));
-                o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(0xfc, sh[1], o));
-                o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(0xf0, sh[2], o));
+                for t in 0..3 {
+                    o = _mm512_add_epi64(o, _mm512_maskz_permutexvar_epi64(shm[t], sh[t], o));
+                }
                 o = _mm512_add_epi64(o, carry);
-                carry = _mm512_permutexvar_epi64(last, o);
+                carry = _mm512_permutexvar_epi64(cidx, o);
             }
             let km: u8 = if i + 8 <= n {
                 0xff
@@ -341,13 +379,13 @@ unsafe fn merge8<const TB: u8, const OUT: usize, const DELTA: bool>(
 /// 16 values per step in u32 lanes for outputs of at most 32 bits; arithmetic wraps mod 2^32,
 /// which is exact after truncation. Requires <= 32 bins and widths <= 31.
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512dq,avx512cd,avx512vbmi,avx512vbmi2")]
-unsafe fn merge16<const TB: u8, const OUT: usize, const DELTA: bool>(
+unsafe fn merge16<const TB: u8, const OUT: usize, const PREFIX: bool>(
     d: &ChunkDecoder,
     ids: &[u8],
     offsets: &[u8],
     n: usize,
     out: *mut u8,
-    seed: u64,
+    seeds: &[u64],
 ) {
     // SAFETY: as for `merge8`.
     unsafe {
@@ -362,7 +400,13 @@ unsafe fn merge16<const TB: u8, const OUT: usize, const DELTA: bool>(
         let last = _mm512_set1_epi32(15);
         let bp = offsets.as_ptr();
         let ip = ids.as_ptr();
-        let seedv = _mm512_set1_epi32(seed as i32);
+        let plan = LagPlan::<16>::new(seeds);
+        let sh: [__m512i; 4] =
+            std::array::from_fn(|t| _mm512_loadu_si512(plan.shift_idx[t].as_ptr().cast()));
+        let shm: [u16; 4] = std::array::from_fn(|t| plan.shift_mask[t] as u16);
+        let cidx = _mm512_loadu_si512(plan.carry_idx.as_ptr().cast());
+        let seedv = _mm512_cvtepi64_epi32(_mm512_loadu_si512(plan.seeds.as_ptr().cast()));
+        let seedv = _mm512_castsi256_si512(seedv);
         let mut carry = zero;
         let mut basev = zero;
         let mut i = 0;
@@ -394,16 +438,15 @@ unsafe fn merge16<const TB: u8, const OUT: usize, const DELTA: bool>(
             let r = _mm512_shrdv_epi32(lo, hi, bit);
             let r = _mm512_andnot_si512(sllv32(ones, w), r);
             let mut o = _mm512_add_epi32(lv, r);
-            if DELTA {
+            if PREFIX {
                 if i == 0 {
-                    o = _mm512_mask_blend_epi32(1, o, seedv);
+                    o = _mm512_mask_blend_epi32(plan.seed_mask as u16, o, seedv);
                 }
-                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<15>(o, zero));
-                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<14>(o, zero));
-                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<12>(o, zero));
-                o = _mm512_add_epi32(o, _mm512_alignr_epi32::<8>(o, zero));
+                for t in 0..4 {
+                    o = _mm512_add_epi32(o, _mm512_maskz_permutexvar_epi32(shm[t], sh[t], o));
+                }
                 o = _mm512_add_epi32(o, carry);
-                carry = _mm512_permutexvar_epi32(last, o);
+                carry = _mm512_permutexvar_epi32(cidx, o);
             }
             let km: u16 = if i + 16 <= n {
                 0xffff

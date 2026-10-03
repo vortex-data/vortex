@@ -15,6 +15,7 @@ use crate::coder::FLAG_STOP;
 use crate::coder::FLAG_UNIFORM;
 use crate::coder::IdTable;
 use crate::coder::LANES;
+use crate::coder::MAX_LAG;
 
 /// One block's id stream and offsets, borrowed from the array's data buffer. `words` and
 /// `offsets` run to the end of the buffer (including its tail padding) so vector loads may read
@@ -233,7 +234,8 @@ impl ChunkDecoder {
             .sum()
     }
 
-    /// The unsigned value (before truncation to the output width) at position `l`.
+    /// The coded value (before truncation to the output width) at position `l`: the row's value,
+    /// or its difference from the row `lag` back.
     pub(crate) fn value_at(&self, b: &BlockView<'_>, ids: &[u8], l: usize) -> u64 {
         let pos = self.offset_pos(ids, l);
         let id = usize::from(ids[l]);
@@ -261,30 +263,34 @@ macro_rules! out_int {
 }
 out_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 
-/// Portable merge: `out[i] = tl[id] + offset` for the block, or with a `seed` the running sum
-/// of those deltas starting from the seed.
+/// Portable merge: `out[i] = tl[id] + offset` for the block. With `k = seeds.len() > 0`
+/// those are differences: the first `k` values are the seeds and every later value adds its
+/// difference to the value `k` rows back.
 pub(crate) fn merge_scalar<T: OutInt>(
     d: &ChunkDecoder,
     b: &BlockView<'_>,
     ids: &[u8],
     out: &mut [T],
-    seed: Option<u64>,
+    seeds: &[u64],
 ) {
+    let lag = seeds.len();
+    let mut ring = [0u64; MAX_LAG];
+    ring[..lag].copy_from_slice(seeds);
     let mut pos = 0usize;
-    let mut acc = seed.unwrap_or(0);
     for i in 0..b.n {
         let id = usize::from(ids[i]);
         let w = d.widths[id];
         let v = d.tl[id].wrapping_add(read_bits(b.offsets, pos, w));
         pos += w as usize;
-        out[i] = match seed {
-            None => T::truncate_from(v),
-            Some(s) if i == 0 => T::truncate_from(s),
-            Some(_) => {
-                acc = acc.wrapping_add(v);
-                T::truncate_from(acc)
+        out[i] = T::truncate_from(match lag {
+            0 => v,
+            _ if i < lag => seeds[i],
+            _ => {
+                let slot = &mut ring[i % lag];
+                *slot = slot.wrapping_add(v);
+                *slot
             }
-        };
+        });
     }
 }
 
@@ -331,13 +337,13 @@ pub(crate) fn merge_block<T: OutInt>(
     b: &BlockView<'_>,
     ids: &[u8],
     out: &mut [T],
-    seed: Option<u64>,
+    seeds: &[u64],
 ) {
     #[cfg(target_arch = "x86_64")]
-    if crate::x86::has_avx512() && crate::x86::merge(d, b, ids, out, seed) {
+    if crate::x86::has_avx512() && crate::x86::merge(d, b, ids, out, seeds) {
         return;
     }
-    merge_scalar(d, b, ids, out, seed);
+    merge_scalar(d, b, ids, out, seeds);
 }
 
 /// Block capacity of the id scratch buffer.
