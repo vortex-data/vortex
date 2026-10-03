@@ -9,6 +9,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -101,6 +102,23 @@ pub fn read_summary(
     Ok(AggregateResults::from_validated(entries))
 }
 
+/// Validate selected functions and options against the historical footer fields.
+///
+/// Writers call this before producing bytes. Field dtype support is checked separately, since
+/// unsupported field types omit individual results.
+pub fn validate_summary_aggregates<'a>(
+    aggregates: impl IntoIterator<Item = &'a AggregateFnRef>,
+) -> VortexResult<()> {
+    for aggregate in aggregates {
+        vortex_ensure!(
+            Stat::all().any(|stat| stat.finalized_aggregate_fn() == aggregate),
+            "File footer cannot represent aggregate {aggregate}"
+        );
+    }
+
+    Ok(())
+}
+
 /// Write finalized results into the existing footer fields.
 ///
 /// Only fixed historical functions and options are supported. Only extrema can be inexact.
@@ -111,12 +129,7 @@ pub fn write_summary<'fb>(
     input_dtype: &DType,
     fbb: &mut FlatBufferBuilder<'fb>,
 ) -> VortexResult<WIPOffset<fba::ArrayStats<'fb>>> {
-    for (aggregate, _) in results.iter() {
-        vortex_ensure!(
-            Stat::all().any(|stat| stat.finalized_aggregate_fn() == aggregate),
-            "File footer cannot represent aggregate {aggregate}"
-        );
-    }
+    validate_summary_aggregates(results.iter().map(|(aggregate, _)| aggregate))?;
 
     let mut args = fba::ArrayStatsArgs::default();
     // Preserve the legacy serializer's scalar-vector order so unchanged writer output has the same
