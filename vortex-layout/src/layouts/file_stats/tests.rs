@@ -156,6 +156,14 @@ fn sum_preserves_chunk_cache_publication(
         std::slice::from_ref(&array),
         64,
     )?;
+    if expected.is_none() {
+        assert_eq!(
+            array
+                .aggregations()
+                .get_result(&Sum.bind(NumericalAggregateOpts::skip_nans())),
+            Precision::Absent,
+        );
+    }
     assert_eq!(
         array.statistics().get(Stat::Sum),
         expected.map_or(Precision::Absent, |value| Precision::Exact(

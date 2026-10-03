@@ -14,10 +14,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::aggregate_fn::options::AggregateFnOptions;
 use crate::aggregate_fn::typed::AggregateFnInner;
@@ -119,6 +122,16 @@ impl AggregateFnRef {
     /// Create an accumulator for streaming aggregation.
     pub fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
         self.0.accumulator(input_dtype)
+    }
+
+    /// Drive the matching core accumulator through sealed aggregate dispatch.
+    pub(crate) fn compute_into(
+        &self,
+        array: &ArrayRef,
+        accumulator: &mut dyn DynAccumulator,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        self.0.compute_into(array, accumulator, ctx)
     }
 
     /// Create a grouped accumulator for grouped streaming aggregation.

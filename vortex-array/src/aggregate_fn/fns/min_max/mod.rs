@@ -125,7 +125,37 @@ pub fn min_max(
     Ok(result)
 }
 
-fn cache_min_max(
+/// Recover the complete MinMax state from compatible exact extrema on this array.
+pub(crate) fn cached_min_max_result(
+    array: &ArrayRef,
+    options: NumericalAggregateOpts,
+) -> VortexResult<Option<Scalar>> {
+    let (min_fn, max_fn) = if options.skip_nans {
+        (&*MIN_SKIP_NANS, &*MAX_SKIP_NANS)
+    } else {
+        (&*MIN_INCLUDE_NANS, &*MAX_INCLUDE_NANS)
+    };
+    let min = array.aggregations().get_result(min_fn).as_exact();
+    let max = array.aggregations().get_result(max_fn).as_exact();
+    let Some((min, max)) = min.zip(max) else {
+        return Ok(None);
+    };
+    if min.is_null() != max.is_null() {
+        return Ok(None);
+    }
+    let dtype = make_minmax_dtype(array.dtype());
+    if min.is_null() {
+        return Ok(Some(Scalar::null(dtype)));
+    }
+    let element_dtype = array.dtype().as_nonnullable();
+    Ok(Some(Scalar::struct_(
+        dtype,
+        vec![min.cast(&element_dtype)?, max.cast(&element_dtype)?],
+    )))
+}
+
+/// Publish the compatible extrema derived from this MinMax result.
+pub(crate) fn cache_min_max(
     array: &ArrayRef,
     options: NumericalAggregateOpts,
     result: Option<&MinMaxResult>,
