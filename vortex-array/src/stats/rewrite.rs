@@ -151,23 +151,29 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::BoundExpression;
+    use crate::expr::Expression;
+    use crate::expr::fill_null;
     use crate::expr::lit;
-    use crate::expr::not;
     use crate::expr::or;
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::not::Not;
+    use crate::scalar_fn::fns::fill_null::FillNull;
     use crate::stats::session::StatsSessionExt;
 
+    /// A boolean predicate whose root scalar function has no built-in stats rewrite rules.
+    fn unruled_predicate() -> Expression {
+        fill_null(lit(true), lit(false))
+    }
+
     #[derive(Debug)]
-    struct StaticNotRule {
+    struct StaticFillNullRule {
         falsifier: Option<BoundExpression>,
         satisfier: Option<BoundExpression>,
     }
 
-    impl StatsRewriteRule for StaticNotRule {
+    impl StatsRewriteRule for StaticFillNullRule {
         fn scalar_fn_id(&self) -> ScalarFnId {
-            Not.id()
+            FillNull.id()
         }
 
         fn falsify(
@@ -191,17 +197,17 @@ mod tests {
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        session.stats().register_rewrite(StaticNotRule {
+        session.stats().register_rewrite(StaticFillNullRule {
             falsifier: Some(lit(false).bind(&dtype)?),
             satisfier: None,
         });
-        session.stats().register_rewrite(StaticNotRule {
+        session.stats().register_rewrite(StaticFillNullRule {
             falsifier: Some(lit(true).bind(&dtype)?),
             satisfier: None,
         });
 
         assert_eq!(
-            not(lit(true)).bind(&dtype)?.falsify(&session)?,
+            unruled_predicate().bind(&dtype)?.falsify(&session)?,
             Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
         Ok(())
@@ -211,17 +217,17 @@ mod tests {
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        session.stats().register_rewrite(StaticNotRule {
+        session.stats().register_rewrite(StaticFillNullRule {
             falsifier: None,
             satisfier: Some(lit(false).bind(&dtype)?),
         });
-        session.stats().register_rewrite(StaticNotRule {
+        session.stats().register_rewrite(StaticFillNullRule {
             falsifier: None,
             satisfier: Some(lit(true).bind(&dtype)?),
         });
 
         assert_eq!(
-            not(lit(true)).bind(&dtype)?.satisfy(&session)?,
+            unruled_predicate().bind(&dtype)?.satisfy(&session)?,
             Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
         Ok(())
@@ -232,7 +238,7 @@ mod tests {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let expr = not(lit(true)).bind(&dtype)?;
+        let expr = unruled_predicate().bind(&dtype)?;
         assert_eq!(expr.falsify(&session)?, None);
         assert_eq!(expr.satisfy(&session)?, None);
         Ok(())

@@ -49,6 +49,7 @@ use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeVariant;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::internal::row_count::RowCount;
@@ -76,6 +77,7 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(ListContainsAllNonNanStatsRewrite);
     session.register_rewrite(DynamicComparisonNanCountStatsRewrite);
     session.register_rewrite(DynamicComparisonAllNonNanStatsRewrite);
+    session.register_rewrite(NotStatsRewrite);
 }
 
 fn row_count() -> BoundExpression {
@@ -238,8 +240,6 @@ fn binary_falsify<P: NonNanProof>(
     })
 }
 
-// Unlike falsifiers, satisfiers must also prove that no operand is null: a null operand makes the
-// comparison null, which a filter treats as false.
 fn binary_satisfy<P: NonNanProof>(
     expr: &BoundExpression,
     session: &VortexSession,
@@ -290,19 +290,33 @@ fn binary_satisfy<P: NonNanProof>(
     let Some(value_predicate) = value_predicate else {
         return Ok(None);
     };
-    let mut null_checks = Vec::new();
-    for operand in [lhs, rhs] {
-        match non_null_check(operand) {
-            NullCheck::NotNeeded => {}
-            NullCheck::Check(check) => null_checks.push(check),
-            NullCheck::Unavailable => return Ok(None),
-        }
-    }
-    let value_predicate = match and_collect(null_checks) {
-        Some(null_check) => and(null_check, value_predicate),
-        None => value_predicate,
+    let Some(value_predicate) = with_non_null_guards([lhs, rhs], value_predicate) else {
+        return Ok(None);
     };
     with_non_nan_guards::<P>([lhs, rhs], value_predicate)
+}
+
+/// Guards a satisfier's value predicate with proofs that no operand is null.
+///
+/// Unlike falsifiers, satisfiers must prove that no operand is null: a null operand makes the
+/// predicate null, which a filter treats as false. Returns `None` when non-nullness cannot be
+/// proven.
+fn with_non_null_guards<'a>(
+    exprs: impl IntoIterator<Item = &'a BoundExpression>,
+    value_predicate: BoundExpression,
+) -> Option<BoundExpression> {
+    let mut null_checks = Vec::new();
+    for expr in exprs {
+        match non_null_check(expr) {
+            NullCheck::NotNeeded => {}
+            NullCheck::Check(check) => null_checks.push(check),
+            NullCheck::Unavailable => return None,
+        }
+    }
+    Some(match and_collect(null_checks) {
+        Some(null_check) => and(null_check, value_predicate),
+        None => value_predicate,
+    })
 }
 
 #[derive(Debug)]
@@ -580,6 +594,79 @@ impl StatsRewriteRule for LikeStatsRewrite {
             None => None,
         })
     }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let like_options = expr.as_::<Like>();
+        if like_options.negated || like_options.case_insensitive {
+            return Ok(None);
+        }
+
+        let Some(pattern) = expr.child(1).as_opt::<Literal>() else {
+            return Ok(None);
+        };
+        let Some(pattern) = pattern.as_utf8().value() else {
+            return Ok(None);
+        };
+
+        let source = expr.child(0);
+        let Some((source_min, source_max)) = min(source).zip(max(source)) else {
+            return Ok(None);
+        };
+        let value_predicate = match LikeVariant::from_str_complete(pattern) {
+            Some(LikeVariant::Exact(text)) => and(
+                eq(source_min, lit(text.as_ref())),
+                eq(source_max, lit(text.as_ref())),
+            ),
+            // Every string in `[prefix, successor)` starts with `prefix`.
+            Some(LikeVariant::Prefix(prefix)) => {
+                let Some(successor) = prefix.to_string().increment().ok() else {
+                    return Ok(None);
+                };
+                and(
+                    gt_eq(source_min, lit(prefix.as_ref())),
+                    lt(source_max, lit(successor)),
+                )
+            }
+            None => return Ok(None),
+        };
+        Ok(with_non_null_guards([source], value_predicate))
+    }
+}
+
+/// Rewrites `not` by swapping the child's proofs.
+#[derive(Debug)]
+struct NotStatsRewrite;
+
+impl StatsRewriteRule for NotStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        Not.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        satisfy(expr.child(0), session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        // A falsifier only proves the child is never true; a nullable child may still be null,
+        // which `not` keeps null.
+        let child = expr.child(0);
+        if child.dtype().is_nullable() {
+            return Ok(None);
+        }
+        falsify(child, session)
+    }
 }
 
 #[derive(Debug)]
@@ -596,6 +683,14 @@ impl StatsRewriteRule for ListContainsNanCountStatsRewrite {
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         list_contains_falsify::<NanCountProof>(expr)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        list_contains_satisfy::<NanCountProof>(expr)
     }
 }
 
@@ -614,6 +709,52 @@ impl StatsRewriteRule for ListContainsAllNonNanStatsRewrite {
     ) -> VortexResult<Option<BoundExpression>> {
         list_contains_falsify::<AllNonNanProof>(expr)
     }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        list_contains_satisfy::<AllNonNanProof>(expr)
+    }
+}
+
+/// Satisfies `list_contains` over a literal list when every needle in the zone is the same value
+/// and that value is one of the list's non-null elements.
+fn list_contains_satisfy<P: NonNanProof>(
+    expr: &BoundExpression,
+) -> VortexResult<Option<BoundExpression>> {
+    let list = expr.child(0);
+    let needle = expr.child(1);
+
+    let Some(list_scalar) = literal_stat(list, Stat::Min) else {
+        return Ok(None);
+    };
+    let elements = list_scalar
+        .as_opt::<Literal>()
+        .and_then(|literal| literal.as_list_opt())
+        .and_then(|list| list.elements());
+    let Some(elements) = elements else {
+        return Ok(None);
+    };
+    let Some((needle_min, needle_max)) = min(needle).zip(max(needle)) else {
+        return Ok(None);
+    };
+
+    let value_predicate = or_collect(elements.iter().filter(|value| !value.is_null()).map(
+        |value| {
+            and(
+                eq(needle_min.clone(), lit(value.clone())),
+                eq(needle_max.clone(), lit(value.clone())),
+            )
+        },
+    ));
+    let Some(value_predicate) =
+        value_predicate.and_then(|value_predicate| with_non_null_guards([needle], value_predicate))
+    else {
+        return Ok(None);
+    };
+    with_non_nan_guards::<P>([needle], value_predicate)
 }
 
 fn list_contains_falsify<P: NonNanProof>(
@@ -670,6 +811,14 @@ impl StatsRewriteRule for DynamicComparisonNanCountStatsRewrite {
     ) -> VortexResult<Option<BoundExpression>> {
         dynamic_comparison_falsify::<NanCountProof>(expr)
     }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_comparison_satisfy::<NanCountProof>(expr)
+    }
 }
 
 #[derive(Debug)]
@@ -686,6 +835,14 @@ impl StatsRewriteRule for DynamicComparisonAllNonNanStatsRewrite {
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         dynamic_comparison_falsify::<AllNonNanProof>(expr)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_comparison_satisfy::<AllNonNanProof>(expr)
     }
 }
 
@@ -713,6 +870,40 @@ fn dynamic_comparison_falsify<P: NonNanProof>(
         },
         lhs_stat,
     );
+    with_non_nan_guards::<P>([lhs], value_predicate)
+}
+
+/// Satisfies a dynamic comparison by comparing the bound on the near side of the threshold with the
+/// same dynamic threshold.
+///
+/// While the threshold is unknown the predicate evaluates to `default` for every row, so the
+/// satisfier keeps the same `default`.
+fn dynamic_comparison_satisfy<P: NonNanProof>(
+    expr: &BoundExpression,
+) -> VortexResult<Option<BoundExpression>> {
+    let dynamic = expr.as_::<DynamicComparison>();
+    let lhs = expr.child(0);
+
+    let lhs_stat = match dynamic.operator {
+        CompareOperator::Eq | CompareOperator::NotEq => None,
+        CompareOperator::Gt | CompareOperator::Gte => min(lhs),
+        CompareOperator::Lt | CompareOperator::Lte => max(lhs),
+    };
+    let Some(lhs_stat) = lhs_stat else {
+        return Ok(None);
+    };
+
+    let value_predicate = dynamic_with_options(
+        DynamicComparisonExpr {
+            operator: dynamic.operator,
+            rhs: Arc::clone(&dynamic.rhs),
+            default: dynamic.default,
+        },
+        lhs_stat,
+    );
+    let Some(value_predicate) = with_non_null_guards([lhs], value_predicate) else {
+        return Ok(None);
+    };
     with_non_nan_guards::<P>([lhs], value_predicate)
 }
 
@@ -975,6 +1166,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::lt_eq;
+    use crate::expr::not;
     use crate::expr::not_eq;
     use crate::expr::or;
     use crate::expr::stats::Stat;
@@ -1507,6 +1699,139 @@ mod tests {
                 ),
             ))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_list_contains_satisfier() -> VortexResult<()> {
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+            vec![
+                Scalar::primitive(1i32, Nullability::Nullable),
+                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                Scalar::primitive(3i32, Nullability::Nullable),
+            ],
+            Nullability::NonNullable,
+        );
+        let expr = list_contains(lit(list), col("a"));
+
+        // Null elements never match, so they are skipped.
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(or(
+                and(
+                    eq(
+                        stat(col("a"), Stat::Min),
+                        lit(Scalar::primitive(1i32, Nullability::Nullable))
+                    ),
+                    eq(
+                        stat(col("a"), Stat::Max),
+                        lit(Scalar::primitive(1i32, Nullability::Nullable))
+                    ),
+                ),
+                and(
+                    eq(
+                        stat(col("a"), Stat::Min),
+                        lit(Scalar::primitive(3i32, Nullability::Nullable))
+                    ),
+                    eq(
+                        stat(col("a"), Stat::Max),
+                        lit(Scalar::primitive(3i32, Nullability::Nullable))
+                    ),
+                ),
+            ))
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::prefix(
+        "prefix%",
+        Some(and(
+            gt_eq(stat(col("s"), Stat::Min), lit("prefix")),
+            lt(stat(col("s"), Stat::Max), lit("prefiy")),
+        ))
+    )]
+    #[case::exact(
+        "exact",
+        Some(and(
+            eq(stat(col("s"), Stat::Min), lit("exact")),
+            eq(stat(col("s"), Stat::Max), lit("exact")),
+        ))
+    )]
+    // Strings starting with the prefix need not match patterns with later wildcards.
+    #[case::inner_wildcard("pref%ix%", None)]
+    #[case::single_char_wildcard("prefix_", None)]
+    #[case::suffix("%suffix", None)]
+    fn rewrites_like_satisfier(
+        #[case] pattern: &str,
+        #[case] expected: Option<Expression>,
+    ) -> VortexResult<()> {
+        assert_rewrite_eq!(satisfy(&like(col("s"), lit(pattern)))?, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::gt(CompareOperator::Gt, Stat::Min)]
+    #[case::gt_eq(CompareOperator::Gte, Stat::Min)]
+    #[case::lt(CompareOperator::Lt, Stat::Max)]
+    #[case::lt_eq(CompareOperator::Lte, Stat::Max)]
+    fn rewrites_dynamic_comparison_satisfier(
+        #[case] operator: CompareOperator,
+        #[case] bound: Stat,
+    ) -> VortexResult<()> {
+        let expr = dynamic(
+            operator,
+            || Some(10i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            col("a"),
+        );
+        let dynamic = expr.as_::<DynamicComparison>();
+
+        // The satisfier keeps the default: while the threshold is unknown, every row passes.
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(DynamicComparison.new_expr(
+                DynamicComparisonExpr {
+                    operator,
+                    rhs: Arc::clone(&dynamic.rhs),
+                    default: true,
+                },
+                [stat(col("a"), bound)],
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_equality_has_no_satisfier() -> VortexResult<()> {
+        let expr = dynamic(
+            CompareOperator::Eq,
+            || Some(10i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            col("a"),
+        );
+        assert_rewrite_eq!(satisfy(&expr)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_not_by_swapping_proofs() -> VortexResult<()> {
+        let expr = not(lt(col("a"), lit(10)));
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(gt_eq(stat(col("a"), Stat::Min), lit(10)))
+        );
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(lt(stat(col("a"), Stat::Max), lit(10)))
+        );
+
+        // A nullable child can be null where its falsifier holds, and `not` keeps it null.
+        let x = get_item("x", col("n"));
+        assert_rewrite_eq!(satisfy(&not(lt(x, lit(1.0f32))))?, None);
         Ok(())
     }
 

@@ -512,6 +512,29 @@ impl<'a> LikeVariant<'a> {
             None => LikeVariant::Exact(Cow::Borrowed(string)),
         })
     }
+
+    /// Parse a LIKE pattern whose matches are exactly the strings its variant describes.
+    ///
+    /// Unlike [`Self::from_str`], whose prefix is only a necessary condition for a match, this
+    /// returns a [`LikeVariant::Prefix`] only when every wildcard follows the prefix and is `%`, so
+    /// that every string with the prefix matches.
+    pub(crate) fn from_str_complete(string: &'a str) -> Option<LikeVariant<'a>> {
+        let variant = Self::from_str(string)?;
+        if matches!(variant, LikeVariant::Prefix(_)) {
+            let mut chars = string.chars();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' => {
+                        chars.next();
+                    }
+                    '%' => return chars.all(|c| c == '%').then_some(variant),
+                    '_' => return None,
+                    _ => {}
+                }
+            }
+        }
+        Some(variant)
+    }
 }
 
 #[cfg(test)]
@@ -833,5 +856,22 @@ mod tests {
         assert_eq!(LikeVariant::from_str("%suffix"), None);
         assert_eq!(LikeVariant::from_str(r"%\%%"), None);
         assert_eq!(LikeVariant::from_str("_pattern"), None);
+    }
+
+    #[rstest]
+    #[case("exact", Some(LikeVariant::Exact(Cow::Borrowed("exact"))))]
+    #[case("prefix%", Some(LikeVariant::Prefix(Cow::Borrowed("prefix"))))]
+    #[case("prefix%%", Some(LikeVariant::Prefix(Cow::Borrowed("prefix"))))]
+    #[case(r"\%%", Some(LikeVariant::Prefix(Cow::Owned("%".to_string()))))]
+    #[case("pref%ix%", None)]
+    #[case("pref%ix", None)]
+    #[case("prefix_", None)]
+    #[case("pref_ix%", None)]
+    #[case("%suffix", None)]
+    fn like_variant_from_str_complete(
+        #[case] pattern: &str,
+        #[case] expected: Option<LikeVariant>,
+    ) {
+        assert_eq!(LikeVariant::from_str_complete(pattern), expected);
     }
 }

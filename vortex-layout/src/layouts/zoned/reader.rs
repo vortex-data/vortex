@@ -321,14 +321,19 @@ mod test {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::Expression;
     use vortex_array::expr::between;
+    use vortex_array::expr::dynamic;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -724,5 +729,65 @@ mod test {
             .any(|id| data_segments.contains(id));
         assert_eq!(read_data, reads_data);
         Ok(())
+    }
+
+    /// A dynamic threshold is proven per zone against the threshold current at evaluation time,
+    /// and an unknown threshold proves every zone with the predicate's `true` default.
+    #[rstest]
+    fn filter_evaluation_skips_dynamically_satisfied_zones(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let data_segments = data_segment_ids(&layout)?;
+        let recording = Arc::new(RecordingSegments {
+            inner: segments,
+            requested: Mutex::new(Vec::new()),
+        });
+        let source: Arc<dyn SegmentSource> = Arc::<RecordingSegments>::clone(&recording);
+        let threshold = Arc::new(Mutex::new(None::<i32>));
+        let threshold_fn = Arc::clone(&threshold);
+        let expr = dynamic(
+            CompareOperator::Gt,
+            move || threshold_fn.lock().map(Into::into),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let reads_data = || {
+            let read = recording
+                .requested
+                .lock()
+                .iter()
+                .any(|id| data_segments.contains(id));
+            recording.requested.lock().clear();
+            read
+        };
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), source, &session, &Default::default())?;
+            let expr = expr.bind(reader.dtype())?;
+            let filter = |input: [bool; 9]| {
+                reader.filter_evaluation(&(0..9), &expr, MaskFuture::ready(Mask::from_iter(input)))
+            };
+
+            assert_eq!(filter([true; 9])?.await?, Mask::new_true(9));
+            assert!(!reads_data());
+
+            // Zones `4..=6` and `7..=9` are entirely above 3.
+            *threshold.lock() = Some(3);
+            assert_eq!(
+                filter([true; 9])?.await?,
+                Mask::from_iter([false, false, false, true, true, true, true, true, true])
+            );
+            assert!(reads_data());
+
+            // Tightening the threshold must re-prove the zones rather than reuse the stale mask.
+            *threshold.lock() = Some(7);
+            assert_eq!(
+                filter([true; 9])?.await?,
+                Mask::from_iter([false, false, false, false, false, false, false, true, true])
+            );
+            Ok(())
+        })
     }
 }
