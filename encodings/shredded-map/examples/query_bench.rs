@@ -234,8 +234,14 @@ fn main() {
     // BtrBlocks' compact preset adds zstd and pco, the fair match for Parquet zstd(3).
     let map_compact = common::compress_with(&data.map, true);
     let shredded_compact = common::compress_shredded_with(&data.shredded, true);
+    // The size-first layout: compact, then high-level zstd wherever it is smaller.
+    let shredded_squeezed =
+        vortex_shredded_map::squeeze::squeeze(&shredded_compact.clone().into_array(), 19, &mut ctx)
+            .unwrap()
+            .try_downcast::<vortex_shredded_map::ShreddedMap>()
+            .unwrap();
     println!(
-        "SIZE rows={} parquet={} arrow={} arrow_alloc={} map={} map_btr={} map_compact={} shredded={} shredded_btr={} shredded_compact={} parquet_read_ms={:.1}\n",
+        "SIZE rows={} parquet={} arrow={} arrow_alloc={} map={} map_btr={} map_compact={} shredded={} shredded_btr={} shredded_compact={} shredded_squeezed={} parquet_read_ms={:.1}\n",
         data.arrow.len(),
         parquet_bytes,
         arrow_data_bytes(&data.arrow.to_data()),
@@ -246,6 +252,7 @@ fn main() {
         shredded_bytes(&data.shredded),
         shredded_bytes(&data.shredded_compressed),
         shredded_bytes(&shredded_compact),
+        shredded_bytes(&shredded_squeezed),
         parquet_read_ms,
     );
     println!(
@@ -286,12 +293,15 @@ fn main() {
         let (shredded_compact_ms, got) =
             best(|| query::shredded(&shredded_compact, key, value, &project, &mut ctx).unwrap());
         check("shredded_compact", got);
+        let (shredded_squeezed_ms, got) =
+            best(|| query::shredded(&shredded_squeezed, key, value, &project, &mut ctx).unwrap());
+        check("shredded_squeezed", got);
         println!(
             "{filter:<28} {:>8} | {arrow_ms:>9.2} {map_ms:>9.2} {map_btr_ms:>9.2} {shredded_ms:>9.2} {shredded_btr_ms:>12.2}",
             expected[0].len()
         );
         println!(
-            "QUERY filter={filter} rows={} arrow={arrow_ms:.3} map={map_ms:.3} map_btr={map_btr_ms:.3} shredded={shredded_ms:.3} shredded_btr={shredded_btr_ms:.3} map_compact={map_compact_ms:.3} shredded_compact={shredded_compact_ms:.3}",
+            "QUERY filter={filter} rows={} arrow={arrow_ms:.3} map={map_ms:.3} map_btr={map_btr_ms:.3} shredded={shredded_ms:.3} shredded_btr={shredded_btr_ms:.3} map_compact={map_compact_ms:.3} shredded_compact={shredded_compact_ms:.3} shredded_squeezed={shredded_squeezed_ms:.3}",
             expected[0].len()
         );
     }
