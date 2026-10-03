@@ -21,9 +21,13 @@ use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
+use crate::schemes::integer::RUN_LENGTH_THRESHOLD;
 
 /// How much smaller than the best other scheme the estimate must be.
 const MIN_GAIN: f64 = 1.1;
+
+/// Typical cost of one run under RunEnd in half-bytes: a value plus a delta-coded end, ~12 bits.
+const HALF_BYTES_PER_RUN: usize = 3;
 
 /// Entropy-coded bins: pco's bins with a SIMD tANS id stream and variable-width offsets, in
 /// independently decodable 1024-value blocks. Opt-in: add it with
@@ -62,6 +66,16 @@ impl Scheme for EntropyBinsScheme {
                     EntropyBins::estimate_nbytes(primitive.as_view(), level, false)?.min(
                         EntropyBins::estimate_nbytes(primitive.as_view(), level, true)?,
                     );
+                // RunEnd's sampled estimate cuts runs at every 64-row sample edge, so on
+                // run-heavy data it looks worse than it is. Leave such arrays to RunEnd (whose
+                // children may still use this scheme) when the runs are clearly cheaper.
+                let run_length = data.integer_stats(exec_ctx).average_run_length();
+                if run_length >= RUN_LENGTH_THRESHOLD {
+                    let runs = primitive.len() / run_length as usize;
+                    if estimate > runs * HALF_BYTES_PER_RUN / 2 {
+                        return Ok(EstimateVerdict::Skip);
+                    }
+                }
                 let ratio = raw as f64 / estimate.max(1) as f64;
                 // Entropy-coded blocks decode slower than bit-packing: require a clear win.
                 let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
