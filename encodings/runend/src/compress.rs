@@ -16,10 +16,9 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::AscendingIndexBuilder;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -29,7 +28,6 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -49,11 +47,10 @@ pub fn runend_encode(
         Validity::AllValid => None,
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
-            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
-            ends.statistics()
-                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            let mut ends = AscendingIndexBuilder::new();
+            ends.push(array.len() as u64);
             return (
-                ends,
+                ends.finish(),
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             );
         }
@@ -70,7 +67,7 @@ pub fn runend_encode(
             match_each_native_ptype!(array.ptype(), |P| {
                 let (ends, values) = runend_encode_primitive(array.as_slice::<P>());
                 (
-                    PrimitiveArray::new(ends, Validity::NonNullable),
+                    ends,
                     PrimitiveArray::new(values, array.dtype().nullability().into()).into_array(),
                 )
             })
@@ -79,30 +76,24 @@ pub fn runend_encode(
             match_each_native_ptype!(array.ptype(), |P| {
                 let (ends, values) =
                     runend_encode_nullable_primitive(array.as_slice::<P>(), validity);
-                (
-                    PrimitiveArray::new(ends, Validity::NonNullable),
-                    values.into_array(),
-                )
+                (ends, values.into_array())
             })
         }
     };
 
     let ends = ends
-        .narrow(ctx)
+        .finish_narrow(ctx)
         .vortex_expect("Ends must succeed downcasting");
-
-    ends.statistics()
-        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
 
     (ends, values)
 }
 
-fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buffer<T>) {
-    let mut ends = BufferMut::empty();
+fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (AscendingIndexBuilder, Buffer<T>) {
+    let mut ends = AscendingIndexBuilder::new();
     let mut values = BufferMut::empty();
 
     if elements.is_empty() {
-        return (ends.freeze(), values.freeze());
+        return (ends, values.freeze());
     }
 
     // Run-end encode the values
@@ -119,20 +110,20 @@ fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buff
     ends.push(end);
     values.push(prev);
 
-    (ends.freeze(), values.freeze())
+    (ends, values.freeze())
 }
 
 fn runend_encode_nullable_primitive<T: NativePType>(
     elements: &[T],
     element_validity: BitBuffer,
-) -> (Buffer<u64>, PrimitiveArray) {
-    let mut ends = BufferMut::empty();
+) -> (AscendingIndexBuilder, PrimitiveArray) {
+    let mut ends = AscendingIndexBuilder::new();
     let mut values = BufferMut::empty();
     let mut validity = BitBufferMut::with_capacity(values.capacity());
 
     if elements.is_empty() {
         return (
-            ends.freeze(),
+            ends,
             PrimitiveArray::new(
                 values,
                 Validity::Array(BoolArray::from(validity.freeze()).into_array()),
@@ -179,7 +170,7 @@ fn runend_encode_nullable_primitive<T: NativePType>(
     }
 
     (
-        ends.freeze(),
+        ends,
         PrimitiveArray::new(values, Validity::from(validity.freeze())),
     )
 }
@@ -352,9 +343,14 @@ pub fn runend_decode_varbinview(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
@@ -363,6 +359,17 @@ mod tests {
 
     use crate::compress::runend_decode_primitive;
     use crate::compress::runend_encode;
+
+    #[track_caller]
+    fn assert_strict_sorted(ends: &PrimitiveArray) -> VortexResult<()> {
+        let aggregate = IsSorted.bind(IsSortedOptions { strict: true });
+        assert_eq!(
+            ends.aggregations().get_result_as::<bool>(&aggregate)?,
+            Precision::Exact(true),
+        );
+
+        Ok(())
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -375,6 +382,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         let (ends, values) = runend_encode(arr.as_view(), &mut ctx);
+        assert_strict_sorted(&ends)?;
         let values = values.execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 10]);
@@ -394,6 +402,7 @@ mod tests {
             ])),
         );
         let (ends, values) = runend_encode(arr.as_view(), &mut ctx);
+        assert_strict_sorted(&ends)?;
         let values = values.execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
@@ -412,12 +421,31 @@ mod tests {
             Validity::from(BitBuffer::new_unset(5)),
         );
         let (ends, values) = runend_encode(arr.as_view(), &mut ctx);
+        assert_strict_sorted(&ends)?;
         let values = values.execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
         assert_arrays_eq!(ends, expected_ends, &mut ctx);
         let expected_values = PrimitiveArray::from_option_iter(vec![Option::<i32>::None]);
         assert_arrays_eq!(values, expected_values, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(vec![], vec![])]
+    #[case::singleton(vec![7i32], vec![1u8])]
+    fn encode_short_input(
+        #[case] input: Vec<i32>,
+        #[case] expected_ends: Vec<u8>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter(input.clone());
+        let (ends, values) = runend_encode(array.as_view(), &mut ctx);
+        assert_strict_sorted(&ends)?;
+
+        assert_arrays_eq!(ends, PrimitiveArray::from_iter(expected_ends), &mut ctx);
+        assert_arrays_eq!(values, PrimitiveArray::from_iter(input), &mut ctx);
+
         Ok(())
     }
 

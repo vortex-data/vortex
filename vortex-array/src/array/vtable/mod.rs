@@ -48,6 +48,7 @@ use crate::hash::ArrayHash;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
+use crate::stats::AggregateResults;
 use crate::validity::Validity;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -90,6 +91,18 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()>;
+
+    /// Return finalized aggregate results derived from this encoding's array data.
+    ///
+    /// Called once per normal construction, after validation on the checked construction path.
+    /// Results must describe the supplied array, including its length, dtype, and options. Core
+    /// checks result dtypes before publication. These are semantic results, not safety proofs.
+    /// Derive cheap intrinsic facts without executing the array. Results must not retain this array,
+    /// which would create a cycle through its cache.
+    /// The default publishes no results and allocates nothing.
+    fn initial_results(_array: ArrayView<'_, Self>) -> Option<AggregateResults> {
+        None
+    }
 
     /// Returns the number of top-level buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;

@@ -17,6 +17,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -221,7 +222,8 @@ impl<V: VTable> Array<V> {
         Ok(Self {
             inner,
             _phantom: PhantomData,
-        })
+        }
+        .with_initial_results())
     }
 
     /// Create a typed array from explicit construction parameters without validation.
@@ -245,6 +247,21 @@ impl<V: VTable> Array<V> {
             inner,
             _phantom: PhantomData,
         }
+        .with_initial_results()
+    }
+
+    fn with_initial_results(self) -> Self {
+        if let Some(results) = V::initial_results(self.as_view()) {
+            results
+                .validate(self.dtype())
+                .vortex_expect("VTable::initial_results must match the constructed array's dtype");
+            for (aggregate, result) in results.iter() {
+                self.aggregations()
+                    .insert_result(aggregate.clone(), result.clone());
+            }
+        }
+
+        self
     }
 
     /// Create from an existing `ArrayRef`, trusting that it contains `ArrayData<V>`.

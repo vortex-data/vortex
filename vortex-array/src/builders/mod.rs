@@ -55,6 +55,9 @@ use crate::scalar::Scalar;
 mod lazy_null_builder;
 pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
 
+mod ascending_indices;
+pub use ascending_indices::AscendingIndexBuilder;
+
 mod bool;
 mod child;
 mod decimal;

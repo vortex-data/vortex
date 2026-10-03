@@ -11637,7 +11637,6 @@ dependencies = [
  "num-traits",
  "prost 0.14.4",
  "rstest",
- "smallvec",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",

@@ -38,24 +38,14 @@ impl AggregateResults {
     ) -> VortexResult<Self> {
         let entries = entries.into_iter().collect::<Vec<_>>();
 
-        for (index, (aggregate, value)) in entries.iter().enumerate() {
-            vortex_ensure!(
-                !entries[..index].iter().any(|(other, _)| other == aggregate),
-                "Duplicate aggregate result: {aggregate}"
-            );
-            let dtype = aggregate.return_dtype(input_dtype).ok_or_else(|| {
-                vortex_err!("Aggregate {aggregate} does not support {input_dtype}")
-            })?;
-            if let Some(value) = value.as_ref().into_inner() {
-                vortex_ensure!(
-                    value.dtype() == &dtype,
-                    "Aggregate {aggregate} requires result dtype {dtype}, got {}",
-                    value.dtype()
-                );
-            }
-        }
+        validate_entries(input_dtype, &entries)?;
 
         Ok(Self::from_validated(entries))
+    }
+
+    /// Check keys and result dtypes against the input at a private publication boundary.
+    pub(crate) fn validate(&self, input_dtype: &DType) -> VortexResult<()> {
+        validate_entries(input_dtype, &self.entries)
     }
 
     /// Construct results after validating unique keys and scalar types.
@@ -83,6 +73,30 @@ impl AggregateResults {
     pub fn iter(&self) -> impl Iterator<Item = (&AggregateFnRef, &Precision<Scalar>)> {
         self.entries.iter().map(|(key, value)| (key, value))
     }
+}
+
+fn validate_entries(
+    input_dtype: &DType,
+    entries: &[(AggregateFnRef, Precision<Scalar>)],
+) -> VortexResult<()> {
+    for (index, (aggregate, value)) in entries.iter().enumerate() {
+        vortex_ensure!(
+            !entries[..index].iter().any(|(other, _)| other == aggregate),
+            "Duplicate aggregate result: {aggregate}"
+        );
+        let dtype = aggregate
+            .return_dtype(input_dtype)
+            .ok_or_else(|| vortex_err!("Aggregate {aggregate} does not support {input_dtype}"))?;
+        if let Some(value) = value.as_ref().into_inner() {
+            vortex_ensure!(
+                value.dtype() == &dtype,
+                "Aggregate {aggregate} requires result dtype {dtype}, got {}",
+                value.dtype()
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
