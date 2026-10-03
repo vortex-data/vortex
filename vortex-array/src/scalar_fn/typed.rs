@@ -89,6 +89,12 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
         &self,
         node: &ArrayReduceNode<'a>,
     ) -> VortexResult<Option<ArrayReduceNode<'a>>>;
+    fn reduce_parent_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+        parent: &ExpressionReduceNode<'a>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>>;
     fn arity(&self) -> Arity;
     fn child_name(&self, child_idx: usize) -> ChildName;
     fn is_strict(&self) -> bool;
@@ -182,6 +188,15 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         node: &ArrayReduceNode<'a>,
     ) -> VortexResult<Option<ArrayReduceNode<'a>>> {
         V::reduce(&self.vtable, &self.options, node)
+    }
+
+    fn reduce_parent_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+        parent: &ExpressionReduceNode<'a>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        V::reduce_parent(&self.vtable, &self.options, node, parent, child_idx)
     }
 
     fn arity(&self) -> Arity {

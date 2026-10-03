@@ -189,6 +189,33 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
+    /// Implement an abstract reduction rule that rewrites the parent of this node.
+    ///
+    /// `node` is this function's node and `parent` is the node whose `child_idx`-th child is
+    /// `node`. Returning `Some(replacement)` replaces `parent`; the replacement must have the same
+    /// dtype as `parent`.
+    ///
+    /// This lets a function teach a parent function how to push through it without the parent
+    /// knowing about the child. For example, `Binary(Add)` rewrites the parent
+    /// `stat(a + b, max)` into `stat(a, max) + stat(b, max)`.
+    ///
+    /// Currently only applied when optimizing expression trees.
+    ///
+    /// Return `Ok(None)` if no reduction is possible.
+    fn reduce_parent<T: ReduceNode>(
+        &self,
+        options: &Self::Options,
+        node: &T,
+        parent: &T,
+        child_idx: usize,
+    ) -> VortexResult<Option<T>> {
+        _ = options;
+        _ = node;
+        _ = parent;
+        _ = child_idx;
+        Ok(None)
+    }
+
     /// For node, returns node' which is exactly the result of evaluating
     /// validity(node). Returned node' is either a lazy computation over
     /// children of node, a constant, or Irreducible which means you need to

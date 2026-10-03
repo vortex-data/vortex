@@ -23,6 +23,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::is_not_null::reduce_null;
+use crate::scalar_fn::fns::is_not_null::reduce_null_bound;
 use crate::validity::Validity;
 
 /// Expression that checks for null values.
@@ -95,6 +96,16 @@ impl ScalarFnVTable for IsNull {
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         reduce_null(true, node)
+    }
+
+    fn reduce_parent<T: ReduceNode>(
+        &self,
+        _options: &Self::Options,
+        node: &T,
+        parent: &T,
+        _child_idx: usize,
+    ) -> VortexResult<Option<T>> {
+        reduce_null_bound(true, node, parent)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

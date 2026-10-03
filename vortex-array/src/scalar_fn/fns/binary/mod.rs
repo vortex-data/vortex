@@ -33,6 +33,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::stats::reduce::Bound;
 
 pub mod boolean;
 pub use boolean::BooleanExecuteAdaptor;
@@ -45,6 +46,7 @@ pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
 mod primitive_operand;
+mod stats;
 
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -289,6 +291,19 @@ impl ScalarFnVTable for Binary {
             (Some(constant), None) => kleene_one_const(right, constant, is_and),
             (None, Some(constant)) => kleene_one_const(left, constant, is_and),
         }))
+    }
+
+    fn reduce_parent<T: ReduceNode>(
+        &self,
+        operator: &Operator,
+        node: &T,
+        parent: &T,
+        _child_idx: usize,
+    ) -> VortexResult<Option<T>> {
+        match Bound::of_parent(parent) {
+            Some(bound) => stats::reduce_bound(*operator, bound, node),
+            None => Ok(None),
+        }
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {

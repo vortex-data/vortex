@@ -23,6 +23,7 @@ mod array;
 pub mod bind;
 pub mod expr;
 pub mod flatbuffers;
+pub(crate) mod reduce;
 pub mod rewrite;
 pub mod session;
 mod stats_set;

@@ -155,6 +155,17 @@ impl ScalarFnRef {
         self.0.reduce_expression(node)
     }
 
+    /// Perform abstract reduction of `parent` driven by this scalar function node, which is the
+    /// parent's `child_idx`-th child, in an expression tree.
+    pub fn reduce_parent_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+        parent: &ExpressionReduceNode<'a>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        self.0.reduce_parent_expression(node, parent, child_idx)
+    }
+
     /// Perform abstract reduction on this scalar function node in an array tree.
     pub fn reduce_array<'a>(
         &self,

@@ -49,6 +49,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::is_not_null_node;
+use crate::stats::reduce::Bound;
 
 /// A cast expression that converts values to a target data type.
 #[derive(Clone)]
@@ -188,6 +189,34 @@ impl ScalarFnVTable for Cast {
         } else {
             node.new_constant(true.into())
         }))
+    }
+
+    fn reduce_parent<T: ReduceNode>(
+        &self,
+        target_dtype: &DType,
+        node: &T,
+        parent: &T,
+        _child_idx: usize,
+    ) -> VortexResult<Option<T>> {
+        // Numeric casts preserve order, so `max(cast(x)) = cast(max(x))`. Float sources are
+        // excluded because min/max skip NaN, which a cast to an integer cannot represent.
+        let Some(bound) = Bound::of_parent(parent) else {
+            return Ok(None);
+        };
+        let child = node.child(0);
+        let source_dtype = child.node_dtype()?;
+        if !matches!(source_dtype, DType::Primitive(..))
+            || source_dtype.is_float()
+            || !matches!(target_dtype, DType::Primitive(..))
+        {
+            return Ok(None);
+        }
+        let Some(input) = bound.of(&child)? else {
+            return Ok(None);
+        };
+        input
+            .new_node(Cast.bind(target_dtype.as_nullable()), &[input.clone()])
+            .map(Some)
     }
 
     fn is_strict(&self, _instance: &DType) -> bool {

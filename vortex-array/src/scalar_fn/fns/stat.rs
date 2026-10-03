@@ -20,6 +20,9 @@ use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -30,8 +33,12 @@ use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ExpressionReduceNode;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::stats::reduce::Bound;
 
 /// Options for the `stat` scalar function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -122,6 +129,46 @@ impl ScalarFnVTable for StatFn {
         let input = args.get(0)?;
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
         stat_array(&input, options.aggregate_fn(), dtype, args.row_count())
+    }
+
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let aggregate_fn = options.aggregate_fn();
+        let node = ExpressionReduceNode::new(expr);
+        let input = node.child(0);
+
+        // Every aggregate of a literal is the aggregate of its single value.
+        if let Some(scalar) = input.as_constant() {
+            let value = match Stat::from_aggregate_fn(aggregate_fn) {
+                Some(Stat::Min | Stat::Max) => scalar.into_nullable(),
+                _ if aggregate_fn.is::<AllNonNull>() => {
+                    Scalar::bool(!scalar.is_null(), Nullability::Nullable)
+                }
+                _ if aggregate_fn.is::<AllNull>() => {
+                    Scalar::bool(scalar.is_null(), Nullability::Nullable)
+                }
+                _ => return Ok(None),
+            };
+            return Ok((value.dtype() == expr.dtype()).then(|| bound::lit(value)));
+        }
+
+        if aggregate_fn.is::<AllNonNull>() {
+            if !input.node_dtype()?.is_nullable() {
+                return Ok(Some(bound::lit(Scalar::bool(true, Nullability::Nullable))));
+            }
+            // `validity(input)` is an expression over the validity of `input`'s children, so
+            // "every row is valid" is its lower bound being `true`.
+            if let ReduceNodeValidity::Reduced(validity) = input.validity()? {
+                return Ok(Bound::Lower
+                    .of(&validity)?
+                    .map(ExpressionReduceNode::into_expression));
+            }
+        }
+
+        Ok(None)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

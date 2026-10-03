@@ -24,9 +24,12 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::stats::reduce::Bound;
+use crate::stats::reduce::not_node;
 
 /// Expression that logically inverts boolean values.
 #[derive(Clone)]
@@ -109,6 +112,23 @@ impl ScalarFnVTable for Not {
 
         // Otherwise, execute and try again
         child.execute::<ArrayRef>(ctx)?.not()
+    }
+
+    fn reduce_parent<T: ReduceNode>(
+        &self,
+        _options: &Self::Options,
+        node: &T,
+        parent: &T,
+        _child_idx: usize,
+    ) -> VortexResult<Option<T>> {
+        // `not` is decreasing: `min(not p) = not max(p)` and `max(not p) = not min(p)`.
+        let Some(bound) = Bound::of_parent(parent) else {
+            return Ok(None);
+        };
+        let Some(input) = bound.flip().of(&node.child(0))? else {
+            return Ok(None);
+        };
+        not_node(&input).map(Some)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

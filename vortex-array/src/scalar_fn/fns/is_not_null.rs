@@ -11,6 +11,11 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnVTableExt;
+use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
+use crate::aggregate_fn::fns::all_non_null::AllNonNull;
+use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -29,6 +34,9 @@ use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::is_not_null_node;
+use crate::stats::reduce::Bound;
+use crate::stats::reduce::not_node;
+use crate::stats::reduce::stat_node;
 
 /// In array context, reduce
 ///
@@ -116,6 +124,35 @@ impl IsNotNull {
     }
 }
 
+/// Bounds of `is_null(x)` / `is_not_null(x)` from whether `x` is all null or all non-null.
+///
+/// `min(is_not_null(x)) = all_non_null(x)` and `max(is_not_null(x)) = not all_null(x)`, and
+/// `is_null` swaps the two.
+pub(crate) fn reduce_null_bound<T: ReduceNode>(
+    is_null: bool,
+    node: &T,
+    parent: &T,
+) -> VortexResult<Option<T>> {
+    let Some(bound) = Bound::of_parent(parent) else {
+        return Ok(None);
+    };
+    let input = node.child(0);
+    let (aggregate_fn, negate): (AggregateFnRef, bool) = match (bound, is_null) {
+        (Bound::Lower, false) => (AllNonNull.bind(AggregateEmptyOptions), false),
+        (Bound::Upper, false) => (AllNull.bind(AggregateEmptyOptions), true),
+        (Bound::Lower, true) => (AllNull.bind(AggregateEmptyOptions), false),
+        (Bound::Upper, true) => (AllNonNull.bind(AggregateEmptyOptions), true),
+    };
+    let Some(stat) = stat_node(&input, aggregate_fn)? else {
+        return Ok(None);
+    };
+    if negate {
+        not_node(&stat).map(Some)
+    } else {
+        Ok(Some(stat))
+    }
+}
+
 impl ScalarFnVTable for IsNotNull {
     type Options = EmptyOptions;
 
@@ -173,6 +210,16 @@ impl ScalarFnVTable for IsNotNull {
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         reduce_null(false, node)
+    }
+
+    fn reduce_parent<T: ReduceNode>(
+        &self,
+        _options: &Self::Options,
+        node: &T,
+        parent: &T,
+        _child_idx: usize,
+    ) -> VortexResult<Option<T>> {
+        reduce_null_bound(false, node, parent)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::expr::BoundExpression;
 use crate::expr::transform::match_between::find_between;
@@ -13,6 +14,7 @@ impl BoundExpression {
     /// This applies optimization rules repeatedly until no more changes occur:
     /// 1. `simplify` - scalar-function simplifications over the bound node
     /// 2. `reduce` - abstract reduction rules via `ReduceNode`
+    /// 3. `reduce_parent` - abstract reduction rules offered by the node's children
     pub fn optimize(&self) -> VortexResult<BoundExpression> {
         Ok(self.try_optimize()?.unwrap_or_else(|| self.clone()))
     }
@@ -36,6 +38,30 @@ impl BoundExpression {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
             BoundExpression::Root { .. } => Ok(None),
         }
+    }
+
+    /// Apply the first parent reduction rule offered by one of this node's children.
+    fn reduce_node_by_children(&self) -> VortexResult<Option<BoundExpression>> {
+        let parent = ExpressionReduceNode::new(self);
+        for (idx, child) in self.children().iter().enumerate() {
+            let BoundExpression::Scalar { scalar_fn, .. } = child else {
+                continue;
+            };
+            let node = ExpressionReduceNode::new(child);
+            if let Some(reduced) = scalar_fn.reduce_parent_expression(&node, &parent, idx)? {
+                let reduced = reduced.into_expression();
+                vortex_ensure!(
+                    reduced.dtype() == self.dtype(),
+                    "Parent reduction by {} changed dtype of {} from {} to {}",
+                    scalar_fn,
+                    self,
+                    self.dtype(),
+                    reduced.dtype()
+                );
+                return Ok(Some(reduced));
+            }
+        }
+        Ok(None)
     }
 
     /// Try to optimize the root expression node only, returning None if no optimizations applied.
@@ -68,6 +94,15 @@ impl BoundExpression {
                 expr.reduce_node(&ExpressionReduceNode::new(expr))?
                     .map(ExpressionReduceNode::into_expression)
             };
+            if let Some(reduced_expr) = reduced {
+                current = Some(reduced_expr);
+                changed = true;
+            }
+
+            let reduced = current
+                .as_ref()
+                .unwrap_or(self)
+                .reduce_node_by_children()?;
             if let Some(reduced_expr) = reduced {
                 current = Some(reduced_expr);
                 changed = true;
