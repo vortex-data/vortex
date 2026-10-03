@@ -63,6 +63,7 @@ class Benchmark(Enum):
     STATPOPGEN = "statpopgen"
     SPATIALBENCH = "spatialbench"
     VORTEX_QUERIES = "vortex"
+    WESTERMO = "westermo"
 
 
 # Engine to supported formats mapping.

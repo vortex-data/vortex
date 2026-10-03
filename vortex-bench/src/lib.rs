@@ -34,6 +34,7 @@ use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
+use westermo::WestermoBenchmark;
 
 use crate::spatialbench::SpatialBenchBenchmark;
 use crate::vortex_queries::VortexBenchmark;
@@ -63,6 +64,7 @@ pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
 pub mod vortex_queries;
+pub mod westermo;
 
 pub use benchmark::Benchmark;
 pub use benchmark::TableSpec;
@@ -350,6 +352,8 @@ pub enum BenchmarkArg {
     SpatialBench,
     #[clap(name = "vortex")]
     VortexQueries,
+    #[clap(name = "westermo")]
+    Westermo,
 }
 
 /// Default scale factor for TPC-related benchmarks
@@ -427,6 +431,10 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             if let Some(query) = opts.get("query") {
                 benchmark = benchmark.with_query(query)?;
             }
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::Westermo => {
+            let benchmark = WestermoBenchmark::new()?;
             Ok(Box::new(benchmark) as _)
         }
     }

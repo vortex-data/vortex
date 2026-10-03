@@ -270,6 +270,15 @@ BENCHMARKS = (
             "develop": DEFAULT,
         },
     ),
+    # Extended-only suites run under action/bench-sql-extended and nowhere else.
+    BenchmarkCase(
+        id="westermo",
+        benchmark=Benchmark.WESTERMO,
+        name="Westermo node_exporter metrics",
+        runs={
+            "pr-full": DEFAULT,
+        },
+    ),
 )
 
 CATALOG = Catalog(presets=PRESETS, benchmarks=BENCHMARKS)

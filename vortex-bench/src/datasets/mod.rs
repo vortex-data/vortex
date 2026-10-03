@@ -84,6 +84,8 @@ pub enum BenchmarkDataset {
     GhArchive,
     #[serde(rename = "vortex")]
     VortexQueries,
+    #[serde(rename = "westermo")]
+    Westermo,
 }
 
 impl BenchmarkDataset {
@@ -101,6 +103,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
             BenchmarkDataset::VortexQueries => "vortex",
+            BenchmarkDataset::Westermo => "westermo",
         }
     }
 }
@@ -127,6 +130,7 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
             BenchmarkDataset::VortexQueries => write!(f, "vortex"),
+            BenchmarkDataset::Westermo => write!(f, "westermo"),
         }
     }
 }
@@ -188,6 +192,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::GhArchive => &["events"],
             // See VortexBenchmark::table_specs
             BenchmarkDataset::VortexQueries => &[],
+            BenchmarkDataset::Westermo => &["samples"],
         }
     }
 }
