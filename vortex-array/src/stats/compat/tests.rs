@@ -360,9 +360,9 @@ fn node_load_preserves_extension_storage_sum() -> VortexResult<()> {
 
 #[rstest]
 #[case::utf8(
-    Scalar::utf8("abcdef", NonNullable),
-    Scalar::utf8("abc", NonNullable),
-    Scalar::utf8("abd", NonNullable)
+    Scalar::utf8("123456", NonNullable),
+    Scalar::utf8("123", NonNullable),
+    Scalar::utf8("124", NonNullable)
 )]
 #[case::binary(Scalar::binary(vec![1, 2, 3, 4], NonNullable), Scalar::binary(vec![1, 2, 3], NonNullable), Scalar::binary(vec![1, 2, 4], NonNullable))]
 fn detached_truncation_preserves_bounds(
