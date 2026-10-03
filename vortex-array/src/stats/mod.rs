@@ -20,6 +20,10 @@ pub use expr::sum;
 pub use stats_set::*;
 
 mod array;
+
+mod aggregations;
+pub(crate) use aggregations::Aggregations;
+pub use aggregations::AggregationsRef;
 pub mod bind;
 pub mod expr;
 pub mod flatbuffers;

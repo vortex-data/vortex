@@ -51,6 +51,7 @@ use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::AggregationsRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -423,7 +424,12 @@ impl ArrayRef {
 
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.stats.to_ref(self)
+        StatsSetRef::new(self, self.aggregations())
+    }
+
+    /// Returns finalized aggregate results bound to this array.
+    pub fn aggregations(&self) -> AggregationsRef<'_> {
+        self.0.aggregations.to_ref(self)
     }
 
     /// Does the array match the given matcher.
