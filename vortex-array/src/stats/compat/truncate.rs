@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Truncate variable length bounds in a detached node summary.
+//!
+//! Serialization can shorten stored extrema while leaving exact results in the live array cache.
+
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;

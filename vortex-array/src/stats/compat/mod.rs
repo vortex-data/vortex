@@ -8,14 +8,14 @@
 //! absent.
 
 mod summary;
-mod truncate;
-
 pub use summary::legacy_stats_to_results;
 pub(crate) use summary::load_node_summary;
 pub use summary::read_summary;
 pub use summary::validate_summary_aggregates;
 pub(crate) use summary::write_node_summary;
 pub use summary::write_summary;
+
+mod truncate;
 pub(crate) use truncate::truncate_summary;
 
 #[cfg(test)]
