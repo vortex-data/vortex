@@ -12,6 +12,9 @@
 //! - `shredded_btr`: the shredded map with BtrBlocks-compressed children
 //! - `encoded`: `Dict(codes, ShreddedMap)` from `encode`, shredding only distinct label maps
 //! - `encoded_btr`: the encoded map with BtrBlocks-compressed children
+//! - `keyset`: `KeySetMap`, one copy of each distinct key set, repeated rows share values
+//! - `keyset_btr`: the key-set map with BtrBlocks-compressed children
+//! - `map_auto`: the map compressed by BtrBlocks with the map schemes registered
 //! - `arrow`: Arrow `Map<Utf8, Utf8>`, the usual stringly-typed label column
 //!
 //! Every Vortex result is executed to [`RecursiveCanonical`] so no lazy or compressed child
@@ -47,6 +50,9 @@ const ALL: &[&str] = &[
     "shredded_btr",
     "encoded",
     "encoded_btr",
+    "keyset",
+    "keyset_btr",
+    "map_auto",
     "arrow",
 ];
 const VORTEX: &[&str] = &[
@@ -56,6 +62,9 @@ const VORTEX: &[&str] = &[
     "shredded_btr",
     "encoded",
     "encoded_btr",
+    "keyset",
+    "keyset_btr",
+    "map_auto",
 ];
 const COMMON_KEYS: &[&str] = &["__name__", "instance", "job"];
 const RARE_KEYS: &[&str] = &["cpu", "mode"];
@@ -99,13 +108,25 @@ fn input(name: &str) -> Input {
         "shredded_btr" => Input::Shredded(&DATA.shredded_compressed),
         "encoded" => Input::Encoded(&DATA.encoded),
         "encoded_btr" => Input::Encoded(&DATA.encoded_compressed),
+        "keyset" => Input::Encoded(&DATA.keyset),
+        "keyset_btr" => Input::Encoded(&DATA.keyset_compressed),
+        "map_auto" => Input::Encoded(&DATA.map_auto),
         "arrow" => Input::Arrow,
         _ => unreachable!(),
     }
 }
 
 #[divan::bench(
-    args = ["map_btr", "shredded", "shredded_btr", "encoded", "encoded_btr"],
+    args = [
+        "map_btr",
+        "shredded",
+        "shredded_btr",
+        "encoded",
+        "encoded_btr",
+        "keyset",
+        "keyset_btr",
+        "map_auto"
+    ],
     sample_count = 10,
     sample_size = 1
 )]
@@ -269,6 +290,9 @@ const PROJECT: &[&str] = &[
     "shredded_btr",
     "encoded",
     "encoded_btr",
+    "keyset",
+    "keyset_btr",
+    "map_auto",
     "shredded_enc",
     "arrow",
 ];

@@ -21,6 +21,7 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_shredded_map::ShreddedMapArraySlotsExt;
@@ -125,6 +126,33 @@ fn main() {
     );
     println!("  shredded (canonical)               {}", mib(data.shredded.nbytes()));
     println!("  shredded + btrblocks               {}", mib(data.shredded_compressed.nbytes()));
+    println!("  keyset (canonical)                 {}", mib(data.keyset.nbytes()));
+    println!("  keyset + btrblocks                 {}", mib(data.keyset_compressed.nbytes()));
+    println!(
+        "  keyset + btrblocks compact         {}",
+        mib(common::compress_children(&data.keyset, true).nbytes())
+    );
+    let plain_keyset = vortex_shredded_map::keyset::keyset_encode(
+        &data.map,
+        vortex_shredded_map::keyset::KeySetOptions { dedup_values: false },
+        &mut ctx,
+    )
+    .unwrap()
+    .into_array();
+    println!(
+        "  keyset, no value dedup + btrblocks {}",
+        mib(common::compress_children(&plain_keyset, false).nbytes())
+    );
+    println!(
+        "  map + btrblocks with map schemes   {}  ({}, {:.3}s)",
+        mib(data.map_auto.nbytes()),
+        data.map_auto.encoding_id(),
+        data.map_auto_secs
+    );
+    println!(
+        "  ... compact                        {}",
+        mib(common::compress_auto(&data.map, true).nbytes())
+    );
     println!("  encoded (canonical)                {}", mib(data.encoded.nbytes()));
     println!("  encoded + btrblocks                {}", mib(data.encoded_compressed.nbytes()));
     println!(
@@ -164,6 +192,10 @@ fn main() {
         assert_eq!(strings(&got), expected, "decoded label {key}");
         let got = ops::encoded::get_label_utf8(&data.encoded_compressed, key, &mut ctx).unwrap();
         assert_eq!(strings(&got), expected, "encoded label {key}");
+        let got = ops::encoded::get_label_utf8(&data.keyset_compressed, key, &mut ctx).unwrap();
+        assert_eq!(strings(&got), expected, "keyset label {key}");
+        let got = ops::encoded::get_label_utf8(&data.map_auto, key, &mut ctx).unwrap();
+        assert_eq!(strings(&got), expected, "map_auto label {key}");
         let got = ops::map::get_label_utf8(&decoded_encoded, key, &mut ctx).unwrap();
         assert_eq!(strings(&got), expected, "decoded encoded label {key}");
         if key == &keys[0] {

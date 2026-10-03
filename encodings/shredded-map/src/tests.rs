@@ -434,6 +434,46 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
     let got = ops::encoded::to_map(&got, ctx)?.into_array();
     assert_eq!(read_rows(&got, ctx)?, projected, "encoded project");
 
+    // The key-set encoding, with and without value deduplication.
+    for dedup_values in [false, true] {
+        let ks = crate::keyset::keyset_encode(
+            &map,
+            crate::keyset::KeySetOptions { dedup_values },
+            ctx,
+        )?
+        .into_array();
+        assert_eq!(read_rows(&ks, ctx)?, case.rows, "keyset scalar_at");
+        let got = ops::encoded::to_map(&ks, ctx)?.into_array();
+        assert_eq!(read_rows(&got, ctx)?, case.rows, "keyset to_map");
+        let got = ops::encoded::label_names(&ks, ctx)?.into_array();
+        assert_eq!(read_string_lists(&got, ctx)?, names, "keyset label_names");
+        assert_eq!(ops::encoded::distinct_label_names(&ks, ctx)?, distinct);
+        for key in VOCAB.iter().chain(&["missing"]) {
+            let got = ops::encoded::get_label_utf8(&ks, key, ctx)?;
+            assert_eq!(
+                read_strings(&got, ctx)?,
+                expected_label(&case.rows, key),
+                "keyset get_label {key:?}"
+            );
+        }
+        let got = ops::encoded::project(&ks, projection, ctx)?;
+        let got = ops::encoded::to_map(&got, ctx)?.into_array();
+        assert_eq!(read_rows(&got, ctx)?, projected, "keyset project");
+        let len = case.rows.len();
+        if len > 0 {
+            let (start, end) = (selection[0] % len, selection[1] % (len + 1));
+            let (start, end) = (start.min(end), start.max(end));
+            let got = ks.slice(start..end)?;
+            assert_eq!(read_rows(&got, ctx)?, case.rows[start..end].to_vec(), "keyset slice");
+            let indices: Vec<u64> = selection.iter().map(|&i| (i % len) as u64).collect();
+            let take = PrimitiveArray::new(Buffer::from(indices.clone()), Validity::NonNullable);
+            let got = ks.take(take.into_array())?;
+            let expected: Vec<Row> =
+                indices.iter().map(|&i| case.rows[i as usize].clone()).collect();
+            assert_eq!(read_rows(&got, ctx)?, expected, "keyset take");
+        }
+    }
+
     // Slice, take and filter keep the children aligned.
     let len = case.rows.len();
     if len > 0 {

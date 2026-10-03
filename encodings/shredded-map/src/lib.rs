@@ -17,10 +17,12 @@ mod array;
 mod decode;
 mod flat;
 mod gather;
+pub mod keyset;
 pub mod labels;
 pub mod ops;
 mod rowcmp;
 mod rules;
+pub mod scheme;
 mod shred;
 
 #[cfg(test)]
@@ -29,4 +31,5 @@ mod tests;
 /// Registers the shredded map encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(ShreddedMap);
+    session.arrays().register(keyset::KeySetMap);
 }

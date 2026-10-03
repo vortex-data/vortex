@@ -67,6 +67,12 @@ pub struct Data {
     pub encoded: ArrayRef,
     pub encoded_compressed: ArrayRef,
     pub encode_secs: f64,
+    /// [`vortex_shredded_map::keyset::KeySetMap`] with repeated rows sharing values.
+    pub keyset: ArrayRef,
+    pub keyset_compressed: ArrayRef,
+    /// The map compressed by BtrBlocks with the map schemes registered, which picks the layout.
+    pub map_auto: ArrayRef,
+    pub map_auto_secs: f64,
 }
 
 pub static DATA: LazyLock<Data> = LazyLock::new(load);
@@ -171,6 +177,35 @@ pub fn compress_shredded(shredded: &ShreddedMapArray) -> ShreddedMapArray {
     compress_shredded_with(shredded, false)
 }
 
+/// Compresses with the map schemes registered, so BtrBlocks picks the map layout itself.
+pub fn compress_auto(array: &ArrayRef, compact: bool) -> ArrayRef {
+    use vortex_shredded_map::scheme::KEYSET_ROWS_SCHEME;
+    use vortex_shredded_map::scheme::KEYSET_SCHEME;
+    use vortex_shredded_map::scheme::SHREDDED_SCHEME;
+    let mut builder = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .with_new_scheme(&KEYSET_SCHEME)
+        .with_new_scheme(&KEYSET_ROWS_SCHEME)
+        .with_new_scheme(&SHREDDED_SCHEME)
+        .unrestricted();
+    if compact {
+        builder = builder.with_compact();
+    }
+    builder
+        .build()
+        .compress(array, &mut SESSION.create_execution_ctx())
+        .unwrap()
+}
+
+/// Compresses every child of an array, keeping its top-level encoding.
+pub fn compress_children(array: &ArrayRef, compact: bool) -> ArrayRef {
+    let slots = array
+        .slots()
+        .iter()
+        .map(|s| s.as_ref().map(|c| compress_with(c, compact)))
+        .collect();
+    unsafe { array.clone().with_slots(slots) }.unwrap()
+}
+
 pub fn compress_encoded(array: &ArrayRef, compact: bool) -> ArrayRef {
     vortex_shredded_map::compress_encoded(array, |child| Ok(compress_with(child, compact))).unwrap()
 }
@@ -224,6 +259,18 @@ fn load() -> Data {
     let encode_secs = start.elapsed().as_secs_f64();
     let encoded_compressed = compress_encoded(&encoded, false);
 
+    let keyset = vortex_shredded_map::keyset::keyset_encode(
+        &map,
+        vortex_shredded_map::keyset::KeySetOptions { dedup_values: true },
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap()
+    .into_array();
+    let keyset_compressed = compress_children(&keyset, false);
+    let start = Instant::now();
+    let map_auto = compress_auto(&map, false);
+    let map_auto_secs = start.elapsed().as_secs_f64();
+
     let map_compressed = compress(&map);
     let map_shared_compressed = compress(&map_shared);
     let shredded_compressed = compress_shredded(&shredded);
@@ -242,6 +289,10 @@ fn load() -> Data {
         encoded,
         encoded_compressed,
         encode_secs,
+        keyset,
+        keyset_compressed,
+        map_auto,
+        map_auto_secs,
     }
 }
 
