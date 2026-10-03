@@ -153,32 +153,31 @@ fn decode_ipc_array_buffers<'py>(
     array_buffers: Vec<Bound<'py, PyAny>>,
     dtype_buffers: Vec<Bound<'py, PyAny>>,
 ) -> PyVortexResult<PyArrayRef> {
-    // Concatenate dtype buffers
-    // Note: PyBuffer returns &[ReadOnlyCell<u8>] which requires copying to get &[u8]
-    let mut dtype_bytes_vec = Vec::new();
-    for buf_obj in dtype_buffers {
-        let buffer = PyBuffer::<u8>::get(&buf_obj)?;
-        let slice = buffer
-            .as_slice(py)
-            .ok_or_else(|| PyValueError::new_err("Buffer is not contiguous"))?;
-        for cell in slice {
-            dtype_bytes_vec.push(cell.get());
-        }
-    }
-    // Concatenate array buffers
-    let mut array_bytes_vec = Vec::new();
-    for buf_obj in array_buffers {
-        let buffer = PyBuffer::<u8>::get(&buf_obj)?;
-        let slice = buffer
-            .as_slice(py)
-            .ok_or_else(|| PyValueError::new_err("Buffer is not contiguous"))?;
-        for cell in slice {
-            array_bytes_vec.push(cell.get());
-        }
-    }
+    let dtype_bytes_vec = concat_buffers(py, &dtype_buffers)?;
+    let array_bytes_vec = concat_buffers(py, &array_buffers)?;
 
     let session = session();
     let array =
         py.detach(move || decode_ipc_array_from_bytes(array_bytes_vec, dtype_bytes_vec, session))?;
     Ok(PyArrayRef::from(array))
+}
+
+/// Concatenate buffer protocol objects into one contiguous byte vector.
+fn concat_buffers(py: Python, objs: &[Bound<PyAny>]) -> PyResult<Vec<u8>> {
+    let buffers = objs
+        .iter()
+        .map(PyBuffer::<u8>::get)
+        .collect::<PyResult<Vec<_>>>()?;
+    let mut bytes = vec![0u8; buffers.iter().map(|b| b.item_count()).sum()];
+    let mut offset = 0;
+    for buffer in &buffers {
+        if !buffer.is_c_contiguous() {
+            return Err(PyValueError::new_err("Buffer is not contiguous"));
+        }
+        let end = offset + buffer.item_count();
+        // A single memcpy per buffer, rather than reading it cell by cell.
+        buffer.copy_to_slice(py, &mut bytes[offset..end])?;
+        offset = end;
+    }
+    Ok(bytes)
 }
