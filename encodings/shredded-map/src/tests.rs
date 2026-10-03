@@ -689,6 +689,22 @@ fn probes_read_compressed_columns() -> VortexResult<()> {
         }
     }
 
+    // Swapping in high-level zstd keeps every row.
+    let expected_rows = read_rows(&map, &mut ctx)?;
+    for array in [compressed.clone().into_array(), compressed_map.clone()] {
+        let squeezed = crate::squeeze::squeeze(&array, 3, &mut ctx)?;
+        assert!(squeezed.nbytes() <= array.nbytes());
+        assert_eq!(read_rows(&squeezed, &mut ctx)?, expected_rows, "squeeze");
+    }
+    let encoded = crate::encode(
+        &map,
+        &ShredOptions { max_distinct_rows: 1.0, ..ShredOptions::default() },
+        &mut ctx,
+    )?;
+    let encoded = crate::compress_encoded(&encoded, btrblocks_array)?;
+    let squeezed = crate::squeeze::squeeze(&encoded, 3, &mut ctx)?;
+    assert_eq!(read_rows(&squeezed, &mut ctx)?, expected_rows, "squeeze row dictionary");
+
     // Selective filters reference few entries of the large `msg` dictionary, which the query
     // gathers block by block rather than decoding whole.
     let project = ["msg", "err", "rare0", "host", "missing"];

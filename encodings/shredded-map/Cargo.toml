@@ -24,6 +24,7 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-zstd = { workspace = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true }
@@ -62,6 +63,12 @@ name = "query_bench"
 
 [[example]]
 name = "best_size"
+
+[[example]]
+name = "size_breakdown"
+
+[[example]]
+name = "codes_experiment"
 
 [lints]
 workspace = true

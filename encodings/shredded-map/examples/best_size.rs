@@ -149,6 +149,22 @@ fn main() {
     println!("  {:<58} {:>12} B  ({:.1}s)", "btrblocks auto pick", auto.nbytes(), t.elapsed().as_secs_f64());
     trials.push(Trial { name: "btrblocks auto pick".into(), bytes: auto.nbytes(), array: auto });
 
+    // Squeeze the smallest layouts with high-level zstd.
+    let level: i32 = std::env::var("SQUEEZE_LEVEL").ok().and_then(|v| v.parse().ok()).unwrap_or(19);
+    let mut ranked: Vec<usize> = (0..trials.len()).filter(|&i| trials[i].name != "map").collect();
+    ranked.sort_by_key(|&i| trials[i].bytes);
+    let mut picks: Vec<usize> = ranked.into_iter().take(3).collect();
+    if let Some(i) = trials.iter().position(|t| t.name == "shred default") && !picks.contains(&i) {
+        picks.push(i);
+    }
+    for i in picks {
+        let t = Instant::now();
+        let array = vortex_shredded_map::squeeze::squeeze(&trials[i].array, level, &mut ctx).unwrap();
+        let name = format!("squeezed(zstd {level}) {}", trials[i].name);
+        println!("  {name:<58} {:>12} B  ({:.1}s)", array.nbytes(), t.elapsed().as_secs_f64());
+        trials.push(Trial { name, bytes: array.nbytes(), array });
+    }
+
     let best = trials.iter().filter(|t| t.name != "map").min_by_key(|t| t.bytes).unwrap();
     let map_bytes = trials[0].bytes;
     let verified = same_rows(map, &best.array);
