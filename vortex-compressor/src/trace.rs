@@ -194,3 +194,17 @@ pub(super) fn sample_compress_failed(
         );
     }
 }
+
+/// Emits a debug event when a scheme chosen by a plan, a search or random selection fails.
+///
+/// These callers try schemes the estimate-based selector would rule out, and recover from
+/// failures, so failures are expected and are not reported as errors.
+#[inline]
+pub(super) fn candidate_failed(scheme: SchemeId, err: &impl fmt::Display) {
+    tracing::debug!(
+        target: TARGET_TRACE,
+        scheme = %scheme,
+        error = %err,
+        "candidate.compress_failed",
+    );
+}
