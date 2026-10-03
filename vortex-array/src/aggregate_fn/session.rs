@@ -38,6 +38,7 @@ use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
+use crate::aggregate_fn::kernels::StorageAggregateKernel;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
@@ -48,6 +49,11 @@ use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ExtVTable;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::Timestamp;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -59,6 +65,7 @@ pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
     kernels: AggregateKernelRegistry,
+    extension_kernels: ExtensionAggregateKernelRegistry,
     grouped_kernels: GroupedKernelRegistry,
     grouped_encoding_kernels: GroupedEncodingKernelRegistry,
 }
@@ -74,12 +81,17 @@ impl SessionVar for AggregateFnSession {
 }
 
 type AggregateKernelKey = (ArrayId, Option<AggregateFnId>);
+type ExtensionAggregateKernelKey = (ExtId, Option<AggregateFnId>);
 type GroupedEncodingKernelKey = (ArrayId, AggregateFnId);
 
 /// Registry of aggregate function plugins, keyed by aggregate function id.
 type AggregateFnRegistry = ArcSwapMap<AggregateFnId, AggregateFnPluginRef>;
 /// Registry of aggregate kernels, keyed by encoding and optional aggregate function.
 type AggregateKernelRegistry = ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>;
+/// Registry of aggregate kernels for extension types, keyed by extension type and optional
+/// aggregate function.
+type ExtensionAggregateKernelRegistry =
+    ArcSwapMap<ExtensionAggregateKernelKey, &'static dyn DynAggregateKernel>;
 /// Registry of encoding-agnostic grouped aggregate kernels, keyed by aggregate function id.
 type GroupedKernelRegistry = ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>;
 /// Registry of grouped aggregate kernels, keyed by encoding and aggregate function.
@@ -91,6 +103,7 @@ impl Default for AggregateFnSession {
         let this = Self {
             registry: AggregateFnRegistry::default(),
             kernels: AggregateKernelRegistry::default(),
+            extension_kernels: ExtensionAggregateKernelRegistry::default(),
             grouped_kernels: GroupedKernelRegistry::default(),
             grouped_encoding_kernels: GroupedEncodingKernelRegistry::default(),
         };
@@ -121,6 +134,16 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
+
+        // Temporal values are integer offsets from an epoch in a single unit, so they sort as
+        // their storage integers do.
+        for ext_id in [Date.id(), Time.id(), Timestamp.id()] {
+            this.register_extension_aggregate_kernel(
+                ext_id,
+                Some(IsSorted.id()),
+                &StorageAggregateKernel::<IsSorted>::NEW,
+            );
+        }
 
         // Register the built-in grouped aggregate kernels.
         this.register_grouped_kernel(Count.id(), &CountGroupedKernel);
@@ -201,6 +224,40 @@ impl AggregateFnSession {
     ) {
         let id = (array_id.into(), agg_fn_id.map(|id| id.into()));
         self.kernels.insert(id, kernel);
+    }
+
+    /// Returns the aggregate kernel registered for the extension type `ext_id` and `agg_fn_id`, if
+    /// any.
+    ///
+    /// Lookup first checks for a kernel registered for the exact aggregate function, then falls
+    /// back to a kernel registered for all aggregate functions on the same extension type.
+    pub fn find_extension_aggregate_kernel(
+        &self,
+        ext_id: ExtId,
+        agg_fn_id: impl Into<AggregateFnId>,
+    ) -> Option<&'static dyn DynAggregateKernel> {
+        let fn_id = agg_fn_id.into();
+        self.extension_kernels.read(|kernels| {
+            kernels
+                .get(&(ext_id, Some(fn_id)))
+                .or_else(|| kernels.get(&(ext_id, None)))
+                .copied()
+        })
+    }
+
+    /// Registers an aggregate kernel for batches of an extension type, whatever their encoding.
+    ///
+    /// Extension types have no encoding of their own, so this is how an aggregate is defined for
+    /// an extension type. When `agg_fn_id` is `None`, the kernel is the fallback for aggregate
+    /// functions on the extension type that do not have a more specific kernel.
+    pub fn register_extension_aggregate_kernel(
+        &self,
+        ext_id: ExtId,
+        agg_fn_id: Option<impl Into<AggregateFnId>>,
+        kernel: &'static dyn DynAggregateKernel,
+    ) {
+        let key = (ext_id, agg_fn_id.map(|id| id.into()));
+        self.extension_kernels.insert(key, kernel);
     }
 
     /// Returns the grouped aggregate kernel registered for `agg_fn_id`, if any.

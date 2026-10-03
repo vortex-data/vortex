@@ -76,10 +76,21 @@ impl ExtVTable for DivisibleInt {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
     use super::DivisibleInt;
     use super::Divisor;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::is_sorted;
+    use crate::aggregate_fn::kernels::StorageAggregateKernel;
+    use crate::aggregate_fn::session::AggregateFnSessionExt;
+    use crate::array_session;
+    use crate::arrays::ExtensionArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -127,5 +138,34 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    /// An extension type is only ordered once its session registers how to sort it, here as its
+    /// storage values.
+    #[rstest]
+    #[case::unregistered(false, false)]
+    #[case::sorts_by_storage(true, true)]
+    fn is_sorted_is_defined_per_extension_type(
+        #[case] register: bool,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let session = array_session();
+        if register {
+            session.aggregate_fns().register_extension_aggregate_kernel(
+                DivisibleInt.id(),
+                Some(IsSorted.id()),
+                &StorageAggregateKernel::<IsSorted>::NEW,
+            );
+        }
+        let mut ctx = session.create_execution_ctx();
+
+        let ext_dtype = ExtDType::<DivisibleInt>::try_new(
+            Divisor(2),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        )?;
+        let array =
+            ExtensionArray::new(ext_dtype.erased(), buffer![2u64, 4, 6].into_array()).into_array();
+        assert_eq!(is_sorted(&array, &mut ctx)?, expected);
+        Ok(())
     }
 }
