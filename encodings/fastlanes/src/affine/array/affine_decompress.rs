@@ -3,8 +3,11 @@
 
 use std::iter;
 use std::mem;
+use std::mem::MaybeUninit;
+use std::sync::LazyLock;
 
 use fastlanes::BitPacking;
+use fastlanes::FoR;
 use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
@@ -30,6 +33,8 @@ use crate::FL_CHUNK_SIZE;
 use crate::affine::array::AffineArrayExt;
 use crate::affine::array::AffineArraySlotsExt;
 use crate::affine::array::slope_term;
+use crate::affine::array::slope_term_split;
+use crate::affine::array::split_slope;
 use crate::unpack_iter::for_each_packed_chunk;
 
 /// One parameter per chunk: either shared by every chunk or read from a primitive child.
@@ -85,6 +90,7 @@ impl<T: NativePType> Params<T> {
             slopes: ChunkParam::from_child(array.slopes()),
             offset: usize::from(array.offset()),
             shift: array.slope_shift(),
+            level: simd_level(),
         }
     }
 }
@@ -115,14 +121,17 @@ where
     Ok(PrimitiveArray::new(values.freeze(), validity))
 }
 
-/// Unpack each bit-packed chunk into a scratch chunk and apply its model while it is in cache.
+/// Unpack each bit-packed chunk straight into the output and apply its model while it is in L1.
+///
+/// Chunks whose scale is one and slope is zero decode with FastLanes' fused unpack-and-add, exactly
+/// like [`FoR`](crate::FoR). Partial first and last chunks unpack into a scratch chunk.
 fn fused_decompress_typed<T>(
     array: &AffineArray,
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray>
 where
-    T: PhysicalPType<Physical: BitPacking> + PrimInt + WrappingAdd + WrappingMul,
+    T: PhysicalPType<Physical: BitPacking + FoR> + AsPrimitive<T::Physical> + PrimInt + WrappingAdd + WrappingMul,
     i64: AsPrimitive<T>,
 {
     let len = bp.len();
@@ -130,6 +139,13 @@ where
     let offset = usize::from(bp.offset());
     let bit_width = bp.bit_width() as usize;
     let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+    // SAFETY: `T::Physical` is `T` with the same size and alignment, and every unpack below
+    // initializes the whole destination before it is read.
+    let output = unsafe {
+        mem::transmute::<&mut [MaybeUninit<T>], &mut [T::Physical]>(
+            &mut values.spare_capacity_mut()[..len],
+        )
+    };
     let mut scratch = [T::Physical::default(); FL_CHUNK_SIZE];
     for_each_packed_chunk::<T, _>(
         bp.packed_slice::<T::Physical>(),
@@ -137,18 +153,31 @@ where
         offset,
         len,
         |packed, range| {
-            // SAFETY: `packed` holds one chunk at `bit_width` and `scratch` holds a whole chunk.
-            unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut scratch) };
-            // SAFETY: `T::Physical` is `T` with the same size and alignment.
-            let unpacked =
-                unsafe { mem::transmute::<&mut [T::Physical], &mut [T]>(&mut scratch[..]) };
+            let chunk_idx = range.start / FL_CHUNK_SIZE;
             // `range` counts from the start of the first chunk, and the output starts at `offset`.
-            let start = offset.saturating_sub(range.start);
-            let chunk = &mut unpacked[start..range.len()];
-            params.apply_chunk(range.start / FL_CHUNK_SIZE, start, chunk);
-            values.extend_from_slice(chunk);
+            let skip = offset.saturating_sub(range.start);
+            let dst = &mut output[range.start + skip - offset..range.end - offset];
+            if dst.len() == FL_CHUNK_SIZE {
+                if params.is_flat(chunk_idx) {
+                    let reference = params.references.get(chunk_idx).as_();
+                    // SAFETY: `packed` holds one chunk at `bit_width` and `dst` is a whole chunk.
+                    unsafe { FoR::unchecked_unfor_pack(bit_width, packed, reference, dst) };
+                } else {
+                    // SAFETY: as above.
+                    unsafe { BitPacking::unchecked_unpack(bit_width, packed, dst) };
+                    params.apply_chunk(chunk_idx, 0, physical_as_logical::<T>(dst));
+                }
+            } else {
+                // SAFETY: `packed` holds one chunk at `bit_width` and `scratch` is a whole chunk.
+                unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut scratch) };
+                let chunk = &mut scratch[skip..range.len()];
+                params.apply_chunk(chunk_idx, skip, physical_as_logical::<T>(chunk));
+                dst.copy_from_slice(chunk);
+            }
         },
     )?;
+    // SAFETY: the loop above initialized every value.
+    unsafe { values.set_len(len) };
 
     if let Some(patches) = bp.patches() {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
@@ -158,11 +187,50 @@ where
             for (&index, &value) in indices.as_slice::<P>().iter().zip(patch_values) {
                 let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
                 let position = offset + index;
-                values[index] = params.decode(position / FL_CHUNK_SIZE, position % FL_CHUNK_SIZE, value);
+                values[index] =
+                    params.decode(position / FL_CHUNK_SIZE, position % FL_CHUNK_SIZE, value);
             }
         });
     }
     Ok(PrimitiveArray::new(values.freeze(), bp.validity()?))
+}
+
+/// View unpacked physical values as the array's logical type.
+#[inline(always)]
+fn physical_as_logical<T: PhysicalPType>(values: &mut [T::Physical]) -> &mut [T] {
+    // SAFETY: `T::Physical` is `T` with the same size and alignment, and the model's wrapping
+    // arithmetic is the same in two's complement whichever signedness `T` has.
+    unsafe { mem::transmute::<&mut [T::Physical], &mut [T]>(values) }
+}
+
+/// The widest SIMD level the CPU supports, detected once.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SimdLevel {
+    Baseline,
+    #[cfg(target_arch = "x86_64")]
+    Avx2,
+    /// AVX-512 has native 64-bit multiplies (`vpmullq`) and 64-bit arithmetic shifts.
+    #[cfg(target_arch = "x86_64")]
+    Avx512,
+}
+
+fn simd_level() -> SimdLevel {
+    static LEVEL: LazyLock<SimdLevel> = LazyLock::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx512f")
+                && is_x86_feature_detected!("avx512dq")
+                && is_x86_feature_detected!("avx512vl")
+            {
+                return SimdLevel::Avx512;
+            }
+            if is_x86_feature_detected!("avx2") {
+                return SimdLevel::Avx2;
+            }
+        }
+        SimdLevel::Baseline
+    });
+    *LEVEL
 }
 
 struct Params<T> {
@@ -171,6 +239,7 @@ struct Params<T> {
     slopes: ChunkParam<i64>,
     offset: usize,
     shift: u8,
+    level: SimdLevel,
 }
 
 impl<T> Params<T>
@@ -178,10 +247,40 @@ where
     T: NativePType + PrimInt + WrappingAdd + WrappingMul,
     i64: AsPrimitive<T>,
 {
+    /// Whether chunk `chunk_idx` has a scale of one and a slope of zero, so it is plain FoR.
+    #[inline]
+    fn is_flat(&self, chunk_idx: usize) -> bool {
+        self.scales.get(chunk_idx) == T::one() && self.slopes.get(chunk_idx) == 0
+    }
+
     /// Turn the residuals of chunk `chunk_idx`, whose first value sits at position `start` within
-    /// the chunk, into values in place.
+    /// the chunk, into values in place, with the widest SIMD the CPU supports.
     #[inline]
     fn apply_chunk(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
+        match self.level {
+            // SAFETY: the CPU supports the features each variant enables.
+            #[cfg(target_arch = "x86_64")]
+            SimdLevel::Avx512 => unsafe { self.apply_chunk_avx512(chunk_idx, start, chunk) },
+            #[cfg(target_arch = "x86_64")]
+            SimdLevel::Avx2 => unsafe { self.apply_chunk_avx2(chunk_idx, start, chunk) },
+            SimdLevel::Baseline => self.apply_chunk_impl(chunk_idx, start, chunk),
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512f,avx512dq,avx512vl")]
+    unsafe fn apply_chunk_avx512(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
+        self.apply_chunk_impl(chunk_idx, start, chunk)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn apply_chunk_avx2(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
+        self.apply_chunk_impl(chunk_idx, start, chunk)
+    }
+
+    #[inline(always)]
+    fn apply_chunk_impl(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
         let scale = self.scales.get(chunk_idx);
         let slope = self.slopes.get(chunk_idx);
         match (scale == T::one(), slope == 0) {
@@ -203,15 +302,23 @@ where
     ) {
         let reference = self.references.get(chunk_idx);
         let scale = self.scales.get(chunk_idx);
-        let slope = self.slopes.get(chunk_idx);
-        for (j, value) in (start..).zip(chunk.iter_mut()) {
+        let (whole, frac) = split_slope(self.slopes.get(chunk_idx), self.shift);
+        let shift = self.shift;
+        // Running sums of `whole * j` and `frac * j`, equal to `slope_term_split` at every `j` by
+        // the same wrapping arithmetic, keep the loop free of 64-bit multiplies.
+        let mut whole_j = slope_term_split(whole, 0, start, 0);
+        let mut frac_j = frac.wrapping_mul(start as u32);
+        for value in chunk.iter_mut() {
             let mut v = *value;
             if SCALE {
                 v = v.wrapping_mul(&scale);
             }
             v = v.wrapping_add(&reference);
             if SLOPE {
-                v = v.wrapping_add(&slope_term(slope, j, self.shift).as_());
+                let term = whole_j.wrapping_add(i64::from(frac_j >> shift));
+                v = v.wrapping_add(&term.as_());
+                whole_j = whole_j.wrapping_add(whole);
+                frac_j = frac_j.wrapping_add(frac);
             }
             *value = v;
         }

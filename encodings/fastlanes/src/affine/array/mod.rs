@@ -85,9 +85,9 @@ impl Display for AffineData {
     }
 }
 
-/// The largest supported slope shift. Slopes are `i64`, so wider shifts would leave too few
-/// integer bits for useful slopes.
-pub const MAX_SLOPE_SHIFT: u8 = 32;
+/// The largest supported slope shift. It keeps a slope's fractional part below `2^16`, so the
+/// fractional term `frac * j` of [`slope_term`] fits in a `u32` for every in-chunk position.
+pub const MAX_SLOPE_SHIFT: u8 = 16;
 
 impl AffineData {
     pub(crate) fn try_new(offset: u16, slope_shift: u8) -> VortexResult<Self> {
@@ -111,8 +111,32 @@ pub(crate) fn num_chunks(offset: u16, len: usize) -> usize {
     (usize::from(offset) + len).div_ceil(FL_CHUNK_SIZE)
 }
 
-/// The slope term `(slope * j) >> shift` that the model adds at position `j` of a chunk.
+/// The slope term that the model adds at position `j` of a chunk: `slope * j / 2^shift`, rounded
+/// down.
+///
+/// The slope splits into a whole part and a fractional part below `2^shift`, so the term is
+/// `whole * j + ((frac * j) >> shift)`. The fractional product fits in a `u32` and both shifts and
+/// products are uniform across a chunk, which lets the decode loop vectorize on targets without
+/// 64-bit arithmetic shifts. Encoder and decoder both use this definition, so the encoding stays
+/// exact for any slope.
 #[inline(always)]
 pub(crate) fn slope_term(slope: i64, j: usize, shift: u8) -> i64 {
-    slope.wrapping_mul(j as i64) >> shift
+    let (whole, frac) = split_slope(slope, shift);
+    slope_term_split(whole, frac, j, shift)
+}
+
+/// The whole and fractional parts of a fixed-point slope.
+#[inline(always)]
+pub(crate) fn split_slope(slope: i64, shift: u8) -> (i64, u32) {
+    let frac_mask = (1u64 << shift) - 1;
+    (slope >> shift, (slope as u64 & frac_mask) as u32)
+}
+
+/// [`slope_term`] from a slope already split by [`split_slope`].
+#[inline(always)]
+pub(crate) fn slope_term_split(whole: i64, frac: u32, j: usize, shift: u8) -> i64 {
+    let j32 = j as u32;
+    whole
+        .wrapping_mul(j as i64)
+        .wrapping_add(i64::from(frac.wrapping_mul(j32) >> shift))
 }

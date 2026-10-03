@@ -18,6 +18,8 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::Slice;
+use vortex_array::arrays::slice::SliceArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -152,6 +154,17 @@ impl VTable for Affine {
             array
         } else {
             require_child!(array, array.slopes(), AffineSlots::SLOPES => Primitive)
+        };
+        // A slice of a bit-packed child with patches stays lazy until executed. Step it to the
+        // sliced bit-packed array, so the fused unpack below still applies.
+        let slice_of_bitpacked = array
+            .encoded()
+            .as_opt::<Slice>()
+            .is_some_and(|slice| slice.child().is::<BitPacked>());
+        let array = if slice_of_bitpacked {
+            require_child!(array, array.encoded(), AffineSlots::ENCODED => BitPacked)
+        } else {
+            array
         };
         // The fused unpack reads a bit-packed child's buffers directly when its chunks line up.
         let fused = array

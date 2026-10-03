@@ -172,12 +172,30 @@ fn main() {
             let compressed = compressor.compress(&input, &mut ctx).unwrap();
             let compress_ms = start.elapsed().as_secs_f64() * 1e3;
 
-            let (decode, decoded) = time(|| {
+            let (mut decode, decoded) = time(|| {
                 compressed
                     .clone()
                     .execute::<PrimitiveArray>(&mut ctx)
                     .unwrap()
             });
+            // `AFFINE_EVAL_SLICE=65536` times decoding cache-sized slices instead, which keeps
+            // allocation and page faults of the full output out of the kernel comparison.
+            if let Some(slice) = std::env::var("AFFINE_EVAL_SLICE")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                decode = (0..5)
+                    .map(|_| {
+                        let start = Instant::now();
+                        for begin in (0..n).step_by(slice) {
+                            let part = compressed.slice(begin..(begin + slice).min(n)).unwrap();
+                            black_box(part.execute::<PrimitiveArray>(&mut ctx).unwrap());
+                        }
+                        start.elapsed()
+                    })
+                    .min()
+                    .unwrap();
+            }
             assert_eq!(
                 decoded.as_slice::<i64>(),
                 values.as_slice(),
