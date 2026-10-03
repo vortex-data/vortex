@@ -234,8 +234,8 @@ impl Scheme for FoRScheme {
         };
         for_compressed
             .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
+            .aggregations()
+            .inherit_from(for_array.as_ref().aggregations());
 
         Ok(for_compressed.into_array())
     }

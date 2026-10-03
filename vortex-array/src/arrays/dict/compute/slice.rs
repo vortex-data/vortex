@@ -16,10 +16,8 @@ use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
+use crate::arrays::slice::inherit_slice_results;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 impl SliceReduce for Dict {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -30,8 +28,8 @@ impl SliceReduce for Dict {
         let sliced_code = if let Some(codes) = array.codes().as_typed::<Primitive>() {
             let sliced_code = <Primitive as SliceReduce>::slice(codes, range)?
                 .vortex_expect("Primitive SliceReduce should always return Some");
-            // Because we specialize the primitive branch here, we have to make sure to handle the stat inheritance
-            inherit_slice_stats(array.codes(), &sliced_code);
+            // The specialized primitive path bypasses ArrayRef::slice and its propagation rules.
+            inherit_slice_results(array.codes(), &sliced_code);
             sliced_code
         } else {
             array.codes().slice(range)?
@@ -47,24 +45,6 @@ impl SliceReduce for Dict {
 
         Ok(Some(array))
     }
-}
-
-fn inherit_slice_stats(source: &ArrayRef, sliced: &ArrayRef) {
-    source.statistics().with_iter(|iter| {
-        sliced
-            .statistics()
-            .inherit(iter.filter(|(stat, value)| is_inheritable_true_slice_stat(*stat, value)));
-    });
-}
-
-fn is_inheritable_true_slice_stat(stat: Stat, value: &Precision<ScalarValue>) -> bool {
-    matches!(
-        stat,
-        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-    ) && value
-        .as_ref()
-        .as_exact()
-        .is_some_and(|value| matches!(value, ScalarValue::Bool(true)))
 }
 
 fn slice_constant_code(

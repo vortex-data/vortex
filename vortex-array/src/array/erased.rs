@@ -43,16 +43,15 @@ use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
+use crate::arrays::slice::inherit_slice_results;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::stats::AggregationsRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -235,19 +234,8 @@ impl ArrayRef {
             .into_array()
             .optimize()?;
 
-        // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
+            inherit_slice_results(self, &sliced);
         }
 
         Ok(sliced)

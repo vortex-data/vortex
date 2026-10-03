@@ -8,14 +8,14 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::fns::is_constant::IS_CONSTANT;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -100,7 +100,7 @@ where
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
         if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
+            propagate_take_results(array.array(), taken, parent.codes())?;
         }
         Ok(result)
     }
@@ -131,13 +131,13 @@ where
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
+            propagate_take_results(array.array(), taken, parent.codes())?;
         }
         Ok(result)
     }
 }
 
-pub(crate) fn propagate_take_stats(
+pub(crate) fn propagate_take_results(
     source: &ArrayRef,
     target: &ArrayRef,
     indices: &ArrayRef,
@@ -146,21 +146,24 @@ pub(crate) fn propagate_take_stats(
         indices.validity()?,
         Validity::NonNullable | Validity::AllValid
     );
-    if indices_all_valid
-        && source.statistics().get_as::<bool>(Stat::IsConstant) == Precision::Exact(true)
+    if !target.is_empty()
+        && indices_all_valid
+        && source.aggregations().get_result(&IS_CONSTANT) == Precision::Exact(true.into())
     {
         target
-            .statistics()
-            .set(Stat::IsConstant, Precision::exact(true));
+            .aggregations()
+            .insert_result(IS_CONSTANT.clone(), Precision::Exact(true.into()));
     }
-    for stat in [Stat::Min, Stat::Max] {
-        let value = source
-            .statistics()
-            .get(stat)
-            .into_inexact()
-            .and_then(Scalar::into_value);
-        if !value.is_absent() && !target.statistics().get(stat).is_exact() {
-            target.statistics().set(stat, value);
+    for aggregate in [&*MIN_SKIP_NANS, &*MAX_SKIP_NANS] {
+        let value = source.aggregations().get_result(aggregate).into_inexact();
+        if value
+            .as_ref()
+            .into_inner()
+            .is_some_and(|value| !value.is_null())
+        {
+            target
+                .aggregations()
+                .insert_result(aggregate.clone(), value);
         }
     }
     Ok(())
