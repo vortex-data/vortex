@@ -186,7 +186,8 @@ pub struct Affine;
 impl Affine {
     /// Construct an Affine array from its residuals and per-chunk parameters.
     ///
-    /// `references` and `scales` must be non-nullable arrays of the encoded array's integer type,
+    /// `encoded` holds the residuals, either of the array's integer type or of a narrower unsigned
+    /// type. `references` and `scales` must be non-nullable arrays of the array's integer type,
     /// and `slopes` a non-nullable `i64` array, each with one entry for every chunk spanned by
     /// `offset + encoded.len()` elements. `offset` is the position of the first element within the
     /// first chunk.
@@ -198,7 +199,7 @@ impl Affine {
         offset: u16,
         slope_shift: u8,
     ) -> VortexResult<AffineArray> {
-        let dtype = encoded.dtype().clone();
+        let dtype = references.dtype().with_nullability(encoded.dtype().nullability());
         let len = encoded.len();
         let data = AffineData::try_new(offset, slope_shift)?;
         let slots = smallvec![Some(encoded), Some(references), Some(scales), Some(slopes)];
@@ -213,10 +214,13 @@ fn validate_parts(
     len: usize,
 ) -> VortexResult<()> {
     vortex_ensure!(dtype.is_int(), "Affine requires an integer dtype, got {dtype}");
+    let encoded_dtype = slots.encoded.dtype();
     vortex_ensure!(
-        slots.encoded.dtype() == dtype,
-        "Affine encoded dtype mismatch: expected {dtype}, got {}",
-        slots.encoded.dtype()
+        encoded_dtype == dtype
+            || (encoded_dtype.is_unsigned_int()
+                && encoded_dtype.nullability() == dtype.nullability()
+                && encoded_dtype.as_ptype().byte_width() <= dtype.as_ptype().byte_width()),
+        "Affine encoded dtype must be {dtype} or a no wider unsigned integer, got {encoded_dtype}"
     );
     vortex_ensure!(
         slots.encoded.len() == len,

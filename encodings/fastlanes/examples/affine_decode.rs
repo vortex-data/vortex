@@ -30,7 +30,9 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn bits(a: &ArrayRef) -> u8 {
     let mut ctx = vortex_array::array_session().create_execution_ctx();
     let p = a.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-    let max = p.as_slice::<i64>().iter().map(|&v| v as u64).max().unwrap_or(0);
+    let max = vortex_array::match_each_integer_ptype!(p.ptype(), |T| {
+        p.as_slice::<T>().iter().map(|&v| v as u64).max().unwrap_or(0)
+    });
     (64 - max.leading_zeros()) as u8
 }
 
@@ -92,7 +94,12 @@ fn main() {
     ] {
         let affine = Affine::encode(values, options, &mut ctx).unwrap();
         let width = bits(affine.encoded());
-        let packed = BitPackedData::encode(affine.encoded(), width, &mut ctx).unwrap().into_array();
+        // Residuals that fill their (narrowed) type stay unpacked, as the compressor leaves them.
+        let packed = if usize::from(width) >= affine.encoded().dtype().as_ptype().bit_width() {
+            affine.encoded().clone()
+        } else {
+            BitPackedData::encode(affine.encoded(), width, &mut ctx).unwrap().into_array()
+        };
         let array = Affine::try_new(
             packed,
             affine.references().clone(),
@@ -103,7 +110,10 @@ fn main() {
         )
         .unwrap()
         .into_array();
-        bench(&format!("{name} ({width} bit)"), &array);
+        bench(
+            &format!("{name} ({width} bit, {})", affine.encoded().dtype().as_ptype()),
+            &array,
+        );
     }
     black_box(prim);
 }

@@ -10,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::PType;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_buffer::ByteBufferMut;
@@ -146,7 +147,9 @@ fn slope_fits_a_regular_grid() -> VortexResult<()> {
     let values = PrimitiveArray::from_iter((0..4096i64).map(|i| 1_000 + 60 * i));
     let encoded = Affine::encode(&values, AffineOptions::SLOPE, &mut ctx)?;
     let residuals = encoded.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?;
-    assert!(residuals.as_slice::<i64>().iter().all(|&r| r == 0));
+    // All-zero residuals are stored in the narrowest type.
+    assert_eq!(residuals.ptype(), PType::U8);
+    assert!(residuals.as_slice::<u8>().iter().all(|&r| r == 0));
     Ok(())
 }
 
@@ -191,7 +194,9 @@ fn fused_bitpacked(#[case] values: PrimitiveArray, #[case] bit_width: u8) -> Vor
     let mut ctx = SESSION.create_execution_ctx();
     for options in MODES {
         let affine = Affine::encode(&values, options, &mut ctx)?;
-        let packed = BitPackedData::encode(affine.encoded(), bit_width, &mut ctx)?.into_array();
+        // BitPacked needs a width below the residual type's.
+        let width = bit_width.min(affine.encoded().dtype().as_ptype().bit_width() as u8 - 1);
+        let packed = BitPackedData::encode(affine.encoded(), width, &mut ctx)?.into_array();
         let fused = Affine::try_new(
             packed,
             affine.references().clone(),

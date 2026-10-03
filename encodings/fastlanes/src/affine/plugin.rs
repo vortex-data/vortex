@@ -15,6 +15,7 @@ use vortex_array::VTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -42,6 +43,9 @@ struct AffineMetadata {
     /// The number of fractional bits in each slope.
     #[prost(uint32, tag = "2")]
     slope_shift: u32,
+    /// The byte width of the unsigned residuals, or 0 when they have the array's own type.
+    #[prost(uint32, tag = "3")]
+    encoded_bytes: u32,
 }
 
 /// Serde for the [`Affine`] array.
@@ -63,9 +67,15 @@ impl ArrayPlugin for AffinePlugin {
         let view = array.as_opt::<Affine>().ok_or_else(|| {
             vortex_err!("Affine plugin cannot serialize {}", array.encoding_id())
         })?;
+        let encoded_dtype = view.encoded().dtype();
         let metadata = AffineMetadata {
             offset: u32::from(view.offset()),
             slope_shift: u32::from(view.slope_shift()),
+            encoded_bytes: if encoded_dtype == view.dtype() {
+                0
+            } else {
+                u32::try_from(encoded_dtype.as_ptype().byte_width())?
+            },
         };
         Ok(Some(ArraySerialization::new(
             affine_id(),
@@ -110,7 +120,15 @@ impl ArrayPlugin for AffinePlugin {
         let offset = u16::try_from(metadata.offset)?;
         let chunks = num_chunks(offset, parts.len);
         let param_dtype = parts.dtype.as_nonnullable();
-        let encoded = parts.children.get(0, parts.dtype, parts.len)?;
+        let encoded_dtype = match metadata.encoded_bytes {
+            0 => parts.dtype.clone(),
+            1 => DType::Primitive(PType::U8, parts.dtype.nullability()),
+            2 => DType::Primitive(PType::U16, parts.dtype.nullability()),
+            4 => DType::Primitive(PType::U32, parts.dtype.nullability()),
+            8 => DType::Primitive(PType::U64, parts.dtype.nullability()),
+            other => vortex_bail!("Affine residuals cannot be {other} bytes wide"),
+        };
+        let encoded = parts.children.get(0, &encoded_dtype, parts.len)?;
         let references = parts.children.get(1, &param_dtype, chunks)?;
         let scales = parts.children.get(2, &param_dtype, chunks)?;
         let slopes = parts

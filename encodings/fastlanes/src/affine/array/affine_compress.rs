@@ -122,7 +122,7 @@ where
         0
     };
 
-    let mut encoded = BufferMut::<T>::with_capacity(values.len());
+    let mut encoded = BufferMut::<u64>::with_capacity(values.len());
     let mut references = BufferMut::<T>::with_capacity(num_chunks);
     let mut scales = BufferMut::<T>::with_capacity(num_chunks);
     let mut slopes = BufferMut::<i64>::with_capacity(num_chunks);
@@ -155,9 +155,9 @@ where
                     .wrapping_sub(&model.reference)
                     .as_()
                     & width_mask;
-                encoded.push((residual / model.scale).as_());
+                encoded.push(residual / model.scale);
             } else {
-                encoded.push(T::zero());
+                encoded.push(0);
             }
         }
         references.push(model.reference);
@@ -166,7 +166,7 @@ where
     }
 
     Affine::try_new(
-        PrimitiveArray::new(encoded.freeze(), validity).into_array(),
+        narrow_residuals::<T>(&encoded, validity),
         constant_or_primitive(references.freeze()),
         constant_or_primitive(scales.freeze()),
         constant_or_primitive(slopes.freeze()),
@@ -337,6 +337,32 @@ fn width_mask<T>() -> u64 {
         8 => u64::MAX,
         bytes => (1u64 << (bytes * 8)) - 1,
     }
+}
+
+/// The residuals as the narrowest unsigned integer array that holds the largest of them, and is no
+/// wider than the array's type. Narrow residuals unpack into narrow lanes and multiply as
+/// `32 x 32 -> 64` bits, which decodes much faster than full-width residuals.
+fn narrow_residuals<T: NativePType>(encoded: &[u64], validity: Validity) -> ArrayRef
+where
+    u64: AsPrimitive<T>,
+{
+    let max_bytes = size_of::<T>();
+    let max = encoded.iter().copied().max().unwrap_or(0);
+    let bytes = match u64::BITS - max.leading_zeros() {
+        0..=8 => 1,
+        9..=16 => 2,
+        17..=32 => 4,
+        _ => 8,
+    }
+    .min(max_bytes);
+    match if bytes == max_bytes { 0 } else { bytes } {
+        1 => PrimitiveArray::new(encoded.iter().map(|&e| e as u8).collect::<Buffer<u8>>(), validity),
+        2 => PrimitiveArray::new(encoded.iter().map(|&e| e as u16).collect::<Buffer<u16>>(), validity),
+        4 => PrimitiveArray::new(encoded.iter().map(|&e| e as u32).collect::<Buffer<u32>>(), validity),
+        // As wide as the array's type: keep that type, so decoding reuses FoR's fused kernels.
+        _ => PrimitiveArray::new(encoded.iter().map(|&e| e.as_()).collect::<Buffer<T>>(), validity),
+    }
+    .into_array()
 }
 
 /// A constant array when every value matches, otherwise a primitive array.

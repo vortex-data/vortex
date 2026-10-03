@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
+use vortex_array::dtype::NativePType;
 use vortex_array::ExecutionCtx;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -37,9 +39,14 @@ impl OperationsVTable<Affine> for Affine {
         let shift = array.slope_shift();
 
         Ok(match_each_integer_ptype!(array.ptype(), |P| {
-            encoded
-                .as_primitive()
-                .typed_value::<P>()
+            let encoded = encoded.as_primitive();
+            // Narrow residuals are unsigned and fit in `P`'s bits, so they convert by truncation.
+            let residual = if encoded.ptype() == P::PTYPE {
+                encoded.typed_value::<P>()
+            } else {
+                encoded.as_::<u64>().map(|e| <u64 as AsPrimitive<P>>::as_(e))
+            };
+            residual
                 .map(|e| {
                     let reference = reference
                         .as_primitive()
