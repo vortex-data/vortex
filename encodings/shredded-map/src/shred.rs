@@ -47,8 +47,9 @@ use crate::flat::build_map;
 pub struct ShredOptions {
     /// Minimum fraction of rows that must hold a non-null value for a key to be shredded.
     pub min_frequency: f64,
-    /// Maximum number of shredded columns. The most frequent keys win.
-    pub max_columns: usize,
+    /// Maximum number of sparse columns, for keys on fewer than `sparse_below` of the rows. The
+    /// most frequent keys win. Keys on at least `sparse_below` of the rows are always shredded.
+    pub max_sparse_columns: usize,
     /// Store a column as a single union variant when all of its values select that variant.
     pub typed: bool,
     /// Store each column as per-row codes into its distinct values instead of one value per row.
@@ -66,7 +67,7 @@ impl Default for ShredOptions {
     fn default() -> Self {
         Self {
             min_frequency: 0.01,
-            max_columns: 256,
+            max_sparse_columns: 64,
             typed: true,
             dictionary: true,
             max_distinct_rows: 0.5,
@@ -319,12 +320,18 @@ pub fn shred(
 
     #[allow(clippy::cast_precision_loss)]
     let threshold = options.min_frequency * len as f64;
-    let mut chosen: Vec<(&[u8], usize)> = counts
+    // Every key on at least `sparse_below` of the rows becomes a dense column. Of the rest, only
+    // the most frequent `max_sparse_columns` keys become sparse columns, since each column adds
+    // decoding work for every row.
+    #[allow(clippy::cast_precision_loss)]
+    let dense_threshold = options.sparse_below * len as f64;
+    let (mut chosen, mut sparse): (Vec<(&[u8], usize)>, Vec<(&[u8], usize)>) = counts
         .into_iter()
         .filter(|&(_, count)| count > 0 && count as f64 >= threshold)
-        .collect();
-    chosen.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-    chosen.truncate(options.max_columns);
+        .partition(|&(_, count)| count as f64 >= dense_threshold);
+    sparse.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    sparse.truncate(options.max_sparse_columns);
+    chosen.extend(sparse);
     chosen.sort_by(|a, b| a.0.cmp(b.0));
     let column_of: HashMap<&[u8], usize> = chosen
         .iter()

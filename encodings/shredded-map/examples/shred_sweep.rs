@@ -44,12 +44,17 @@ fn main() {
     let mut ctx = common::SESSION.create_execution_ctx();
     let key = std::env::var("SWEEP_KEY").unwrap_or_else(|_| "image".into());
     let freqs: Vec<f64> = std::env::var("SWEEP_FREQ")
-        .unwrap_or_else(|_| "0.001,0.01,0.05,0.2".into())
+        .unwrap_or_else(|_| "0.01".into())
         .split(',')
         .map(|s| s.parse().unwrap())
         .collect();
     let sparse: Vec<f64> = std::env::var("SWEEP_SPARSE")
-        .unwrap_or_else(|_| "0,0.2,0.5,0.8,1.01".into())
+        .unwrap_or_else(|_| "0.8".into())
+        .split(',')
+        .map(|s| s.parse().unwrap())
+        .collect();
+    let n_sparse: Vec<usize> = std::env::var("SWEEP_NSPARSE")
+        .unwrap_or_else(|_| "0,8,16,32,64,100000".into())
         .split(',')
         .map(|s| s.parse().unwrap())
         .collect();
@@ -59,14 +64,15 @@ fn main() {
         data.map_compressed.nbytes() as f64 / 1048576.0
     );
     println!(
-        "{:>9} {:>7} {:>5} {:>6} {:>10} {:>10} {:>9} {:>10} {:>9}",
-        "min_freq", "sparse<", "cols", "sparse", "btr MiB", "compact", "shred ms", "label ms", "to_map ms"
+        "{:>9} {:>7} {:>7} {:>5} {:>6} {:>10} {:>10} {:>9} {:>10} {:>9}",
+        "min_freq", "sparse<", "max_sp", "cols", "sparse", "btr MiB", "compact", "shred ms", "label ms", "to_map ms"
     );
     for &min_frequency in &freqs {
         for &sparse_below in &sparse {
+          for &max_sparse_columns in &n_sparse {
             let options = ShredOptions {
                 min_frequency,
-                max_columns: 1024,
+                max_sparse_columns,
                 sparse_below,
                 ..ShredOptions::default()
             };
@@ -88,9 +94,10 @@ fn main() {
                 drop(m.execute::<RecursiveCanonical>(&mut ctx).unwrap());
             });
             println!(
-                "{:>9} {:>7} {:>5} {:>6} {:>10.3} {:>10.3} {:>9.0} {:>10.2} {:>9.1}",
+                "{:>9} {:>7} {:>7} {:>5} {:>6} {:>10.3} {:>10.3} {:>9.0} {:>10.2} {:>9.1}",
                 min_frequency,
                 sparse_below,
+                max_sparse_columns,
                 s.data().columns().len(),
                 n_sparse,
                 btr.nbytes() as f64 / 1048576.0,
@@ -99,6 +106,7 @@ fn main() {
                 label,
                 to_map
             );
+          }
         }
     }
 }

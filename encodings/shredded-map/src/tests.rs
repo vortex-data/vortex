@@ -24,6 +24,7 @@ use vortex_mask::Mask;
 
 use crate::ShredOptions;
 use crate::ShreddedMapArray;
+use crate::array::ShreddedMapArraySlotsExt;
 use crate::labels::LabelMapBuilder;
 use crate::labels::LabelValue;
 use crate::labels::Utf8MapBuilder;
@@ -134,7 +135,7 @@ fn case_strategy() -> impl Strategy<Value = Case> {
                 0.0f64..=1.0,
                 0.0f64..=1.0,
             )
-                .prop_map(move |(rows, min_frequency, max_columns, typed, dictionary, max_distinct_rows, sparse_below)| {
+                .prop_map(move |(rows, min_frequency, max_sparse_columns, typed, dictionary, max_distinct_rows, sparse_below)| {
                     let mut out: Vec<Row> = Vec::with_capacity(rows.len());
                     let mut repeats = Vec::with_capacity(rows.len());
                     for (i, (row, repeat, share)) in rows.into_iter().enumerate() {
@@ -166,7 +167,7 @@ fn case_strategy() -> impl Strategy<Value = Case> {
                         nullable_rows,
                         options: ShredOptions {
                             min_frequency,
-                            max_columns,
+                            max_sparse_columns,
                             typed,
                             dictionary,
                             max_distinct_rows,
@@ -370,7 +371,11 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
     assert_eq!(read_rows(&map, ctx)?, case.rows, "builder round trip");
 
     let shredded: ShreddedMapArray = shred(&map, &case.options, ctx)?;
-    assert!(shredded.data().columns().len() <= case.options.max_columns);
+    let sparse = ShreddedMapArraySlotsExt::columns(&shredded)
+        .iter()
+        .filter(|c| c.is::<vortex_sparse::Sparse>())
+        .count();
+    assert!(sparse <= case.options.max_sparse_columns);
     let shredded_ref = shredded.clone().into_array();
 
     // Decompress, both through the encoding's execute and the explicit op.
