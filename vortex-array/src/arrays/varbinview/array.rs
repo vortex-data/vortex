@@ -374,6 +374,28 @@ impl VarBinViewData {
     ) -> VortexResult<Buffer<BinaryView>> {
         let check_utf8 = Self::check_nullability(dtype, validity)?;
         let mask = validity.execute_mask(views.len(), ctx)?;
+
+        // With nulls and views we own, validate and replace in a single pass: a second pass over
+        // many short null runs costs more than a branch per view.
+        let views = match (mask.bit_buffer(), views.try_into_mut()) {
+            (AllOr::Some(bits), Ok(mut views)) => {
+                let buffers_utf8 = Self::buffers_utf8(&mask, buffers, check_utf8);
+                let buffers_utf8 = buffers_utf8.as_deref();
+                let empty = BinaryView::empty_view();
+                let slice = views.as_mut_slice();
+                for (idx, (view, valid)) in slice.iter_mut().zip(bits.iter()).enumerate() {
+                    if valid {
+                        Self::validate_view(idx, view, buffers, buffers_utf8)?;
+                    } else {
+                        *view = empty;
+                    }
+                }
+                return Ok(views.freeze());
+            }
+            (_, Ok(views)) => views.freeze(),
+            (_, Err(views)) => views,
+        };
+
         Self::validate_views(&views, &mask, buffers, check_utf8)?;
         Ok(Self::replace_null_views(views, &mask))
     }
@@ -426,68 +448,51 @@ impl VarBinViewData {
     ///
     /// A buffer can hold bytes that no valid view references, for example after a slice, after a
     /// filter, or at null views. So the whole-buffer check is only done while the total size of
-    /// the checked buffers stays within the cost of checking the valid views one by one. The views
-    /// into a buffer that is not checked, or that is not valid UTF-8, are checked one by one.
+    /// the checked buffers stays within a fixed cost per valid view. The views into a buffer that
+    /// is not checked, or that is not valid UTF-8, are checked one by one.
     fn validate_views(
         views: &[BinaryView],
         mask: &Mask,
         buffers: &[ByteBuffer],
         check_utf8: bool,
     ) -> VortexResult<()> {
-        let buffers_utf8 = if check_utf8 {
-            Self::buffers_utf8(views, mask, buffers)
-        } else {
-            Vec::new()
-        };
-        let buffers_utf8 = check_utf8.then_some(buffers_utf8.as_slice());
+        let buffers_utf8 = Self::buffers_utf8(mask, buffers, check_utf8);
+        let buffers_utf8 = buffers_utf8.as_deref();
 
         try_for_each_valid(mask, |idx| {
             Self::validate_view(idx, &views[idx], buffers, buffers_utf8)
         })
     }
 
-    /// The approximate fixed cost of a per-view UTF-8 check, in bytes of a whole-buffer check.
+    /// The approximate cost of a per-view UTF-8 check, in bytes of a whole-buffer check.
     const PER_VIEW_UTF8_COST: usize = 64;
 
-    /// Returns, for each buffer, `true` if the whole buffer was checked and is valid UTF-8.
+    /// Returns `None` if the UTF-8 check is off. Otherwise, returns for each buffer `true` if the
+    /// whole buffer was checked and is valid UTF-8.
     ///
-    /// The budget for the whole-buffer checks is what checking the valid views one by one would
-    /// cost: a fixed cost per view, plus the bytes that the outlined views reference.
-    fn buffers_utf8(views: &[BinaryView], mask: &Mask, buffers: &[ByteBuffer]) -> Vec<bool> {
-        let total_len = buffers.iter().map(|buf| buf.len()).sum::<usize>();
-        let mut budget = mask.true_count().saturating_mul(Self::PER_VIEW_UTF8_COST);
-
-        // Only count the referenced bytes when the fixed costs alone do not cover the buffers.
-        if total_len > budget {
-            let outlined_len = |view: &BinaryView| {
-                if view.is_inlined() {
-                    0
-                } else {
-                    view.len() as usize
-                }
-            };
-            let referenced = match mask.bit_buffer() {
-                AllOr::All => views.iter().map(outlined_len).sum(),
-                AllOr::None => 0,
-                AllOr::Some(bits) => bits
-                    .set_indices()
-                    .map(|idx| outlined_len(&views[idx]))
-                    .sum(),
-            };
-            budget = budget.saturating_add(referenced);
+    /// The budget only counts a fixed cost per valid view, not the bytes the views reference: for
+    /// long strings, the call per view is cheap next to the string, and checking a buffer larger
+    /// than the cache and then reading it again for the char boundaries is slower.
+    fn buffers_utf8(mask: &Mask, buffers: &[ByteBuffer], check_utf8: bool) -> Option<Vec<bool>> {
+        if !check_utf8 {
+            return None;
         }
 
-        buffers
-            .iter()
-            .map(|buf| {
-                if buf.len() > budget {
-                    return false;
-                }
+        let mut budget = mask.true_count().saturating_mul(Self::PER_VIEW_UTF8_COST);
 
-                budget -= buf.len();
-                simdutf8::basic::from_utf8(buf).is_ok()
-            })
-            .collect()
+        Some(
+            buffers
+                .iter()
+                .map(|buf| {
+                    if buf.len() > budget {
+                        return false;
+                    }
+
+                    budget -= buf.len();
+                    simdutf8::basic::from_utf8(buf).is_ok()
+                })
+                .collect(),
+        )
     }
 
     /// Checks the bounds, the prefix, and the UTF-8 of a view.
