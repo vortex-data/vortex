@@ -34,10 +34,10 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const NUM_ELEMENTS: usize = 1 << 20;
-const DENSITIES: &[f64] = &[0.001, 0.01, 0.1, 0.5, 0.9];
+const NUM_ELEMENTS: usize = 1 << 17;
 
-#[divan::bench(consts = [2, 3, 4, 16, 64], args = DENSITIES)]
+/// List sizes 2, 3 and 16 cover the lookup-table, run-filling and cached-slices expansions.
+#[divan::bench(consts = [2, 3, 16], args = [0.01, 0.5])]
 fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
     let len = NUM_ELEMENTS / LIST_SIZE as usize;
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE as usize) as i32).into_array();
