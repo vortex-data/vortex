@@ -29,11 +29,12 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const MODES: [AffineOptions; 4] = [
+const MODES: [AffineOptions; 5] = [
     AffineOptions::FOR,
     AffineOptions::SCALE,
     AffineOptions::SLOPE,
     AffineOptions::ALL,
+    AffineOptions::LECO,
 ];
 
 /// Timestamps in nanoseconds on a one-minute grid, with every seventh sample missing.

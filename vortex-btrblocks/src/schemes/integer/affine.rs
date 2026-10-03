@@ -75,11 +75,12 @@ impl AffineScheme {
 
     /// A scheme that always encodes with `options`, under a scheme name distinct per mode.
     pub const fn fixed(options: AffineOptions) -> Self {
-        let name = match (options.scale, options.slope) {
-            (false, false) => "vortex.int.affine.for",
-            (true, false) => "vortex.int.affine.scale",
-            (false, true) => "vortex.int.affine.slope",
-            (true, true) => "vortex.int.affine.all",
+        let name = match (options.scale, options.slope, options.least_squares) {
+            (_, _, true) => "vortex.int.affine.leco",
+            (false, false, _) => "vortex.int.affine.for",
+            (true, false, _) => "vortex.int.affine.scale",
+            (false, true, _) => "vortex.int.affine.slope",
+            (true, true, _) => "vortex.int.affine.all",
         };
         Self {
             name,

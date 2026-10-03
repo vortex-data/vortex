@@ -54,6 +54,7 @@ static AFFINE_AUTO: AffineScheme = AffineScheme::auto();
 static AFFINE_SCALE: AffineScheme = AffineScheme::fixed(AffineOptions::SCALE);
 static AFFINE_SLOPE: AffineScheme = AffineScheme::fixed(AffineOptions::SLOPE);
 static AFFINE_ALL: AffineScheme = AffineScheme::fixed(AffineOptions::ALL);
+static AFFINE_LECO: AffineScheme = AffineScheme::fixed(AffineOptions::LECO);
 
 fn configs() -> Vec<(&'static str, BtrBlocksCompressor)> {
     let base = || BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
@@ -69,6 +70,7 @@ fn configs() -> Vec<(&'static str, BtrBlocksCompressor)> {
         ("affine-scale", base().with_new_scheme(&AFFINE_SCALE).build()),
         ("affine-slope", base().with_new_scheme(&AFFINE_SLOPE).build()),
         ("affine-all", base().with_new_scheme(&AFFINE_ALL).build()),
+        ("leco-vortex", base().with_new_scheme(&AFFINE_LECO).build()),
         ("compact", base().with_compact().build()),
         (
             "compact+affine",

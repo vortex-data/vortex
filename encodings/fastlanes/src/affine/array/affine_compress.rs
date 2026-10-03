@@ -33,6 +33,9 @@ pub struct AffineOptions {
     pub scale: bool,
     /// Fit a linear trend to each chunk.
     pub slope: bool,
+    /// Fit only the least-squares slope, always, as LeCo-fix does, instead of choosing the
+    /// narrowest of several slopes and a zero slope. Requires `slope`.
+    pub least_squares: bool,
 }
 
 impl AffineOptions {
@@ -40,21 +43,31 @@ impl AffineOptions {
     pub const FOR: Self = Self {
         scale: false,
         slope: false,
+        least_squares: false,
     };
     /// Per-chunk references and common divisors.
     pub const SCALE: Self = Self {
         scale: true,
         slope: false,
+        least_squares: false,
     };
     /// Per-chunk references and linear trends.
     pub const SLOPE: Self = Self {
         scale: false,
         slope: true,
+        least_squares: false,
     };
     /// Per-chunk references, linear trends and common divisors.
     pub const ALL: Self = Self {
         scale: true,
         slope: true,
+        least_squares: false,
+    };
+    /// LeCo-fix's model: a least-squares line per chunk, with an exact fixed-point slope.
+    pub const LECO: Self = Self {
+        scale: false,
+        slope: true,
+        least_squares: true,
     };
 }
 
@@ -256,6 +269,14 @@ fn slope_candidates<T: PrimInt>(
     let least_squares = least_squares_slope(&points);
 
     let unit = f64::from(1u32 << slope_shift);
+    if options.least_squares {
+        let slope = (least_squares * unit).round();
+        return vec![if slope.is_finite() && slope.abs() * (FL_CHUNK_SIZE as f64) < i64::MAX as f64 {
+            slope as i64
+        } else {
+            0
+        }];
+    }
     let fits = [median, endpoint, least_squares];
     let integer = fits.iter().map(|s| s.round() * unit);
     let fractional = fits.iter().map(|s| (s * unit).round());
