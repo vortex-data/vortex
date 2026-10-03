@@ -464,3 +464,37 @@ unsafe fn merge16<const TB: u8, const OUT: usize, const PREFIX: bool>(
         }
     }
 }
+
+/// Write one answer bit per id from the per-bin `class` table (0 false, 1 true, 2 straddles),
+/// 64 ids per word of `out`. Returns `false` as soon as an id's bin straddles.
+///
+/// # Safety
+///
+/// The CPU must support the features checked by [`has_avx512`]; `class` must hold 64 entries
+/// and every id must be below 64; `out` must hold a word per 64 ids.
+#[target_feature(enable = "avx512f,avx512bw,avx512vbmi")]
+pub(crate) unsafe fn classify_ids(ids: &[u8], class: &[u8], out: &mut [u64]) -> bool {
+    // SAFETY: loads are masked to `ids` and read 64 bytes of `class`; stores index `out` checked.
+    unsafe {
+        let table = _mm512_loadu_si512(class.as_ptr().cast());
+        let one = _mm512_set1_epi8(1);
+        let two = _mm512_set1_epi8(2);
+        let n = ids.len();
+        let mut i = 0;
+        while i < n {
+            let k: u64 = if i + 64 <= n {
+                u64::MAX
+            } else {
+                (1u64 << (n - i)) - 1
+            };
+            let id = _mm512_maskz_loadu_epi8(k, ids.as_ptr().add(i).cast());
+            let c = _mm512_permutexvar_epi8(id, table);
+            if _mm512_mask_cmpeq_epi8_mask(k, c, two) != 0 {
+                return false;
+            }
+            out[i / 64] = _mm512_mask_cmpeq_epi8_mask(k, c, one);
+            i += 64;
+        }
+        true
+    }
+}

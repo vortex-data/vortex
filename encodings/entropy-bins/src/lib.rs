@@ -16,8 +16,16 @@
 //! folds its prefix sum into the merge and the differences of adjacent rows entropy-code better
 //! than a transposed delta's residuals.
 
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
 mod array;
 mod coder;
+mod compare;
 mod decode;
 mod rules;
 mod slice;
@@ -28,6 +36,16 @@ pub use array::*;
 pub use coder::BLOCK_VALUES;
 pub use coder::CHUNK_VALUES;
 pub use coder::MAX_BLOCK_VALUES;
+
+/// Register the encoding and its compute kernels with `session`.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(EntropyBins);
+    session.kernels().register_execute_parent_kernel(
+        Binary.id(),
+        EntropyBins,
+        CompareExecuteAdaptor(EntropyBins),
+    );
+}
 
 /// The bins of one chunk, sorted by lower bound.
 #[derive(Clone, PartialEq, Eq, prost::Message)]

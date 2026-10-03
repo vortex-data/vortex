@@ -463,7 +463,7 @@ impl Transform {
 }
 
 /// Integers sign- or zero-extended to 64 bits.
-trait Wide: NativePType {
+pub(crate) trait Wide: NativePType {
     fn wide(self) -> u64;
 }
 
@@ -623,13 +623,26 @@ impl EntropyBinsData {
         Ok(())
     }
 
-    fn block_start(&self, b: usize) -> usize {
+    pub(crate) fn block_start(&self, b: usize) -> usize {
         let s = &self.block_starts[4 * b..4 * b + 4];
         u32::from_le_bytes([s[0], s[1], s[2], s[3]]) as usize
     }
 
-    fn block_values(&self) -> usize {
+    pub(crate) fn block_values(&self) -> usize {
         1 << self.metadata.block_log
+    }
+
+    pub(crate) fn ptype(&self) -> PType {
+        self.ptype
+    }
+
+    /// The rows of the unsliced array this array covers.
+    pub(crate) fn slice_range(&self) -> (usize, usize) {
+        (self.slice_start, self.slice_stop)
+    }
+
+    pub(crate) fn unsliced_rows(&self) -> usize {
+        self.unsliced_n_rows
     }
 
     fn lag(&self) -> usize {
@@ -659,7 +672,7 @@ impl EntropyBinsData {
     }
 
     /// The decode tables of chunk `ci`, built once.
-    fn decoder(&self, ci: usize) -> VortexResult<&ChunkDecoder> {
+    pub(crate) fn decoder(&self, ci: usize) -> VortexResult<&ChunkDecoder> {
         let slot = self
             .decoders
             .get(ci)
@@ -686,7 +699,7 @@ impl EntropyBinsData {
         })
     }
 
-    fn decode_range<T: NativePType + OutInt>(
+    pub(crate) fn decode_range<T: NativePType + OutInt>(
         &self,
         start: usize,
         stop: usize,
