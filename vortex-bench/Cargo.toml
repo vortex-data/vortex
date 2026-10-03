@@ -83,6 +83,7 @@ tracing-subscriber = { workspace = true, features = [
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 wkb = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

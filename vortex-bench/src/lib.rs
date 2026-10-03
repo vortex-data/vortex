@@ -17,6 +17,7 @@ use clickbench::ClickBenchSortedBenchmark;
 use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
+use lo2::Lo2Benchmark;
 use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
 use public_bi::PublicBiBenchmark;
@@ -48,6 +49,7 @@ pub mod datasets;
 pub mod display;
 pub mod downloadable_dataset;
 pub mod fineweb;
+pub mod lo2;
 pub mod measurements;
 pub mod memory;
 pub mod output;
@@ -354,6 +356,8 @@ pub enum BenchmarkArg {
     VortexQueries,
     #[clap(name = "westermo")]
     Westermo,
+    #[clap(name = "lo2")]
+    Lo2,
 }
 
 /// Default scale factor for TPC-related benchmarks
@@ -435,6 +439,10 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::Westermo => {
             let benchmark = WestermoBenchmark::new()?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::Lo2 => {
+            let benchmark = Lo2Benchmark::new()?;
             Ok(Box::new(benchmark) as _)
         }
     }

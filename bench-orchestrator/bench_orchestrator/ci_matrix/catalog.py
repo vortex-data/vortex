@@ -279,6 +279,14 @@ BENCHMARKS = (
             "pr-full": DEFAULT,
         },
     ),
+    BenchmarkCase(
+        id="lo2",
+        benchmark=Benchmark.LO2,
+        name="LO2 Prometheus metrics",
+        runs={
+            "pr-full": DEFAULT,
+        },
+    ),
 )
 
 CATALOG = Catalog(presets=PRESETS, benchmarks=BENCHMARKS)

@@ -64,6 +64,7 @@ class Benchmark(Enum):
     SPATIALBENCH = "spatialbench"
     VORTEX_QUERIES = "vortex"
     WESTERMO = "westermo"
+    LO2 = "lo2"
 
 
 # Engine to supported formats mapping.

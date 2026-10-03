@@ -156,6 +156,8 @@ pub fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> Result<PathB
 /// hard to reason about total in-flight concurrency.
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
+        // Some hosts, such as Zenodo, reject requests without a User-Agent with 403 Forbidden.
+        .user_agent(concat!("vortex-bench/", env!("CARGO_PKG_VERSION")))
         .read_timeout(Duration::from_secs(60))
         .timeout(Duration::from_secs(60 * 15))
         .build()

@@ -37,7 +37,7 @@ COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
 PR_ALL_IDS = tuple(benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id != "vortex-queries")
-EXTENDED_ONLY_IDS = ("westermo",)
+EXTENDED_ONLY_IDS = ("westermo", "lo2")
 EXPECTED_IDS = {
     "develop": REGULAR_IDS,
     "pr": tuple(

@@ -10785,6 +10785,7 @@ dependencies = [
  "vortex-spatial",
  "vortex-tensor",
  "wkb",
+ "zip",
 ]
 
 [[package]]
