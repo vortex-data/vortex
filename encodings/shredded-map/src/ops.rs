@@ -25,6 +25,7 @@ use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::map::MapArrayExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
@@ -657,7 +658,13 @@ pub mod query {
             .collect()
     }
 
-    /// `SELECT keys WHERE map[filter_key] = value` over a map in any encoding.
+    /// `SELECT keys WHERE map[filter_key] = value` over a map in any encoding, in one pass.
+    ///
+    /// Rows are scanned once. In each row, entries' keys are compared until the filter key is
+    /// found, and only matching rows look at their other entries, so non-matching rows stop
+    /// early as in a row-oriented scan. Dictionary keys and values compare their dictionaries
+    /// once and then integer codes; plain strings compare inline view headers before bytes.
+    /// Only the projected values of matching rows are gathered and decoded.
     pub fn map(
         map: &ArrayRef,
         filter_key: &str,
@@ -665,11 +672,182 @@ pub mod query {
         keys: &[&str],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Vec<VarBinViewArray>> {
-        let label = map::get_label_utf8(map, filter_key, ctx)?;
-        let mask = label_eq(&label, value, ctx)?;
-        let filtered = map.filter(mask)?;
-        keys.iter()
-            .map(|key| map::get_label_utf8(&filtered, key, ctx)?.execute::<VarBinViewArray>(ctx))
+        let map = map.clone().execute::<MapArray>(ctx)?;
+        let len = map.len();
+        let entries = map.entries().clone().execute::<ListViewArray>(ctx)?;
+        let elements = entries.elements().clone().execute::<StructArray>(ctx)?;
+        let mut wanted = vec![filter_key];
+        for key in keys {
+            if !wanted.contains(key) {
+                wanted.push(key);
+            }
+        }
+        let key_array = elements.unmasked_field(0).clone();
+        let key_strings;
+        let key_source = match key_array.as_opt::<Dict>() {
+            Some(dict) => Source::codes(dict, |s| {
+                wanted.iter().position(|w| w.as_bytes() == s).map_or(0, |i| (i + 1) as u8)
+            }, ctx)?,
+            None => {
+                key_strings = key_array.execute::<VarBinViewArray>(ctx)?;
+                Source::views(&key_strings, &wanted, ctx)?
+            }
+        };
+        let values = elements.unmasked_field(1);
+        let value_strings;
+        let value_source = match values.as_opt::<Dict>() {
+            Some(dict) if matches!(dict.values().dtype(), DType::Utf8(_)) => {
+                Source::codes(dict, |s| u8::from(s == value.as_bytes()), ctx)?
+            }
+            _ => {
+                value_strings = values_to_utf8(values, ctx)?.execute::<VarBinViewArray>(ctx)?;
+                Source::views(&value_strings, &[value], ctx)?
+            }
+        };
+        let offsets = to_usize_vec(entries.offsets(), ctx)?;
+        let sizes = to_usize_vec(entries.sizes(), ctx)?;
+        let row_valid = map.map_validity().execute_mask(len, ctx)?;
+        let key_slots: Vec<usize> = keys
+            .iter()
+            .map(|k| wanted.iter().position(|w| w == k).unwrap_or_default() + 1)
+            .collect();
+        let mut indices: Vec<Vec<u64>> = keys.iter().map(|_| Vec::new()).collect();
+        let mut valid: Vec<vortex_buffer::BitBufferMut> = keys
+            .iter()
+            .map(|_| vortex_buffer::BitBufferMut::with_capacity(0))
+            .collect();
+        let mut first = vec![usize::MAX; wanted.len() + 1];
+        for row in 0..len {
+            if !row_valid.value(row) {
+                continue;
+            }
+            let range = offsets[row]..offsets[row] + sizes[row];
+            let Some(f) = range.clone().find(|&j| key_source.is(j, 1)) else {
+                continue;
+            };
+            if !value_source.is(f, 1) {
+                continue;
+            }
+            first.fill(usize::MAX);
+            for j in range {
+                let s = key_source.slot(j) as usize;
+                if s != 0 && first[s] == usize::MAX {
+                    first[s] = j;
+                }
+            }
+            for (k, &s) in key_slots.iter().enumerate() {
+                let j = first[s];
+                indices[k].push(if j == usize::MAX { 0 } else { j as u64 });
+                valid[k].append(j != usize::MAX);
+            }
+        }
+        indices
+            .into_iter()
+            .zip(valid)
+            .map(|(indices, valid)| {
+                let indices = PrimitiveArray::new(
+                    Buffer::from(indices),
+                    Validity::from_bit_buffer(valid.freeze(), Nullability::Nullable),
+                );
+                let values = take_narrow(values, indices.into_array(), ctx)?;
+                values_to_utf8(&values, ctx)?.execute::<VarBinViewArray>(ctx)
+            })
             .collect()
+    }
+
+    /// Classifies entries of a string array against a few wanted strings on demand: `1 + i`
+    /// for `wanted[i]`, 0 for anything else or null.
+    enum Source<'a> {
+        /// Dictionary-encoded: each distinct value is classified once, entries by their code.
+        Codes { codes: Vec<u32>, table: Vec<u8> },
+        /// Plain strings: a view's low 64 bits hold its length and first four bytes, ruling out
+        /// almost every other string without touching string data.
+        Views {
+            strings: Strings<'a>,
+            valid: Mask,
+            headers: Vec<u64>,
+            wanted: Vec<&'a [u8]>,
+        },
+    }
+
+    impl<'a> Source<'a> {
+        fn codes(
+            dict: vortex_array::ArrayView<'_, Dict>,
+            classify: impl Fn(&[u8]) -> u8,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Self> {
+            let dictionary = dict.values().clone().execute::<VarBinViewArray>(ctx)?;
+            let dict_valid = dictionary.as_ref().validity()?.execute_mask(dictionary.len(), ctx)?;
+            let strings = Strings::new(&dictionary);
+            let table = (0..dictionary.len())
+                .map(|c| if dict_valid.value(c) { classify(strings.get(c)) } else { 0 })
+                .collect();
+            let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
+            let valid = codes.validity()?.execute_mask(codes.len(), ctx)?;
+            let mut codes = crate::decode::codes_u32(&codes.into_array(), ctx)?;
+            if !valid.all_true() {
+                for (i, c) in codes.iter_mut().enumerate() {
+                    if !valid.value(i) {
+                        *c = u32::MAX;
+                    }
+                }
+            }
+            Ok(Self::Codes { codes, table })
+        }
+
+        fn views(
+            strings: &'a VarBinViewArray,
+            wanted: &[&'a str],
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Self> {
+            Ok(Self::Views {
+                strings: Strings::new(strings),
+                valid: strings.as_ref().validity()?.execute_mask(strings.len(), ctx)?,
+                headers: wanted
+                    .iter()
+                    .map(|w| BinaryView::make_view(w.as_bytes(), 0, 0).as_u128() as u64)
+                    .collect(),
+                wanted: wanted.iter().map(|w| w.as_bytes()).collect(),
+            })
+        }
+
+        /// Whether the entry is `wanted[slot - 1]`.
+        #[inline]
+        fn is(&self, entry: usize, slot: u8) -> bool {
+            match self {
+                Self::Codes { codes, table } => table.get(codes[entry] as usize) == Some(&slot),
+                Self::Views {
+                    strings,
+                    valid,
+                    headers,
+                    wanted,
+                } => {
+                    let i = slot as usize - 1;
+                    strings.views[entry].as_u128() as u64 == headers[i]
+                        && valid.value(entry)
+                        && strings.get(entry) == wanted[i]
+                }
+            }
+        }
+
+        #[inline]
+        fn slot(&self, entry: usize) -> u8 {
+            match self {
+                Self::Codes { codes, table } => table.get(codes[entry] as usize).copied().unwrap_or(0),
+                Self::Views {
+                    strings,
+                    valid,
+                    headers,
+                    wanted,
+                } => {
+                    let header = strings.views[entry].as_u128() as u64;
+                    headers
+                        .iter()
+                        .position(|&h| h == header)
+                        .filter(|&i| valid.value(entry) && strings.get(entry) == wanted[i])
+                        .map_or(0, |i| (i + 1) as u8)
+                }
+            }
+        }
     }
 }
