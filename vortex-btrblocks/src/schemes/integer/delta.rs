@@ -152,38 +152,51 @@ impl Scheme for DeltaScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Estimating Delta needs the real transposed-delta span, so defer to a callback that
-        // delta-encodes the array and measures the residual range.
+        // Estimating Delta needs the real residuals, so defer to a callback that delta-encodes
+        // the array and sizes the residuals with the same cascade `compress` uses.
         let min_ratio = self.min_ratio;
+        let scheme_id = self.id();
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            move |_compressor, data, best_so_far, _ctx, exec_ctx| {
+            move |compressor, data, best_so_far, compress_ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let full_width = primitive.ptype().bit_width() as f64;
                 let len = primitive.len();
 
-                // Delta's best case is residuals collapsing to a single bit. If even that, after
-                // the penalty, can't beat the incumbent, skip before doing the encode work.
+                // Delta's best case is residuals that compress away entirely, leaving roughly one
+                // bit per value of bases. If even that, after the penalty, can't beat the
+                // incumbent, skip before doing the encode work. Residuals routinely compress below
+                // one bit each, so the bound must not assume a bit per residual.
                 let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| penalized_ratio(len, full_width, 1.0) <= t) {
+                if threshold.is_some_and(|t| penalized_ratio(len, full_width, 0.0) <= t) {
                     return Ok(EstimateVerdict::Skip);
                 }
 
-                // Measure the actual FastLanes transposed-delta span. This is the lane-stride
-                // difference that gets bit-packed, not the lag-1 difference (which the transpose
-                // makes optimistic), so it is what truly drives the compressed size.
-                let (_bases, deltas) = vortex_fastlanes::delta_compress(&primitive, exec_ctx)?;
+                let (bases, deltas) = vortex_fastlanes::delta_compress(&primitive, exec_ctx)?;
+                let deltas = deltas.into_array();
+
+                // A zero span means constant deltas, which SequenceScheme captures more cheaply.
                 let delta_stats =
-                    ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default());
-                let span = delta_stats.integer_stats(exec_ctx).erased().max_minus_min();
+                    ArrayAndStats::new(deltas.clone(), GenerateStatsOptions::default());
+                if delta_stats.integer_stats(exec_ctx).erased().max_minus_min() == 0 {
+                    return Ok(EstimateVerdict::Skip);
+                }
 
-                // Bits needed to FoR-pack the residuals. A zero span means constant deltas, which
-                // SequenceScheme already captures more cheaply, so defer to it.
-                let delta_bits = match span.checked_ilog2() {
-                    Some(l) => (l + 1) as f64,
-                    None => return Ok(EstimateVerdict::Skip),
-                };
+                // Size the residuals by compressing them, rather than from their min-max span. A
+                // few outlying residuals, such as the jump where a timestamp column restarts at
+                // each new series, would inflate the span to the full width, while the cascade
+                // patches or run-length encodes them and packs the rest in a few bits.
+                let bases = compressor.compress_child(
+                    &bases.into_array(),
+                    &compress_ctx,
+                    scheme_id,
+                    0,
+                    exec_ctx,
+                )?;
+                let deltas =
+                    compressor.compress_child(&deltas, &compress_ctx, scheme_id, 1, exec_ctx)?;
+                let compressed_bytes = (bases.nbytes() + deltas.nbytes()).max(1) as f64;
 
-                let ratio = penalized_ratio(len, full_width, delta_bits);
+                let ratio = primitive.nbytes() as f64 / compressed_bytes * DELTA_PENALTY;
                 if ratio <= min_ratio {
                     return Ok(EstimateVerdict::Skip);
                 }

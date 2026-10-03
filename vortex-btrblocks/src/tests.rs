@@ -135,6 +135,25 @@ fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult
     Ok(())
 }
 
+#[test]
+fn test_delta_chosen_for_restarting_series() -> VortexResult<()> {
+    // Timestamps laid out series by series, as in a Prometheus block: each series is a 30 second
+    // progression with one missed scrape, and the column jumps back at every new series. The
+    // jumps are a handful of outlying residuals, which used to inflate Delta's estimate to the
+    // full bit width so that it was never chosen.
+    let input = PrimitiveArray::from_iter((0..4).flat_map(|_| {
+        (0..3000i64).map(|i| 1_700_000_000_000 + i * 30_000 + if i >= 1500 { 30_000 } else { 0 })
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<Delta>());
+    assert!(compressed.nbytes() * 16 < input.nbytes());
+    Ok(())
+}
+
 #[cfg(feature = "zstd")]
 #[rstest]
 #[case::array_level(CORE_2026_08_3, vortex_zstd::Zstd.id())]
