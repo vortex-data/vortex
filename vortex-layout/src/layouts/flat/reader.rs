@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::future::WeakShared;
+use parking_lot::Mutex;
 use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
@@ -15,6 +17,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::serde::SerializedArray;
+use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -39,6 +42,13 @@ pub struct FlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    /// The decode of this layout's array while any split still holds it.
+    ///
+    /// A scan cuts a large flat layout into several splits, and each asks for the array. Sharing
+    /// the decode stops every split from deserializing (and validating) the whole array again,
+    /// while holding it weakly frees the array as soon as the last split using it is done, instead
+    /// of keeping every chunk of a file alive for the length of a scan.
+    array: Mutex<Option<WeakShared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>>>,
 }
 
 impl FlatReader {
@@ -53,6 +63,7 @@ impl FlatReader {
             name,
             segment_source,
             session,
+            array: Mutex::new(None),
         }
     }
 
@@ -66,11 +77,16 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(self.layout.segment_id());
 
+        let mut cached = self.array.lock();
+        if let Some(array) = cached.as_ref().and_then(WeakShared::upgrade) {
+            return array;
+        }
+
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
         let dtype = self.layout.dtype().clone();
         let array_tree = self.layout.array_tree().cloned();
-        async move {
+        let array = async move {
             let segment = segment_fut.await?;
             let parts = if let Some(array_tree) = array_tree {
                 // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
@@ -84,7 +100,9 @@ impl FlatReader {
                 .map_err(Arc::new)
         }
         .boxed()
-        .shared()
+        .shared();
+        *cached = array.downgrade();
+        array
     }
 }
 
