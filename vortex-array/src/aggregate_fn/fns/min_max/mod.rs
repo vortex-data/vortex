@@ -419,6 +419,10 @@ impl AggregateFnVTable for MinMax {
     ) -> VortexResult<()> {
         match batch {
             Columnar::Constant(c) => {
+                if c.is_empty() {
+                    return Ok(());
+                }
+
                 let scalar = c.scalar();
                 if scalar.is_null() {
                     return Ok(());

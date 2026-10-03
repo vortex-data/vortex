@@ -428,6 +428,10 @@ impl AggregateFnVTable for IsSorted {
 
         match batch {
             Columnar::Constant(c) => {
+                if c.is_empty() {
+                    return Ok(());
+                }
+
                 // Constant arrays are sorted but not strict sorted (if len > 1).
                 let value = c.scalar().clone().into_nullable();
                 if args.options.strict && c.len() > 1 {
