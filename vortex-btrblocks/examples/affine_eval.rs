@@ -35,6 +35,8 @@ use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::AffineScheme;
 use vortex_btrblocks::schemes::integer::DeltaScheme;
+use vortex_btrblocks::schemes::integer::FoRScheme;
+use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::Affine;
 use vortex_fastlanes::AffineArraySlotsExt;
@@ -74,6 +76,18 @@ fn configs() -> Vec<(&'static str, BtrBlocksCompressor)> {
             "no-delta",
             base()
                 .exclude_schemes([DeltaScheme::default().id()])
+                .build(),
+        ),
+        (
+            "no-dict",
+            base()
+                .exclude_schemes([IntDictScheme.id()])
+                .build(),
+        ),
+        (
+            "no-for",
+            base()
+                .exclude_schemes([FoRScheme::default().id()])
                 .build(),
         ),
         ("affine-auto", base().with_new_scheme(&AFFINE_AUTO).build()),
@@ -135,7 +149,7 @@ fn is_zero(array: &ArrayRef) -> bool {
 fn time<R>(mut f: impl FnMut() -> R) -> (Duration, R) {
     let mut best = Duration::MAX;
     let mut out = None;
-    for _ in 0..3 {
+    for _ in 0..7 {
         let start = Instant::now();
         let r = f();
         best = best.min(start.elapsed());
