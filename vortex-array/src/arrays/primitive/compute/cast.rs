@@ -19,6 +19,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
 use crate::array::ArrayView;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
@@ -35,8 +37,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -633,11 +633,17 @@ fn values_fit_in(
 }
 
 /// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the
-/// stats cache, otherwise `None`.
+/// finalized aggregate cache, otherwise `None`.
 fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
-    let stats = array.array().statistics();
-    let min = stats.get(Stat::Min).as_exact()?;
-    let max = stats.get(Stat::Max).as_exact()?;
+    let aggregations = array.array().aggregations();
+    let min = aggregations
+        .get_result(&MIN_SKIP_NANS)
+        .as_exact()
+        .filter(|s| !s.is_null())?;
+    let max = aggregations
+        .get_result(&MAX_SKIP_NANS)
+        .as_exact()
+        .filter(|s| !s.is_null())?;
     Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
 }
 
@@ -653,6 +659,8 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+    use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
     use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
@@ -665,7 +673,6 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::Stat;
     use crate::validity::Validity;
 
     #[test]
@@ -791,8 +798,11 @@ mod test {
         let source_ptr = source.as_slice::<i32>().as_ptr();
         let source = source.into_array();
         source
-            .statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+            .aggregations()
+            .compute_result(&MIN_SKIP_NANS, &mut ctx)?;
+        source
+            .aggregations()
+            .compute_result(&MAX_SKIP_NANS, &mut ctx)?;
         let casted = source
             .cast(DType::Decimal(
                 DecimalDType::new(9, 0),
@@ -1179,5 +1189,23 @@ mod test {
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array, &mut array_session().create_execution_ctx());
+    }
+
+    #[test]
+    fn cached_null_extrema_do_not_prove_values_fit() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::from_option_iter([None::<i32>, None]);
+        array
+            .aggregations()
+            .compute_result(&MIN_SKIP_NANS, &mut ctx)?;
+        array
+            .aggregations()
+            .compute_result(&MAX_SKIP_NANS, &mut ctx)?;
+
+        assert_eq!(
+            super::cached_values_fit_in(array.as_view(), &PType::I8.into()),
+            None
+        );
+        Ok(())
     }
 }
