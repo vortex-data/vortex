@@ -144,7 +144,8 @@ pub(crate) fn ids_scalar(t: &IdTable, b: &BlockView<'_>, out: &mut [u8], limit: 
             let nb = t.s - (31 - xs.leading_zeros());
             let bits = buf[lane] & ((1u32 << nb) - 1);
             buf[lane] >>= nb;
-            avail[lane] -= nb;
+            // A lane's last step may consume bits that were never written (see `encode_ids`).
+            avail[lane] = avail[lane].wrapping_sub(nb);
             x[lane] = (xs << nb) | bits;
             out[step * LANES + lane] = t.sym_tab[xi];
         }

@@ -282,12 +282,25 @@ fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()>
     let n_pad = n.div_ceil(LANES) * LANES;
     let sym = |i: usize| ids[i.min(n - 1)];
     let l = 1u32 << t.s;
-    // Encode each lane backwards to get every value's state bits.
+    // Encode each lane backwards to get every value's state bits. A lane's last symbol needs no
+    // bits: the state the decoder would rebuild after it is never used, so the lane starts in
+    // the smallest state of that symbol instead (zstd's `FSE_initCState2`).
     let mut bits = vec![(0u64, 0u32); n_pad];
     let mut states = [0u8; LANES];
     for (lane, state) in states.iter_mut().enumerate() {
-        let mut x = l;
-        let mut i = n_pad - LANES + lane;
+        let last = n_pad - LANES + lane;
+        let s_last = sym(last);
+        let first_state = t.cum[s_last] as usize;
+        let mut x = t.enc_states[first_state..first_state + t.freq[s_last] as usize]
+            .iter()
+            .copied()
+            .min()
+            .unwrap_or(l);
+        if last < LANES {
+            *state = u8::try_from(x - l)?;
+            continue;
+        }
+        let mut i = last - LANES;
         loop {
             let s = sym(i);
             let f = t.freq[s];
