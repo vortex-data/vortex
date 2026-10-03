@@ -21,6 +21,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -52,6 +53,7 @@ use crate::EntropyBinsMetadata;
 use crate::coder::BLOCK_VALUES;
 use crate::coder::CHUNK_VALUES;
 use crate::coder::IdTable;
+use crate::coder::MAX_BLOCK_VALUES;
 use crate::coder::MAX_LAG;
 use crate::coder::TAIL_PADDING;
 use crate::coder::encode_block;
@@ -306,54 +308,82 @@ impl EntropyBins {
         Array::try_from_parts(ArrayParts::new(EntropyBins, dtype, len, data).with_slots(slots))
     }
 
-    /// Compress an integer primitive array, coding each value's difference from the row `lag`
+    /// Compress an integer primitive array in blocks of `block_values` (a power of two from
+    /// [`BLOCK_VALUES`] to [`MAX_BLOCK_VALUES`]), coding each value's difference from the row `lag`
     /// rows back (`lag <= MAX_LAG`), or the value itself when `lag == 0`. Null rows are encoded
     /// with whatever value the buffer holds; validity is kept as a child.
     pub fn from_primitive(
         parray: ArrayView<'_, Primitive>,
         level: usize,
         lag: usize,
+        block_values: usize,
     ) -> VortexResult<EntropyBinsArray> {
         let dtype = parray.dtype().clone();
         let validity = parray.validity()?;
-        let data = EntropyBinsData::encode(parray, level, lag)?;
+        let data = EntropyBinsData::encode(parray, level, lag, block_values)?;
         Self::try_new(dtype, data, validity)
     }
-}
 
-impl EntropyBins {
-    /// Estimate the encoded size in bytes for each of `lags` without encoding, returning the
-    /// smallest as `(lag, bytes)`. Bins are trained on every other sampled block and scored on
-    /// the blocks in between, plus the per-block and per-array overheads.
-    pub fn estimate_best(
+    /// Choose the lag (from `lags`) and block size for `parray` and estimate the encoded size,
+    /// without encoding. Bins are trained on every other sampled block and scored on the blocks
+    /// in between; per-block and per-array overheads are added on top.
+    pub fn plan(
         parray: ArrayView<'_, Primitive>,
         level: usize,
         lags: &[usize],
-    ) -> VortexResult<(usize, usize)> {
+    ) -> VortexResult<EntropyBinsPlan> {
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
         let wide = wide_values(parray);
-        let mut best = (0, usize::MAX);
+        let n = wide.len();
+        let mut best: Option<(usize, usize)> = None;
         for &lag in lags {
-            let bytes = estimate_wide(&wide, ptype, level, lag)?;
-            if bytes < best.1 {
-                best = (lag, bytes);
+            let coded = estimate_coded(&wide, ptype, level, lag)?;
+            if best.is_none_or(|(_, b)| coded < b) {
+                best = Some((lag, coded));
             }
         }
-        Ok(best)
-    }
-
-    /// [`Self::estimate_best`] for a single `lag`.
-    pub fn estimate_nbytes(
-        parray: ArrayView<'_, Primitive>,
-        level: usize,
-        lag: usize,
-    ) -> VortexResult<usize> {
-        Ok(Self::estimate_best(parray, level, &[lag])?.1)
+        let (lag, coded) = best.ok_or_else(|| vortex_err!("no lags to plan"))?;
+        let fixed = TAIL_PADDING + 64 * 14 * n.div_ceil(CHUNK_VALUES);
+        let total = |block_values: usize| {
+            let n_blocks = n.div_ceil(block_values);
+            coded + fixed + n_blocks * (PER_BLOCK_BYTES + lag * ptype.byte_width())
+        };
+        // Larger blocks only when they save a noticeable share: they slow random access.
+        let floor = total(MAX_BLOCK_VALUES);
+        let block_values = [BLOCK_VALUES, 2 * BLOCK_VALUES, MAX_BLOCK_VALUES]
+            .into_iter()
+            .find(|&b| total(b) * 100 <= floor * (100 + LARGER_BLOCK_GAIN_PERCENT))
+            .unwrap_or(MAX_BLOCK_VALUES);
+        Ok(EntropyBinsPlan {
+            lag,
+            block_values,
+            nbytes: total(block_values),
+        })
     }
 }
 
-fn estimate_wide(wide: &[u64], ptype: PType, level: usize, lag: usize) -> VortexResult<usize> {
+/// An encoding choice and its estimated size, from [`EntropyBins::plan`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EntropyBinsPlan {
+    /// Row distance of the coded differences (zero codes the values).
+    pub lag: usize,
+    /// Values per block.
+    pub block_values: usize,
+    /// Estimated encoded size in bytes.
+    pub nbytes: usize,
+}
+
+/// Measured fixed cost of a coded block: header, lane states, the stop field, part-filled lane
+/// words and the block's offset.
+const PER_BLOCK_BYTES: usize = 44;
+
+/// How much smaller (in percent) the largest blocks must make the array before a larger block
+/// size is chosen.
+const LARGER_BLOCK_GAIN_PERCENT: usize = 8;
+
+/// The estimated bytes of the coded ids and offsets alone.
+fn estimate_coded(wide: &[u64], ptype: PType, level: usize, lag: usize) -> VortexResult<usize> {
     let transform = Transform::new(ptype.is_signed_int(), lag)?;
     let n = wide.len();
     // Up to 32 evenly spaced units, alternating between training and scoring.
@@ -377,15 +407,18 @@ fn estimate_wide(wide: &[u64], ptype: PType, level: usize, lag: usize) -> Vortex
         test.clone_from(&train);
     }
     let bits = held_out_bits(&train, &test, level)?;
-    // Per block: header, lane states, offset, part-filled lane words.
-    let per_block = 1 + 2 + 14 + 4 + 16;
-    let n_blocks = n.div_ceil(BLOCK_VALUES);
-    let fixed = TAIL_PADDING + 64 * 14 * n.div_ceil(CHUNK_VALUES);
-    let seeds = lag * ptype.byte_width() * n_blocks;
     // A size estimate: rounding the fractional bytes down is fine.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let coded = (bits * n as f64 / 8.0) as usize;
-    Ok(coded + per_block * n_blocks + fixed + seeds)
+    Ok((bits * n as f64 / 8.0) as usize)
+}
+
+/// The `block_log` of a supported block size.
+fn block_log_of(block_values: usize) -> VortexResult<u32> {
+    vortex_ensure!(
+        block_values.is_power_of_two() && (BLOCK_VALUES..=MAX_BLOCK_VALUES).contains(&block_values),
+        "block size {block_values} is not a power of two from {BLOCK_VALUES} to {MAX_BLOCK_VALUES}"
+    );
+    Ok(block_values.trailing_zeros())
 }
 
 /// How rows map to latents: order-preserving values with `lag == 0` (signed values with their
@@ -455,15 +488,21 @@ fn wide_values(parray: ArrayView<'_, Primitive>) -> Vec<u64> {
 }
 
 impl EntropyBinsData {
-    fn encode(parray: ArrayView<'_, Primitive>, level: usize, lag: usize) -> VortexResult<Self> {
+    fn encode(
+        parray: ArrayView<'_, Primitive>,
+        level: usize,
+        lag: usize,
+        block_values: usize,
+    ) -> VortexResult<Self> {
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
+        let block_log = block_log_of(block_values)?;
         let wide = wide_values(parray);
         let transform = Transform::new(ptype.is_signed_int(), lag)?;
         let mut latents = Vec::with_capacity(wide.len());
         let mut seeds = Vec::new();
         let width = ptype.byte_width();
-        for block in wide.chunks(BLOCK_VALUES) {
+        for block in wide.chunks(block_values) {
             transform.extend_latents(block, &mut latents);
             for i in 0..lag {
                 let v = block.get(i).copied().unwrap_or(0);
@@ -474,13 +513,14 @@ impl EntropyBinsData {
         let mut metadata = EntropyBinsMetadata {
             chunks: Vec::new(),
             lag: u32::try_from(lag)?,
+            block_log,
         };
         let mut data = Vec::new();
-        let mut starts: Vec<u32> = Vec::with_capacity(n.div_ceil(BLOCK_VALUES) + 1);
+        let mut starts: Vec<u32> = Vec::with_capacity(n.div_ceil(block_values) + 1);
         for chunk_latents in latents.chunks(CHUNK_VALUES) {
             let chunk = train_bins(chunk_latents, level)?;
             let table = IdTable::new(&chunk)?;
-            for block in chunk_latents.chunks(BLOCK_VALUES) {
+            for block in chunk_latents.chunks(block_values) {
                 starts.push(u32::try_from(data.len())?);
                 encode_block(&chunk, table.as_ref(), block, &mut data)?;
             }
@@ -557,7 +597,8 @@ impl EntropyBinsData {
                 vortex_ensure!(c.n_values as usize == CHUNK_VALUES, "chunk {i} is short");
             }
         }
-        let n_blocks = self.unsliced_n_rows.div_ceil(BLOCK_VALUES);
+        block_log_of(1 << self.metadata.block_log.min(31))?;
+        let n_blocks = self.unsliced_n_rows.div_ceil(self.block_values());
         vortex_ensure!(
             self.block_starts.len() == 4 * (n_blocks + 1),
             "expected {} block offsets",
@@ -585,6 +626,10 @@ impl EntropyBinsData {
     fn block_start(&self, b: usize) -> usize {
         let s = &self.block_starts[4 * b..4 * b + 4];
         u32::from_le_bytes([s[0], s[1], s[2], s[3]]) as usize
+    }
+
+    fn block_values(&self) -> usize {
+        1 << self.metadata.block_log
     }
 
     fn lag(&self) -> usize {
@@ -649,13 +694,14 @@ impl EntropyBinsData {
         if start == stop {
             return Ok(vortex_buffer::Buffer::empty());
         }
-        let first = start / BLOCK_VALUES;
-        let last = (stop - 1) / BLOCK_VALUES;
-        let covered = (last + 1) * BLOCK_VALUES - first * BLOCK_VALUES;
+        let bv = self.block_values();
+        let first = start / bv;
+        let last = (stop - 1) / bv;
+        let covered = (last + 1) * bv - first * bv;
         let mut out = BufferMut::<T>::with_capacity(covered);
         // SAFETY: every position of the covered blocks is written below before it is read.
-        unsafe { out.set_len(covered.min(self.unsliced_n_rows - first * BLOCK_VALUES)) };
-        let blocks_per_chunk = CHUNK_VALUES / BLOCK_VALUES;
+        unsafe { out.set_len(covered.min(self.unsliced_n_rows - first * bv)) };
+        let blocks_per_chunk = CHUNK_VALUES / bv;
         let mut ids = vec![0u8; 4 * IDS_SCRATCH];
         let data = self.data.as_slice();
         let mut b = first;
@@ -664,21 +710,20 @@ impl EntropyBinsData {
             let decoder = self.decoder(ci)?;
             let chunk_last = ((ci + 1) * blocks_per_chunk - 1).min(last);
             while b <= chunk_last {
-                let group = if b + 3 <= chunk_last && (b + 4) * BLOCK_VALUES <= self.unsliced_n_rows
-                {
+                let group = if b + 3 <= chunk_last && (b + 4) * bv <= self.unsliced_n_rows {
                     4
                 } else {
                     1
                 };
                 let views = (0..group)
                     .map(|k| {
-                        let n = BLOCK_VALUES.min(self.unsliced_n_rows - (b + k) * BLOCK_VALUES);
+                        let n = bv.min(self.unsliced_n_rows - (b + k) * bv);
                         parse_block(data, self.block_start(b + k), n, decoder.table.as_ref())
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
                 decode_ids(decoder, &views, &mut ids);
                 for (k, view) in views.iter().enumerate() {
-                    let row0 = (b + k - first) * BLOCK_VALUES;
+                    let row0 = (b + k - first) * bv;
                     let (seeds, lag) = self.seeds_of(b + k);
                     merge_block(
                         decoder,
@@ -691,16 +736,17 @@ impl EntropyBinsData {
                 b += group;
             }
         }
-        let offset = start - first * BLOCK_VALUES;
+        let offset = start - first * bv;
         Ok(out.freeze().slice(offset..offset + (stop - start)))
     }
 
     /// Decode one row by decoding its block's ids up to that row and reading one offset.
     fn scalar_at<T: NativePType + OutInt + Into<PValue>>(&self, row: usize) -> VortexResult<T> {
-        let block = row / BLOCK_VALUES;
-        let pos = row % BLOCK_VALUES;
+        let bv = self.block_values();
+        let block = row / bv;
+        let pos = row % bv;
         let decoder = self.decoder(row / CHUNK_VALUES)?;
-        let len = BLOCK_VALUES.min(self.unsliced_n_rows - block * BLOCK_VALUES);
+        let len = bv.min(self.unsliced_n_rows - block * bv);
         let view = parse_block(
             self.data.as_slice(),
             self.block_start(block),
@@ -711,7 +757,7 @@ impl EntropyBinsData {
         decoder.ids(&view, &mut ids, pos + 1);
         if self.lag() > 0 {
             // Differences need the running sums up to the row: merge the block's prefix.
-            let mut tmp = [T::default(); BLOCK_VALUES];
+            let mut tmp = [T::default(); MAX_BLOCK_VALUES];
             let prefix = BlockView { n: pos + 1, ..view };
             let (seeds, lag) = self.seeds_of(block);
             merge_block(decoder, &prefix, &ids, &mut tmp, &seeds[..lag]);
@@ -747,8 +793,62 @@ impl ValidityVTable<EntropyBins> for EntropyBins {
     }
 }
 
+/// Retained across repeated lookups: the block touched last and, once it has been touched
+/// twice, all of its values. A one-off lookup decodes only a block's prefix, while lookups that
+/// stay within a block (binary searches, sorted takes) amortize one full block decode.
+#[derive(Default)]
+pub struct EntropyBinsProbeState {
+    block: Option<usize>,
+    /// The decoded block (sign- or zero-extended), empty until the second touch.
+    values: Vec<u64>,
+}
+
+impl EntropyBinsData {
+    fn probe_at<T: NativePType + OutInt + Wide + Into<PValue>>(
+        &self,
+        cache: &mut EntropyBinsProbeState,
+        row: usize,
+    ) -> VortexResult<T> {
+        let bv = self.block_values();
+        let block = row / bv;
+        if cache.block != Some(block) {
+            cache.block = Some(block);
+            cache.values.clear();
+            return self.scalar_at::<T>(row);
+        }
+        if cache.values.is_empty() {
+            let start = block * bv;
+            let stop = (start + bv).min(self.unsliced_n_rows);
+            let decoded = self.decode_range::<T>(start, stop)?;
+            cache.values.extend(decoded.iter().map(|&v| v.wide()));
+        }
+        Ok(T::truncate_from(cache.values[row % bv]))
+    }
+}
+
 impl OperationsVTable<EntropyBins> for EntropyBins {
-    type ProbeState = ();
+    type ProbeState = EntropyBinsProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, EntropyBins>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(state.array().dtype().clone()));
+        }
+        let array = state.array();
+        let data = array.data();
+        let row = data.slice_start + index;
+        let nullability = array.dtype().nullability();
+        match_each_integer_ptype!(data.ptype, |T| {
+            let value = match state.retained() {
+                Some(cache) => data.probe_at::<T>(cache, row)?,
+                None => data.scalar_at::<T>(row)?,
+            };
+            Ok(Scalar::primitive(value, nullability))
+        })
+    }
 
     fn scalar_at(
         array: ArrayView<'_, EntropyBins>,

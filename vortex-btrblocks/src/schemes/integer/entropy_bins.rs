@@ -66,7 +66,7 @@ impl Scheme for EntropyBinsScheme {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let raw = primitive.len() * primitive.ptype().byte_width();
                 let level = pco::DEFAULT_COMPRESSION_LEVEL;
-                let (_, estimate) = EntropyBins::estimate_best(primitive.as_view(), level, &LAGS)?;
+                let estimate = EntropyBins::plan(primitive.as_view(), level, &LAGS)?.nbytes;
                 // RunEnd's sampled estimate cuts runs at every 64-row sample edge, so on
                 // run-heavy data it looks worse than it is. Leave such arrays to RunEnd (whose
                 // children may still use this scheme) when the runs are clearly cheaper.
@@ -97,9 +97,9 @@ impl Scheme for EntropyBinsScheme {
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array_as_primitive();
         let level = pco::DEFAULT_COMPRESSION_LEVEL;
-        let (lag, _) = EntropyBins::estimate_best(primitive, level, &LAGS)?;
+        let plan = EntropyBins::plan(primitive, level, &LAGS)?;
         // Bins that do not fit the encoding's limits leave the array as it is.
-        match EntropyBins::from_primitive(primitive, level, lag) {
+        match EntropyBins::from_primitive(primitive, level, plan.lag, plan.block_values) {
             Ok(array) => Ok(array.into_array()),
             Err(_) => Ok(primitive.array().clone()),
         }

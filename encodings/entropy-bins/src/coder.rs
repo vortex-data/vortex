@@ -34,6 +34,9 @@ use crate::EntropyBinsChunk;
 
 /// Values per independently decodable block.
 pub const BLOCK_VALUES: usize = 1024;
+/// Most values per block; arrays whose blocks would be dominated by their fixed per-block costs
+/// use larger blocks, up to this.
+pub const MAX_BLOCK_VALUES: usize = 4096;
 /// Values per chunk sharing one set of bins.
 pub const CHUNK_VALUES: usize = 1 << 18;
 /// Interleaved tANS lanes.
@@ -248,7 +251,7 @@ impl BitWriter {
     }
 }
 
-/// Append one block (`latents.len() <= BLOCK_VALUES`) to `out`.
+/// Append one block (`latents.len() <= MAX_BLOCK_VALUES`) to `out`.
 pub(crate) fn encode_block(
     chunk: &EntropyBinsChunk,
     table: Option<&IdTable>,

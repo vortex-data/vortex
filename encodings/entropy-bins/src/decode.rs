@@ -10,11 +10,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::EntropyBinsChunk;
-use crate::coder::BLOCK_VALUES;
 use crate::coder::FLAG_STOP;
 use crate::coder::FLAG_UNIFORM;
 use crate::coder::IdTable;
 use crate::coder::LANES;
+use crate::coder::MAX_BLOCK_VALUES;
 use crate::coder::MAX_LAG;
 
 /// One block's id stream and offsets, borrowed from the array's data buffer. `words` and
@@ -110,7 +110,7 @@ pub(crate) fn parse_block<'a>(
 }
 
 /// Decode the bin ids of positions `[0, min(n, limit))`, rounded up to a multiple of 16, into
-/// `out` (which must hold at least `BLOCK_VALUES` bytes).
+/// `out` (which must hold at least `b.n` bytes rounded up to a multiple of 16).
 pub(crate) fn ids_scalar(t: &IdTable, b: &BlockView<'_>, out: &mut [u8], limit: usize) {
     let steps = b.n.min(limit).div_ceil(LANES);
     let l = 1u32 << t.s;
@@ -295,14 +295,12 @@ pub(crate) fn merge_scalar<T: OutInt>(
 }
 
 /// Decode the ids of `views` (one to four blocks of one chunk) into consecutive
-/// [`IDS_SCRATCH`]-byte slots of `ids`. Four full coded blocks decode in lockstep.
+/// [`IDS_SCRATCH`]-byte slots of `ids`. Four coded blocks of equal length decode in lockstep.
 pub(crate) fn decode_ids(d: &ChunkDecoder, views: &[BlockView<'_>], ids: &mut [u8]) {
     #[cfg(target_arch = "x86_64")]
     if let (Some(t), [b0, b1, b2, b3]) = (&d.table, views)
         && crate::x86::has_avx512()
-        && views
-            .iter()
-            .all(|v| v.uniform.is_none() && v.n == BLOCK_VALUES)
+        && views.iter().all(|v| v.uniform.is_none() && v.n == b0.n)
     {
         let p = ids.as_mut_ptr();
         // SAFETY: AVX-512 is available, `ids` holds four block-sized slots, the blocks are coded
@@ -347,4 +345,4 @@ pub(crate) fn merge_block<T: OutInt>(
 }
 
 /// Block capacity of the id scratch buffer.
-pub(crate) const IDS_SCRATCH: usize = BLOCK_VALUES + 64;
+pub(crate) const IDS_SCRATCH: usize = MAX_BLOCK_VALUES + 64;

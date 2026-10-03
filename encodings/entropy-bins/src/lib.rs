@@ -5,7 +5,8 @@
 //!
 //! [`EntropyBinsArray`] splits each value into a bin id and an offset inside that bin, using the
 //! bins that pco's optimizer trains for every chunk of [`CHUNK_VALUES`] values. Values are stored
-//! in blocks of [`BLOCK_VALUES`]; each block holds an ids-only tANS stream (16 interleaved lanes)
+//! in blocks of [`BLOCK_VALUES`] (up to [`MAX_BLOCK_VALUES`] when the data is so compressible
+//! that per-block costs would dominate); each block holds an ids-only tANS stream (16 interleaved lanes)
 //! followed by the offsets packed in value order at their bin's width, so a block decodes on its
 //! own and a single value needs only a partial decode of its block.
 //!
@@ -26,6 +27,7 @@ mod x86;
 pub use array::*;
 pub use coder::BLOCK_VALUES;
 pub use coder::CHUNK_VALUES;
+pub use coder::MAX_BLOCK_VALUES;
 
 /// The bins of one chunk, sorted by lower bound.
 #[derive(Clone, PartialEq, Eq, prost::Message)]
@@ -57,6 +59,9 @@ pub struct EntropyBinsMetadata {
     /// each block's first `lag` values are stored as seeds. Zero codes the values themselves.
     #[prost(uint32, tag = "2")]
     pub lag: u32,
+    /// Log2 of the values per block, from 10 ([`BLOCK_VALUES`]) to 12 ([`MAX_BLOCK_VALUES`]).
+    #[prost(uint32, tag = "3")]
+    pub block_log: u32,
 }
 
 #[cfg(test)]

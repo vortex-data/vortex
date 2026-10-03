@@ -15,7 +15,9 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
+use crate::BLOCK_VALUES;
 use crate::EntropyBins;
+use crate::MAX_BLOCK_VALUES;
 
 /// Deterministic xorshift values with a skewed, clustered distribution.
 fn skewed(len: usize, seed: u64) -> Vec<i64> {
@@ -40,17 +42,27 @@ fn skewed(len: usize, seed: u64) -> Vec<i64> {
 
 const LAGS: [usize; 6] = [0, 1, 2, 3, 4, 8];
 
+const BLOCK_SIZES: [usize; 3] = [BLOCK_VALUES, 2 * BLOCK_VALUES, MAX_BLOCK_VALUES];
+
 fn roundtrip<T: NativePType>(values: Vec<T>) -> VortexResult<()> {
     for lag in LAGS {
-        roundtrip_with(values.clone(), lag)?;
+        roundtrip_with(values.clone(), lag, BLOCK_VALUES)?;
+    }
+    for block_values in [2 * BLOCK_VALUES, MAX_BLOCK_VALUES] {
+        roundtrip_with(values.clone(), 0, block_values)?;
+        roundtrip_with(values.clone(), 3, block_values)?;
     }
     Ok(())
 }
 
-fn roundtrip_with<T: NativePType>(values: Vec<T>, lag: usize) -> VortexResult<()> {
+fn roundtrip_with<T: NativePType>(
+    values: Vec<T>,
+    lag: usize,
+    block_values: usize,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-    let encoded = EntropyBins::from_primitive(array.as_view(), 8, lag)?;
+    let encoded = EntropyBins::from_primitive(array.as_view(), 8, lag, block_values)?;
     assert_arrays_eq!(
         encoded.clone().into_array(),
         array.clone().into_array(),
@@ -58,7 +70,24 @@ fn roundtrip_with<T: NativePType>(values: Vec<T>, lag: usize) -> VortexResult<()
     );
     // Point lookups, including block edges.
     let n = array.len();
-    for i in [0, 1, 2, 7, 8, 15, 16, 1023, 1024, 1025, 1031, n / 2, n - 1] {
+    for i in [
+        0,
+        1,
+        2,
+        7,
+        8,
+        15,
+        16,
+        1023,
+        1024,
+        1025,
+        1031,
+        4095,
+        4096,
+        4097,
+        n / 2,
+        n - 1,
+    ] {
         if i < n {
             assert_eq!(
                 encoded.clone().into_array().execute_scalar(i, &mut ctx)?,
@@ -137,11 +166,11 @@ fn interleaved_series_prefers_lag() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::NonNullable);
     let size = |lag| -> VortexResult<usize> {
-        let e = EntropyBins::from_primitive(array.as_view(), 8, lag)?;
+        let e = EntropyBins::from_primitive(array.as_view(), 8, lag, BLOCK_VALUES)?;
         Ok(e.data().data.len())
     };
     assert!(size(3)? < size(1)?);
-    assert_eq!(EntropyBins::estimate_best(array.as_view(), 8, &LAGS)?.0, 3);
+    assert_eq!(EntropyBins::plan(array.as_view(), 8, &LAGS)?.lag, 3);
     roundtrip(values)
 }
 
@@ -151,7 +180,7 @@ fn nullable_and_slices() -> VortexResult<()> {
     let values = skewed(5000, 3);
     let validity = Validity::from_iter((0..5000).map(|i| i % 7 != 0));
     let array = PrimitiveArray::new(Buffer::from(values), validity);
-    let encoded = EntropyBins::from_primitive(array.as_view(), 8, 1)?.into_array();
+    let encoded = EntropyBins::from_primitive(array.as_view(), 8, 1, BLOCK_VALUES)?.into_array();
     assert_arrays_eq!(encoded, array.clone().into_array(), &mut ctx);
     for (a, b) in [(0, 1), (3, 1500), (1024, 2048), (1000, 5000), (4999, 5000)] {
         assert_arrays_eq!(
@@ -174,16 +203,55 @@ fn simd_matches_scalar() -> VortexResult<()> {
             Buffer::from(v.iter().map(|&x| x as i16).collect::<Vec<_>>()),
             Validity::NonNullable,
         );
-        for (array, lag) in LAGS
-            .iter()
-            .flat_map(|&lag| [(wide.clone(), lag), (narrow.clone(), lag)])
-        {
-            let encoded = EntropyBins::from_primitive(array.as_view(), 8, lag)?.into_array();
+        let cases = LAGS.iter().flat_map(|&lag| {
+            BLOCK_SIZES
+                .iter()
+                .flat_map(move |&bv| [(false, lag, bv), (true, lag, bv)])
+        });
+        for (is_narrow, lag, block_values) in cases {
+            let array = if is_narrow { &narrow } else { &wide };
+            let encoded =
+                EntropyBins::from_primitive(array.as_view(), 8, lag, block_values)?.into_array();
             crate::x86::set_force_scalar(true);
             let scalar = encoded.clone().execute::<PrimitiveArray>(&mut ctx)?;
             crate::x86::set_force_scalar(false);
             let simd = encoded.execute::<PrimitiveArray>(&mut ctx)?;
             assert_arrays_eq!(scalar.into_array(), simd.into_array(), &mut ctx);
+        }
+    }
+    Ok(())
+}
+
+/// Repeated probes cache a block after its second touch; every access pattern must still read
+/// the right rows, including nulls and slices.
+#[rstest]
+#[case(0, BLOCK_VALUES)]
+#[case(1, BLOCK_VALUES)]
+#[case(3, BLOCK_VALUES)]
+#[case(1, MAX_BLOCK_VALUES)]
+fn repeated_probe(#[case] lag: usize, #[case] block_values: usize) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let n = 5000;
+    let validity = Validity::from_iter((0..n).map(|i| i % 11 != 0));
+    let parray = PrimitiveArray::new(Buffer::from(skewed(n, 13)), validity);
+    let encoded = EntropyBins::from_primitive(parray.as_view(), 8, lag, block_values)?.into_array();
+    let array = parray.into_array();
+    for (a, b) in [(0, n), (700, 4321)] {
+        let expected = array.slice(a..b)?;
+        let sliced = encoded.slice(a..b)?;
+        let mut probe = sliced.repeated_probe();
+        // Revisit blocks, jump between them and walk one block backwards.
+        let len = b - a;
+        let order = (0..len)
+            .step_by(97)
+            .chain([5, 6, 5, len - 1, 0, 1030, 1029, 1028, 4100, 4099])
+            .chain((0..len.min(block_values)).rev());
+        for i in order.filter(|&i| i < len) {
+            assert_eq!(
+                probe.execute_scalar(i, &mut ctx)?,
+                expected.execute_scalar(i, &mut ctx)?,
+                "row {i} of {a}..{b}"
+            );
         }
     }
     Ok(())

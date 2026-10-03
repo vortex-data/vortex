@@ -75,13 +75,13 @@ fn srlv32(a: __m512i, c: __m512i) -> __m512i {
     r
 }
 
-/// Decode the bin ids of `V` blocks in lockstep (all with the same length), each into a
-/// `BLOCK_VALUES`-byte buffer.
+/// Decode the bin ids of `V` blocks in lockstep (all with the same length), each into a buffer
+/// of at least the block length rounded up to a multiple of 16.
 ///
 /// # Safety
 ///
 /// The CPU must support the features checked by [`has_avx512`]; every `outs[v]` must point to
-/// at least `BLOCK_VALUES` writable bytes; every block must be non-uniform and come from a data
+/// at least that many writable bytes; every block must be non-uniform and come from a data
 /// buffer with tail padding.
 pub(crate) unsafe fn ids16<const V: usize>(
     t: &IdTable,
