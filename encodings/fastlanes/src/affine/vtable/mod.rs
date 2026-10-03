@@ -17,6 +17,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::slice::SliceArraySlotsExt;
@@ -155,6 +156,11 @@ impl VTable for Affine {
         } else {
             require_child!(array, array.slopes(), AffineSlots::SLOPES => Primitive)
         };
+        // Dictionary-encoded residuals decode fused with the model, reading the dictionary's own
+        // children, so the dictionary itself is left unexecuted.
+        if array.encoded().is::<Dict>() {
+            return Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()));
+        }
         // A slice of a bit-packed child with patches stays lazy until executed. Step it to the
         // sliced bit-packed array, so the fused unpack below still applies.
         let slice_of_bitpacked = array

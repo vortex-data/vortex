@@ -214,3 +214,32 @@ fn fused_bitpacked(#[case] values: PrimitiveArray, #[case] bit_width: u8) -> Vor
     }
     Ok(())
 }
+
+/// Dictionary-encoded residuals decode fused with the model, including slices and slopes.
+#[rstest]
+#[case::grid(grid_timestamps())]
+#[case::jitter(jittered_timestamps())]
+#[case::prices(prices())]
+fn fused_dict(#[case] values: PrimitiveArray) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    for options in MODES {
+        let affine = Affine::encode(&values, options, &mut ctx)?;
+        let residuals = affine.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let dict = vortex_array::builders::dict::dict_encode(&residuals.into_array(), &mut ctx)?;
+        let fused = Affine::try_new(
+            dict.into_array(),
+            affine.references().clone(),
+            affine.scales().clone(),
+            affine.slopes().clone(),
+            0,
+            affine.slope_shift(),
+        )?
+        .into_array();
+        assert_arrays_eq!(fused, values, &mut ctx);
+        for range in [1500..2600, 1024..2048, 7..900] {
+            let expected = values.clone().into_array().slice(range.clone())?;
+            assert_arrays_eq!(fused.slice(range)?, expected, &mut ctx);
+        }
+    }
+    Ok(())
+}

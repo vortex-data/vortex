@@ -4,7 +4,6 @@
 use std::iter;
 use std::mem;
 use std::mem::MaybeUninit;
-use std::sync::LazyLock;
 
 use fastlanes::BitPacking;
 use fastlanes::FoR;
@@ -15,7 +14,9 @@ use num_traits::WrappingMul;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
@@ -26,7 +27,9 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::Affine;
 use crate::AffineArray;
+use vortex_array::IntoArray;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
@@ -70,6 +73,32 @@ impl<T: NativePType> ChunkParam<T> {
 /// Decode an Affine array whose non-constant parameters are primitive, and whose `encoded` child
 /// is primitive or bit-packed with the same offset.
 pub fn decompress(array: &AffineArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    if let Some(dict) = array.encoded().as_opt::<Dict>()
+        && dict.values().len() <= MAX_FUSED_DICT_VALUES
+    {
+        let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = dict.values().clone().execute::<PrimitiveArray>(ctx)?;
+        if codes.all_valid(ctx)? && values.all_valid(ctx)? {
+            return match_each_integer_ptype!(array.ptype(), |T| {
+                match_each_unsigned_integer_ptype!(codes.ptype(), |C| {
+                    decompress_dict::<T, C>(array, &codes, &values, ctx)
+                })
+            });
+        }
+    }
+    if array.encoded().is::<Dict>() {
+        // Not fusable: decode the dictionary, then the residuals as usual.
+        let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?.into_array();
+        let array = Affine::try_new(
+            encoded,
+            array.references().clone(),
+            array.scales().clone(),
+            array.slopes().clone(),
+            array.offset(),
+            array.slope_shift(),
+        )?;
+        return decompress(&array, ctx);
+    }
     let encoded_ptype = array.encoded().dtype().as_ptype();
     if encoded_ptype.byte_width() < array.ptype().byte_width() {
         return match_each_integer_ptype!(array.ptype(), |T| {
@@ -98,7 +127,6 @@ impl<T: NativePType> Params<T> {
             slopes: ChunkParam::from_child(array.slopes()),
             offset: usize::from(array.offset()),
             shift: array.slope_shift(),
-            level: simd_level(),
         }
     }
 }
@@ -286,6 +314,82 @@ where
     Ok(PrimitiveArray::new(values.freeze(), validity))
 }
 
+/// The largest dictionary [`decompress_dict`] scales per chunk: building the table costs one
+/// multiply-add per entry per chunk, at most a quarter of one per value.
+const MAX_FUSED_DICT_VALUES: usize = 256;
+
+/// Decode dictionary-encoded residuals without materializing them.
+///
+/// Per chunk, the dictionary is scaled and offset once into a table, `table[k] = values[k] *
+/// scale + reference`, so each value is one lookup plus the slope term.
+fn decompress_dict<T, C>(
+    array: &AffineArray,
+    codes: &PrimitiveArray,
+    values: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray>
+where
+    T: NativePType + PrimInt + WrappingAdd + WrappingMul,
+    i64: AsPrimitive<T>,
+    u64: AsPrimitive<T>,
+    C: NativePType + AsPrimitive<usize>,
+{
+    let len = array.len();
+    let validity = array.encoded().validity()?;
+    if len == 0 {
+        return Ok(PrimitiveArray::new(Buffer::<T>::empty(), validity));
+    }
+    let params = Params::<T>::new(array);
+    // Residuals of any integer type, as `T` by the same truncation the other paths use.
+    let residuals: Vec<T> = match_each_integer_ptype!(values.ptype(), |V| {
+        values
+            .as_slice::<V>()
+            .iter()
+            .map(|&v| <u64 as AsPrimitive<T>>::as_(v as u64))
+            .collect()
+    });
+    let codes = codes.as_slice::<C>();
+    let mut table = vec![T::zero(); residuals.len()];
+    let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+    let output = &mut out.spare_capacity_mut()[..len];
+
+    let first_len = (FL_CHUNK_SIZE - params.offset).min(len);
+    let (first_codes, rest_codes) = codes.split_at(first_len);
+    let (first_dst, rest_dst) = output.split_at_mut(first_len);
+    let chunks = iter::once((params.offset, first_codes, first_dst)).chain(
+        rest_codes
+            .chunks(FL_CHUNK_SIZE)
+            .zip(rest_dst.chunks_mut(FL_CHUNK_SIZE))
+            .map(|(codes, dst)| (0, codes, dst)),
+    );
+    for (chunk_idx, (start, codes, dst)) in chunks.enumerate() {
+        let reference = params.references.get(chunk_idx);
+        let scale = params.scales.get(chunk_idx);
+        for (entry, &residual) in table.iter_mut().zip(&residuals) {
+            *entry = residual.wrapping_mul(&scale).wrapping_add(&reference);
+        }
+        let slope = params.slopes.get(chunk_idx);
+        if slope == 0 {
+            for (o, &code) in dst.iter_mut().zip(codes) {
+                o.write(table[code.as_()]);
+            }
+        } else {
+            let (whole, frac) = split_slope(slope, params.shift);
+            let mut whole_j = slope_term_split(whole, 0, start, 0);
+            let mut frac_j = frac.wrapping_mul(start as u32);
+            for (o, &code) in dst.iter_mut().zip(codes) {
+                let term = whole_j.wrapping_add(i64::from(frac_j >> params.shift));
+                o.write(table[code.as_()].wrapping_add(&term.as_()));
+                whole_j = whole_j.wrapping_add(whole);
+                frac_j = frac_j.wrapping_add(frac);
+            }
+        }
+    }
+    // SAFETY: the loop above initialized every value.
+    unsafe { out.set_len(len) };
+    Ok(PrimitiveArray::new(out.freeze(), validity))
+}
+
 /// View unpacked physical values as the array's logical type.
 #[inline(always)]
 fn physical_as_logical<T: PhysicalPType>(values: &mut [T::Physical]) -> &mut [T] {
@@ -294,43 +398,12 @@ fn physical_as_logical<T: PhysicalPType>(values: &mut [T::Physical]) -> &mut [T]
     unsafe { mem::transmute::<&mut [T::Physical], &mut [T]>(values) }
 }
 
-/// The widest SIMD level the CPU supports, detected once.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SimdLevel {
-    Baseline,
-    #[cfg(target_arch = "x86_64")]
-    Avx2,
-    /// AVX-512 has native 64-bit multiplies (`vpmullq`) and 64-bit arithmetic shifts.
-    #[cfg(target_arch = "x86_64")]
-    Avx512,
-}
-
-fn simd_level() -> SimdLevel {
-    static LEVEL: LazyLock<SimdLevel> = LazyLock::new(|| {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx512f")
-                && is_x86_feature_detected!("avx512dq")
-                && is_x86_feature_detected!("avx512vl")
-            {
-                return SimdLevel::Avx512;
-            }
-            if is_x86_feature_detected!("avx2") {
-                return SimdLevel::Avx2;
-            }
-        }
-        SimdLevel::Baseline
-    });
-    *LEVEL
-}
-
 struct Params<T> {
     references: ChunkParam<T>,
     scales: ChunkParam<T>,
     slopes: ChunkParam<i64>,
     offset: usize,
     shift: u8,
-    level: SimdLevel,
 }
 
 impl<T> Params<T>
@@ -345,28 +418,12 @@ where
     }
 
     /// Turn the residuals of chunk `chunk_idx`, whose first value sits at position `start` within
-    /// the chunk, into values in place, with the widest SIMD the CPU supports.
+    /// the chunk, into values in place.
+    ///
+    /// The loops are written to auto-vectorize; build with `-C target-cpu=native` (or a
+    /// `x86-64-v4` target) to get AVX-512's native 64-bit multiplies.
     #[inline]
     fn apply_chunk(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
-        match self.level {
-            // SAFETY: the CPU supports the features each variant enables.
-            #[cfg(target_arch = "x86_64")]
-            SimdLevel::Avx512 => unsafe { self.apply_chunk_avx512(chunk_idx, start, chunk) },
-            #[cfg(target_arch = "x86_64")]
-            SimdLevel::Avx2 => unsafe { self.apply_chunk_avx2(chunk_idx, start, chunk) },
-            SimdLevel::Baseline => self.apply_chunk_impl(chunk_idx, start, chunk),
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512f,avx512dq,avx512vl")]
-    unsafe fn apply_chunk_avx512(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
-        self.apply_chunk_impl(chunk_idx, start, chunk)
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    unsafe fn apply_chunk_avx2(&self, chunk_idx: usize, start: usize, chunk: &mut [T]) {
         self.apply_chunk_impl(chunk_idx, start, chunk)
     }
 
@@ -420,45 +477,6 @@ where
     #[inline]
     fn apply_narrow<U>(&self, chunk_idx: usize, start: usize, src: &[U], dst: &mut [MaybeUninit<T>])
     where
-        T: AsPrimitive<u64>,
-        u64: AsPrimitive<T>,
-        U: Copy + AsPrimitive<T> + AsPrimitive<u64>,
-    {
-        match self.level {
-            // SAFETY: the CPU supports the features each variant enables.
-            #[cfg(target_arch = "x86_64")]
-            SimdLevel::Avx512 => unsafe { self.apply_narrow_avx512(chunk_idx, start, src, dst) },
-            #[cfg(target_arch = "x86_64")]
-            SimdLevel::Avx2 => unsafe { self.apply_narrow_avx2(chunk_idx, start, src, dst) },
-            SimdLevel::Baseline => self.apply_narrow_impl(chunk_idx, start, src, dst),
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512f,avx512dq,avx512vl,avx512bw")]
-    unsafe fn apply_narrow_avx512<U>(
-        &self,
-        chunk_idx: usize,
-        start: usize,
-        src: &[U],
-        dst: &mut [MaybeUninit<T>],
-    ) where
-        T: AsPrimitive<u64>,
-        u64: AsPrimitive<T>,
-        U: Copy + AsPrimitive<T> + AsPrimitive<u64>,
-    {
-        self.apply_narrow_impl(chunk_idx, start, src, dst)
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    unsafe fn apply_narrow_avx2<U>(
-        &self,
-        chunk_idx: usize,
-        start: usize,
-        src: &[U],
-        dst: &mut [MaybeUninit<T>],
-    ) where
         T: AsPrimitive<u64>,
         u64: AsPrimitive<T>,
         U: Copy + AsPrimitive<T> + AsPrimitive<u64>,

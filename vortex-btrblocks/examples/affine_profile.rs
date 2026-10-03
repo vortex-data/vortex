@@ -29,8 +29,18 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    // Register every encoding's kernels, as a real Vortex session does. Without them, slices of
+    // RunEnd, Sparse and others fall back to decoding their whole child.
     let session = vortex_array::array_session();
+    vortex_alp::initialize(&session);
+    vortex_datetime_parts::initialize(&session);
+    vortex_decimal_byte_parts::initialize(&session);
     vortex_fastlanes::initialize(&session);
+    vortex_fsst::initialize(&session);
+    vortex_runend::initialize(&session);
+    vortex_sequence::initialize(&session);
+    vortex_sparse::initialize(&session);
+    vortex_zigzag::initialize(&session);
     session
 });
 static AFFINE: AffineScheme = AffineScheme::auto();
