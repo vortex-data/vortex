@@ -173,13 +173,40 @@ mod test {
 
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
     use super::*;
     use crate::test::SESSION;
+
+    #[test]
+    fn cached_overflow_null_survives_ipc() -> VortexResult<()> {
+        let array = buffer![i64::MAX, 1].into_array();
+        let aggregate = Sum.bind(NumericalAggregateOpts::skip_nans());
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = array.aggregations().compute_result(&aggregate, &mut ctx)?;
+        assert_eq!(result, Scalar::null(array.dtype().as_nullable()));
+        let ipc_buffer = array
+            .clone()
+            .to_array_iterator()
+            .into_ipc(&SESSION)?
+            .collect_to_buffer()?;
+        let mut reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION)?;
+        let decoded = reader.next().transpose()?.expect("one IPC array");
+        assert_eq!(
+            decoded.aggregations().get_result(&aggregate),
+            Precision::Exact(result)
+        );
+        assert_arrays_eq!(decoded, array, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn test_sync_stream() -> VortexResult<()> {

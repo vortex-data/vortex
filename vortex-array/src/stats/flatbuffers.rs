@@ -16,19 +16,6 @@ use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::scalar::ScalarValue;
 use crate::stats::StatsSet;
-use crate::stats::StatsSetRef;
-
-impl WriteFlatBuffer for StatsSetRef<'_> {
-    type Target<'t> = fba::ArrayStats<'t>;
-
-    /// All statistics written must be exact
-    fn write_flatbuffer<'fb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
-        self.with_typed_stats_set(|stats_set| stats_set.values.write_flatbuffer(fbb))
-    }
-}
 
 impl WriteFlatBuffer for StatsSet {
     type Target<'t> = fba::ArrayStats<'t>;

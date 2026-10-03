@@ -6,12 +6,19 @@ use rstest::rstest;
 use vortex_error::VortexResult;
 
 use super::legacy_stats_to_results;
+use super::load_node_summary;
 use super::read_summary;
+use super::truncate_summary;
+use super::write_node_summary;
 use super::write_summary;
+use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::array_session;
+use crate::arrays::ExtensionArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
@@ -52,6 +59,10 @@ fn legacy_writer_fields_keep_the_same_bytes_and_types() -> VortexResult<()> {
     let offset = write_summary(&results, &dtype, &mut new)?;
     new.finish(offset, None);
     assert_eq!(old.finished_data(), new.finished_data());
+    let mut node = FlatBufferBuilder::new();
+    let offset = write_node_summary(&results, &dtype, &mut node)?;
+    node.finish(offset, None);
+    assert_eq!(old.finished_data(), node.finished_data());
 
     let fb = flatbuffers::root::<fba::ArrayStats<'_>>(new.finished_data())?;
     let decoded = read_summary(&fb, &dtype, &array_session())?;
@@ -109,6 +120,10 @@ fn nullable_null_is_present_and_missing_is_absent(
     let session = array_session();
     let decoded = read_summary(&fb, &dtype, &session)?;
     assert_eq!(decoded.get_result(stat.finalized_aggregate_fn()), value);
+    let mut node = FlatBufferBuilder::new();
+    let offset = write_node_summary(&results, &dtype, &mut node)?;
+    node.finish(offset, None);
+    assert_eq!(fbb.finished_data(), node.finished_data());
     assert!(
         StatsSet::from_flatbuffer(&fb, &dtype, &session)?
             .get(stat)
@@ -160,6 +175,7 @@ fn current_nullable_min_writes_a_historical_non_nullable_field() -> VortexResult
         [(min, Precision::Exact(Scalar::primitive(4f32, Nullable)))],
     )?;
     assert!(write_summary(&float, &dtype, &mut FlatBufferBuilder::new()).is_err());
+    assert!(write_node_summary(&float, &dtype, &mut FlatBufferBuilder::new()).is_err());
     Ok(())
 }
 
@@ -237,5 +253,176 @@ fn unsupported_options_and_inexact_non_extrema_are_rejected() -> VortexResult<()
         Precision::Inexact(0u64.into()),
     )]);
     assert!(write_summary(&results, &dtype, &mut FlatBufferBuilder::new()).is_err());
+    Ok(())
+}
+
+#[test]
+fn node_projection_omits_unrepresentable_results() -> VortexResult<()> {
+    let dtype = DType::from(PType::I64);
+    let results = AggregateResults::from_validated(vec![
+        (
+            Stat::Min.finalized_aggregate_fn().clone(),
+            Precision::Exact(Scalar::null(dtype.as_nullable())),
+        ),
+        (
+            Stat::Max.finalized_aggregate_fn().clone(),
+            Precision::Exact(Scalar::null(dtype.as_nullable())),
+        ),
+        (
+            Stat::Sum.finalized_aggregate_fn().clone(),
+            Precision::Exact(Scalar::null(dtype.as_nullable())),
+        ),
+        (
+            Stat::NullCount.finalized_aggregate_fn().clone(),
+            Precision::Inexact(0u64.into()),
+        ),
+        (
+            Min.bind(NumericalAggregateOpts::include_nans()),
+            Precision::Exact(Scalar::primitive(4i64, Nullable)),
+        ),
+        (
+            SumV2.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::Exact(Scalar::primitive(4i64, Nullable)),
+        ),
+    ]);
+    let mut fbb = FlatBufferBuilder::new();
+    let offset = write_node_summary(&results, &dtype, &mut fbb)?;
+    fbb.finish(offset, None);
+    let fb = flatbuffers::root::<fba::ArrayStats<'_>>(fbb.finished_data())?;
+    let decoded = read_summary(&fb, &dtype, &array_session())?;
+    assert_eq!(decoded.iter().count(), 1);
+    assert_eq!(
+        decoded.get_result(Stat::Sum.finalized_aggregate_fn()),
+        Precision::Exact(Scalar::null(dtype.as_nullable()))
+    );
+    assert!(write_summary(&results, &dtype, &mut FlatBufferBuilder::new()).is_err());
+    assert_eq!(results.iter().count(), 6);
+    Ok(())
+}
+
+#[test]
+fn node_load_normalizes_current_root_nullability() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter([1i64, 2]).into_array();
+    let results = AggregateResults::from_validated(vec![
+        (
+            Stat::Min.finalized_aggregate_fn().clone(),
+            Precision::Inexact(Scalar::primitive(0i64, NonNullable)),
+        ),
+        (
+            Stat::Sum.finalized_aggregate_fn().clone(),
+            Precision::Exact(Scalar::null(array.dtype().as_nullable())),
+        ),
+    ]);
+    let mut fbb = FlatBufferBuilder::new();
+    let offset = write_node_summary(&results, array.dtype(), &mut fbb)?;
+    fbb.finish(offset, None);
+    let fb = flatbuffers::root::<fba::ArrayStats<'_>>(fbb.finished_data())?;
+    load_node_summary(&array, &fb, &array_session())?;
+    assert_eq!(
+        array
+            .aggregations()
+            .get_result(Stat::Min.finalized_aggregate_fn()),
+        Precision::Inexact(Scalar::primitive(0i64, Nullable))
+    );
+    assert_eq!(
+        array
+            .aggregations()
+            .get_result(Stat::Sum.finalized_aggregate_fn()),
+        results.get_result(Stat::Sum.finalized_aggregate_fn())
+    );
+    Ok(())
+}
+
+#[test]
+fn node_load_preserves_extension_storage_sum() -> VortexResult<()> {
+    let array = ExtensionArray::try_new(
+        Timestamp::new(TimeUnit::Milliseconds, NonNullable).erased(),
+        PrimitiveArray::from_iter([12i64]).into_array(),
+    )?
+    .into_array();
+    let results = AggregateResults::from_validated(vec![(
+        Stat::Sum.finalized_aggregate_fn().clone(),
+        Precision::Exact(Scalar::primitive(12i64, Nullable)),
+    )]);
+    let mut fbb = FlatBufferBuilder::new();
+    let offset = write_node_summary(&results, array.dtype(), &mut fbb)?;
+    fbb.finish(offset, None);
+    let fb = flatbuffers::root::<fba::ArrayStats<'_>>(fbb.finished_data())?;
+    load_node_summary(&array, &fb, &array_session())?;
+    assert_eq!(
+        array
+            .aggregations()
+            .get_result(Stat::Sum.finalized_aggregate_fn()),
+        results.get_result(Stat::Sum.finalized_aggregate_fn())
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::utf8(
+    Scalar::utf8("abcdef", NonNullable),
+    Scalar::utf8("abc", NonNullable),
+    Scalar::utf8("abd", NonNullable)
+)]
+#[case::binary(Scalar::binary(vec![1, 2, 3, 4], NonNullable), Scalar::binary(vec![1, 2, 3], NonNullable), Scalar::binary(vec![1, 2, 4], NonNullable))]
+fn detached_truncation_preserves_bounds(
+    #[case] original: Scalar,
+    #[case] lower: Scalar,
+    #[case] upper: Scalar,
+) -> VortexResult<()> {
+    let results = AggregateResults::from_validated(vec![
+        (
+            Stat::Min.finalized_aggregate_fn().clone(),
+            Precision::Exact(original.clone()),
+        ),
+        (
+            Stat::Max.finalized_aggregate_fn().clone(),
+            Precision::Inexact(original.clone()),
+        ),
+    ]);
+    let truncated = truncate_summary(&results, 3)?;
+    assert_eq!(
+        truncated.get_result(Stat::Min.finalized_aggregate_fn()),
+        Precision::Inexact(lower)
+    );
+    assert_eq!(
+        truncated.get_result(Stat::Max.finalized_aggregate_fn()),
+        Precision::Inexact(upper)
+    );
+    let unchanged = truncate_summary(&results, 8)?;
+    for (aggregate, value) in results.iter() {
+        assert_eq!(unchanged.get_result(aggregate), *value);
+    }
+    assert_eq!(
+        results.get_result(Stat::Min.finalized_aggregate_fn()),
+        Precision::Exact(original.clone())
+    );
+    assert_eq!(
+        results.get_result(Stat::Max.finalized_aggregate_fn()),
+        Precision::Inexact(original)
+    );
+    Ok(())
+}
+
+#[test]
+fn detached_truncation_omits_unbounded_max_and_retains_nulls() -> VortexResult<()> {
+    let results = AggregateResults::from_validated(vec![(
+        Stat::Max.finalized_aggregate_fn().clone(),
+        Precision::Exact(Scalar::binary(vec![255, 255], NonNullable)),
+    )]);
+    assert!(
+        truncate_summary(&results, 1)?
+            .get_result(Stat::Max.finalized_aggregate_fn())
+            .is_absent()
+    );
+    let null = Precision::Inexact(Scalar::null(DType::Utf8(Nullable)));
+    let results = AggregateResults::from_validated(vec![(
+        Stat::Min.finalized_aggregate_fn().clone(),
+        null.clone(),
+    )]);
+    assert_eq!(
+        truncate_summary(&results, 1)?.get_result(Stat::Min.finalized_aggregate_fn()),
+        null
+    );
     Ok(())
 }
