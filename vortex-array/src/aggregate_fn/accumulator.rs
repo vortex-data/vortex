@@ -221,7 +221,25 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             return Ok(());
         }
 
-        // 3. Iteratively check the registry against each intermediate encoding, executing one
+        // 3. Extension types have no encoding of their own, so an aggregate of an extension-typed
+        //    batch can be defined by a kernel registered for its extension type.
+        if let DType::Extension(ext_dtype) = batch.dtype()
+            && let Some(kernel) = session
+                .aggregate_fns()
+                .find_extension_aggregate_kernel(ext_dtype.id(), self.aggregate_fn.id())
+            && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
+        {
+            vortex_ensure!(
+                result.dtype() == &self.dtypes.partial_dtype,
+                "Extension aggregate kernel returned {}, expected {}",
+                result.dtype(),
+                self.dtypes.partial_dtype,
+            );
+            self.fold_partial_scalar(result)?;
+            return Ok(());
+        }
+
+        // 4. Iteratively check the registry against each intermediate encoding, executing one
         //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
         //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
         //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
@@ -250,7 +268,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch = batch.execute(ctx)?;
         }
 
-        // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
+        // 5. Otherwise, execute the batch until it is columnar and accumulate it into the state.
         let columnar = batch.execute::<Columnar>(ctx)?;
 
         self.ensure_partial()?;
