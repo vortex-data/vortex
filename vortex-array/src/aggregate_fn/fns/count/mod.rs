@@ -119,7 +119,7 @@ impl AggregateFnVTable for Count {
         let mut count = batch.valid_count(ctx)? as u64;
         // NaN values are excluded from the count of a float input when they are skipped.
         if args.options.skip_nans && args.dtype.is_float() {
-            // `nan_count` shortcircuits on an exact `Stat::NaNCount` before scanning the batch.
+            // `nan_count` uses an exact cached aggregate result before scanning the batch.
             count = count.saturating_sub(nan_count(batch, ctx)? as u64);
         }
         *state += count;
