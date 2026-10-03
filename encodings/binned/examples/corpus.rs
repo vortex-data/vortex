@@ -257,20 +257,52 @@ fn parse<T: Copy, const N: usize>(bytes: &[u8], f: fn([u8; N]) -> T) -> Vec<T> {
         .collect()
 }
 
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .unwrap_or_else(|| "unknown panic".to_string())
+}
+
+/// Runs `f`, turning a panic into an error message so one bad sample cannot end the run.
+fn catch<R>(f: impl FnOnce() -> R) -> Result<R, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|p| panic_message(&*p))
+}
+
 macro_rules! bench {
-    ($bytes:expr, $t:ty, $n:literal, pco) => {{
+    ($bytes:expr, $failures:expr, $id:expr, $t:ty, $n:literal, pco) => {{
         let v = parse::<$t, $n>($bytes, <$t>::from_le_bytes);
-        let (ours, mode) = run_ours(&v);
-        (v.len(), ours, Some(run_pco(&v)), mode)
+        let (ours, mode) = match catch(|| run_ours(&v)) {
+            Ok(r) => r,
+            Err(e) => {
+                $failures.push(format!("{} ours: {e}", $id));
+                return None;
+            }
+        };
+        let pco = match catch(|| run_pco(&v)) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                $failures.push(format!("{} pco: {e}", $id));
+                None
+            }
+        };
+        (v.len(), ours, pco, mode)
     }};
-    ($bytes:expr, $t:ty, $n:literal) => {{
+    ($bytes:expr, $failures:expr, $id:expr, $t:ty, $n:literal) => {{
         let v = parse::<$t, $n>($bytes, <$t>::from_le_bytes);
-        let (ours, mode) = run_ours(&v);
+        let (ours, mode) = match catch(|| run_ours(&v)) {
+            Ok(r) => r,
+            Err(e) => {
+                $failures.push(format!("{} ours: {e}", $id));
+                return None;
+            }
+        };
         (v.len(), ours, None, mode)
     }};
 }
 
-fn run_sample(dir: &Path, entry: &serde_json::Value) -> Option<Row> {
+fn run_sample(dir: &Path, entry: &serde_json::Value, failures: &mut Vec<String>) -> Option<Row> {
     let id = entry["id"].as_str()?.to_string();
     let dtype = entry["dtype"].as_str()?.to_string();
     let bytes = fs::read(dir.join("data").join(format!("{id}.bin"))).ok()?;
@@ -278,16 +310,16 @@ fn run_sample(dir: &Path, entry: &serde_json::Value) -> Option<Row> {
         return None;
     }
     let (n, ours, pco, mode) = match dtype.as_str() {
-        "u8" => bench!(&bytes, u8, 1),
-        "i8" => bench!(&bytes, i8, 1),
-        "u16" => bench!(&bytes, u16, 2, pco),
-        "i16" => bench!(&bytes, i16, 2, pco),
-        "u32" => bench!(&bytes, u32, 4, pco),
-        "i32" => bench!(&bytes, i32, 4, pco),
-        "u64" => bench!(&bytes, u64, 8, pco),
-        "i64" => bench!(&bytes, i64, 8, pco),
-        "f32" => bench!(&bytes, f32, 4, pco),
-        "f64" => bench!(&bytes, f64, 8, pco),
+        "u8" => bench!(&bytes, failures, id, u8, 1),
+        "i8" => bench!(&bytes, failures, id, i8, 1),
+        "u16" => bench!(&bytes, failures, id, u16, 2, pco),
+        "i16" => bench!(&bytes, failures, id, i16, 2, pco),
+        "u32" => bench!(&bytes, failures, id, u32, 4, pco),
+        "i32" => bench!(&bytes, failures, id, i32, 4, pco),
+        "u64" => bench!(&bytes, failures, id, u64, 8, pco),
+        "i64" => bench!(&bytes, failures, id, i64, 8, pco),
+        "f32" => bench!(&bytes, failures, id, f32, 4, pco),
+        "f64" => bench!(&bytes, failures, id, f64, 8, pco),
         _ => return None,
     };
     Some(Row {
@@ -317,12 +349,13 @@ fn main() {
         "id,domain,dtype,n,raw,ours_bytes,pco_bytes,size_vs_pco,ours_dec_gbps,pco_dec_gbps,ours_get_ns,pco_get_ns,ours_comp_ms,pco_comp_ms,mode,pco_mode"
     );
     let mut rows = Vec::new();
+    let mut failures = Vec::new();
     for line in manifest.lines().filter(|l| !l.trim().is_empty()) {
         let entry: serde_json::Value = serde_json::from_str(line).expect("manifest line");
         if !filter.is_empty() && !entry["id"].as_str().unwrap_or("").contains(&filter) {
             continue;
         }
-        let Some(row) = run_sample(dir, &entry) else {
+        let Some(row) = run_sample(dir, &entry, &mut failures) else {
             continue;
         };
         let gbps = |d: Duration| row.raw as f64 / d.as_secs_f64() / 1e9;
@@ -403,5 +436,26 @@ fn main() {
             r.mode,
             pco(r).describe
         );
+    }
+
+    let mut domains: std::collections::BTreeMap<&str, Vec<&&Row>> = Default::default();
+    for r in &both {
+        domains.entry(r.domain.as_str()).or_default().push(r);
+    }
+    eprintln!("per domain (samples, size vs pco geomean, decode speedup geomean, raw/ours ratio):");
+    for (domain, rs) in &domains {
+        let raw: usize = rs.iter().map(|r| r.raw).sum();
+        let ours: usize = rs.iter().map(|r| r.ours.bytes).sum();
+        eprintln!(
+            "  {domain:<24} {:>4}  {:.3}  {:.2}x  {:.2}",
+            rs.len(),
+            geomean(rs.iter().map(|r| r.ours.bytes as f64 / pco(r).bytes as f64)),
+            geomean(rs.iter().map(|r| pco(r).decode.as_secs_f64() / r.ours.decode.as_secs_f64())),
+            raw as f64 / ours as f64,
+        );
+    }
+    eprintln!("failures: {}", failures.len());
+    for f in &failures {
+        eprintln!("  {f}");
     }
 }

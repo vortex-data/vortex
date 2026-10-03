@@ -121,6 +121,7 @@ fn main() {
 
     let mut totals: Vec<Totals> = setups.iter().map(|_| Totals::default()).collect();
     let mut raw = 0usize;
+    let mut failures: Vec<String> = Vec::new();
     let manifest = fs::read_to_string(dir.join("manifest.jsonl")).expect("manifest");
     for line in manifest.lines().filter(|l| !l.trim().is_empty()) {
         let entry: serde_json::Value = serde_json::from_str(line).unwrap();
@@ -130,11 +131,41 @@ fn main() {
         let Some(input) = load(dir, id, dtype) else {
             continue;
         };
-        raw += input.nbytes() as usize;
         let mut ctx = session.create_execution_ctx();
         let mut row = format!("{id}");
-        for ((_, compressor), t) in compressors.iter().zip(&mut totals) {
-            let compressed = compressor.compress(&input, &mut ctx).unwrap();
+        // Every setup must succeed for a sample to count, so totals stay comparable.
+        let results = compressors
+            .iter()
+            .map(|(name, compressor)| {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let compressed = compressor.compress(&input, &mut ctx)?;
+                    let decoded = compressed.clone().execute::<PrimitiveArray>(&mut ctx)?;
+                    let expected = input.clone().execute::<PrimitiveArray>(&mut ctx)?;
+                    let bytes = |a: &PrimitiveArray| {
+                        a.buffer_handle().clone().try_to_host_sync().map(|b| b.as_slice().to_vec())
+                    };
+                    vortex_error::vortex_ensure!(
+                        bytes(&decoded)? == bytes(&expected)?,
+                        "decoded values differ from the input"
+                    );
+                    Ok::<_, vortex_error::VortexError>(compressed)
+                }));
+                match result {
+                    Ok(Ok(c)) => Ok(c),
+                    Ok(Err(e)) => Err(format!("{id} {name}: {e}")),
+                    Err(_) => Err(format!("{id} {name}: panic")),
+                }
+            })
+            .collect::<Result<Vec<_>, _>>();
+        let compressed_all = match results {
+            Ok(c) => c,
+            Err(e) => {
+                failures.push(e);
+                continue;
+            }
+        };
+        raw += input.nbytes() as usize;
+        for (compressed, t) in compressed_all.into_iter().zip(&mut totals) {
             let bytes = compressed.nbytes() as usize;
             let start = Instant::now();
             let mut runs = 0;
@@ -171,5 +202,9 @@ fn main() {
             geo,
             t.encodings
         );
+    }
+    eprintln!("failures: {}", failures.len());
+    for f in &failures {
+        eprintln!("  {f}");
     }
 }
