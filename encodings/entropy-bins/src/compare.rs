@@ -326,7 +326,12 @@ mod tests {
         let v = values(n);
         let validity = Validity::from_iter((0..n).map(|i| i % 13 != 0));
         let prim = PrimitiveArray::new(Buffer::from(v.clone()), validity);
-        let encoded = EntropyBins::from_primitive(prim.as_view(), 8, 0, block_values)?.into_array();
+        let encoded = EntropyBins::from_primitive(
+            prim.as_view(),
+            8,
+            crate::EntropyBinsOptions::new(0, block_values),
+        )?
+        .into_array();
         #[cfg(target_arch = "x86_64")]
         crate::x86::set_force_scalar(scalar);
         let mut sorted = v;
@@ -394,7 +399,11 @@ mod tests {
         v.extend((0..9000).map(|i| (i % 7) * 1000));
         let n = v.len();
         let prim = PrimitiveArray::new(Buffer::from(v), Validity::NonNullable);
-        let encoded = EntropyBins::from_primitive(prim.as_view(), 8, 0, BLOCK_VALUES)?;
+        let encoded = EntropyBins::from_primitive(
+            prim.as_view(),
+            8,
+            crate::EntropyBinsOptions::new(0, BLOCK_VALUES),
+        )?;
         let rhs = ConstantArray::new(1i32 << 23, n).into_array();
         for op in OPERATORS {
             let got =
@@ -426,7 +435,11 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(v), Validity::NonNullable);
-        let encoded = EntropyBins::from_primitive(prim.as_view(), 8, 0, BLOCK_VALUES)?;
+        let encoded = EntropyBins::from_primitive(
+            prim.as_view(),
+            8,
+            crate::EntropyBinsOptions::new(0, BLOCK_VALUES),
+        )?;
         let chunk = &encoded.data().metadata.chunks[0];
         let rhs_value = 1u32 << 23;
         let class = super::classes(chunk, CompareOperator::Lt, u64::from(rhs_value));
@@ -459,7 +472,11 @@ mod tests {
     fn declines_differences() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let prim = PrimitiveArray::new(Buffer::from(values(5000)), Validity::NonNullable);
-        let encoded = EntropyBins::from_primitive(prim.as_view(), 8, 1, BLOCK_VALUES)?;
+        let encoded = EntropyBins::from_primitive(
+            prim.as_view(),
+            8,
+            crate::EntropyBinsOptions::new(1, BLOCK_VALUES),
+        )?;
         let rhs = ConstantArray::new(7i32, 5000).into_array();
         let got = <EntropyBins as CompareKernel>::compare(
             encoded.as_view(),

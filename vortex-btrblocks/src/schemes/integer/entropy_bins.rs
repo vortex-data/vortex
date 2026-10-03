@@ -99,7 +99,7 @@ impl Scheme for EntropyBinsScheme {
         let level = pco::DEFAULT_COMPRESSION_LEVEL;
         let plan = EntropyBins::plan(primitive, level, &LAGS)?;
         // Bins that do not fit the encoding's limits leave the array as it is.
-        match EntropyBins::from_primitive(primitive, level, plan.lag, plan.block_values) {
+        match EntropyBins::from_primitive(primitive, level, plan.options) {
             Ok(array) => Ok(array.into_array()),
             Err(_) => Ok(primitive.array().clone()),
         }

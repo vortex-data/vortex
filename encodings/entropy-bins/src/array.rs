@@ -308,19 +308,16 @@ impl EntropyBins {
         Array::try_from_parts(ArrayParts::new(EntropyBins, dtype, len, data).with_slots(slots))
     }
 
-    /// Compress an integer primitive array in blocks of `block_values` (a power of two from
-    /// [`BLOCK_VALUES`] to [`MAX_BLOCK_VALUES`]), coding each value's difference from the row `lag`
-    /// rows back (`lag <= MAX_LAG`), or the value itself when `lag == 0`. Null rows are encoded
+    /// Compress an integer primitive array with the given layout options. Null rows are encoded
     /// with whatever value the buffer holds; validity is kept as a child.
     pub fn from_primitive(
         parray: ArrayView<'_, Primitive>,
         level: usize,
-        lag: usize,
-        block_values: usize,
+        options: EntropyBinsOptions,
     ) -> VortexResult<EntropyBinsArray> {
         let dtype = parray.dtype().clone();
         let validity = parray.validity()?;
-        let data = EntropyBinsData::encode(parray, level, lag, block_values)?;
+        let data = EntropyBinsData::encode(parray, level, options)?;
         Self::try_new(dtype, data, validity)
     }
 
@@ -355,32 +352,73 @@ impl EntropyBins {
             .into_iter()
             .find(|&b| total(b) * 100 <= floor * (100 + LARGER_BLOCK_GAIN_PERCENT))
             .unwrap_or(MAX_BLOCK_VALUES);
+        let nbytes = total(block_values);
+        // 8-bit refill words halve the bits lanes leave unused at the end of a block, at a few
+        // percent of decode speed: worth it where that is a noticeable share of the bytes.
+        let saved = n.div_ceil(block_values) * NARROW_WORD_SAVING_BYTES;
+        let (word_bits, nbytes) = if saved * 100 >= nbytes * NARROW_WORD_GAIN_PERCENT {
+            (8, nbytes - saved)
+        } else {
+            (16, nbytes)
+        };
         Ok(EntropyBinsPlan {
+            options: EntropyBinsOptions::new(lag, block_values).with_word_bits(word_bits),
+            nbytes,
+        })
+    }
+}
+
+/// How an array is laid out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EntropyBinsOptions {
+    /// Row distance of the coded differences, at most [`MAX_LAG`]; zero codes the values.
+    pub lag: usize,
+    /// Values per block: a power of two from [`BLOCK_VALUES`] to [`MAX_BLOCK_VALUES`].
+    pub block_values: usize,
+    /// Bits per tANS refill word: 8 or 16.
+    pub word_bits: u32,
+}
+
+impl EntropyBinsOptions {
+    /// Options with 16-bit refill words.
+    pub const fn new(lag: usize, block_values: usize) -> Self {
+        Self {
             lag,
             block_values,
-            nbytes: total(block_values),
-        })
+            word_bits: 16,
+        }
+    }
+
+    /// Use `word_bits`-bit refill words (8 or 16).
+    #[must_use]
+    pub const fn with_word_bits(mut self, word_bits: u32) -> Self {
+        self.word_bits = word_bits;
+        self
     }
 }
 
 /// An encoding choice and its estimated size, from [`EntropyBins::plan`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EntropyBinsPlan {
-    /// Row distance of the coded differences (zero codes the values).
-    pub lag: usize,
-    /// Values per block.
-    pub block_values: usize,
+    /// The chosen layout.
+    pub options: EntropyBinsOptions,
     /// Estimated encoded size in bytes.
     pub nbytes: usize,
 }
 
-/// Measured fixed cost of a coded block: header, lane states, the stop field, part-filled lane
-/// words and the block's offset.
-const PER_BLOCK_BYTES: usize = 44;
+/// Measured fixed cost of a coded block with 16-bit refill words: header, lane states, the stop
+/// field, part-filled lane words and the block's offset.
+const PER_BLOCK_BYTES: usize = 40;
 
 /// How much smaller (in percent) the largest blocks must make the array before a larger block
-/// size is chosen.
-const LARGER_BLOCK_GAIN_PERCENT: usize = 8;
+/// size is chosen: larger blocks slow down random access.
+const LARGER_BLOCK_GAIN_PERCENT: usize = 15;
+
+/// Measured bytes per block that 8-bit refill words save over 16-bit ones.
+const NARROW_WORD_SAVING_BYTES: usize = 8;
+
+/// How much smaller (in percent) 8-bit refill words must make the array to be chosen.
+const NARROW_WORD_GAIN_PERCENT: usize = 1;
 
 /// The estimated bytes of the coded ids and offsets alone.
 fn estimate_coded(wide: &[u64], ptype: PType, level: usize, lag: usize) -> VortexResult<usize> {
@@ -491,9 +529,13 @@ impl EntropyBinsData {
     fn encode(
         parray: ArrayView<'_, Primitive>,
         level: usize,
-        lag: usize,
-        block_values: usize,
+        options: EntropyBinsOptions,
     ) -> VortexResult<Self> {
+        let EntropyBinsOptions {
+            lag,
+            block_values,
+            word_bits,
+        } = options;
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
         let block_log = block_log_of(block_values)?;
@@ -514,12 +556,13 @@ impl EntropyBinsData {
             chunks: Vec::new(),
             lag: u32::try_from(lag)?,
             block_log,
+            word_bits,
         };
         let mut data = Vec::new();
         let mut starts: Vec<u32> = Vec::with_capacity(n.div_ceil(block_values) + 1);
         for chunk_latents in latents.chunks(CHUNK_VALUES) {
             let chunk = train_bins(chunk_latents, level)?;
-            let table = IdTable::new(&chunk)?;
+            let table = IdTable::new(&chunk, word_bits)?;
             for block in chunk_latents.chunks(block_values) {
                 starts.push(u32::try_from(data.len())?);
                 encode_block(&chunk, table.as_ref(), block, &mut data)?;
@@ -598,6 +641,11 @@ impl EntropyBinsData {
             }
         }
         block_log_of(1 << self.metadata.block_log.min(31))?;
+        vortex_ensure!(
+            matches!(self.metadata.word_bits, 8 | 16),
+            "refill words must be 8 or 16 bits, got {}",
+            self.metadata.word_bits
+        );
         let n_blocks = self.unsliced_n_rows.div_ceil(self.block_values());
         vortex_ensure!(
             self.block_starts.len() == 4 * (n_blocks + 1),
@@ -686,7 +734,11 @@ impl EntropyBinsData {
             .get(ci)
             .ok_or_else(|| vortex_err!("missing chunk {ci}"))?;
         // A concurrent initialization may win; both build the same tables.
-        drop(slot.set(ChunkDecoder::new(chunk, self.transform().base())?));
+        drop(slot.set(ChunkDecoder::new(
+            chunk,
+            self.transform().base(),
+            self.metadata.word_bits,
+        )?));
         slot.get()
             .ok_or_else(|| vortex_err!("chunk {ci} decoder was not initialized"))
     }

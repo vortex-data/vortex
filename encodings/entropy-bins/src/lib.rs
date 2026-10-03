@@ -80,6 +80,9 @@ pub struct EntropyBinsMetadata {
     /// Log2 of the values per block, from 10 ([`BLOCK_VALUES`]) to 12 ([`MAX_BLOCK_VALUES`]).
     #[prost(uint32, tag = "3")]
     pub block_log: u32,
+    /// Bits per tANS refill word: 8 or 16.
+    #[prost(uint32, tag = "4")]
+    pub word_bits: u32,
 }
 
 #[cfg(test)]

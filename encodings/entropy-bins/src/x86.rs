@@ -91,18 +91,22 @@ pub(crate) unsafe fn ids16<const V: usize>(
 ) {
     // SAFETY: forwarded from the caller.
     unsafe {
-        match t.r {
-            8 => ids16_kernel::<V, 8>(t, blocks, outs, limit),
-            5 => ids16_kernel::<V, 5>(t, blocks, outs, limit),
-            4 => ids16_kernel::<V, 4>(t, blocks, outs, limit),
-            3 => ids16_kernel::<V, 3>(t, blocks, outs, limit),
-            _ => ids16_kernel::<V, 2>(t, blocks, outs, limit),
+        match (t.word_bits, t.r) {
+            (16, 8) => ids16_kernel::<V, 8, 16>(t, blocks, outs, limit),
+            (16, 5) => ids16_kernel::<V, 5, 16>(t, blocks, outs, limit),
+            (16, 4) => ids16_kernel::<V, 4, 16>(t, blocks, outs, limit),
+            (16, 3) => ids16_kernel::<V, 3, 16>(t, blocks, outs, limit),
+            (16, _) => ids16_kernel::<V, 2, 16>(t, blocks, outs, limit),
+            (_, 8) => ids16_kernel::<V, 8, 8>(t, blocks, outs, limit),
+            (_, 4) => ids16_kernel::<V, 4, 8>(t, blocks, outs, limit),
+            (_, 2) => ids16_kernel::<V, 2, 8>(t, blocks, outs, limit),
+            _ => ids16_kernel::<V, 1, 8>(t, blocks, outs, limit),
         }
     }
 }
 
 #[target_feature(enable = "avx512f,avx512bw,avx512vl,avx512dq,avx512cd,avx512vbmi,avx512vbmi2")]
-unsafe fn ids16_kernel<const V: usize, const R: usize>(
+unsafe fn ids16_kernel<const V: usize, const R: usize, const W: u32>(
     t: &IdTable,
     blocks: [&BlockView<'_>; V],
     outs: [*mut u8; V],
@@ -121,21 +125,21 @@ unsafe fn ids16_kernel<const V: usize, const R: usize>(
         let (x0, x1) = ld(&t.xs_tab);
         let ff = _mm512_set1_epi32(0xff);
         let ones = _mm512_set1_epi32(-1);
-        let c16 = _mm512_set1_epi32(16);
+        let cw = _mm512_set1_epi32(W as i32);
         let kk = _mm512_set1_epi32(31 - t.s as i32);
         let ll = _mm512_set1_epi32(1i32 << t.s);
-        let mut p = [std::ptr::null::<u16>(); V];
+        let mut p = [std::ptr::null::<u8>(); V];
         let mut buf = [_mm512_setzero_si512(); V];
         let mut avail = [_mm512_setzero_si512(); V];
         let mut x = [ll; V];
         let mut stop = [ll; V];
         for v in 0..V {
-            p[v] = blocks[v].words.as_ptr().cast();
+            p[v] = blocks[v].words.as_ptr();
             x[v] = _mm512_add_epi32(
                 _mm512_cvtepu8_epi32(_mm_loadu_si128(blocks[v].states.as_ptr().cast())),
                 ll,
             );
-            stop[v] = _mm512_cvtepu8_epi32(_mm_loadu_si128(blocks[v].stop.as_ptr().cast()));
+            stop[v] = _mm512_cvtepu16_epi32(_mm256_loadu_si256(blocks[v].stop.as_ptr().cast()));
         }
         let steps = blocks[0].n.min(limit).div_ceil(LANES);
         let mut step = 0;
@@ -143,12 +147,16 @@ unsafe fn ids16_kernel<const V: usize, const R: usize>(
             let rv = _mm512_set1_epi32((step / R) as i32);
             for v in 0..V {
                 let live = _mm512_cmplt_epu32_mask(rv, stop[v]);
-                let need = _mm512_mask_cmplt_epu32_mask(live, avail[v], c16);
-                let words = _mm512_cvtepu16_epi32(_mm256_loadu_si256(p[v].cast()));
+                let need = _mm512_mask_cmplt_epu32_mask(live, avail[v], cw);
+                let words = if W == 16 {
+                    _mm512_cvtepu16_epi32(_mm256_loadu_si256(p[v].cast()))
+                } else {
+                    _mm512_cvtepu8_epi32(_mm_loadu_si128(p[v].cast()))
+                };
                 let nw = _mm512_maskz_expand_epi32(need, words);
                 buf[v] = _mm512_or_si512(buf[v], sllv32(nw, avail[v]));
-                avail[v] = _mm512_mask_add_epi32(avail[v], need, avail[v], c16);
-                p[v] = p[v].add(need.count_ones() as usize);
+                avail[v] = _mm512_mask_add_epi32(avail[v], need, avail[v], cw);
+                p[v] = p[v].add(need.count_ones() as usize * (W as usize / 8));
             }
             let end = (step + R).min(steps);
             while step < end {

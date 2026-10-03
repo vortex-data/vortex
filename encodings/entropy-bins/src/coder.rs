@@ -9,13 +9,14 @@
 //! flags: u8          bit 0 = uniform (every id is one bin), bit 1 = stop field present
 //! uniform:           bin id: u8
 //! otherwise:         word count: u16, lane states: 16 x S bits, stop field: 16 x 3 bits (if
-//!                    present), id words: u16 x word count
+//!                    present), id words: W bits x word count
 //! offsets:           each value's offset, LSB first, at its bin's width
 //! ```
 //!
-//! The id stream is a 16-lane tANS stream (value `i` belongs to lane `i % 16`). Every `R = 16 / S`
-//! steps each lane with fewer than 16 buffered bits takes the next 16-bit word, so the decoder
-//! checks for refills only once per `R` steps. Near the end of a block a lane may have no words
+//! The id stream is a 16-lane tANS stream (value `i` belongs to lane `i % 16`). Every `R = W / S`
+//! steps each lane with fewer than `W` buffered bits takes the next `W`-bit word, so the decoder
+//! checks for refills only once per `R` steps. The word width `W` (8 or 16) is set per array:
+//! 8-bit words waste fewer bits where lanes end mid-word, 16-bit words refill half as often. Near the end of a block a lane may have no words
 //! left; the optional stop field records the round from which each lane stops refilling.
 
 // Single-letter names follow the ANS literature: x is a coder state, s the state log, l = 2^s.
@@ -116,6 +117,8 @@ pub(crate) struct IdTable {
     pub(crate) s: u32,
     /// Steps between refill checks.
     pub(crate) r: usize,
+    /// Bits per refill word: 8 or 16.
+    pub(crate) word_bits: u32,
     freq: Vec<u32>,
     cum: Vec<u32>,
     enc_states: Vec<u32>,
@@ -126,7 +129,10 @@ pub(crate) struct IdTable {
 
 impl IdTable {
     /// Requantize the chunk's weights to at most `2^7` states and build the tables.
-    pub(crate) fn new(chunk: &EntropyBinsChunk) -> VortexResult<Option<Self>> {
+    pub(crate) fn new(chunk: &EntropyBinsChunk, word_bits: u32) -> VortexResult<Option<Self>> {
+        if word_bits != 8 && word_bits != 16 {
+            vortex_bail!("refill words must be 8 or 16 bits, got {word_bits}");
+        }
         let k = chunk.weights.len();
         if k <= 1 {
             return Ok(None);
@@ -201,7 +207,8 @@ impl IdTable {
         }
         Ok(Some(Self {
             s,
-            r: (16 / s as usize).min(8),
+            r: (word_bits as usize / s as usize).min(8),
+            word_bits,
             freq,
             cum,
             enc_states,
@@ -317,7 +324,9 @@ fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()>
         }
         *state = u8::try_from(x - l)?;
     }
-    // Per-lane 16-bit word streams.
+    // Per-lane word streams.
+    let wb = t.word_bits;
+    let word_mask = (1u64 << wb) - 1;
     let mut lanes: Vec<Vec<u16>> = vec![Vec::new(); LANES];
     let mut acc = [0u64; LANES];
     let mut nacc = [0u32; LANES];
@@ -328,44 +337,44 @@ fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()>
         }
         acc[lane] |= b << nacc[lane];
         nacc[lane] += w;
-        while nacc[lane] >= 16 {
-            lanes[lane].push((acc[lane] & 0xffff) as u16);
-            acc[lane] >>= 16;
-            nacc[lane] -= 16;
+        while nacc[lane] >= wb {
+            lanes[lane].push(u16::try_from(acc[lane] & word_mask)?);
+            acc[lane] >>= wb;
+            nacc[lane] -= wb;
         }
     }
     for lane in 0..LANES {
         if nacc[lane] > 0 {
-            lanes[lane].push((acc[lane] & 0xffff) as u16);
+            lanes[lane].push(u16::try_from(acc[lane] & word_mask)?);
         }
     }
     // Interleave the words in the order the decoder takes them, with and without a stop field.
     let r = t.r;
     let rounds = (n_pad / LANES).div_ceil(r);
-    let build = |window: usize| -> VortexResult<(Vec<u16>, [u8; LANES])> {
+    let build = |window: usize| -> VortexResult<(Vec<u16>, [u16; LANES])> {
         let mut words = Vec::new();
         let mut real_end = 0;
         let mut next = [0usize; LANES];
         let mut avail = [0i64; LANES];
-        let mut stop = [u8::try_from(rounds.min(255))?; LANES];
+        let mut stop = [u16::try_from(rounds)?; LANES];
         for step in 0..n_pad / LANES {
             if step % r == 0 {
                 let round = step / r;
                 for lane in 0..LANES {
-                    if avail[lane] < 16 && round < usize::from(stop[lane]) {
+                    if avail[lane] < i64::from(wb) && round < usize::from(stop[lane]) {
                         match lanes[lane].get(next[lane]) {
                             Some(&w) => {
                                 words.push(w);
                                 real_end = words.len();
                             }
                             None if window > 0 && round + window >= rounds => {
-                                stop[lane] = u8::try_from(round)?;
+                                stop[lane] = u16::try_from(round)?;
                                 continue;
                             }
                             None => words.push(0),
                         }
                         next[lane] += 1;
-                        avail[lane] += 16;
+                        avail[lane] += i64::from(wb);
                     }
                 }
             }
@@ -379,11 +388,9 @@ fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()>
     };
     let (with_stop, stop) = build(STOP_WINDOW)?;
     let (without, _) = build(0)?;
-    let has_stop = with_stop.len() * 2 + 6 < without.len() * 2;
+    let word_bytes = wb as usize / 8;
+    let has_stop = with_stop.len() * word_bytes + 6 < without.len() * word_bytes;
     let words = if has_stop { with_stop } else { without };
-    if rounds > 255 {
-        vortex_bail!("block too large for the stop field");
-    }
 
     out.push(if has_stop { FLAG_STOP } else { 0 });
     out.extend_from_slice(&u16::try_from(words.len())?.to_le_bytes());
@@ -400,7 +407,7 @@ fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()>
         out.extend_from_slice(&stw.finish());
     }
     for w in words {
-        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&w.to_le_bytes()[..word_bytes]);
     }
     Ok(())
 }

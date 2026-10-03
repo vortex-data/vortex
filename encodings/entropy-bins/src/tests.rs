@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 
 use crate::BLOCK_VALUES;
 use crate::EntropyBins;
+use crate::EntropyBinsOptions;
 use crate::MAX_BLOCK_VALUES;
 
 /// Deterministic xorshift values with a skewed, clustered distribution.
@@ -46,23 +47,23 @@ const BLOCK_SIZES: [usize; 3] = [BLOCK_VALUES, 2 * BLOCK_VALUES, MAX_BLOCK_VALUE
 
 fn roundtrip<T: NativePType>(values: Vec<T>) -> VortexResult<()> {
     for lag in LAGS {
-        roundtrip_with(values.clone(), lag, BLOCK_VALUES)?;
+        roundtrip_with(values.clone(), EntropyBinsOptions::new(lag, BLOCK_VALUES))?;
     }
     for block_values in [2 * BLOCK_VALUES, MAX_BLOCK_VALUES] {
-        roundtrip_with(values.clone(), 0, block_values)?;
-        roundtrip_with(values.clone(), 3, block_values)?;
+        roundtrip_with(values.clone(), EntropyBinsOptions::new(0, block_values))?;
+        roundtrip_with(values.clone(), EntropyBinsOptions::new(3, block_values))?;
+    }
+    for (lag, block_values) in [(0, BLOCK_VALUES), (1, MAX_BLOCK_VALUES)] {
+        let options = EntropyBinsOptions::new(lag, block_values).with_word_bits(8);
+        roundtrip_with(values.clone(), options)?;
     }
     Ok(())
 }
 
-fn roundtrip_with<T: NativePType>(
-    values: Vec<T>,
-    lag: usize,
-    block_values: usize,
-) -> VortexResult<()> {
+fn roundtrip_with<T: NativePType>(values: Vec<T>, options: EntropyBinsOptions) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
-    let encoded = EntropyBins::from_primitive(array.as_view(), 8, lag, block_values)?;
+    let encoded = EntropyBins::from_primitive(array.as_view(), 8, options)?;
     assert_arrays_eq!(
         encoded.clone().into_array(),
         array.clone().into_array(),
@@ -166,11 +167,15 @@ fn interleaved_series_prefers_lag() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::NonNullable);
     let size = |lag| -> VortexResult<usize> {
-        let e = EntropyBins::from_primitive(array.as_view(), 8, lag, BLOCK_VALUES)?;
+        let e = EntropyBins::from_primitive(
+            array.as_view(),
+            8,
+            EntropyBinsOptions::new(lag, BLOCK_VALUES),
+        )?;
         Ok(e.data().data.len())
     };
     assert!(size(3)? < size(1)?);
-    assert_eq!(EntropyBins::plan(array.as_view(), 8, &LAGS)?.lag, 3);
+    assert_eq!(EntropyBins::plan(array.as_view(), 8, &LAGS)?.options.lag, 3);
     roundtrip(values)
 }
 
@@ -180,7 +185,9 @@ fn nullable_and_slices() -> VortexResult<()> {
     let values = skewed(5000, 3);
     let validity = Validity::from_iter((0..5000).map(|i| i % 7 != 0));
     let array = PrimitiveArray::new(Buffer::from(values), validity);
-    let encoded = EntropyBins::from_primitive(array.as_view(), 8, 1, BLOCK_VALUES)?.into_array();
+    let encoded =
+        EntropyBins::from_primitive(array.as_view(), 8, EntropyBinsOptions::new(1, BLOCK_VALUES))?
+            .into_array();
     assert_arrays_eq!(encoded, array.clone().into_array(), &mut ctx);
     for (a, b) in [(0, 1), (3, 1500), (1024, 2048), (1000, 5000), (4999, 5000)] {
         assert_arrays_eq!(
@@ -204,14 +211,16 @@ fn simd_matches_scalar() -> VortexResult<()> {
             Validity::NonNullable,
         );
         let cases = LAGS.iter().flat_map(|&lag| {
-            BLOCK_SIZES
-                .iter()
-                .flat_map(move |&bv| [(false, lag, bv), (true, lag, bv)])
+            BLOCK_SIZES.iter().flat_map(move |&bv| {
+                [8, 16].into_iter().flat_map(move |wb| {
+                    let options = EntropyBinsOptions::new(lag, bv).with_word_bits(wb);
+                    [(false, options), (true, options)]
+                })
+            })
         });
-        for (is_narrow, lag, block_values) in cases {
+        for (is_narrow, options) in cases {
             let array = if is_narrow { &narrow } else { &wide };
-            let encoded =
-                EntropyBins::from_primitive(array.as_view(), 8, lag, block_values)?.into_array();
+            let encoded = EntropyBins::from_primitive(array.as_view(), 8, options)?.into_array();
             crate::x86::set_force_scalar(true);
             let scalar = encoded.clone().execute::<PrimitiveArray>(&mut ctx)?;
             crate::x86::set_force_scalar(false);
@@ -225,16 +234,23 @@ fn simd_matches_scalar() -> VortexResult<()> {
 /// Repeated probes cache a block after its second touch; every access pattern must still read
 /// the right rows, including nulls and slices.
 #[rstest]
-#[case(0, BLOCK_VALUES)]
-#[case(1, BLOCK_VALUES)]
-#[case(3, BLOCK_VALUES)]
-#[case(1, MAX_BLOCK_VALUES)]
-fn repeated_probe(#[case] lag: usize, #[case] block_values: usize) -> VortexResult<()> {
+#[case(0, BLOCK_VALUES, 16)]
+#[case(1, BLOCK_VALUES, 16)]
+#[case(3, BLOCK_VALUES, 16)]
+#[case(1, MAX_BLOCK_VALUES, 16)]
+#[case(0, BLOCK_VALUES, 8)]
+#[case(1, MAX_BLOCK_VALUES, 8)]
+fn repeated_probe(
+    #[case] lag: usize,
+    #[case] block_values: usize,
+    #[case] word_bits: u32,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let n = 5000;
     let validity = Validity::from_iter((0..n).map(|i| i % 11 != 0));
     let parray = PrimitiveArray::new(Buffer::from(skewed(n, 13)), validity);
-    let encoded = EntropyBins::from_primitive(parray.as_view(), 8, lag, block_values)?.into_array();
+    let options = EntropyBinsOptions::new(lag, block_values).with_word_bits(word_bits);
+    let encoded = EntropyBins::from_primitive(parray.as_view(), 8, options)?.into_array();
     let array = parray.into_array();
     for (a, b) in [(0, n), (700, 4321)] {
         let expected = array.slice(a..b)?;

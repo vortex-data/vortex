@@ -25,7 +25,7 @@ pub(crate) struct BlockView<'a> {
     pub(crate) uniform: Option<u8>,
     pub(crate) states: [u8; LANES],
     /// Absolute round from which each lane stops refilling.
-    pub(crate) stop: [u8; LANES],
+    pub(crate) stop: [u16; LANES],
     pub(crate) words: &'a [u8],
     pub(crate) offsets: &'a [u8],
 }
@@ -87,16 +87,17 @@ pub(crate) fn parse_block<'a>(
     p += state_bytes;
     let n_pad = n.div_ceil(LANES) * LANES;
     let rounds = (n_pad / LANES).div_ceil(t.r);
-    let rounds_u8 = u8::try_from(rounds.min(255))?;
-    let mut stop = [rounds_u8; LANES];
+    let rounds = u16::try_from(rounds)?;
+    let mut stop = [rounds; LANES];
     if flags & FLAG_STOP != 0 {
         for (lane, st) in stop.iter_mut().enumerate() {
-            let rel = u8::try_from(read_bits(&data[p..], lane * 3, 3))?;
-            *st = rounds_u8.saturating_sub(rel);
+            let rel = u16::try_from(read_bits(&data[p..], lane * 3, 3))?;
+            *st = rounds.saturating_sub(rel);
         }
         p += 6;
     }
-    if p + 2 * n_words > data.len() {
+    let word_bytes = t.word_bits as usize / 8;
+    if p + word_bytes * n_words > data.len() {
         vortex_bail!("block words out of bounds");
     }
     Ok(BlockView {
@@ -105,7 +106,7 @@ pub(crate) fn parse_block<'a>(
         states,
         stop,
         words: &data[p..],
-        offsets: &data[p + 2 * n_words..],
+        offsets: &data[p + word_bytes * n_words..],
     })
 }
 
@@ -121,7 +122,11 @@ pub(crate) fn ids_scalar(t: &IdTable, b: &BlockView<'_>, out: &mut [u8], limit: 
     let mut buf = [0u32; LANES];
     let mut avail = [0u32; LANES];
     let mut p = 0usize;
+    let wb = t.word_bits;
     let word = |p: usize| -> u32 {
+        if wb == 8 {
+            return b.words.get(p).map_or(0, |&w| u32::from(w));
+        }
         match b.words.get(2 * p..2 * p + 2) {
             Some(w) => u32::from(u16::from_le_bytes([w[0], w[1]])),
             None => 0,
@@ -131,9 +136,9 @@ pub(crate) fn ids_scalar(t: &IdTable, b: &BlockView<'_>, out: &mut [u8], limit: 
         if step % t.r == 0 {
             let round = step / t.r;
             for lane in 0..LANES {
-                if round < usize::from(b.stop[lane]) && avail[lane] < 16 {
+                if round < usize::from(b.stop[lane]) && avail[lane] < wb {
                     buf[lane] |= word(p) << avail[lane];
-                    avail[lane] += 16;
+                    avail[lane] += wb;
                     p += 1;
                 }
             }
@@ -169,7 +174,7 @@ pub(crate) struct ChunkDecoder {
 }
 
 impl ChunkDecoder {
-    pub(crate) fn new(chunk: &EntropyBinsChunk, base: u64) -> VortexResult<Self> {
+    pub(crate) fn new(chunk: &EntropyBinsChunk, base: u64, word_bits: u32) -> VortexResult<Self> {
         let tl: Vec<u64> = chunk.lowers.iter().map(|&l| l.wrapping_add(base)).collect();
         let mut wtab = [0u8; 64];
         let mut tl64 = [0u64; 32];
@@ -193,7 +198,7 @@ impl ChunkDecoder {
             }
         }
         Ok(Self {
-            table: IdTable::new(chunk)?,
+            table: IdTable::new(chunk, word_bits)?,
             widths: chunk.widths.clone(),
             max_width: chunk.widths.iter().copied().max().unwrap_or(0),
             tl,
