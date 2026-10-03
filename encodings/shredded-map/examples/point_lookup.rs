@@ -73,6 +73,13 @@ fn main() {
             let mut whole = None;
             println!("    dict values whole decode: {:.4} ms", best(|| whole = Some(dvalues.clone().execute::<vortex_array::Canonical>(&mut ctx).unwrap().into_array())));
             println!("    whole nbytes {}", whole.unwrap().nbytes());
+            for n in [10usize, 1000, 10000] {
+                let idx = vortex_array::arrays::PrimitiveArray::from_iter((0..n as u32).map(|i| (i * 7919) % dvalues.len() as u32)).into_array();
+                println!("    take {n} values + decode: {:.4} ms", best(|| { dvalues.take(idx.clone()).unwrap().execute::<vortex_array::Canonical>(&mut ctx).unwrap(); }));
+            }
+            let mask = vortex_mask::Mask::from_iter((0..column.len()).map(|i| i % 400 == 0));
+            let f = column.filter(mask).unwrap();
+            println!("    filtered column: {}", f.encoding_id());
         }
     }
 }

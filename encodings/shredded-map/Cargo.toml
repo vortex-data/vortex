@@ -56,5 +56,8 @@ name = "point_bench"
 [[example]]
 name = "layout"
 
+[[example]]
+name = "query_bench"
+
 [lints]
 workspace = true
