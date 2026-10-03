@@ -190,9 +190,27 @@ fn candidate<L: Latent>(latents: &[L], order: u8, config: &Config) -> Candidate<
 
 /// Estimated encoded bits for these latents at their best delta order.
 pub fn estimate_bits<L: Latent>(latents: &[L], config: &Config) -> f64 {
-    (0..=config.max_delta_order)
-        .map(|order| candidate(latents, order, config).bits)
-        .fold(f64::INFINITY, f64::min)
+    best_order(latents, config).1
+}
+
+/// The delta order with the smallest estimate, and that estimate. Higher orders only keep
+/// helping on smooth data, so the search stops once two orders in a row fail to improve.
+fn best_order<L: Latent>(latents: &[L], config: &Config) -> (u8, f64) {
+    let mut best = (0, f64::INFINITY);
+    let mut misses = 0;
+    for order in 0..=config.max_delta_order {
+        let bits = candidate(latents, order, config).bits;
+        if bits < best.1 {
+            best = (order, bits);
+            misses = 0;
+        } else {
+            misses += 1;
+            if misses == 2 {
+                break;
+            }
+        }
+    }
+    best
 }
 
 const SAMPLE_RUNS: usize = 8;
@@ -211,10 +229,7 @@ pub(crate) fn sample<T: Copy>(values: &[T]) -> Vec<T> {
 pub fn compress_latents<L: Latent>(latents: &[L], config: &Config) -> VortexResult<Stream<L>> {
     // Choose the delta order on a sample, then build only that candidate from all the data.
     let sampled = sample(latents);
-    let order = (0..=config.max_delta_order)
-        .map(|order| (order, candidate(&sampled, order, config).bits))
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map_or(0, |(order, _)| order);
+    let (order, _) = best_order(&sampled, config);
     let best = candidate(latents, order, config);
 
     let ans_size_log = if best.bins.len() <= 1 {

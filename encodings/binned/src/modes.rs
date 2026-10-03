@@ -366,9 +366,17 @@ fn float_mult_candidates<T: Numeric>(sample: &[T]) -> Vec<Mode> {
         .filter(|f| f.is_finite())
         .collect();
     let mut bases = Vec::new();
-    // Decimal-like data: multiples of 10^k.
-    for k in -12..=6 {
+    // Decimal-like data: the coarsest 10^k that most values are exact multiples of, plus the
+    // next finer one in case the rest need it.
+    let is_multiple = |x: f64, k: i32| {
+        let scaled = x * 10f64.powi(-k);
+        scaled.abs() < 1e15 && (scaled.round() * 10f64.powi(k) - x).abs() <= x.abs() * 1e-15
+    };
+    if let Some(k) = (-12..=6).rev().find(|&k| {
+        floats.iter().filter(|&&x| is_multiple(x, k)).count() * 10 >= floats.len() * 9
+    }) {
         bases.push(10f64.powi(k));
+        bases.push(10f64.powi(k - 1));
     }
     // Multiples of a power of two, from trailing mantissa zeros.
     let units: Vec<i32> = floats
