@@ -329,6 +329,33 @@ mod tests {
         Ok(())
     }
 
+    /// Deltas bit-packed at their full width, with no patches, decode through the fused
+    /// unpack-and-undelta kernel, including slices that start mid-chunk.
+    #[rstest]
+    #[case::u8((0..5000u32).map(|i| (i / 40) as u8).collect())]
+    #[case::u16((0..5000u32).map(|i| (i * 3 + i / 7) as u16).collect())]
+    #[case::u32((0..5000u32).map(|i| i * 13 + (i * 7919) % 11).collect())]
+    #[case::i64((0..5000i64).map(|i| -1_000_000 + i * 60 + (i * 7919) % 50).collect())]
+    #[case::constant(vec![7u64; 3000].into_iter().collect())]
+    fn fused_bitpacked(#[case] array: PrimitiveArray) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (bases, deltas) = delta_compress(&array, &mut ctx)?;
+        let width = vortex_array::match_each_integer_ptype!(deltas.ptype(), |T| {
+            let max = deltas.as_slice::<T>().iter().map(|&d| d as u64).max().unwrap_or(0);
+            (64 - max.leading_zeros()) as u8
+        });
+        let packed = bitpack_encode(&deltas, width, None, &mut ctx)?;
+        assert!(crate::BitPackedArrayExt::patches(&packed).is_none());
+        let delta = Delta::try_new(bases.into_array(), packed.into_array(), 0, array.len())?
+            .into_array();
+        assert_arrays_eq!(delta, array, &mut ctx);
+        for range in [0..100, 1000..2048, 1500..array.len(), 7..900] {
+            let expected = array.clone().into_array().slice(range.clone())?;
+            assert_arrays_eq!(delta.slice(range)?, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
     /// Measures compression of delta-encoded signed columns under three bit-packing strategies:
     ///   * `naive`: bit-packing the raw delta bytes (every negative delta sets the high bits,
     ///     so the OR mask forces `W = T`).
