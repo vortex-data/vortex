@@ -14,6 +14,10 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
+use crate::aggregate_fn::fns::min_max::cache_min_max;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::scalar::Scalar;
@@ -88,6 +92,38 @@ impl AggregationsRef<'_> {
         let result = accumulator.finish()?;
         // The accumulator validates its finalized dtype before returning it.
         self.insert_result(aggregate.clone(), Precision::Exact(result.clone()));
+        Ok(result)
+    }
+
+    /// Compute this array into a reusable accumulator and cache its exact non-null result.
+    ///
+    /// The accumulator must be a core [`crate::aggregate_fn::Accumulator`] for the requested
+    /// function, options, and input dtype. Its previous state is reset internally. The returned
+    /// final scalar does not drain the new partial state, so the caller can merge that state.
+    /// Cached finals are reused only when the aggregate can recover a complete partial from them.
+    ///
+    /// Null finals are returned with their partial state retained, but are not newly cached. This
+    /// preserves the file writer's chunk hint presence. [`Self::compute_result`] also caches nulls.
+    /// [`MinMax`] computation additionally caches compatible non-null Min and Max results.
+    /// Failed target computations are not published, although successful nested requests can be.
+    /// No cache lock is held during computation.
+    ///
+    /// Returns an error if the accumulator has a different vtable, function, options, or resolved
+    /// dtype, or if computation fails. A mismatch leaves the accumulator state unchanged.
+    pub fn compute_into(
+        &self,
+        aggregate: &AggregateFnRef,
+        accumulator: &mut dyn DynAccumulator,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let result = aggregate.compute_into(self.array, accumulator, ctx)?;
+        if !result.is_null() {
+            if let Some(options) = aggregate.as_opt::<MinMax>() {
+                let extrema = MinMaxResult::from_scalar(result.clone())?;
+                cache_min_max(self.array, *options, extrema.as_ref())?;
+            }
+            self.insert_result(aggregate.clone(), Precision::Exact(result.clone()));
+        }
         Ok(result)
     }
 

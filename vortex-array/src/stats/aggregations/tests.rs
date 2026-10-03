@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
@@ -34,7 +35,9 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateArgs;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
@@ -54,6 +57,7 @@ use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
 use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum::sum;
@@ -954,6 +958,325 @@ fn gathered_constantness_requires_values_and_nonnull_indices(
         } else {
             Precision::Absent
         },
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_into_resets_and_retains_real_sorted_boundaries() -> VortexResult<()> {
+    let chunks = [buffer![1i32, 2].into_array(), buffer![0i32, 3].into_array()];
+    let mut ctx = array_session().create_execution_ctx();
+    let mut chunk = IS_SORTED.accumulator(chunks[0].dtype())?;
+    let mut stream = IS_SORTED.accumulator(chunks[0].dtype())?;
+    for array in &chunks {
+        array.aggregations().compute_result(&IS_SORTED, &mut ctx)?;
+        assert!(bool::try_from(&array.aggregations().compute_into(
+            &IS_SORTED,
+            &mut *chunk,
+            &mut ctx,
+        )?)?);
+        stream.merge_from(&mut *chunk)?;
+    }
+    assert!(!bool::try_from(&stream.final_scalar()?)?);
+    // A new bound computation must discard state from an earlier input.
+    chunk.accumulate(&chunks[0], &mut ctx)?;
+    let result = chunks[1]
+        .aggregations()
+        .compute_into(&IS_SORTED, &mut *chunk, &mut ctx)?;
+    assert!(bool::try_from(&result)?);
+    Ok(())
+}
+
+#[test]
+fn compute_into_omits_null_hint_and_preserves_overflow_state() -> VortexResult<()> {
+    let array = buffer![i64::MAX, 1].into_array();
+    let aggregate = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let mut ctx = array_session().create_execution_ctx();
+    let mut chunk = aggregate.accumulator(array.dtype())?;
+    let mut stream = aggregate.accumulator(array.dtype())?;
+    let result = array
+        .aggregations()
+        .compute_into(&aggregate, &mut *chunk, &mut ctx)?;
+    assert!(result.is_null());
+    assert_eq!(
+        array.aggregations().get_result(&aggregate),
+        Precision::Absent
+    );
+    stream.merge_from(&mut *chunk)?;
+    stream.accumulate(&buffer![5i64].into_array(), &mut ctx)?;
+    assert!(stream.final_scalar()?.is_null());
+    assert!(
+        array
+            .aggregations()
+            .compute_result(&aggregate, &mut ctx)?
+            .is_null()
+    );
+    assert!(array.aggregations().get_result(&aggregate).is_exact());
+    Ok(())
+}
+
+enum AccumulatorMismatch {
+    VTable,
+    Options,
+    InputDType,
+    ReturnDType,
+    PartialDType,
+}
+
+#[rstest]
+#[case::vtable(AccumulatorMismatch::VTable)]
+#[case::options(AccumulatorMismatch::Options)]
+#[case::input_dtype(AccumulatorMismatch::InputDType)]
+#[case::return_dtype(AccumulatorMismatch::ReturnDType)]
+#[case::partial_dtype(AccumulatorMismatch::PartialDType)]
+fn compute_into_rejects_mismatches_without_publication(
+    #[case] mismatch: AccumulatorMismatch,
+) -> VortexResult<()> {
+    let array = buffer![1i32, 2].into_array();
+    let aggregate = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let mut ctx = array_session().create_execution_ctx();
+    let mut accumulator: AccumulatorRef = match mismatch {
+        AccumulatorMismatch::VTable => Count
+            .bind(NumericalAggregateOpts::skip_nans())
+            .accumulator(array.dtype())?,
+        AccumulatorMismatch::Options => Sum
+            .bind(NumericalAggregateOpts::include_nans())
+            .accumulator(array.dtype())?,
+        AccumulatorMismatch::InputDType => aggregate.accumulator(&DType::from(PType::I64))?,
+        AccumulatorMismatch::ReturnDType | AccumulatorMismatch::PartialDType => {
+            let result_dtype = aggregate.return_dtype(array.dtype()).unwrap();
+            let wrong_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
+            Box::new(Accumulator::from_dtypes(
+                Sum,
+                NumericalAggregateOpts::skip_nans(),
+                AggregateDTypes::new(
+                    array.dtype().clone(),
+                    if matches!(mismatch, AccumulatorMismatch::ReturnDType) {
+                        wrong_dtype.clone()
+                    } else {
+                        result_dtype.clone()
+                    },
+                    if matches!(mismatch, AccumulatorMismatch::PartialDType) {
+                        wrong_dtype
+                    } else {
+                        result_dtype
+                    },
+                ),
+            ))
+        }
+    };
+    assert!(
+        array
+            .aggregations()
+            .compute_into(&aggregate, &mut *accumulator, &mut ctx)
+            .is_err()
+    );
+    assert_eq!(array.aggregations().snapshot_results().iter().count(), 0);
+    Ok(())
+}
+
+/// Dynamic overrides must not supply computation or claimed results to the bound cache operation.
+struct MisleadingAccumulator {
+    accumulator: Accumulator<Sum>,
+    expose_core: bool,
+}
+
+impl DynAccumulator for MisleadingAccumulator {
+    fn accumulate(&mut self, _batch: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        vortex_bail!("dynamic accumulate must not be called")
+    }
+
+    fn merge_from(&mut self, _other: &mut dyn DynAccumulator) -> VortexResult<()> {
+        vortex_bail!("dynamic merge must not be called")
+    }
+
+    fn combine_partials(&mut self, _partial: Scalar) -> VortexResult<()> {
+        vortex_bail!("dynamic combine must not be called")
+    }
+
+    fn is_saturated(&self) -> bool {
+        true
+    }
+
+    fn reset(&mut self) {
+        vortex_panic!("dynamic reset must not be called")
+    }
+
+    fn partial_scalar(&self) -> VortexResult<Scalar> {
+        vortex_bail!("dynamic partial must not be called")
+    }
+
+    fn final_scalar(&self) -> VortexResult<Scalar> {
+        vortex_bail!("dynamic final must not be called")
+    }
+
+    fn flush(&mut self) -> VortexResult<Scalar> {
+        vortex_bail!("dynamic flush must not be called")
+    }
+
+    fn finish(&mut self) -> VortexResult<Scalar> {
+        vortex_bail!("dynamic finish must not be called")
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        if self.expose_core {
+            &mut self.accumulator
+        } else {
+            self
+        }
+    }
+}
+
+#[rstest]
+#[case::core_state(true)]
+#[case::arbitrary_object(false)]
+fn compute_into_drives_core_state_through_external_wrapper(
+    #[case] expose_core: bool,
+) -> VortexResult<()> {
+    let array = buffer![1i32, 2].into_array();
+    let aggregate = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let mut ctx = array_session().create_execution_ctx();
+    let mut accumulator = MisleadingAccumulator {
+        accumulator: Accumulator::try_new(
+            Sum,
+            NumericalAggregateOpts::skip_nans(),
+            array.dtype().clone(),
+        )?,
+        expose_core,
+    };
+    let result = array
+        .aggregations()
+        .compute_into(&aggregate, &mut accumulator, &mut ctx);
+    if !expose_core {
+        assert!(result.is_err());
+        assert_eq!(array.aggregations().snapshot_results().iter().count(), 0);
+        return Ok(());
+    }
+    let result = result?;
+    assert_eq!(i64::try_from(&result)?, 3);
+    assert_eq!(
+        array.aggregations().get_result(&aggregate),
+        Precision::Exact(result)
+    );
+    assert_eq!(i64::try_from(&accumulator.accumulator.final_scalar()?)?, 3);
+    Ok(())
+}
+
+#[test]
+fn compute_into_keeps_state_and_cache_when_options_mismatch() -> VortexResult<()> {
+    let array = buffer![1i32, 2].into_array();
+    let aggregate = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let mut ctx = array_session().create_execution_ctx();
+    let mut accumulator = aggregate.accumulator(array.dtype())?;
+    accumulator.accumulate(&array, &mut ctx)?;
+    let partial = accumulator.partial_scalar()?;
+    let wrong = Sum.bind(NumericalAggregateOpts::include_nans());
+    assert!(
+        array
+            .aggregations()
+            .compute_into(&wrong, &mut *accumulator, &mut ctx)
+            .is_err()
+    );
+    assert_eq!(accumulator.partial_scalar()?, partial);
+    assert_eq!(array.aggregations().snapshot_results().iter().count(), 0);
+    Ok(())
+}
+
+#[test]
+fn compute_into_projects_min_max_with_matching_nan_options() -> VortexResult<()> {
+    let array = buffer![f64::NAN, 2.0, 5.0].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    let skip = NumericalAggregateOpts::skip_nans();
+    let include = NumericalAggregateOpts::include_nans();
+    for options in [skip, include] {
+        let aggregate = MinMax.bind(options);
+        let mut accumulator = aggregate.accumulator(array.dtype())?;
+        let result = array
+            .aggregations()
+            .compute_into(&aggregate, &mut *accumulator, &mut ctx)?;
+        assert_eq!(result, accumulator.final_scalar()?);
+        for extremum in [Min.bind(options), Max.bind(options)] {
+            let value = array
+                .aggregations()
+                .get_result(&extremum)
+                .as_exact()
+                .unwrap();
+            let value = f64::try_from(&value)?;
+            if options.skip_nans {
+                assert!(value == 2.0 || value == 5.0);
+            } else {
+                assert!(value.is_nan());
+            }
+        }
+    }
+    assert_eq!(
+        f64::try_from(
+            &array
+                .aggregations()
+                .get_result(&MIN_SKIP_NANS)
+                .as_exact()
+                .unwrap()
+        )?,
+        2.0
+    );
+    assert_eq!(
+        f64::try_from(
+            &array
+                .aggregations()
+                .get_result(&MAX_SKIP_NANS)
+                .as_exact()
+                .unwrap()
+        )?,
+        5.0
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_into_recovers_extrema_pair_before_kernel_dispatch() -> VortexResult<()> {
+    let array = buffer![1i32, 2, 3].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    let aggregate = MinMax.bind(NumericalAggregateOpts::skip_nans());
+    min_max(&array, &mut ctx, NumericalAggregateOpts::skip_nans())?;
+    array.aggregations().clear_result(&aggregate);
+    static KERNEL: RejectSumKernel = RejectSumKernel;
+    ctx.session()
+        .get::<AggregateFnSession>()
+        .register_aggregate_kernel(Primitive.id(), Some(MinMax.id()), &KERNEL);
+    let mut accumulator = aggregate.accumulator(array.dtype())?;
+    array
+        .aggregations()
+        .compute_into(&aggregate, &mut *accumulator, &mut ctx)?;
+    assert_eq!(
+        array.aggregations().get_result(&MIN_SKIP_NANS),
+        Precision::Exact(Scalar::primitive(1i32, Nullability::Nullable))
+    );
+    assert_eq!(
+        array.aggregations().get_result(&MAX_SKIP_NANS),
+        Precision::Exact(Scalar::primitive(3i32, Nullability::Nullable))
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_into_does_not_publish_failed_computation() -> VortexResult<()> {
+    let array = buffer![1i32, 2].into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    let aggregate = Sum.bind(NumericalAggregateOpts::skip_nans());
+    static KERNEL: RejectSumKernel = RejectSumKernel;
+    ctx.session()
+        .get::<AggregateFnSession>()
+        .register_aggregate_kernel(Primitive.id(), Some(Sum.id()), &KERNEL);
+    let mut accumulator = aggregate.accumulator(array.dtype())?;
+    assert!(
+        array
+            .aggregations()
+            .compute_into(&aggregate, &mut *accumulator, &mut ctx)
+            .is_err()
+    );
+    assert_eq!(
+        array.aggregations().get_result(&aggregate),
+        Precision::Absent
     );
     Ok(())
 }

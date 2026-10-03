@@ -20,7 +20,10 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateDTypes;
@@ -28,6 +31,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::GroupedAccumulator;
 use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::dtype::DType;
@@ -53,6 +57,12 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType>;
     fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef>;
     fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef>;
+    fn compute_into(
+        &self,
+        array: &ArrayRef,
+        accumulator: &mut dyn DynAccumulator,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar>;
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
     fn options_eq(&self, other_options: &dyn Any) -> bool;
@@ -157,6 +167,18 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
             self.options.clone(),
             input_dtype.clone(),
         )?))
+    }
+
+    fn compute_into(
+        &self,
+        array: &ArrayRef,
+        accumulator: &mut dyn DynAccumulator,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let accumulator = accumulator
+            .downcast_mut::<V>()
+            .ok_or_else(|| vortex_err!("Accumulator vtable does not match {}", self.id()))?;
+        accumulator.compute_into(&self.vtable, &self.options, array, ctx)
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {

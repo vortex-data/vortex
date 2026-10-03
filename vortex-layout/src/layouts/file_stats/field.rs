@@ -23,8 +23,6 @@ use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -175,33 +173,15 @@ impl FieldAggregate {
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        self.chunk_accumulator.reset();
-        self.chunk_accumulator.accumulate(array, ctx)?;
-        let result = self.chunk_accumulator.final_scalar()?;
+        let result = array.aggregations().compute_into(
+            &self.aggregate,
+            &mut *self.chunk_accumulator,
+            ctx,
+        )?;
         let is_nan_sum = self.aggregate.is::<Sum>()
             && result
                 .as_primitive_opt()
                 .is_some_and(|value| value.is_nan());
-        let stat = Stat::from_aggregate_fn(&self.aggregate).or_else(|| {
-            if self.aggregate.is::<IsConstant>() {
-                Some(Stat::IsConstant)
-            } else {
-                self.aggregate.as_opt::<IsSorted>().map(|options| {
-                    if options.strict {
-                        Stat::IsStrictSorted
-                    } else {
-                        Stat::IsSorted
-                    }
-                })
-            }
-        });
-        if let Some(stat) = stat
-            && let Some(value) = result.value()
-        {
-            array
-                .statistics()
-                .set(stat, Precision::Exact(value.clone()));
-        }
 
         // The file writer's NaN-skipping policy also applies to chunk finals. Publish their hints
         // first, then skip only NaN-valued float states. Null overflow states must still merge.
@@ -214,6 +194,7 @@ impl FieldAggregate {
 }
 
 struct FusedMinMax {
+    aggregate: AggregateFnRef,
     accumulator: Accumulator<MinMax>,
     chunk_accumulator: Accumulator<MinMax>,
 }
@@ -221,6 +202,7 @@ struct FusedMinMax {
 impl FusedMinMax {
     fn new(dtype: &DType) -> VortexResult<Self> {
         Ok(Self {
+            aggregate: MinMax.bind(NumericalAggregateOpts::skip_nans()),
             accumulator: Accumulator::try_new(
                 MinMax,
                 NumericalAggregateOpts::skip_nans(),
@@ -235,37 +217,9 @@ impl FusedMinMax {
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        self.chunk_accumulator.reset();
-        let min = array.statistics().get(Stat::Min).as_exact();
-        let max = array.statistics().get(Stat::Max).as_exact();
-        if let Some((min, max)) = min.zip(max)
-            && min.is_null() == max.is_null()
-        {
-            // These exact slots describe this input with the same NaN-skipping options.
-            // MinMax's finalized pair is its complete partial, parsed before it is merged.
-            let empty = self.chunk_accumulator.partial_scalar()?;
-            let partial = if min.is_null() {
-                empty
-            } else {
-                let dtype = array.dtype().as_nonnullable();
-                Scalar::struct_(
-                    empty.dtype().clone(),
-                    vec![min.cast(&dtype)?, max.cast(&dtype)?],
-                )
-            };
-            self.chunk_accumulator.combine_partials(partial)?;
-        } else {
-            self.chunk_accumulator.accumulate(array, ctx)?;
-        }
-        if let Some(result) = MinMaxResult::from_scalar(self.chunk_accumulator.final_scalar()?)? {
-            for (stat, result) in [(Stat::Min, result.min), (Stat::Max, result.max)] {
-                if let Some(value) = result.value() {
-                    array
-                        .statistics()
-                        .set(stat, Precision::Exact(value.clone()));
-                }
-            }
-        }
+        array
+            .aggregations()
+            .compute_into(&self.aggregate, &mut self.chunk_accumulator, ctx)?;
         self.accumulator.merge_from(&mut self.chunk_accumulator)?;
 
         Ok(())

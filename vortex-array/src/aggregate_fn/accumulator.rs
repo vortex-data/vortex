@@ -15,6 +15,8 @@ use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::cached_min_max_result;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
@@ -60,6 +62,39 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             dtypes,
             partial: None,
         }
+    }
+
+    /// Compute one array after validating the bound function and resetting retained state.
+    pub(super) fn compute_into(
+        &mut self,
+        vtable: &V,
+        options: &V::Options,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let dtypes = AggregateDTypes::try_new(vtable, options, array.dtype().clone())?;
+        vortex_ensure!(
+            self.aggregate_fn.id() == vtable.id() && &self.options == options,
+            "Accumulator aggregate function or options do not match the requested aggregate",
+        );
+        vortex_ensure!(
+            self.dtypes.dtype == dtypes.dtype
+                && self.dtypes.return_dtype == dtypes.return_dtype
+                && self.dtypes.partial_dtype == dtypes.partial_dtype,
+            "Accumulator dtypes do not match the requested aggregate over {}",
+            array.dtype(),
+        );
+
+        self.reset();
+        // Preserve the writer's exact extrema shortcut before registered kernel dispatch.
+        if let Some(options) = self.aggregate_fn.as_opt::<MinMax>()
+            && let Some(result) = cached_min_max_result(array, *options)?
+        {
+            self.combine_partials(result)?;
+        } else {
+            self.accumulate(array, ctx)?;
+        }
+        self.final_scalar()
     }
 
     /// The state of a group with no accumulated values.
