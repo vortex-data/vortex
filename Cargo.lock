@@ -11738,6 +11738,7 @@ dependencies = [
  "proptest",
  "prost 0.14.4",
  "serde_json",
+ "tracing-subscriber",
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",

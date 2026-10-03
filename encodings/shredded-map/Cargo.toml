@@ -33,6 +33,7 @@ proptest = { workspace = true }
 bytes = { workspace = true }
 parquet = { workspace = true, features = ["arrow", "zstd"] }
 serde_json = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-btrblocks = { workspace = true, features = ["pco", "zstd"] }
 
