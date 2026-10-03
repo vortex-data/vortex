@@ -39,9 +39,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const NUM_ELEMENTS: usize = 1 << 20;
+const NUM_ELEMENTS: usize = 1 << 17;
 const BIT_WIDTH: u8 = 16;
-const DENSITIES: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 0.9];
 
 fn bitpacked_i32(len: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
@@ -79,13 +78,13 @@ fn bench_filter(bencher: Bencher, array: &ArrayRef, bits: &BitBuffer) {
         });
 }
 
-#[divan::bench(args = DENSITIES)]
+#[divan::bench(args = [0.01, 0.1])]
 fn primitive_i32(bencher: Bencher, density: f64) {
     let array = bitpacked_i32(NUM_ELEMENTS);
     bench_filter(bencher, &array, &random_bits(NUM_ELEMENTS, density));
 }
 
-#[divan::bench(consts = [2, 4, 16, 64], args = DENSITIES)]
+#[divan::bench(consts = [4, 16], args = [0.1])]
 fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
     let len = NUM_ELEMENTS / LIST_SIZE as usize;
     let elements = bitpacked_i32(NUM_ELEMENTS);
