@@ -4,18 +4,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -46,6 +51,10 @@ use vortex_session::VortexSession;
 
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
+
+static NULL_COUNT: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| NullCount.bind(AggregateEmptyOptions));
+static NAN_COUNT: LazyLock<AggregateFnRef> = LazyLock::new(|| NanCount.bind(AggregateEmptyOptions));
 
 /// A zone map containing statistics for a column.
 /// Each row of the zone map corresponds to a chunk of the column.
@@ -193,7 +202,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNull>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NullCount)
+                .aggregate_or_legacy_field_expr(&NULL_COUNT)
                 .map(|null_count| self.bind_target(eq(null_count, row_count_expr())))
                 .transpose();
         }
@@ -201,7 +210,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNonNull>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NullCount)
+                .aggregate_or_legacy_field_expr(&NULL_COUNT)
                 .map(|null_count| self.bind_target(eq(null_count, lit(0u64))))
                 .transpose();
         }
@@ -209,7 +218,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNan>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NaNCount)
+                .aggregate_or_legacy_field_expr(&NAN_COUNT)
                 .map(|nan_count| self.bind_target(eq(nan_count, row_count_expr())))
                 .transpose();
         }
@@ -217,20 +226,15 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNonNan>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NaNCount)
+                .aggregate_or_legacy_field_expr(&NAN_COUNT)
                 .map(|nan_count| self.bind_target(eq(nan_count, lit(0u64))))
                 .transpose();
         }
 
-        if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
-            return self
-                .zone_map
-                .stat_field_expr(stat)
-                .map(|expr| self.bind_target(expr))
-                .transpose();
-        }
-
-        Ok(None)
+        self.zone_map
+            .legacy_aggregate_field_expr(aggregate_fn)
+            .map(|expr| self.bind_target(expr))
+            .transpose()
     }
 }
 
@@ -243,7 +247,9 @@ impl ZoneMapStatsBinder<'_> {
 impl ZoneMap {
     fn aggregate_field_expr(&self, requested: &AggregateFnRef) -> Option<Expression> {
         let field_name = requested.to_string();
-        if self.array.unmasked_field_by_name_opt(&field_name).is_some() {
+        if self.aggregate_fns.iter().any(|stored| stored == requested)
+            && self.array.unmasked_field_by_name_opt(&field_name).is_some()
+        {
             return Some(aggregate_result_expr(
                 requested,
                 get_item(field_name, root()),
@@ -271,22 +277,16 @@ impl ZoneMap {
         approximate
     }
 
-    fn stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if let Some(aggregate_fn) = stat.aggregate_fn()
-            && let Some(expr) = self.aggregate_field_expr(&aggregate_fn)
-        {
-            return Some(expr);
-        }
-
-        self.legacy_stat_field_expr(stat)
+    fn aggregate_or_legacy_field_expr(&self, requested: &AggregateFnRef) -> Option<Expression> {
+        self.aggregate_field_expr(requested)
+            .or_else(|| self.legacy_aggregate_field_expr(requested))
     }
 
-    fn legacy_stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if self.array.unmasked_field_by_name_opt(stat.name()).is_some() {
-            return Some(get_item(stat.name(), root()));
-        }
-
-        None
+    fn legacy_aggregate_field_expr(&self, requested: &AggregateFnRef) -> Option<Expression> {
+        let stat = Stat::from_aggregate_fn(requested)?;
+        self.array
+            .unmasked_field_by_name_opt(stat.name())
+            .map(|_| get_item(stat.name(), root()))
     }
 }
 
@@ -352,7 +352,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -363,11 +365,15 @@ mod tests {
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::nan_count::NanCount;
     use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
@@ -378,7 +384,9 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::and;
     use vortex_array::expr::cast;
+    use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
@@ -392,6 +400,7 @@ mod tests {
     use vortex_array::stats::all_non_nan;
     use vortex_array::stats::all_non_null;
     use vortex_array::stats::all_null;
+    use vortex_array::stats::stat;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -937,7 +946,7 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(stat(root(), max_fn));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
         let mask = prune(&zone_map, &predicate).unwrap();
@@ -962,7 +971,7 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(stat(root(), max_fn));
         let error = prune(&zone_map, &predicate).unwrap_err();
 
         assert!(
@@ -1046,5 +1055,64 @@ mod tests {
             BoolArray::from_iter([true, false, false]),
             &mut SESSION.create_execution_ctx()
         );
+    }
+
+    #[test]
+    fn generic_zone_lookup_preserves_nan_options() -> VortexResult<()> {
+        let stored = Max.bind(NumericalAggregateOpts::skip_nans());
+        let requested = Max.bind(NumericalAggregateOpts::include_nans());
+        let zone_map = ZoneMap::try_new(
+            PType::F64.into(),
+            StructArray::from_fields(&[(
+                stored.to_string(),
+                PrimitiveArray::new(buffer![2.0f64, 3.0], Validity::AllValid).into_array(),
+            )])?,
+            Arc::new([stored]),
+            2,
+            4,
+        )?;
+        let predicate = gt(stat(root(), requested), lit(0.0f64));
+        assert!(prune(&zone_map, &predicate)?.all_false());
+        Ok(())
+    }
+
+    #[test]
+    fn sorted_zone_partials_keep_their_stream_boundaries() -> VortexResult<()> {
+        let dtype = DType::from(PType::I32);
+        let options = IsSortedOptions { strict: false };
+        let aggregate = IsSorted.bind(options.clone());
+        let partial_dtype = aggregate
+            .state_dtype(&dtype)
+            .expect("sorted state dtype")
+            .as_nullable();
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut states = Vec::new();
+        for values in [buffer![4i32, 5], buffer![1i32, 2]] {
+            let mut acc = Accumulator::try_new(IsSorted, options.clone(), dtype.clone())?;
+            acc.accumulate(&values.into_array(), &mut ctx)?;
+            let partial = acc.partial_scalar()?.cast(&partial_dtype)?;
+            states.push(ConstantArray::new(partial, 1).into_array());
+        }
+        let zone_map = ZoneMap::try_new(
+            dtype,
+            StructArray::from_fields(&[(
+                aggregate.to_string(),
+                ChunkedArray::try_new(states, partial_dtype)?.into_array(),
+            )])?,
+            Arc::new([aggregate.clone()]),
+            2,
+            4,
+        )?;
+        let state = stat(root(), aggregate);
+        let predicate = and(
+            get_item("is_sorted", state.clone()),
+            gt(get_item("first_value", state), lit(3i32)),
+        );
+        assert_arrays_eq!(
+            prune(&zone_map, &predicate)?.into_array(),
+            BoolArray::from_iter([true, false]),
+            &mut ctx
+        );
+        Ok(())
     }
 }

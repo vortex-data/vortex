@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_array::stats::rewrite::falsify;
 use vortex_error::VortexExpect;
@@ -15,6 +16,14 @@ use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
+use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::nan_count::NAN_COUNT;
+use crate::aggregate_fn::fns::nan_count::NanCount;
+use crate::aggregate_fn::fns::null_count::NULL_COUNT;
+use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::bound::and;
@@ -30,7 +39,6 @@ use crate::expr::bound::lt;
 use crate::expr::bound::lt_eq;
 use crate::expr::bound::or;
 use crate::expr::bound::or_collect;
-use crate::expr::stats::Stat;
 use crate::scalar::StringLike;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
@@ -54,6 +62,13 @@ use crate::scalar_fn::internal::row_count::RowCount;
 use crate::stats::bound::stat;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::session::StatsSession;
+
+static ALL_NULL: LazyLock<AggregateFnRef> = LazyLock::new(|| AllNull.bind(AggregateEmptyOptions));
+static ALL_NON_NULL: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| AllNonNull.bind(AggregateEmptyOptions));
+static ALL_NAN: LazyLock<AggregateFnRef> = LazyLock::new(|| AllNan.bind(AggregateEmptyOptions));
+static ALL_NON_NAN: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| AllNonNan.bind(AggregateEmptyOptions));
 
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
@@ -523,7 +538,7 @@ fn list_contains_falsify<P: NonNanProof>(
     let list = expr.child(0);
     let needle = expr.child(1);
 
-    let Some(list_scalar) = literal_stat(list, Stat::Min) else {
+    let Some(list_scalar) = literal_stat(list, &MIN_SKIP_NANS) else {
         return Ok(None);
     };
     let elements = list_scalar
@@ -618,35 +633,35 @@ fn dynamic_comparison_falsify<P: NonNanProof>(
 }
 
 fn min(expr: &BoundExpression) -> Option<BoundExpression> {
-    stat_expr(expr, Stat::Min)
+    stat_expr(expr, &MIN_SKIP_NANS)
 }
 
 fn max(expr: &BoundExpression) -> Option<BoundExpression> {
-    stat_expr(expr, Stat::Max)
+    stat_expr(expr, &MAX_SKIP_NANS)
 }
 
 fn null_count(expr: &BoundExpression) -> Option<BoundExpression> {
-    stat_expr(expr, Stat::NullCount)
+    stat_expr(expr, &NULL_COUNT)
 }
 
 fn nan_count(expr: &BoundExpression) -> Option<BoundExpression> {
-    stat_expr(expr, Stat::NaNCount)
+    stat_expr(expr, &NAN_COUNT)
 }
 
 fn all_null(expr: &BoundExpression) -> BoundExpression {
-    stat_fn(expr.clone(), AllNull.bind(AggregateEmptyOptions))
+    stat_fn(expr.clone(), ALL_NULL.clone())
 }
 
 fn all_non_null(expr: &BoundExpression) -> BoundExpression {
-    stat_fn(expr.clone(), AllNonNull.bind(AggregateEmptyOptions))
+    stat_fn(expr.clone(), ALL_NON_NULL.clone())
 }
 
 fn all_nan(expr: &BoundExpression) -> BoundExpression {
-    stat_fn(expr.clone(), AllNan.bind(AggregateEmptyOptions))
+    stat_fn(expr.clone(), ALL_NAN.clone())
 }
 
 fn all_non_nan(expr: &BoundExpression) -> BoundExpression {
-    stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions))
+    stat_fn(expr.clone(), ALL_NON_NAN.clone())
 }
 
 enum NanCheck {
@@ -667,7 +682,7 @@ impl NonNanProof for NanCountProof {
     const EMIT_UNGUARDED_REWRITES: bool = true;
 
     fn check(expr: &BoundExpression) -> VortexResult<NanCheck> {
-        non_nan_check(expr, |expr| match stat_expr(expr, Stat::NaNCount) {
+        non_nan_check(expr, |expr| match stat_expr(expr, &NAN_COUNT) {
             Some(nan_count) => NanCheck::Check(eq(nan_count, lit(0u64))),
             None => NanCheck::Unavailable,
         })
@@ -681,7 +696,7 @@ impl NonNanProof for AllNonNanProof {
 
     fn check(expr: &BoundExpression) -> VortexResult<NanCheck> {
         non_nan_check(expr, |expr| {
-            NanCheck::Check(stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)))
+            NanCheck::Check(stat_fn(expr.clone(), ALL_NON_NAN.clone()))
         })
     }
 }
@@ -723,8 +738,8 @@ fn has_nans(dtype: &DType) -> bool {
     dtype.is_float()
 }
 
-fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
-    if let Some(literal) = literal_stat(expr, stat) {
+fn stat_expr(expr: &BoundExpression, aggregate: &AggregateFnRef) -> Option<BoundExpression> {
+    if let Some(literal) = literal_stat(expr, aggregate) {
         return Some(literal);
     }
 
@@ -736,17 +751,16 @@ fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
     }
 
     if let Some(dtype) = expr.as_opt::<Cast>() {
-        return cast_stat(expr.child(0), dtype, stat);
+        return cast_stat(expr.child(0), dtype, aggregate);
     }
 
-    let aggregate_fn = stat.aggregate_fn()?;
     // The aggregate may not support the expression's dtype, e.g. min/max over structs,
     // even when the predicate itself is well-typed. Such stats cannot be lowered later,
     // so do not reference them in the rewrite.
-    aggregate_fn
+    aggregate
         .return_dtype(expr.dtype())
         .is_some()
-        .then(|| stat_fn(expr.clone(), aggregate_fn))
+        .then(|| stat_fn(expr.clone(), aggregate.clone()))
 }
 
 fn with_non_nan_guards<'a, P: NonNanProof>(
@@ -773,32 +787,34 @@ fn with_non_nan_guards<'a, P: NonNanProof>(
     })
 }
 
-fn literal_stat(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
+fn literal_stat(expr: &BoundExpression, aggregate: &AggregateFnRef) -> Option<BoundExpression> {
     let scalar = expr.as_opt::<Literal>()?;
-    match stat {
-        Stat::Min | Stat::Max => Some(lit(scalar.clone())),
-        Stat::NullCount => Some(lit(if scalar.is_null() { 1u64 } else { 0u64 })),
-        Stat::NaNCount => {
-            let value = scalar.as_primitive_opt()?;
-            if !value.ptype().is_float() {
-                return None;
-            }
-
-            Some(lit(if value.is_nan() { 1u64 } else { 0u64 }))
-        }
-        Stat::IsConstant
-        | Stat::IsSorted
-        | Stat::IsStrictSorted
-        | Stat::Sum
-        | Stat::UncompressedSizeInBytes => None,
+    if aggregate.is::<Min>() || aggregate.is::<Max>() {
+        return Some(lit(scalar.clone()));
     }
+    if aggregate.is::<NullCount>() {
+        return Some(lit(if scalar.is_null() { 1u64 } else { 0u64 }));
+    }
+    if aggregate.is::<NanCount>() {
+        let value = scalar.as_primitive_opt()?;
+        if value.ptype().is_float() {
+            return Some(lit(if value.is_nan() { 1u64 } else { 0u64 }));
+        }
+    }
+    None
 }
 
-fn cast_stat(expr: &BoundExpression, dtype: &DType, stat: Stat) -> Option<BoundExpression> {
-    match stat {
-        Stat::Min | Stat::Max => stat_expr(expr, stat).map(|stat| cast(stat, dtype.clone())),
-        Stat::NaNCount | Stat::Sum | Stat::UncompressedSizeInBytes => stat_expr(expr, stat),
-        Stat::NullCount | Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => None,
+fn cast_stat(
+    expr: &BoundExpression,
+    dtype: &DType,
+    aggregate: &AggregateFnRef,
+) -> Option<BoundExpression> {
+    if aggregate.is::<Min>() || aggregate.is::<Max>() {
+        stat_expr(expr, aggregate).map(|stat| cast(stat, dtype.clone()))
+    } else if aggregate.is::<NanCount>() {
+        stat_expr(expr, aggregate)
+    } else {
+        None
     }
 }
 
