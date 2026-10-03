@@ -22,7 +22,12 @@ use vortex_error::vortex_err;
 
 use super::ROOT_SCHEME_ID;
 use crate::CascadingCompressor;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
+use crate::scheme::EstimateVerdict;
+use crate::scheme::Scheme;
+use crate::stats::ArrayAndStats;
+use crate::stats::GenerateStatsOptions;
 
 /// Child indices for the compressor's list/listview compression.
 pub(super) mod root_list_children {
@@ -107,6 +112,44 @@ impl CascadingCompressor {
             list_view.validity()?,
         )?
         .into_array())
+    }
+
+    /// Compresses a map, letting registered map schemes compete with compressing each child.
+    ///
+    /// Map layouts change the whole structure, so their sizes cannot be estimated from a sample.
+    /// Every eligible scheme compresses the full map and the smallest result wins.
+    pub(super) fn compress_map(
+        &self,
+        map_array: MapArray,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let canonical = Canonical::Map(map_array.clone());
+        let candidates: Vec<&'static dyn Scheme> = self
+            .schemes
+            .iter()
+            .copied()
+            .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
+            .collect();
+        let mut best =
+            self.compress_map_array(map_array.clone(), compress_ctx.clone(), exec_ctx)?;
+        if candidates.is_empty() {
+            return Ok(best);
+        }
+        let data = ArrayAndStats::new(map_array.into_array(), GenerateStatsOptions::default());
+        for scheme in candidates {
+            if matches!(
+                scheme.expected_compression_ratio(&data, compress_ctx.clone(), exec_ctx),
+                CompressionEstimate::Verdict(EstimateVerdict::Skip)
+            ) {
+                continue;
+            }
+            let compressed = scheme.compress(self, &data, compress_ctx.clone(), exec_ctx)?;
+            if compressed.nbytes() < best.nbytes() {
+                best = compressed;
+            }
+        }
+        Ok(best)
     }
 
     /// Compresses a [`MapArray`] by recursively compressing its entries [`ListViewArray`].

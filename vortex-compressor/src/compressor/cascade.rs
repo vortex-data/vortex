@@ -153,7 +153,7 @@ impl CascadingCompressor {
                     self.compress_list_view_array(list_view_array, compress_ctx, exec_ctx)
                 }
             }
-            Canonical::Map(map_array) => self.compress_map_array(map_array, compress_ctx, exec_ctx),
+            Canonical::Map(map_array) => self.compress_map(map_array, compress_ctx, exec_ctx),
             Canonical::FixedSizeList(fsl_array) => {
                 let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
 
