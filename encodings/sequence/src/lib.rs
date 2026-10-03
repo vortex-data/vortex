@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod chunked_decompress;
 mod compress;
 mod compute;
 mod eval;

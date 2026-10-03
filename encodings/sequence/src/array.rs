@@ -20,6 +20,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -48,6 +49,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::chunked_decompress;
 use crate::compress::sequence_decompress;
 use crate::eval;
 use crate::eval::SequenceValue;
@@ -409,6 +411,18 @@ impl VTable for Sequence {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        chunked_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -9,6 +9,7 @@
 //! [`ArrayParentReduceRule`] and [`ExecuteParentKernel`] respectively.
 
 mod array;
+mod chunked_decompress;
 mod rules;
 mod slice_;
 mod vtable;

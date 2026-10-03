@@ -9,6 +9,7 @@ pub use array::FilterSlots;
 pub use array::FilterSlotsView;
 pub use vtable::FilterArray;
 
+mod chunked_decompress;
 mod execute;
 pub(crate) use execute::buffer::filter_buffer;
 pub(crate) use execute::buffer::prepare_mask_for_reuse;

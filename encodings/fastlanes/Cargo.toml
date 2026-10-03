@@ -75,6 +75,10 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "chunked_decompress"
+harness = false
+
+[[bench]]
 name = "for_encode"
 harness = false
 

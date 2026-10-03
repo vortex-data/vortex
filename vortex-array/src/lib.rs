@@ -113,6 +113,7 @@ pub mod buffer;
 pub mod builders;
 pub mod builtins;
 mod canonical;
+pub mod chunk_iter;
 mod columnar;
 pub mod compute;
 pub mod display;

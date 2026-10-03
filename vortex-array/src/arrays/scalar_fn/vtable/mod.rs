@@ -30,9 +30,11 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
+use crate::arrays::scalar_fn::chunked_decompress;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::chunk_iter::ChunkSink;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -176,6 +178,18 @@ impl VTable for ScalarFn {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        chunked_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn reduce_parent(

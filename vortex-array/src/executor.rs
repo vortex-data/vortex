@@ -266,6 +266,25 @@ impl ArrayRef {
                 ));
             }
 
+            // Step 2c: stream-to-canonical shortcut. When the whole encoding tree supports
+            // chunked decompression (the capability cascades: each encoding only advertises
+            // support when the children it streams from do) and its streaming chain is deep
+            // enough to pay off, decompress blocks straight into the canonical builder while each
+            // block is L1-resident, instead of materializing a full intermediate per level.
+            if current_builder.is_none()
+                && crate::chunk_iter::should_execute_via_chunks(&current_array, is_done)
+            {
+                let stats = current_array.statistics().to_array_stats();
+                let result = crate::chunk_iter::execute_via_chunks(&current_array, ctx)?;
+                trace_op!(record_execute_done(&result.as_ref()));
+                let result = result.into_array();
+                result
+                    .statistics()
+                    .set_iter(StatsSet::from(stats).into_iter());
+                current_array = result;
+                continue;
+            }
+
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();
@@ -664,6 +683,18 @@ fn execute_parent_for_child(
     }
 
     Ok(None)
+}
+
+impl ArrayRef {
+    /// Run the session's `execute_parent` kernels against this array's children once, as the
+    /// executor does before executing an encoding.
+    pub(crate) fn try_execute_parent_kernels(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let kernels = Arc::clone(&ctx.execute_parent_kernels);
+        try_execute_parent(self, &kernels, ctx)
+    }
 }
 
 /// Try execute_parent on each occupied slot of the array.

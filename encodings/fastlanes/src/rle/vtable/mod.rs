@@ -18,6 +18,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -34,6 +35,7 @@ use crate::rle::array::RLEArrayExt;
 use crate::rle::array::RLEArraySlotsExt;
 use crate::rle::array::RLESlots;
 use crate::rle::array::RLESlotsView;
+use crate::rle::array::chunked_decompress;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::vtable::rules::RULES;
 
@@ -195,6 +197,18 @@ impl VTable for RLE {
         .into_slots();
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        chunked_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

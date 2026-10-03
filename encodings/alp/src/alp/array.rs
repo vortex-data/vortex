@@ -24,6 +24,7 @@ use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -48,6 +49,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
+use crate::alp::chunked_decompress;
 use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::RULES;
 
@@ -173,6 +175,18 @@ impl VTable for ALP {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ALPSlots::NAMES[idx].to_string()
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        chunked_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

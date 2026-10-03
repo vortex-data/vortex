@@ -11,6 +11,7 @@ pub use decompress::decompress_into_array;
 use vortex_session::VortexSession;
 
 mod array;
+mod chunked_decompress;
 mod compress;
 pub(crate) mod compute;
 mod decompress;

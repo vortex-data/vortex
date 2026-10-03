@@ -41,6 +41,8 @@ use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::canonical::Canonical;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::stream_from_fn;
 use crate::dtype::DType;
 use crate::dtype::OffsetBuilderPType;
 use crate::match_each_decimal_value;
@@ -183,6 +185,32 @@ impl VTable for Constant {
             array.as_view(),
             ctx,
         )?))
+    }
+
+    fn supports_decompress_chunks(_array: ArrayView<'_, Self>) -> bool {
+        true
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        // A null constant streams unspecified (but initialized) values, matching the
+        // not-streamed-validity contract.
+        match_each_native_ptype!(array.dtype().as_ptype(), |T| {
+            let value: T = array
+                .scalar()
+                .as_primitive()
+                .typed_value::<T>()
+                .unwrap_or_default();
+            // Sinks may mutate the chunk in place (e.g. Patched patching over it), so the scratch
+            // is refilled before every emission.
+            stream_from_fn(array.len(), sink, |chunk: &mut [T], _| {
+                chunk.fill(value);
+                Ok(())
+            })
+        })
     }
 
     fn append_to_builder(

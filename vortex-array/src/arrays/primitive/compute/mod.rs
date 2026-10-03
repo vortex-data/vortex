@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod between;
-mod cast;
+pub(crate) mod cast;
 mod fill_null;
 mod fixed_width;
 mod mask;

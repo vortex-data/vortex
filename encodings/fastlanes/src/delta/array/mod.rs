@@ -15,6 +15,7 @@ use vortex_error::vortex_ensure;
 
 use crate::Delta;
 
+pub(crate) mod chunked_decompress;
 pub mod delta_compress;
 pub mod delta_decompress;
 

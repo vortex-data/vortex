@@ -31,8 +31,10 @@ use crate::array::with_empty_buffers;
 use crate::arrays::slice::SliceArraySlotsExt;
 use crate::arrays::slice::array::SliceData;
 use crate::arrays::slice::array::SliceSlots;
+use crate::arrays::slice::chunked_decompress;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::chunk_iter::ChunkSink;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -147,6 +149,18 @@ impl VTable for Slice {
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("Slice array is not serializable")
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        chunked_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

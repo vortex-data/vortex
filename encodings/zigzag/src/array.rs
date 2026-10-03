@@ -19,6 +19,7 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -38,6 +39,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
+use crate::chunked_decompress;
 use crate::compute::ZigZagEncoded;
 use crate::rules::RULES;
 use crate::zigzag_decode;
@@ -134,6 +136,18 @@ impl VTable for ZigZag {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ZigZagSlots::NAMES[idx].to_string()
+    }
+
+    fn supports_decompress_chunks(array: ArrayView<'_, Self>) -> bool {
+        chunked_decompress::supports_decompress_chunks(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
