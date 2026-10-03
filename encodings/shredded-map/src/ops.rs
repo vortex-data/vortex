@@ -12,16 +12,34 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::arrays::map::MapArrayExt;
+use vortex_array::arrays::map::MapArraySlotsExt;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
+use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ShreddedColumn;
@@ -34,7 +52,115 @@ use crate::decode::decode_parts;
 use crate::flat::FlatMap;
 use crate::flat::Strings;
 use crate::flat::build_map;
+use crate::flat::to_usize_vec;
 use crate::labels::values_to_utf8;
+
+/// Values decoded per block when gathering a few dictionary values.
+const GATHER_BLOCK: usize = 1024;
+
+/// A dictionary whose values hold only the entries its codes reference.
+///
+/// Decoding a compressed string dictionary (FSST, OnPair) and gathering from it decodes every
+/// value, even when a filtered or taken column references a handful. This decodes only the
+/// 1024-value blocks holding referenced entries, and keeps the dictionary as is when those
+/// blocks cover at least half of it.
+fn narrow_dict(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let Some(dict) = array.as_opt::<Dict>() else {
+        return Ok(array.clone());
+    };
+    let values = dict.values();
+    if values.is_canonical() || values.len() <= GATHER_BLOCK {
+        return Ok(array.clone());
+    }
+    let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
+    let code_values = crate::decode::codes_u32(&codes.clone().into_array(), ctx)?;
+    let mut used = vec![false; values.len()];
+    for &code in &code_values {
+        if let Some(u) = used.get_mut(code as usize) {
+            *u = true;
+        }
+    }
+    let blocks: Vec<usize> = used
+        .chunks(GATHER_BLOCK)
+        .enumerate()
+        .filter(|(_, block)| block.iter().any(|&u| u))
+        .map(|(b, _)| b)
+        .collect();
+    if blocks.len() * GATHER_BLOCK * 2 >= values.len() {
+        return Ok(array.clone());
+    }
+    let mut remap = vec![0u32; values.len()];
+    let mut next = 0u32;
+    let mut chunks = Vec::with_capacity(blocks.len());
+    for b in blocks {
+        let start = b * GATHER_BLOCK;
+        let end = (start + GATHER_BLOCK).min(values.len());
+        let local: Vec<u32> = (start..end)
+            .filter(|&c| used[c])
+            .map(|c| {
+                remap[c] = next;
+                next += 1;
+                u32::try_from(c - start).unwrap_or(u32::MAX)
+            })
+            .collect();
+        let block = values
+            .slice(start..end)?
+            .execute::<Canonical>(ctx)?
+            .into_array();
+        let local = PrimitiveArray::new(Buffer::from(local), Validity::NonNullable).into_array();
+        chunks.push(block.take(local)?);
+    }
+    let gathered = ChunkedArray::try_new(chunks, values.dtype().clone())?
+        .into_array()
+        .execute::<Canonical>(ctx)?
+        .into_array();
+    let remapped: Buffer<u32> = code_values.iter().map(|&c| remap[c as usize]).collect();
+    let codes = PrimitiveArray::new(remapped, codes.validity()?).into_array();
+    Ok(DictArray::try_new(codes, gathered)?.into_array())
+}
+
+/// `values.take(indices)`, gathering through a dictionary's codes and narrowing its values.
+fn take_narrow(
+    values: &ArrayRef,
+    indices: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    match values.as_opt::<Dict>() {
+        Some(dict) => {
+            let codes = dict.codes().take(indices)?;
+            narrow_dict(
+                &DictArray::try_new(codes, dict.values().clone())?.into_array(),
+                ctx,
+            )
+        }
+        None => values.take(indices),
+    }
+}
+
+/// The rows of a shredded column selected by `mask`, keeping sparse and dictionary layers and
+/// narrowing dictionaries to the values the selected rows reference.
+fn filter_column(column: &ArrayRef, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    if let Some(sparse) = column.as_opt::<Sparse>()
+        && sparse.fill_scalar().is_null()
+    {
+        let fill = sparse.fill_scalar().clone();
+        return Ok(match sparse.patches().filter(mask, ctx)? {
+            Some(patches) => {
+                let patches = patches.map_values(|values| narrow_dict(&values, ctx))?;
+                Sparse::try_new_from_patches(patches, fill)?.into_array()
+            }
+            None => ConstantArray::new(fill, mask.true_count()).into_array(),
+        });
+    }
+    if let Some(dict) = column.as_opt::<Dict>() {
+        let codes = dict.codes().filter(mask.clone())?;
+        return narrow_dict(
+            &DictArray::try_new(codes, dict.values().clone())?.into_array(),
+            ctx,
+        );
+    }
+    column.filter(mask.clone())
+}
 
 /// Label operations over the canonical [`MapArray`] representation.
 pub mod map {
@@ -80,21 +206,43 @@ pub mod map {
     }
 
     /// The value of `key` in each row formatted as a string, null when absent or null.
+    ///
+    /// Keys are matched with a vectorized comparison, which on dictionary-encoded keys compares
+    /// the dictionary once and then integer codes, so no key string is decoded per entry. Only
+    /// the matched values are taken and formatted.
     pub fn get_label_utf8(
         map: &ArrayRef,
         key: &str,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let flat = FlatMap::new(map, ctx)?;
-        let keys = Strings::new(&flat.keys);
-        let needle = key.as_bytes();
-        let mut indices = Vec::with_capacity(flat.len);
-        let mut valid = vortex_buffer::BitBufferMut::with_capacity(flat.len);
-        let mut found = None;
-        for row in 0..flat.len {
-            if !flat.repeats_prev(row) {
-                found = flat.range(row).find(|&j| keys.get(j) == needle);
-            }
+        let map = map.clone().execute::<MapArray>(ctx)?;
+        let len = map.len();
+        let entries = map.entries().clone().execute::<ListViewArray>(ctx)?;
+        let elements = entries.elements().clone().execute::<StructArray>(ctx)?;
+        let keys = elements.unmasked_field(0).clone();
+        let needle = ConstantArray::new(Scalar::utf8(key, keys.dtype().nullability()), keys.len())
+            .into_array();
+        let matches = keys
+            .binary(needle, Operator::Eq)?
+            .null_as_false()
+            .execute(ctx)?;
+        if matches.all_false() {
+            return Ok(
+                ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), len)
+                    .into_array(),
+            );
+        }
+        let offsets = to_usize_vec(entries.offsets(), ctx)?;
+        let sizes = to_usize_vec(entries.sizes(), ctx)?;
+        let row_valid = map.map_validity().execute_mask(len, ctx)?;
+        let mut indices = Vec::with_capacity(len);
+        let mut valid = vortex_buffer::BitBufferMut::with_capacity(len);
+        for row in 0..len {
+            let found = if row_valid.value(row) {
+                (offsets[row]..offsets[row] + sizes[row]).find(|&j| matches.value(j))
+            } else {
+                None
+            };
             indices.push(found.unwrap_or(0) as u64);
             valid.append(found.is_some());
         }
@@ -102,11 +250,7 @@ pub mod map {
             Buffer::from(indices),
             Validity::from_bit_buffer(valid.freeze(), Nullability::Nullable),
         );
-        let values = flat
-            .values
-            .take(indices.into_array())?
-            .execute::<Canonical>(ctx)?
-            .into_array();
+        let values = take_narrow(elements.unmasked_field(1), indices.into_array(), ctx)?;
         values_to_utf8(&values, ctx)
     }
 
@@ -194,7 +338,7 @@ pub mod shredded {
         ShreddedParts::from_view(array.as_view())
     }
 
-    fn find_column(array: &ShreddedMapArray, key: &str) -> Option<usize> {
+    pub(super) fn find_column(array: &ShreddedMapArray, key: &str) -> Option<usize> {
         array
             .data()
             .columns()
@@ -487,5 +631,284 @@ pub mod encoded {
             View::KeySet(k) => keyset::project(&k, keys, ctx)?.into_array(),
             View::Map(m) => map::project(&m, keys, ctx)?.into_array(),
         })
+    }
+}
+
+/// Filter-then-project queries: the rows whose label equals a value, then a few labels of those
+/// rows, one `Utf8` array per requested key.
+pub mod query {
+    use super::*;
+
+    /// The rows where `label` (a `Utf8` label array) equals `value`.
+    pub fn label_eq(label: &ArrayRef, value: &str, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+        let needle = ConstantArray::new(Scalar::utf8(value, Nullability::Nullable), label.len())
+            .into_array();
+        label
+            .binary(needle, Operator::Eq)?
+            .null_as_false()
+            .execute(ctx)
+    }
+
+    /// `SELECT keys WHERE map[filter_key] = value` over a shredded map. Only the filter key's
+    /// column and the projected keys' columns are read; the residual is filtered once and only
+    /// when a projected key lives there.
+    pub fn shredded(
+        array: &ShreddedMapArray,
+        filter_key: &str,
+        value: &str,
+        keys: &[&str],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<VarBinViewArray>> {
+        let label = shredded::get_label_utf8(array, filter_key, ctx)?;
+        let mask = label_eq(&label, value, ctx)?;
+        let mut residual = None;
+        keys.iter()
+            .map(|key| {
+                let label = match shredded::find_column(array, key) {
+                    Some(c) => {
+                        values_to_utf8(&filter_column(&array.columns()[c], &mask, ctx)?, ctx)?
+                    }
+                    None => {
+                        let residual = match &residual {
+                            Some(residual) => residual,
+                            None => residual.insert(array.residual().filter(mask.clone())?),
+                        };
+                        map::get_label_utf8(residual, key, ctx)?
+                    }
+                };
+                label.execute::<VarBinViewArray>(ctx)
+            })
+            .collect()
+    }
+
+    /// `SELECT keys WHERE map[filter_key] = value` over a map in any encoding, in one pass.
+    ///
+    /// Rows are scanned once. In each row, entries' keys are compared until the filter key is
+    /// found, and only matching rows look at their other entries, so non-matching rows stop
+    /// early as in a row-oriented scan. Dictionary keys and values compare their dictionaries
+    /// once and then integer codes; plain strings compare inline view headers before bytes.
+    /// Only the projected values of matching rows are gathered and decoded.
+    pub fn map(
+        map: &ArrayRef,
+        filter_key: &str,
+        value: &str,
+        keys: &[&str],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<VarBinViewArray>> {
+        let map = map.clone().execute::<MapArray>(ctx)?;
+        let len = map.len();
+        let entries = map.entries().clone().execute::<ListViewArray>(ctx)?;
+        let elements = entries.elements().clone().execute::<StructArray>(ctx)?;
+        let mut wanted = vec![filter_key];
+        for key in keys {
+            if !wanted.contains(key) {
+                wanted.push(key);
+            }
+        }
+        // Entries are classified into a byte, with 0 for keys that are not wanted.
+        vortex_ensure!(
+            wanted.len() < usize::from(u8::MAX),
+            "a query reads at most {} distinct keys",
+            u8::MAX - 1
+        );
+        let key_array = elements.unmasked_field(0).clone();
+        let key_strings;
+        let key_source = match key_array.as_opt::<Dict>() {
+            Some(dict) => Source::codes(
+                dict,
+                |s| {
+                    wanted
+                        .iter()
+                        .position(|w| w.as_bytes() == s)
+                        .map_or(0, slot_of)
+                },
+                ctx,
+            )?,
+            None => {
+                key_strings = key_array.execute::<VarBinViewArray>(ctx)?;
+                Source::views(&key_strings, &wanted, ctx)?
+            }
+        };
+        let values = elements.unmasked_field(1);
+        let value_strings;
+        let value_source = match values.as_opt::<Dict>() {
+            Some(dict) if matches!(dict.values().dtype(), DType::Utf8(_)) => {
+                Source::codes(dict, |s| u8::from(s == value.as_bytes()), ctx)?
+            }
+            _ => {
+                value_strings = values_to_utf8(values, ctx)?.execute::<VarBinViewArray>(ctx)?;
+                Source::views(&value_strings, &[value], ctx)?
+            }
+        };
+        let offsets = to_usize_vec(entries.offsets(), ctx)?;
+        let sizes = to_usize_vec(entries.sizes(), ctx)?;
+        let row_valid = map.map_validity().execute_mask(len, ctx)?;
+        let key_slots: Vec<usize> = keys
+            .iter()
+            .map(|k| wanted.iter().position(|w| w == k).unwrap_or_default() + 1)
+            .collect();
+        let mut indices: Vec<Vec<u64>> = keys.iter().map(|_| Vec::new()).collect();
+        let mut valid: Vec<vortex_buffer::BitBufferMut> = keys
+            .iter()
+            .map(|_| vortex_buffer::BitBufferMut::with_capacity(0))
+            .collect();
+        let mut first = vec![usize::MAX; wanted.len() + 1];
+        for row in 0..len {
+            if !row_valid.value(row) {
+                continue;
+            }
+            let range = offsets[row]..offsets[row] + sizes[row];
+            let Some(f) = range.clone().find(|&j| key_source.is(j, 1)) else {
+                continue;
+            };
+            if !value_source.is(f, 1) {
+                continue;
+            }
+            first.fill(usize::MAX);
+            for j in range {
+                let s = key_source.slot(j) as usize;
+                if s != 0 && first[s] == usize::MAX {
+                    first[s] = j;
+                }
+            }
+            for (k, &s) in key_slots.iter().enumerate() {
+                let j = first[s];
+                indices[k].push(if j == usize::MAX { 0 } else { j as u64 });
+                valid[k].append(j != usize::MAX);
+            }
+        }
+        indices
+            .into_iter()
+            .zip(valid)
+            .map(|(indices, valid)| {
+                let indices = PrimitiveArray::new(
+                    Buffer::from(indices),
+                    Validity::from_bit_buffer(valid.freeze(), Nullability::Nullable),
+                );
+                let values = take_narrow(values, indices.into_array(), ctx)?;
+                values_to_utf8(&values, ctx)?.execute::<VarBinViewArray>(ctx)
+            })
+            .collect()
+    }
+
+    /// The slot of `wanted[i]`. Callers ensure there are fewer than 255 wanted keys.
+    fn slot_of(i: usize) -> u8 {
+        u8::try_from(i + 1).unwrap_or(0)
+    }
+
+    /// A string view's length and first four bytes, its low 64 bits.
+    #[allow(clippy::cast_possible_truncation)]
+    fn header(view: &BinaryView) -> u64 {
+        view.as_u128() as u64
+    }
+
+    /// Classifies entries of a string array against a few wanted strings on demand: `1 + i`
+    /// for `wanted[i]`, 0 for anything else or null.
+    enum Source<'a> {
+        /// Dictionary-encoded: each distinct value is classified once, entries by their code.
+        Codes { codes: Vec<u32>, table: Vec<u8> },
+        /// Plain strings: a view's low 64 bits hold its length and first four bytes, ruling out
+        /// almost every other string without touching string data.
+        Views {
+            strings: Strings<'a>,
+            valid: Mask,
+            headers: Vec<u64>,
+            wanted: Vec<&'a [u8]>,
+        },
+    }
+
+    impl<'a> Source<'a> {
+        fn codes(
+            dict: vortex_array::ArrayView<'_, Dict>,
+            classify: impl Fn(&[u8]) -> u8,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Self> {
+            let dictionary = dict.values().clone().execute::<VarBinViewArray>(ctx)?;
+            let dict_valid = dictionary
+                .as_ref()
+                .validity()?
+                .execute_mask(dictionary.len(), ctx)?;
+            let strings = Strings::new(&dictionary);
+            let table = (0..dictionary.len())
+                .map(|c| {
+                    if dict_valid.value(c) {
+                        classify(strings.get(c))
+                    } else {
+                        0
+                    }
+                })
+                .collect();
+            let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
+            let valid = codes.validity()?.execute_mask(codes.len(), ctx)?;
+            let mut codes = crate::decode::codes_u32(&codes.into_array(), ctx)?;
+            if !valid.all_true() {
+                for (i, c) in codes.iter_mut().enumerate() {
+                    if !valid.value(i) {
+                        *c = u32::MAX;
+                    }
+                }
+            }
+            Ok(Self::Codes { codes, table })
+        }
+
+        fn views(
+            strings: &'a VarBinViewArray,
+            wanted: &[&'a str],
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Self> {
+            Ok(Self::Views {
+                strings: Strings::new(strings),
+                valid: strings
+                    .as_ref()
+                    .validity()?
+                    .execute_mask(strings.len(), ctx)?,
+                headers: wanted
+                    .iter()
+                    .map(|w| header(&BinaryView::make_view(w.as_bytes(), 0, 0)))
+                    .collect(),
+                wanted: wanted.iter().map(|w| w.as_bytes()).collect(),
+            })
+        }
+
+        /// Whether the entry is `wanted[slot - 1]`.
+        #[inline]
+        fn is(&self, entry: usize, slot: u8) -> bool {
+            match self {
+                Self::Codes { codes, table } => table.get(codes[entry] as usize) == Some(&slot),
+                Self::Views {
+                    strings,
+                    valid,
+                    headers,
+                    wanted,
+                } => {
+                    let i = slot as usize - 1;
+                    header(&strings.views[entry]) == headers[i]
+                        && valid.value(entry)
+                        && strings.get(entry) == wanted[i]
+                }
+            }
+        }
+
+        #[inline]
+        fn slot(&self, entry: usize) -> u8 {
+            match self {
+                Self::Codes { codes, table } => {
+                    table.get(codes[entry] as usize).copied().unwrap_or(0)
+                }
+                Self::Views {
+                    strings,
+                    valid,
+                    headers,
+                    wanted,
+                } => {
+                    let entry_header = header(&strings.views[entry]);
+                    headers
+                        .iter()
+                        .position(|&h| h == entry_header)
+                        .filter(|&i| valid.value(entry) && strings.get(entry) == wanted[i])
+                        .map_or(0, slot_of)
+                }
+            }
+        }
     }
 }

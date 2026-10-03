@@ -476,7 +476,35 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
     }
     check_probes(&case.rows, &shredded, &map, ctx)?;
     let compressed = btrblocks(&shredded)?;
-    check_probes(&case.rows, &compressed, &btrblocks_array(&map)?, ctx)?;
+    let compressed_map = btrblocks_array(&map)?;
+    check_probes(&case.rows, &compressed, &compressed_map, ctx)?;
+
+    // Filter on one label's value, then project labels of the matching rows.
+    let filter_key = VOCAB[selection.first().copied().unwrap_or(0) % VOCAB.len()];
+    let filter_labels = expected_label(&case.rows, filter_key);
+    if let Some(value) = filter_labels.iter().flatten().next().cloned() {
+        let matching: Vec<usize> = (0..filter_labels.len())
+            .filter(|&r| filter_labels[r].as_deref() == Some(value.as_str()))
+            .collect();
+        let results = [
+            ops::query::shredded(&shredded, filter_key, &value, projection, ctx)?,
+            ops::query::shredded(&compressed, filter_key, &value, projection, ctx)?,
+            ops::query::map(&map, filter_key, &value, projection, ctx)?,
+            ops::query::map(&compressed_map, filter_key, &value, projection, ctx)?,
+        ];
+        for (i, got) in results.into_iter().enumerate() {
+            for (key, array) in projection.iter().zip(got) {
+                let all = expected_label(&case.rows, key);
+                let expected: Vec<Option<String>> =
+                    matching.iter().map(|&r| all[r].clone()).collect();
+                assert_eq!(
+                    read_strings(&array.into_array(), ctx)?,
+                    expected,
+                    "query {i} {key}"
+                );
+            }
+        }
+    }
 
     // All values as strings.
     let strings = expected_strings(&case.rows);
@@ -721,6 +749,13 @@ fn probes_read_compressed_columns() -> VortexResult<()> {
                 (i % 2 == 0).then(|| format!("r{i}")),
             ));
         }
+        if i % 3 == 0 {
+            let n = (i * 31) % 6000;
+            row.push((
+                "msg".to_string(),
+                Some(format!("message {n} from the probe test")),
+            ));
+        }
         row.sort();
         builder.push_row(row.iter().map(|(k, v)| (k, v.as_ref())));
         rows.push(Some(
@@ -733,7 +768,7 @@ fn probes_read_compressed_columns() -> VortexResult<()> {
     let shredded = shred(&map, &ShredOptions::default(), &mut ctx)?;
     let compressed = btrblocks(&shredded)?;
     let compressed_map = btrblocks_array(&map)?;
-    let keys = ["host", "err", "rare0", "rare1", "rare4", "missing"];
+    let keys = ["host", "err", "msg", "rare0", "rare1", "rare4", "missing"];
     let mut shredded_probe = crate::point::ShreddedProbe::new(&compressed);
     let mut map_probe = crate::point::MapProbe::new(&compressed_map, &mut ctx)?;
     for row in (0..rows.len()).map(|i| (i * 7919) % rows.len()) {
@@ -752,6 +787,32 @@ fn probes_read_compressed_columns() -> VortexResult<()> {
                 expected,
                 "{key} {row}"
             );
+        }
+    }
+
+    // Selective filters reference few entries of the large `msg` dictionary, which the query
+    // gathers block by block rather than decoding whole.
+    let project = ["msg", "err", "rare0", "host", "missing"];
+    for value in ["h5", "h299"] {
+        let host = expected_label(&rows, "host");
+        let matching: Vec<usize> = (0..rows.len())
+            .filter(|&r| host[r].as_deref() == Some(value))
+            .collect();
+        let results = [
+            ops::query::shredded(&compressed, "host", value, &project, &mut ctx)?,
+            ops::query::map(&compressed_map, "host", value, &project, &mut ctx)?,
+        ];
+        for got in results {
+            for (key, array) in project.iter().zip(got) {
+                let all = expected_label(&rows, key);
+                let expected: Vec<Option<String>> =
+                    matching.iter().map(|&r| all[r].clone()).collect();
+                assert_eq!(
+                    read_strings(&array.into_array(), &mut ctx)?,
+                    expected,
+                    "{value} {key}"
+                );
+            }
         }
     }
     Ok(())

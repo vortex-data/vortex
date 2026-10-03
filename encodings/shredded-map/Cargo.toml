@@ -28,6 +28,7 @@ vortex-utils = { workspace = true }
 [dev-dependencies]
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
+arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 bytes = { workspace = true }
@@ -55,6 +56,9 @@ name = "point_bench"
 
 [[example]]
 name = "layout"
+
+[[example]]
+name = "query_bench"
 
 [lints]
 workspace = true

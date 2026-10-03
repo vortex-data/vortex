@@ -130,3 +130,28 @@ CloudTrail, 586k rows, compressed with BtrBlocks, per lookup over 2000 random ro
 | `errorMessage` (sparse, 50%) | 0.48 µs | 0.46 µs | 2.4 µs |
 | `requestParameters.policyArn` (sparse, 5%) | 0.37 µs | 0.14 µs | 3.0 µs |
 | `eventName` (dense) | 0.74 µs | 1.2 µs | 2.1 µs |
+
+## Filter, then project
+
+`ops::query` answers `SELECT k1, ..., kn WHERE labels[k] = v`, one `Utf8` array per projected
+key:
+
+- `query::shredded` compares only the filter key's column (on its dictionary, then codes) and
+  filters only the projected columns, keeping their sparse and dictionary layers. Dictionaries
+  decode only the 1024-value blocks the selected rows reference.
+- `query::map` scans rows once, stopping at the filter key in each row, comparing dictionary codes
+  or string view prefixes instead of strings.
+
+`query_bench` picks each dataset's queries from the data (the most common key with 5 to 10,000
+distinct values, filtered on values near 0.5%, 5% and 30% of rows, projecting 5 keys of mixed
+frequency) and checks every result against a row scan over Arrow. Milliseconds, best of 5, for the
+most selective filter:
+
+| dataset | rows matched | Arrow | `Map` | `Map` + BtrBlocks | shredded | shredded + BtrBlocks | shredded + compact |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| LO2 | 972 | 1.7 | 2.5 | 3.7 | 0.21 | 0.66 | 1.3 |
+| CloudTrail | 2,170 | 24.3 | 29.7 | 87.1 | 0.60 | 4.1 | 10.6 |
+| OpenStack | 855 | 31.9 | 48.5 | 47.6 | 1.1 | 2.7 | 11.6 |
+| OpenTelemetry | 2,743 | 46.3 | 72.4 | 68.9 | 0.55 | 2.6 | 4.4 |
+| APT29 | 292 | 21.8 | 33.2 | 92.1 | 0.48 | 1.6 | 7.1 |
+| Online Boutique | 3,089 | 15.6 | 28.8 | 24.3 | 0.66 | 2.0 | 18.0 |
