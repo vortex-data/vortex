@@ -49,7 +49,7 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
-entropy-bins = ["dep:pco", "dep:vortex-entropy-bins"]
+entropy-bins = ["dep:vortex-entropy-bins"]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 

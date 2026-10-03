@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 
 use crate::BLOCK_VALUES;
 use crate::EntropyBins;
+use crate::EntropyBinsConfig;
 use crate::EntropyBinsOptions;
 use crate::MAX_BLOCK_VALUES;
 
@@ -175,7 +176,12 @@ fn interleaved_series_prefers_lag() -> VortexResult<()> {
         Ok(e.data().data.len())
     };
     assert!(size(3)? < size(1)?);
-    assert_eq!(EntropyBins::plan(array.as_view(), 8, &LAGS)?.options.lag, 3);
+    assert_eq!(
+        EntropyBins::plan(array.as_view(), &EntropyBinsConfig::BALANCED)?
+            .options
+            .lag,
+        3
+    );
     roundtrip(values)
 }
 
@@ -270,5 +276,28 @@ fn repeated_probe(
             );
         }
     }
+    Ok(())
+}
+
+/// Each preset stays within its dials, and the smaller presets are not larger.
+#[test]
+fn presets_respect_their_dials() -> VortexResult<()> {
+    let v: Vec<i16> = skewed(200_000, 17)
+        .iter()
+        .map(|&x| (x % 50) as i16)
+        .collect();
+    let array = PrimitiveArray::new(Buffer::from(v), Validity::NonNullable);
+    let size = |config: &EntropyBinsConfig| -> VortexResult<(EntropyBinsOptions, usize)> {
+        let plan = EntropyBins::plan(array.as_view(), config)?;
+        let encoded = EntropyBins::from_primitive(array.as_view(), config.level, plan.options)?;
+        Ok((plan.options, encoded.data().data.len()))
+    };
+    let (fast, fast_bytes) = size(&EntropyBinsConfig::FAST)?;
+    assert_eq!(fast.block_values, BLOCK_VALUES);
+    assert_eq!(fast.word_bits, 16);
+    assert!(fast.lag <= 1);
+    let (_, balanced_bytes) = size(&EntropyBinsConfig::BALANCED)?;
+    let (_, smallest_bytes) = size(&EntropyBinsConfig::SMALLEST)?;
+    assert!(smallest_bytes <= balanced_bytes && balanced_bytes <= fast_bytes);
     Ok(())
 }

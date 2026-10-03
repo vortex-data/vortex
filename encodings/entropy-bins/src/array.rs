@@ -321,21 +321,20 @@ impl EntropyBins {
         Self::try_new(dtype, data, validity)
     }
 
-    /// Choose the lag (from `lags`) and block size for `parray` and estimate the encoded size,
-    /// without encoding. Bins are trained on every other sampled block and scored on the blocks
-    /// in between; per-block and per-array overheads are added on top.
+    /// Choose the layout for `parray` under `config` and estimate the encoded size, without
+    /// encoding. Bins are trained on every other sampled block and scored on the blocks in
+    /// between; per-block and per-array overheads are added on top.
     pub fn plan(
         parray: ArrayView<'_, Primitive>,
-        level: usize,
-        lags: &[usize],
+        config: &EntropyBinsConfig,
     ) -> VortexResult<EntropyBinsPlan> {
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
         let wide = wide_values(parray);
         let n = wide.len();
         let mut best: Option<(usize, usize)> = None;
-        for &lag in lags {
-            let coded = estimate_coded(&wide, ptype, level, lag)?;
+        for &lag in config.lags {
+            let coded = estimate_coded(&wide, ptype, config.level, lag)?;
             if best.is_none_or(|(_, b)| coded < b) {
                 best = Some((lag, coded));
             }
@@ -347,16 +346,25 @@ impl EntropyBins {
             coded + fixed + n_blocks * (PER_BLOCK_BYTES + lag * ptype.byte_width())
         };
         // Larger blocks only when they save a noticeable share: they slow random access.
-        let floor = total(MAX_BLOCK_VALUES);
+        let max_block = config
+            .max_block_values
+            .clamp(BLOCK_VALUES, MAX_BLOCK_VALUES)
+            .next_power_of_two()
+            .min(MAX_BLOCK_VALUES);
+        let floor = total(max_block);
         let block_values = [BLOCK_VALUES, 2 * BLOCK_VALUES, MAX_BLOCK_VALUES]
             .into_iter()
-            .find(|&b| total(b) * 100 <= floor * (100 + LARGER_BLOCK_GAIN_PERCENT))
-            .unwrap_or(MAX_BLOCK_VALUES);
+            .filter(|&b| b <= max_block)
+            .find(|&b| total(b) * 100 <= floor * (100 + config.larger_block_gain_percent))
+            .unwrap_or(max_block);
         let nbytes = total(block_values);
         // 8-bit refill words halve the bits lanes leave unused at the end of a block, at a few
         // percent of decode speed: worth it where that is a noticeable share of the bytes.
         let saved = n.div_ceil(block_values) * NARROW_WORD_SAVING_BYTES;
-        let (word_bits, nbytes) = if saved * 100 >= nbytes * NARROW_WORD_GAIN_PERCENT {
+        let narrow_words = config
+            .narrow_word_gain_percent
+            .is_some_and(|percent| saved * 100 >= nbytes * percent);
+        let (word_bits, nbytes) = if narrow_words {
             (8, nbytes - saved)
         } else {
             (16, nbytes)
@@ -365,6 +373,62 @@ impl EntropyBins {
             options: EntropyBinsOptions::new(lag, block_values).with_word_bits(word_bits),
             nbytes,
         })
+    }
+}
+
+/// Dials for [`EntropyBins::plan`], trading size against decode speed, random access and
+/// compression time. The presets are measured starting points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EntropyBinsConfig {
+    /// pco compression level used to train the bins (0 to 12). Lower levels compress faster and
+    /// find fewer, coarser bins: level 4 compresses ~25% faster for ~7% more bytes.
+    pub level: usize,
+    /// Row distances tried for difference coding (zero codes the values). Each costs one
+    /// estimate at compression time.
+    pub lags: &'static [usize],
+    /// Largest block size the planner may choose, from [`BLOCK_VALUES`] to [`MAX_BLOCK_VALUES`].
+    /// Random access decodes up to a block, so this bounds its cost.
+    pub max_block_values: usize,
+    /// How much smaller (in percent) the largest allowed blocks must make the array before a
+    /// larger block size is chosen.
+    pub larger_block_gain_percent: usize,
+    /// How much smaller (in percent) 8-bit refill words must make the array to be chosen, or
+    /// `None` to always use 16-bit words (the faster decode).
+    pub narrow_word_gain_percent: Option<usize>,
+}
+
+impl EntropyBinsConfig {
+    /// The default: larger blocks and 8-bit words only where they clearly pay off.
+    pub const BALANCED: Self = Self {
+        level: 8,
+        lags: &[0, 1, 2, 3, 4, 8],
+        max_block_values: MAX_BLOCK_VALUES,
+        larger_block_gain_percent: 15,
+        narrow_word_gain_percent: Some(1),
+    };
+
+    /// Fastest decode and random access: 1024-value blocks, 16-bit words, lag 0 or 1 only.
+    pub const FAST: Self = Self {
+        level: 8,
+        lags: &[0, 1],
+        max_block_values: BLOCK_VALUES,
+        larger_block_gain_percent: 0,
+        narrow_word_gain_percent: None,
+    };
+
+    /// Smallest output: larger blocks and 8-bit words wherever they save anything.
+    pub const SMALLEST: Self = Self {
+        level: 8,
+        lags: &[0, 1, 2, 3, 4, 8],
+        max_block_values: MAX_BLOCK_VALUES,
+        larger_block_gain_percent: 1,
+        narrow_word_gain_percent: Some(0),
+    };
+}
+
+impl Default for EntropyBinsConfig {
+    fn default() -> Self {
+        Self::BALANCED
     }
 }
 
@@ -410,15 +474,8 @@ pub struct EntropyBinsPlan {
 /// field, part-filled lane words and the block's offset.
 const PER_BLOCK_BYTES: usize = 40;
 
-/// How much smaller (in percent) the largest blocks must make the array before a larger block
-/// size is chosen: larger blocks slow down random access.
-const LARGER_BLOCK_GAIN_PERCENT: usize = 15;
-
 /// Measured bytes per block that 8-bit refill words save over 16-bit ones.
 const NARROW_WORD_SAVING_BYTES: usize = 8;
-
-/// How much smaller (in percent) 8-bit refill words must make the array to be chosen.
-const NARROW_WORD_GAIN_PERCENT: usize = 1;
 
 /// The estimated bytes of the coded ids and offsets alone.
 fn estimate_coded(wide: &[u64], ptype: PType, level: usize, lag: usize) -> VortexResult<usize> {
