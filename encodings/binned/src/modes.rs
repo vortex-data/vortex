@@ -23,6 +23,7 @@ use crate::stream::Stream;
 use crate::stream::StreamDecoder;
 use crate::stream::compress_latents;
 use crate::stream::estimate_bits;
+use crate::stream::sample;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mode {
@@ -37,7 +38,6 @@ pub enum Mode {
 
 /// Prefer the simpler, faster mode unless a transform saves at least this fraction of size.
 const MIN_RELATIVE_SAVINGS: f64 = 0.01;
-const SAMPLE_RUNS: usize = 8;
 /// Lookback decoding is slower than consecutive deltas, so it must save at least this much.
 const MIN_LOOKBACK_SAVINGS: f64 = 0.03;
 
@@ -271,17 +271,6 @@ fn join<T: Numeric>(
     }
     let _ = avx2;
     join_impl(mode, primary, secondary, out);
-}
-
-/// Contiguous runs spread across the data, so delta estimates still see neighbors.
-fn sample<T: Copy>(values: &[T]) -> Vec<T> {
-    if values.len() <= SAMPLE_RUNS * BLOCK_SIZE {
-        return values.to_vec();
-    }
-    let stride = values.len() / SAMPLE_RUNS;
-    (0..SAMPLE_RUNS)
-        .flat_map(|r| values[r * stride..r * stride + BLOCK_SIZE].iter().copied())
-        .collect()
 }
 
 fn gcd(mut a: u64, mut b: u64) -> u64 {

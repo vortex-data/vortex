@@ -38,7 +38,7 @@ pub struct Config {
     /// Log2 of the number of candidate bins before merging.
     pub n_bins_log: u8,
     pub max_ans_size_log: u8,
-    /// Highest consecutive delta order to try.
+    /// Highest consecutive delta order to try (Pco also allows up to 7).
     pub max_delta_order: u8,
 }
 
@@ -47,7 +47,7 @@ impl Default for Config {
         Self {
             n_bins_log: 8,
             max_ans_size_log: 10,
-            max_delta_order: 2,
+            max_delta_order: 7,
         }
     }
 }
@@ -188,24 +188,34 @@ fn candidate<L: Latent>(latents: &[L], order: u8, config: &Config) -> Candidate<
     }
 }
 
-/// Estimated encoded bits for these latents, choosing the delta order as compression would.
+/// Estimated encoded bits for these latents at their best delta order.
 pub fn estimate_bits<L: Latent>(latents: &[L], config: &Config) -> f64 {
     (0..=config.max_delta_order)
         .map(|order| candidate(latents, order, config).bits)
         .fold(f64::INFINITY, f64::min)
 }
 
-pub fn compress_latents<L: Latent>(latents: &[L], config: &Config) -> VortexResult<Stream<L>> {
-    let mut best: Option<Candidate<L>> = None;
-    for order in 0..=config.max_delta_order {
-        let c = candidate(latents, order, config);
-        if best.as_ref().is_none_or(|b| c.bits < b.bits) {
-            best = Some(c);
-        }
+const SAMPLE_RUNS: usize = 8;
+
+/// Contiguous block-sized runs spread across the data, so delta estimates still see neighbors.
+pub(crate) fn sample<T: Copy>(values: &[T]) -> Vec<T> {
+    if values.len() <= SAMPLE_RUNS * BLOCK_SIZE {
+        return values.to_vec();
     }
-    let Some(best) = best else {
-        vortex_error::vortex_bail!("no delta order candidates");
-    };
+    let stride = values.len() / SAMPLE_RUNS;
+    (0..SAMPLE_RUNS)
+        .flat_map(|r| values[r * stride..r * stride + BLOCK_SIZE].iter().copied())
+        .collect()
+}
+
+pub fn compress_latents<L: Latent>(latents: &[L], config: &Config) -> VortexResult<Stream<L>> {
+    // Choose the delta order on a sample, then build only that candidate from all the data.
+    let sampled = sample(latents);
+    let order = (0..=config.max_delta_order)
+        .map(|order| (order, candidate(&sampled, order, config).bits))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map_or(0, |(order, _)| order);
+    let best = candidate(latents, order, config);
 
     let ans_size_log = if best.bins.len() <= 1 {
         0
