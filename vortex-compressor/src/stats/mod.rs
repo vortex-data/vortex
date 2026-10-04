@@ -3,6 +3,7 @@
 
 //! Compression statistics types and caching.
 
+pub mod accumulator;
 mod bool;
 mod cache;
 mod float;

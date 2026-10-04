@@ -11,18 +11,22 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::expr::stats::StatsProvider;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
+use super::accumulator::Distinct;
+use super::accumulator::MinMax;
+use super::accumulator::RunCount;
+use super::accumulator::accumulate;
 
 /// Information about the distinct values in an integer array.
 #[derive(Debug, Clone)]
@@ -35,6 +39,33 @@ pub struct DistinctInfo<T> {
     most_frequent_value: T,
     /// The number of times the most frequent value occurs.
     top_frequency: u32,
+}
+
+impl<T: Copy> DistinctInfo<T> {
+    /// Summarizes a non-empty map of distinct values to their occurrence counts.
+    pub(super) fn new(distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>) -> Self {
+        let (&top_value, &top_frequency) = distinct_values
+            .iter()
+            .max_by_key(|&(_, &count)| count)
+            .vortex_expect("distinct values are non-empty");
+        Self {
+            distinct_count: u32::try_from(distinct_values.len())
+                .vortex_expect("there are more than `u32::MAX` distinct values"),
+            most_frequent_value: top_value.0,
+            top_frequency,
+            distinct_values,
+        }
+    }
+
+    /// Returns the number of distinct values.
+    pub fn distinct_count(&self) -> u32 {
+        self.distinct_count
+    }
+
+    /// Returns the most frequent value and its number of occurrences.
+    pub fn most_frequent(&self) -> (T, u32) {
+        (self.most_frequent_value, self.top_frequency)
+    }
 }
 
 impl<T> DistinctInfo<T> {
@@ -312,6 +343,10 @@ impl IntegerStats {
 }
 
 /// Computes typed integer statistics for a specific integer type.
+///
+/// Every statistic is computed by a fused [`accumulate`] pass. Counting distinct values needs the
+/// value bounds up front to pick a counter, so for types wider than a byte without cached bounds it
+/// takes a second pass.
 fn typed_int_stats<T>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
@@ -321,6 +356,7 @@ where
     T: IntegerPType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
     NativeValue<T>: Eq + Hash,
+    PValue: From<T>,
 {
     // Special case: empty array.
     if array.is_empty() {
@@ -337,9 +373,16 @@ where
         });
     }
 
-    if array.all_invalid(ctx)? {
+    let validity = array
+        .as_ref()
+        .validity()?
+        .execute_mask(array.as_ref().len(), ctx)?;
+    let null_count = u32::try_from(validity.false_count())?;
+    let value_count = u32::try_from(validity.true_count())?;
+
+    if value_count == 0 {
         return Ok(IntegerStats {
-            null_count: u32::try_from(array.len())?,
+            null_count,
             value_count: 0,
             average_run_length: 0,
             erased: TypedStats {
@@ -356,354 +399,70 @@ where
         });
     }
 
-    let validity = array
-        .as_ref()
-        .validity()?
-        .execute_mask(array.as_ref().len(), ctx)?;
-    let null_count = validity.false_count();
-    let value_count = validity.true_count();
+    let values = array.as_slice::<T>();
+    let len = values.len();
+    let cached = cached_min_max::<T>(array);
+    let expect_valid = "validity has valid values";
 
-    let array_ref = array.as_ref();
-    let min = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Min, ctx)
-        .vortex_expect("min should be computed");
-
-    let max = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Max, ctx)
-        .vortex_expect("max should be computed");
-
-    // Initialize loop state.
-    let head_idx = validity
-        .first()
-        .vortex_expect("All null masks have been handled before");
-    let buffer = array.to_buffer::<T>();
-    let head = buffer[head_idx];
-
-    let mut loop_state = LoopState {
-        distinct: if count_distinct_values {
-            DistinctCounter::new(min, max, array.len())
-        } else {
-            DistinctCounter::Off
+    let ((min, max), runs, distinct) = match (cached, count_distinct_values) {
+        (Some(bounds), false) => {
+            let runs = accumulate(values, &validity, RunCount::new()).vortex_expect(expect_valid);
+            (bounds, runs, None)
+        }
+        (Some((min, max)), true) => {
+            let (distinct, runs) = accumulate(values, &validity, Distinct::new(min, max, len))
+                .vortex_expect(expect_valid);
+            ((min, max), runs, Some(distinct))
+        }
+        (None, false) => {
+            let (bounds, runs) = accumulate(values, &validity, (MinMax::new(), RunCount::new()))
+                .vortex_expect(expect_valid);
+            (bounds, runs, None)
+        }
+        (None, true) => match Distinct::for_full_domain(len) {
+            Some(distinct) => {
+                let (bounds, (distinct, runs)) =
+                    accumulate(values, &validity, (MinMax::new(), distinct))
+                        .vortex_expect(expect_valid);
+                (bounds, runs, Some(distinct))
+            }
+            None => {
+                let (min, max) =
+                    accumulate(values, &validity, MinMax::new()).vortex_expect(expect_valid);
+                let (distinct, runs) = accumulate(values, &validity, Distinct::new(min, max, len))
+                    .vortex_expect(expect_valid);
+                ((min, max), runs, Some(distinct))
+            }
         },
-        prev: head,
-        pending: 0,
-        runs: 1,
     };
 
-    let sliced = buffer.slice(head_idx..array.len());
-    let (chunks, remainder) = sliced.as_slice().as_chunks::<64>();
-    match validity.bit_buffer() {
-        AllOr::All => {
-            for chunk in chunks {
-                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
-            }
-            inner_loop_naive(
-                remainder,
-                count_distinct_values,
-                &BitBuffer::new_set(remainder.len()),
-                &mut loop_state,
-            );
-        }
-        AllOr::None => unreachable!("All invalid arrays have been handled before"),
-        AllOr::Some(v) => {
-            let mask = v.slice(head_idx..array.len());
-            let mut offset = 0;
-            for chunk in chunks {
-                let validity = mask.slice(offset..(offset + 64));
-                offset += 64;
-
-                match validity.true_count() {
-                    // All nulls -> no stats to update.
-                    0 => continue,
-                    // Inner loop for when validity check can be elided.
-                    64 => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
-                    // Inner loop for when we need to check validity.
-                    _ => inner_loop_nullable(
-                        chunk,
-                        count_distinct_values,
-                        &validity,
-                        &mut loop_state,
-                    ),
-                }
-            }
-            // Final iteration, run naive loop.
-            inner_loop_naive(
-                remainder,
-                count_distinct_values,
-                &mask.slice(offset..(offset + remainder.len())),
-                &mut loop_state,
-            );
-        }
+    if cached.is_none() {
+        let stats = array.as_ref().statistics();
+        stats.set(Stat::Min, Precision::Exact(PValue::from(min).into()));
+        stats.set(Stat::Max, Precision::Exact(PValue::from(max).into()));
     }
-
-    if count_distinct_values {
-        loop_state.flush();
-    }
-
-    let runs = loop_state.runs;
-    let distinct = loop_state.distinct.finish();
-
-    let typed = TypedStats { min, max, distinct };
-
-    let null_count = u32::try_from(null_count)?;
-    let value_count = u32::try_from(value_count)?;
 
     Ok(IntegerStats {
         null_count,
         value_count,
         average_run_length: value_count / runs,
-        erased: typed.into(),
+        erased: TypedStats { min, max, distinct }.into(),
     })
 }
 
-/// Value ranges up to this many values may be counted in a dense array instead of a hash map.
-const DENSE_DISTINCT_MAX_RANGE: usize = 1 << 16;
-
-/// Value ranges up to this many values are always counted in a dense array, regardless of the array
-/// length. This covers every `u8` and `i8` array.
-const DENSE_DISTINCT_ALWAYS_RANGE: usize = 1 << 8;
-
-/// Accumulates the occurrences of each distinct valid value.
-enum DistinctCounter<T> {
-    /// Distinct values are not being counted.
-    Off,
-    /// Counts indexed by `value - min`, used when the value range is narrow. This avoids hashing
-    /// entirely.
-    Dense {
-        /// The minimum valid value.
-        min: T,
-        /// `min` cast to `usize`. Casting preserves values modulo `2^usize::BITS`, so the wrapping
-        /// difference of two cast values is the exact difference of any two values in the range.
-        min_index: usize,
-        /// The number of occurrences of `min + index`.
-        counts: Vec<u32>,
-    },
-    /// Counts keyed by value.
-    Hashed(HashMap<NativeValue<T>, u32, FxBuildHasher>),
-}
-
-impl<T: IntegerPType> DistinctCounter<T>
+/// Returns the exact min and max already cached on the array, if both are.
+fn cached_min_max<T>(array: &PrimitiveArray) -> Option<(T, T)>
 where
-    NativeValue<T>: Eq + Hash,
+    T: for<'a> TryFrom<&'a Scalar, Error = VortexError>,
 {
-    /// Chooses a dense counter when the valid values span a narrow range, otherwise a hash map.
-    fn new(min: T, max: T, len: usize) -> Self {
-        let range_len = match (min.to_i128(), max.to_i128()) {
-            (Some(min), Some(max)) => usize::try_from(max - min + 1).unwrap_or(usize::MAX),
-            _ => usize::MAX,
-        };
-
-        // A dense counter is only worthwhile when it is not much larger than the array itself.
-        if range_len <= DENSE_DISTINCT_ALWAYS_RANGE
-            || (range_len <= DENSE_DISTINCT_MAX_RANGE && range_len <= len)
-        {
-            Self::Dense {
-                min,
-                min_index: min.as_(),
-                counts: vec![0; range_len],
-            }
-        } else {
-            Self::Hashed(HashMap::with_capacity_and_hasher(len / 2, FxBuildHasher))
-        }
-    }
-
-    /// Records `count` occurrences of a valid value.
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    fn add(&mut self, value: T, count: u32) {
-        match self {
-            Self::Off => {}
-            Self::Dense {
-                min_index, counts, ..
-            } => counts[value.as_().wrapping_sub(*min_index)] += count,
-            Self::Hashed(distinct_values) => {
-                *distinct_values.entry(NativeValue(value)).or_insert(0) += count
-            }
-        }
-    }
-
-    /// Returns the distinct value information, or `None` if counting was off.
-    fn finish(self) -> Option<DistinctInfo<T>> {
-        let distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher> = match self {
-            Self::Off => return None,
-            Self::Dense { min, counts, .. } => {
-                let min = min.to_i128().vortex_expect("integers fit in i128");
-                counts
-                    .iter()
-                    .enumerate()
-                    .filter(|&(_, &count)| count > 0)
-                    .map(|(index, &count)| {
-                        let value = <T as num_traits::NumCast>::from(min + index as i128)
-                            .vortex_expect("values between min and max fit in the type");
-                        (NativeValue(value), count)
-                    })
-                    .collect()
-            }
-            Self::Hashed(distinct_values) => distinct_values,
-        };
-
-        let (&top_value, &top_count) = distinct_values
-            .iter()
-            .max_by_key(|&(_, &count)| count)
-            .vortex_expect("we know this is non-empty");
-
-        Some(DistinctInfo {
-            distinct_count: u32::try_from(distinct_values.len())
-                .vortex_expect("there are more than `u32::MAX` distinct values"),
-            most_frequent_value: top_value.0,
-            top_frequency: top_count,
-            distinct_values,
-        })
-    }
-}
-
-/// Internal loop state for integer stats computation.
-struct LoopState<T> {
-    /// The previous value seen.
-    prev: T,
-    /// Occurrences of `prev` in the current run not yet added to `distinct`.
-    pending: u32,
-    /// The run count.
-    runs: u32,
-    /// The distinct values counter.
-    distinct: DistinctCounter<T>,
-}
-
-impl<T: IntegerPType> LoopState<T>
-where
-    NativeValue<T>: Eq + Hash,
-{
-    /// Adds the pending occurrences of `prev` to the distinct values counter.
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    fn flush(&mut self) {
-        self.distinct.add(self.prev, self.pending);
-        self.pending = 0;
-    }
-
-    /// Records one value, hashing only when the value differs from `prev`.
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    fn push<const COUNT_DISTINCT_VALUES: bool>(&mut self, value: T) {
-        if value != self.prev {
-            if COUNT_DISTINCT_VALUES {
-                self.flush();
-            }
-            self.prev = value;
-            self.runs += 1;
-        }
-        if COUNT_DISTINCT_VALUES {
-            self.pending += 1;
-        }
-    }
-}
-
-/// Inner loop for non-null chunks of 64 values.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-fn inner_loop_nonnull<T: IntegerPType>(
-    values: &[T; 64],
-    count_distinct_values: bool,
-    state: &mut LoopState<T>,
-) where
-    NativeValue<T>: Eq + Hash,
-{
-    if count_distinct_values {
-        inner_loop_nonnull_impl::<T, true>(values, state);
-    } else {
-        inner_loop_nonnull_impl::<T, false>(values, state);
-    }
-}
-
-/// Processes one non-null chunk, monomorphized on whether distinct values are counted.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-fn inner_loop_nonnull_impl<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
-    values: &[T; 64],
-    state: &mut LoopState<T>,
-) where
-    NativeValue<T>: Eq + Hash,
-{
-    // Branch-free count of value changes, including the change from the previous chunk. At
-    // most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
-    let transitions = u8::from(values[0] != state.prev)
-        + values
-            .iter()
-            .zip(&values[1..])
-            .map(|(a, b)| u8::from(a != b))
-            .sum::<u8>();
-
-    if COUNT_DISTINCT_VALUES {
-        if transitions == 0 {
-            state.pending += 64;
-            return;
-        }
-        for &value in values {
-            if value != state.prev {
-                state.flush();
-                state.prev = value;
-            }
-            state.pending += 1;
-        }
-    }
-
-    state.runs += u32::from(transitions);
-    state.prev = values[63];
-}
-
-/// Inner loop for nullable chunks of 64 values.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-fn inner_loop_nullable<T: IntegerPType>(
-    values: &[T; 64],
-    count_distinct_values: bool,
-    is_valid: &BitBuffer,
-    state: &mut LoopState<T>,
-) where
-    NativeValue<T>: Eq + Hash,
-{
-    if count_distinct_values {
-        inner_loop_masked::<T, true>(values, is_valid, state);
-    } else {
-        inner_loop_masked::<T, false>(values, is_valid, state);
-    }
-}
-
-/// Fallback inner loop for remainder values.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-fn inner_loop_naive<T: IntegerPType>(
-    values: &[T],
-    count_distinct_values: bool,
-    is_valid: &BitBuffer,
-    state: &mut LoopState<T>,
-) where
-    NativeValue<T>: Eq + Hash,
-{
-    if count_distinct_values {
-        inner_loop_masked::<T, true>(values, is_valid, state);
-    } else {
-        inner_loop_masked::<T, false>(values, is_valid, state);
-    }
-}
-
-/// Processes values with a validity mask, skipping nulls without breaking runs.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-fn inner_loop_masked<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
-    values: &[T],
-    is_valid: &BitBuffer,
-    state: &mut LoopState<T>,
-) where
-    NativeValue<T>: Eq + Hash,
-{
-    for (idx, &value) in values.iter().enumerate() {
-        if is_valid.value(idx) {
-            state.push::<COUNT_DISTINCT_VALUES>(value);
-        }
-    }
+    let stats = array.as_ref().statistics();
+    let get = |stat| {
+        stats
+            .get(stat)
+            .as_exact()
+            .and_then(|scalar| T::try_from(&scalar).ok())
+    };
+    Some((get(Stat::Min)?, get(Stat::Max)?))
 }
 
 #[cfg(test)]
