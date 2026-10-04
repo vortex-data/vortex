@@ -162,16 +162,31 @@ unsafe fn ids16_kernel<const V: usize, const R: usize, const W: u32>(
             while step < end {
                 for v in 0..V {
                     let xv = x[v];
-                    let sym = _mm512_permutex2var_epi8(s0, xv, s1);
                     let xs = _mm512_and_si512(_mm512_permutex2var_epi8(x0, xv, x1), ff);
                     let nb = _mm512_sub_epi32(_mm512_lzcnt_epi32(xs), kk);
                     let bits = _mm512_andnot_si512(sllv32(ones, nb), buf[v]);
                     buf[v] = srlv32(buf[v], nb);
                     avail[v] = _mm512_sub_epi32(avail[v], nb);
                     x[v] = _mm512_or_si512(sllv32(xs, nb), bits);
-                    _mm_storeu_si128(outs[v].add(step * LANES).cast(), _mm512_cvtepi32_epi8(sym));
+                    // The state's low byte; translated to its symbol below, 64 at a time.
+                    _mm_storeu_si128(outs[v].add(step * LANES).cast(), _mm512_cvtepi32_epi8(xv));
                 }
                 step += 1;
+            }
+        }
+        let len = steps * LANES;
+        for out in outs {
+            let mut i = 0;
+            while i < len {
+                let k: u64 = if i + 64 <= len {
+                    u64::MAX
+                } else {
+                    (1u64 << (len - i)) - 1
+                };
+                let xi = _mm512_maskz_loadu_epi8(k, out.add(i).cast());
+                let sym = _mm512_permutex2var_epi8(s0, xi, s1);
+                _mm512_mask_storeu_epi8(out.add(i).cast(), k, sym);
+                i += 64;
             }
         }
     }
@@ -214,7 +229,15 @@ pub(crate) fn merge<T: OutInt>(
             }
         };
     }
-    if T::BYTES <= 4 && nb <= 32 && d.max_width <= 31 {
+    // A chunk's widest bins are often rare outliers: when they would rule out a kernel, check
+    // the widths this block uses instead.
+    let max_width = if (T::BYTES <= 4 && d.max_width > 31) || d.max_width > 62 {
+        // SAFETY: AVX-512 is available and ids index the chunk's at most 64 bins.
+        unsafe { widest(&d.wtab, &ids[..n]) }
+    } else {
+        d.max_width
+    };
+    if T::BYTES <= 4 && nb <= 32 && max_width <= 31 {
         if nb <= 16 {
             go!(merge16, 0);
         } else {
@@ -222,7 +245,7 @@ pub(crate) fn merge<T: OutInt>(
         }
         return true;
     }
-    if nb <= 64 && d.max_width <= 62 {
+    if nb <= 64 && max_width <= 62 {
         if nb <= 16 {
             go!(merge8, 0);
         } else if nb <= 32 {
@@ -504,5 +527,33 @@ pub(crate) unsafe fn classify_ids(ids: &[u8], class: &[u8], out: &mut [u64]) -> 
             i += 64;
         }
         true
+    }
+}
+
+/// The widest offset among the bins of `ids`, from the 64-entry width table `wtab`.
+///
+/// # Safety
+///
+/// The CPU must support the features checked by [`has_avx512`]; every id must be below 64.
+#[target_feature(enable = "avx512f,avx512bw,avx512vbmi")]
+unsafe fn widest(wtab: &[u8; 64], ids: &[u8]) -> u32 {
+    // SAFETY: loads are masked to `ids` and read the 64-byte table.
+    unsafe {
+        let table = _mm512_loadu_si512(wtab.as_ptr().cast());
+        let mut acc = _mm512_setzero_si512();
+        let n = ids.len();
+        let mut i = 0;
+        while i < n {
+            let k: u64 = if i + 64 <= n {
+                u64::MAX
+            } else {
+                (1u64 << (n - i)) - 1
+            };
+            let id = _mm512_maskz_loadu_epi8(k, ids.as_ptr().add(i).cast());
+            acc = _mm512_mask_max_epu8(acc, k, acc, _mm512_permutexvar_epi8(id, table));
+            i += 64;
+        }
+        let lanes: [u8; 64] = std::mem::transmute(acc);
+        u32::from(lanes.into_iter().max().unwrap_or(0))
     }
 }

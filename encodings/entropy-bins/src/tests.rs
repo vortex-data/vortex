@@ -159,6 +159,28 @@ fn roundtrip_extremes() -> VortexResult<()> {
     roundtrip(vec![42u32; 3000])
 }
 
+/// Rare outliers give a chunk a bin too wide for the vector merges; blocks without them still
+/// take the vector path.
+#[rstest]
+#[case(0)]
+#[case(1)]
+fn wide_outlier_bins(#[case] lag: usize) -> VortexResult<()> {
+    let small = skewed(20_000, 5);
+    let mut values: Vec<i64> = small.iter().map(|v| v % 1000).collect();
+    values[5000] = i64::MIN;
+    values[5001] = i64::MAX;
+    roundtrip_with(values.clone(), EntropyBinsOptions::new(lag, BLOCK_VALUES))?;
+    let narrow: Vec<i32> = values
+        .iter()
+        .map(|&v| match v {
+            i64::MIN => i32::MIN,
+            i64::MAX => i32::MAX,
+            v => v as i32,
+        })
+        .collect();
+    roundtrip_with(narrow, EntropyBinsOptions::new(lag, BLOCK_VALUES))
+}
+
 /// Interleaved series (`x`, `y`, `z` per row group) are smallest with the matching lag.
 #[test]
 fn interleaved_series_prefers_lag() -> VortexResult<()> {
