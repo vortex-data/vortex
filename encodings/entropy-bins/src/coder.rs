@@ -37,7 +37,7 @@ use crate::EntropyBinsChunk;
 pub const BLOCK_VALUES: usize = 1024;
 /// Most values per block; arrays whose blocks would be dominated by their fixed per-block costs
 /// use larger blocks, up to this.
-pub const MAX_BLOCK_VALUES: usize = 4096;
+pub const MAX_BLOCK_VALUES: usize = 16384;
 /// Most refill words a lane takes in one block: up to `MAX_S` bits per value, 8-bit words.
 const MAX_LANE_WORDS: usize = MAX_BLOCK_VALUES / LANES * MAX_S as usize / 8 + 1;
 /// Values per chunk sharing one set of bins.

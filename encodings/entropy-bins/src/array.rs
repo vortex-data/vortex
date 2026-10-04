@@ -61,11 +61,12 @@ use crate::coder::held_out_bits;
 use crate::coder::train_bins;
 use crate::decode::BlockView;
 use crate::decode::ChunkDecoder;
-use crate::decode::IDS_SCRATCH;
 use crate::decode::OutInt;
 use crate::decode::decode_ids;
+use crate::decode::ids_slot;
 use crate::decode::merge_block;
 use crate::decode::parse_block;
+use crate::decode::scratch;
 use crate::pack;
 use crate::pack::pack;
 
@@ -376,9 +377,8 @@ impl EntropyBins {
             .next_power_of_two()
             .min(MAX_BLOCK_VALUES);
         let floor = total(max_block);
-        let block_values = [BLOCK_VALUES, 2 * BLOCK_VALUES, MAX_BLOCK_VALUES]
-            .into_iter()
-            .filter(|&b| b <= max_block)
+        let block_values = (BLOCK_VALUES.trailing_zeros()..=max_block.trailing_zeros())
+            .map(|log| 1 << log)
             .find(|&b| total(b) * 100 <= floor * (100 + config.larger_block_gain_percent))
             .unwrap_or(max_block);
         let nbytes = total(block_values);
@@ -411,7 +411,8 @@ pub struct EntropyBinsConfig {
     /// estimate at compression time.
     pub lags: &'static [usize],
     /// Largest block size the planner may choose, from [`BLOCK_VALUES`] to [`MAX_BLOCK_VALUES`].
-    /// Random access decodes up to a block, so this bounds its cost.
+    /// Random access decodes up to a block, so this bounds its cost: each doubling roughly
+    /// doubles a one-off lookup and removes half of the remaining per-block bytes.
     pub max_block_values: usize,
     /// How much smaller (in percent) the largest allowed blocks must make the array before a
     /// larger block size is chosen.
@@ -422,11 +423,11 @@ pub struct EntropyBinsConfig {
 }
 
 impl EntropyBinsConfig {
-    /// The default: larger blocks and 8-bit words only where they clearly pay off.
+    /// The default: blocks up to 4096 values and 8-bit words only where they clearly pay off.
     pub const BALANCED: Self = Self {
         level: 8,
         lags: &[0, 1, 2, 3, 4, 8],
-        max_block_values: MAX_BLOCK_VALUES,
+        max_block_values: 4 * BLOCK_VALUES,
         larger_block_gain_percent: 15,
         narrow_word_gain_percent: Some(1),
     };
@@ -440,7 +441,8 @@ impl EntropyBinsConfig {
         narrow_word_gain_percent: None,
     };
 
-    /// Smallest output: larger blocks and 8-bit words wherever they save anything.
+    /// Smallest output: blocks up to [`MAX_BLOCK_VALUES`] and 8-bit words wherever they save
+    /// anything, at up to 16x the random-access cost of 1024-value blocks.
     pub const SMALLEST: Self = Self {
         level: 8,
         lags: &[0, 1, 2, 3, 4, 8],
@@ -924,7 +926,7 @@ impl EntropyBinsData {
         let mut out = BufferMut::<T>::with_capacity(covered);
         // SAFETY: `decode_blocks` writes every position of the covered blocks.
         unsafe { out.set_len(covered) };
-        self.decode_blocks(first, last + 1, &mut out, &mut [0u8; 4 * IDS_SCRATCH])?;
+        self.decode_blocks(first, last + 1, &mut out, &mut vec![0u8; 4 * ids_slot(bv)])?;
         let offset = start - first * bv;
         Ok(out.freeze().slice(offset..offset + (stop - start)))
     }
@@ -936,9 +938,10 @@ impl EntropyBinsData {
         first: usize,
         stop: usize,
         out: &mut [T],
-        ids: &mut [u8; 4 * IDS_SCRATCH],
+        ids: &mut [u8],
     ) -> VortexResult<()> {
         let bv = self.block_values();
+        let slot = ids_slot(bv);
         let blocks_per_chunk = CHUNK_VALUES / bv;
         let data = self.data.as_slice();
         let mut b = first;
@@ -958,14 +961,14 @@ impl EntropyBinsData {
                         parse_block(data, self.block_start(b + k), n, decoder.table.as_ref())
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
-                decode_ids(decoder, &views, ids);
+                decode_ids(decoder, &views, ids, slot);
                 for (k, view) in views.iter().enumerate() {
                     let row0 = (b + k - first) * bv;
                     let (seeds, lag) = self.seeds_of(b + k);
                     merge_block(
                         decoder,
                         view,
-                        &ids[k * IDS_SCRATCH..(k + 1) * IDS_SCRATCH],
+                        &ids[k * slot..(k + 1) * slot],
                         &mut out[row0..row0 + view.n],
                         &seeds[..lag],
                     );
@@ -977,7 +980,10 @@ impl EntropyBinsData {
     }
 
     /// Decode one row by decoding its block's ids up to that row and reading one offset.
-    fn scalar_at<T: NativePType + OutInt + Into<PValue>>(&self, row: usize) -> VortexResult<T> {
+    pub(crate) fn scalar_at<T: NativePType + OutInt + Into<PValue>>(
+        &self,
+        row: usize,
+    ) -> VortexResult<T> {
         let bv = self.block_values();
         let block = row / bv;
         let pos = row % bv;
@@ -989,17 +995,19 @@ impl EntropyBinsData {
             len,
             decoder.table.as_ref(),
         )?;
-        let mut ids = [0u8; IDS_SCRATCH];
-        decoder.ids(&view, &mut ids, pos + 1);
+        let (mut stack, mut heap) = ([0u8; ids_slot(BLOCK_VALUES)], Vec::new());
+        let ids = scratch(&mut stack, &mut heap, ids_slot(bv));
+        decoder.ids(&view, ids, pos + 1);
         if self.lag() > 0 {
             // Differences need the running sums up to the row: merge the block's prefix.
-            let mut tmp = [T::default(); MAX_BLOCK_VALUES];
+            let (mut stack, mut heap) = ([T::default(); BLOCK_VALUES], Vec::new());
+            let tmp = scratch(&mut stack, &mut heap, pos + 1);
             let prefix = BlockView { n: pos + 1, ..view };
             let (seeds, lag) = self.seeds_of(block);
-            merge_block(decoder, &prefix, &ids, &mut tmp, &seeds[..lag]);
+            merge_block(decoder, &prefix, ids, tmp, &seeds[..lag]);
             return Ok(tmp[pos]);
         }
-        Ok(T::truncate_from(decoder.value_at(&view, &ids, pos)))
+        Ok(T::truncate_from(decoder.value_at(&view, ids, pos)))
     }
 
     pub(crate) fn sliced(&self, start: usize, stop: usize) -> Self {

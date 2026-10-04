@@ -14,7 +14,6 @@ use crate::coder::FLAG_STOP;
 use crate::coder::FLAG_UNIFORM;
 use crate::coder::IdTable;
 use crate::coder::LANES;
-use crate::coder::MAX_BLOCK_VALUES;
 use crate::coder::MAX_LAG;
 
 /// One block's id stream and offsets, borrowed from the array's data buffer. `words` and
@@ -299,9 +298,9 @@ pub(crate) fn merge_scalar<T: OutInt>(
     }
 }
 
-/// Decode the ids of `views` (one to four blocks of one chunk) into consecutive
-/// [`IDS_SCRATCH`]-byte slots of `ids`. Four coded blocks of equal length decode in lockstep.
-pub(crate) fn decode_ids(d: &ChunkDecoder, views: &[BlockView<'_>], ids: &mut [u8]) {
+/// Decode the ids of `views` (one to four blocks of one chunk) into consecutive `slot`-byte
+/// slots of `ids` (see [`ids_slot`]). Four coded blocks of equal length decode in lockstep.
+pub(crate) fn decode_ids(d: &ChunkDecoder, views: &[BlockView<'_>], ids: &mut [u8], slot: usize) {
     #[cfg(target_arch = "x86_64")]
     if let (Some(t), [b0, b1, b2, b3]) = (&d.table, views)
         && crate::x86::has_avx512()
@@ -314,23 +313,14 @@ pub(crate) fn decode_ids(d: &ChunkDecoder, views: &[BlockView<'_>], ids: &mut [u
             crate::x86::ids16::<4>(
                 t,
                 [b0, b1, b2, b3],
-                [
-                    p,
-                    p.add(IDS_SCRATCH),
-                    p.add(2 * IDS_SCRATCH),
-                    p.add(3 * IDS_SCRATCH),
-                ],
+                [p, p.add(slot), p.add(2 * slot), p.add(3 * slot)],
                 usize::MAX,
             )
         };
         return;
     }
     for (k, v) in views.iter().enumerate() {
-        d.ids(
-            v,
-            &mut ids[k * IDS_SCRATCH..(k + 1) * IDS_SCRATCH],
-            usize::MAX,
-        );
+        d.ids(v, &mut ids[k * slot..(k + 1) * slot], usize::MAX);
     }
 }
 
@@ -349,5 +339,21 @@ pub(crate) fn merge_block<T: OutInt>(
     merge_scalar(d, b, ids, out, seeds);
 }
 
-/// Block capacity of the id scratch buffer.
-pub(crate) const IDS_SCRATCH: usize = MAX_BLOCK_VALUES + 64;
+/// Bytes of id scratch space for one block of `block_values`: the ids rounded up to whole lane
+/// steps, plus slack the vector merges may read.
+pub(crate) const fn ids_slot(block_values: usize) -> usize {
+    block_values + 64
+}
+
+/// `len` elements of scratch space: the start of `stack` when it is long enough, else `heap`.
+pub(crate) fn scratch<'a, T: Copy + Default>(
+    stack: &'a mut [T],
+    heap: &'a mut Vec<T>,
+    len: usize,
+) -> &'a mut [T] {
+    if len <= stack.len() {
+        return &mut stack[..len];
+    }
+    heap.resize(len, T::default());
+    heap
+}

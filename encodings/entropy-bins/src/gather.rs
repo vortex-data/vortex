@@ -30,8 +30,8 @@ use crate::EntropyBins;
 use crate::array::EntropyBinsData;
 use crate::coder::CHUNK_VALUES;
 use crate::decode::BlockView;
-use crate::decode::IDS_SCRATCH;
 use crate::decode::OutInt;
+use crate::decode::ids_slot;
 use crate::decode::merge_block;
 use crate::decode::parse_block;
 use crate::decode::read_bits;
@@ -150,7 +150,7 @@ fn decode_touched<T: NativePType + OutInt>(
     let mut out = BufferMut::<T>::with_capacity(covered);
     // SAFETY: every block is either decoded or zeroed below.
     unsafe { out.set_len(covered) };
-    let mut ids = [0u8; 4 * IDS_SCRATCH];
+    let mut ids = vec![0u8; 4 * ids_slot(bv)];
     let mut b = first;
     while b <= last {
         if !is_touched(b) {
@@ -217,7 +217,7 @@ fn gather_sorted<T: OutInt>(
     let bv = data.block_values();
     let n_rows = data.unsliced_rows();
     let mut scratch = vec![T::default(); RUN_BLOCKS * bv];
-    let mut ids = [0u8; 4 * IDS_SCRATCH];
+    let mut ids = vec![0u8; 4 * ids_slot(bv)];
     let block_of = |i: usize| (start + rows[i]) / bv;
     let mut i = 0;
     while i < rows.len() {
@@ -255,7 +255,7 @@ fn gather_block<T: OutInt>(
     block: usize,
     selected: &[usize],
     scratch: &mut [T],
-    ids: &mut [u8; 4 * IDS_SCRATCH],
+    ids: &mut [u8],
     out: &mut BufferMut<T>,
 ) -> VortexResult<()> {
     let bv = data.block_values();
@@ -274,7 +274,7 @@ fn gather_block<T: OutInt>(
         return Ok(());
     };
     let limit = at(last) + 1;
-    decoder.ids(&view, &mut ids[..IDS_SCRATCH], limit);
+    decoder.ids(&view, &mut ids[..ids_slot(bv)], limit);
     let (seeds, lag) = data.seeds_of(block);
     if lag == 0 && selected.len() * SPARSE_BLOCK_DIVISOR < block_len {
         // Walk the offsets' bit position over the ids up to each selected row.
@@ -295,7 +295,7 @@ fn gather_block<T: OutInt>(
     merge_block(
         decoder,
         &prefix,
-        &ids[..IDS_SCRATCH],
+        &ids[..ids_slot(bv)],
         scratch,
         &seeds[..lag],
     );

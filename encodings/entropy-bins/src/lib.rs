@@ -99,7 +99,7 @@ pub struct EntropyBinsMetadata {
     /// each block's first `lag` values are stored as seeds. Zero codes the values themselves.
     #[prost(uint32, tag = "2")]
     pub lag: u32,
-    /// Log2 of the values per block, from 10 ([`BLOCK_VALUES`]) to 12 ([`MAX_BLOCK_VALUES`]).
+    /// Log2 of the values per block, from 10 ([`BLOCK_VALUES`]) to 14 ([`MAX_BLOCK_VALUES`]).
     #[prost(uint32, tag = "3")]
     pub block_log: u32,
     /// Bits per tANS refill word: 8 or 16.

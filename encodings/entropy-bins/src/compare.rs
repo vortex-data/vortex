@@ -31,8 +31,8 @@ use crate::EntropyBinsChunk;
 use crate::array::EntropyBinsData;
 use crate::array::Wide;
 use crate::coder::CHUNK_VALUES;
-use crate::decode::IDS_SCRATCH;
 use crate::decode::OutInt;
+use crate::decode::ids_slot;
 use crate::decode::merge_block;
 use crate::decode::parse_block;
 
@@ -236,7 +236,7 @@ fn predicate_typed<T: NativePType + OutInt + Wide>(
     }
     let words_per_block = bv / 64;
     let mut words = BufferMut::<u64>::zeroed((last + 1 - first) * words_per_block);
-    let mut ids = vec![0u8; IDS_SCRATCH];
+    let mut ids = vec![0u8; ids_slot(bv)];
     let mut values = vec![T::default(); bv];
     let bytes = data.data.as_slice();
     let mut b = first;
