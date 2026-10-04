@@ -36,6 +36,7 @@ mod delta;
 mod distinct;
 mod min_max;
 mod run_count;
+mod schedule;
 mod sorted;
 mod sum;
 #[cfg(test)]
@@ -60,6 +61,10 @@ use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 pub use run_count::RunCount;
 pub use run_count::RunCountStat;
+pub use schedule::EACH;
+pub use schedule::FUSED;
+pub use schedule::Schedule;
+pub use schedule::groups;
 pub use sorted::Sorted;
 pub use sorted::SortedResult;
 pub use sorted::SortedStat;
@@ -211,9 +216,8 @@ const MAX_BLOCK_CHUNKS: usize = BLOCK_BYTES / CHUNK;
 /// [`end_block`](Self::end_block).
 ///
 /// A tuple of accumulators passes each block to each element in turn, so each element runs its
-/// own loop with its state in registers while the block stays in L1. [`Fused`] instead passes each
-/// chunk to every element in one loop, for cheap statistics whose state fits in registers
-/// together.
+/// own loop with its state in registers while the block stays in L1. A [`Schedule`] instead merges
+/// any groups of the elements into one loop each.
 pub trait IntAccumulator<T: Copy> {
     /// The computed statistic.
     type Output;
@@ -540,58 +544,6 @@ impl_tuple_accumulator!(A, B, C, D, E);
 impl_tuple_accumulator!(A, B, C, D, E, F);
 impl_tuple_accumulator!(A, B, C, D, E, F, G);
 impl_tuple_accumulator!(A, B, C, D, E, F, G, H);
-
-/// Accumulates every element of `A`, typically a tuple, in one loop per block, passing each chunk
-/// to every element in turn.
-///
-/// This saves loop overhead and repeated loads for cheap statistics, as long as their state fits
-/// in registers together. Otherwise the state spills each chunk, and a plain tuple, which runs
-/// one loop per element over each block, is faster.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Fused<A>(pub A);
-
-impl<T: Copy, A: IntAccumulator<T>> IntAccumulator<T> for Fused<A> {
-    type Output = A::Output;
-
-    const USES_FILL: bool = A::USES_FILL;
-
-    #[inline(always)]
-    fn start(&mut self, head: T) {
-        self.0.start(head);
-    }
-
-    #[inline(always)]
-    fn chunk(&mut self, values: &[T; CHUNK]) {
-        self.0.chunk(values);
-    }
-
-    #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
-        self.0.filled_chunk(filled, valid);
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.0.push(value);
-    }
-
-    #[inline(always)]
-    fn end_block(&mut self) {
-        self.0.end_block();
-    }
-
-    #[inline]
-    fn finish(self) -> A::Output {
-        self.0.finish()
-    }
-}
-
-impl<T: Copy, A: ErasedAccumulator<T>> ErasedAccumulator<T> for Fused<A> {
-    #[inline]
-    fn finish_into(self, stats: &mut IntStats) {
-        self.0.finish_into(stats);
-    }
-}
 
 /// Counts the value changes in `values`, including the change from `prev` to `values[0]`.
 #[inline(always)]

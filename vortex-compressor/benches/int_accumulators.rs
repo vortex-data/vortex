@@ -28,14 +28,17 @@ mod benchmarks {
     use vortex_compressor::stats::accumulator::CommonBits;
     use vortex_compressor::stats::accumulator::DeltaRange;
     use vortex_compressor::stats::accumulator::Distinct;
-    use vortex_compressor::stats::accumulator::Fused;
+    use vortex_compressor::stats::accumulator::EACH;
+    use vortex_compressor::stats::accumulator::FUSED;
     use vortex_compressor::stats::accumulator::IntValue;
     use vortex_compressor::stats::accumulator::MinMax;
     use vortex_compressor::stats::accumulator::RunCount;
+    use vortex_compressor::stats::accumulator::Schedule;
     use vortex_compressor::stats::accumulator::Sorted;
     use vortex_compressor::stats::accumulator::Sum;
     use vortex_compressor::stats::accumulator::accumulate;
     use vortex_compressor::stats::accumulator::compute;
+    use vortex_compressor::stats::accumulator::groups;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
@@ -127,7 +130,7 @@ mod benchmarks {
     ));
     int_bench!(delta_range_only, |v, m| accumulate(v, m, DeltaRange::new()));
 
-    // Fused compositions.
+    // Compositions: a plain tuple runs one loop per statistic over each block.
     int_bench!(fused_min_max_runs, |v, m| accumulate(
         v,
         m,
@@ -136,7 +139,7 @@ mod benchmarks {
     int_bench!(chunk_fused_min_max_runs, |v, m| accumulate(
         v,
         m,
-        Fused((MinMax::new(), RunCount::new()))
+        Schedule::<_, FUSED>::new((MinMax::new(), RunCount::new()))
     ));
     int_bench!(fused_min_max_runs_sorted, |v, m| accumulate(
         v,
@@ -154,85 +157,63 @@ mod benchmarks {
         )
     ));
 
-    // Seven statistics the integer schemes use, in four layouts: a plain tuple runs one loop per
-    // statistic over each L1-sized block; `Fused` runs one loop over each block for all of them;
-    // the grouped layout fuses only the cheap statistics; and separate passes read the array
-    // once per statistic.
-    int_bench!(blocked_compressor_set, |v, m| accumulate(
-        v,
-        m,
+    /// The seven statistics the integer schemes use, in the order the schedules below group them.
+    #[allow(clippy::type_complexity)]
+    fn compressor_set<T: IntValue>() -> (
+        MinMax<T>,
+        Sum<T>,
+        CommonBits<T>,
+        RunCount<T>,
+        Sorted<T>,
+        BitWidthHistogram<T>,
+        DeltaRange<T>,
+    ) {
         (
             MinMax::new(),
-            RunCount::new(),
-            Sorted::new(),
             Sum::new(),
             CommonBits::new(),
+            RunCount::new(),
+            Sorted::new(),
             BitWidthHistogram::new(),
             DeltaRange::new(),
         )
+    }
+
+    /// The cheap reductions in one loop, then one loop each.
+    const GROUPED: u64 = groups(&[3, 4, 5, 6]);
+
+    /// The cheap reductions in one loop, the two neighbour comparisons in another, then one loop
+    /// each, chosen from the `fusion_search` affinities with every value valid.
+    const PLANNED: u64 = groups(&[3, 5, 6]);
+
+    // The same seven statistics in different schedules, which changes only the loops: one loop
+    // each over every L1-sized block, one loop for all, groups in between, and separate passes
+    // that read the array once per statistic.
+    int_bench!(blocked_compressor_set, |v, m| accumulate(
+        v,
+        m,
+        Schedule::<_, EACH>::new(compressor_set::<T>())
     ));
     int_bench!(chunk_fused_compressor_set, |v, m| accumulate(
         v,
         m,
-        Fused((
-            MinMax::new(),
-            RunCount::new(),
-            Sorted::new(),
-            Sum::new(),
-            CommonBits::new(),
-            BitWidthHistogram::new(),
-            DeltaRange::new(),
-        ))
+        Schedule::<_, FUSED>::new(compressor_set::<T>())
     ));
     int_bench!(grouped_compressor_set, |v, m| accumulate(
         v,
         m,
-        (
-            Fused((MinMax::new(), Sum::new(), CommonBits::new())),
-            RunCount::new(),
-            Sorted::new(),
-            BitWidthHistogram::new(),
-            DeltaRange::new(),
-        )
+        Schedule::<_, GROUPED>::new(compressor_set::<T>())
     ));
-    // Chosen from the `fusion_search` affinities: with every value valid, fuse the cheap
-    // reductions and the two neighbour comparisons; with nulls, where fusing measured no better,
-    // run one loop per statistic over each block.
+    // With nulls, fusing measured no better, so the plan runs one loop each.
     int_bench!(planned_compressor_set, |v, m| if m.all_true() {
-        accumulate(
-            v,
-            m,
-            (
-                Fused((MinMax::new(), Sum::new(), CommonBits::new())),
-                Fused((RunCount::new(), Sorted::new())),
-                BitWidthHistogram::new(),
-                DeltaRange::new(),
-            ),
-        )
-        .map(|(cheap, (runs, sorted), widths, deltas)| (cheap, runs, sorted, widths, deltas))
+        accumulate(v, m, Schedule::<_, PLANNED>::new(compressor_set::<T>()))
     } else {
-        accumulate(
-            v,
-            m,
-            (
-                (MinMax::new(), Sum::new(), CommonBits::new()),
-                RunCount::new(),
-                Sorted::new(),
-                BitWidthHistogram::new(),
-                DeltaRange::new(),
-            ),
-        )
+        accumulate(v, m, Schedule::<_, EACH>::new(compressor_set::<T>()))
     });
     int_bench!(erased_grouped_compressor_set, |v, m| compute(
         v,
         m,
-        (
-            Fused((MinMax::new(), Sum::new(), CommonBits::new())),
-            RunCount::new(),
-            Sorted::new(),
-            BitWidthHistogram::new(),
-            DeltaRange::new(),
-        )
+        Schedule::<_, GROUPED>::new(compressor_set::<T>())
     ));
     int_bench!(separate_compressor_set, |v, m| (
         accumulate(v, m, MinMax::new()),
@@ -248,12 +229,12 @@ mod benchmarks {
     int_bench!(fused_cheap, |v, m| accumulate(
         v,
         m,
-        Fused((MinMax::new(), Sum::new(), CommonBits::new()))
+        Schedule::<_, FUSED>::new((MinMax::new(), Sum::new(), CommonBits::new()))
     ));
     int_bench!(blocked_cheap, |v, m| accumulate(
         v,
         m,
-        (MinMax::new(), Sum::new(), CommonBits::new())
+        Schedule::<_, EACH>::new((MinMax::new(), Sum::new(), CommonBits::new()))
     ));
     int_bench!(separate_cheap, |v, m| (
         accumulate(v, m, MinMax::new()),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Measures which statistics gain from fusing, for choosing `Fused` groups.
+//! Measures which statistics gain from fusing, for choosing `Schedule` groups.
 //!
 //! For every pair of statistics, `fused` runs both in one loop per block and `blocked` runs one
 //! loop each over every block. A pair whose fused time is clearly below its blocked time has an
@@ -20,10 +20,12 @@ mod benchmarks {
     use vortex_compressor::stats::accumulator::BitWidthHistogram;
     use vortex_compressor::stats::accumulator::CommonBits;
     use vortex_compressor::stats::accumulator::DeltaRange;
-    use vortex_compressor::stats::accumulator::Fused;
+    use vortex_compressor::stats::accumulator::EACH;
+    use vortex_compressor::stats::accumulator::FUSED;
     use vortex_compressor::stats::accumulator::IntValue;
     use vortex_compressor::stats::accumulator::MinMax;
     use vortex_compressor::stats::accumulator::RunCount;
+    use vortex_compressor::stats::accumulator::Schedule;
     use vortex_compressor::stats::accumulator::Sorted;
     use vortex_compressor::stats::accumulator::Sum;
     use vortex_compressor::stats::accumulator::accumulate;
@@ -91,7 +93,7 @@ mod benchmarks {
                     u32: AsPrimitive<T>,
                 {
                     bench::<T, _>(bencher, nullable, |v: &[T], m: &Mask| {
-                        accumulate(v, m, Fused(($a, $b)))
+                        accumulate(v, m, Schedule::<_, FUSED>::new(($a, $b)))
                     });
                 }
 
@@ -102,7 +104,7 @@ mod benchmarks {
                     u32: AsPrimitive<T>,
                 {
                     bench::<T, _>(bencher, nullable, |v: &[T], m: &Mask| {
-                        accumulate(v, m, ($a, $b))
+                        accumulate(v, m, Schedule::<_, EACH>::new(($a, $b)))
                     });
                 }
             }

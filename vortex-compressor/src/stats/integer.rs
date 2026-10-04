@@ -24,9 +24,10 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
 use super::accumulator::Distinct;
-use super::accumulator::Fused;
+use super::accumulator::FUSED;
 use super::accumulator::MinMax;
 use super::accumulator::RunCount;
+use super::accumulator::Schedule;
 use super::accumulator::accumulate;
 
 /// Information about the distinct values in an integer array.
@@ -420,7 +421,11 @@ where
             // is valid, and running them one after the other over each block is as fast or
             // faster with nulls.
             let (bounds, runs) = if validity.all_true() {
-                accumulate(values, &validity, Fused((MinMax::new(), RunCount::new())))
+                accumulate(
+                    values,
+                    &validity,
+                    Schedule::<_, FUSED>::new((MinMax::new(), RunCount::new())),
+                )
             } else {
                 accumulate(values, &validity, (MinMax::new(), RunCount::new()))
             }
@@ -430,7 +435,11 @@ where
         (None, true) => match Distinct::for_full_domain(len) {
             Some(distinct) => {
                 let (bounds, (distinct, runs)) = if validity.all_true() {
-                    accumulate(values, &validity, Fused((MinMax::new(), distinct)))
+                    accumulate(
+                        values,
+                        &validity,
+                        Schedule::<_, FUSED>::new((MinMax::new(), distinct)),
+                    )
                 } else {
                     accumulate(values, &validity, (MinMax::new(), distinct))
                 }

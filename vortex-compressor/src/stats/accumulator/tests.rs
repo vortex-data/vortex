@@ -309,8 +309,8 @@ fn generic_stats(stats: &IntStats) -> Option<GenericStats> {
     })
 }
 
-/// Checks that plain tuples, which run one loop per statistic over each block, and [`Fused`]
-/// groups, which run one loop for all, match a naive reference across block boundaries.
+/// Checks every schedule of the same statistics against a naive reference across block
+/// boundaries: one loop each, one loop for all, groups in between, and a plain nested tuple.
 fn check_compositions<T: IntValue>(values: Vec<T>, valid: Vec<bool>) {
     let validity = if valid.iter().all(|&v| v) {
         Mask::new_true(values.len())
@@ -318,45 +318,44 @@ fn check_compositions<T: IntValue>(values: Vec<T>, valid: Vec<bool>) {
         Mask::from_iter(valid.iter().copied())
     };
     let expected = naive_generic(&values, &valid);
+    let stats = || {
+        (
+            MinMax::new(),
+            Sum::new(),
+            CommonBits::new(),
+            RunCount::new(),
+            Sorted::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        )
+    };
 
-    let blocked = compute(
-        &values,
-        &validity,
-        (
-            MinMax::new(),
-            RunCount::new(),
-            Sorted::new(),
-            Sum::new(),
-            BitWidthHistogram::new(),
-            DeltaRange::new(),
-        ),
+    macro_rules! check {
+        ($($label:literal => $schedule:expr),+ $(,)?) => {
+            $(assert_eq!(
+                generic_stats(&compute(&values, &validity, Schedule::<_, { $schedule }>::new(stats()))),
+                expected,
+                $label,
+            );)+
+        };
+    }
+    check!(
+        "each" => EACH,
+        "fused" => FUSED,
+        "cheap fused" => groups(&[3, 4, 5, 6]),
+        "two groups" => groups(&[3]),
+        "planned" => groups(&[3, 5, 6]),
     );
-    let grouped = compute(
-        &values,
-        &validity,
-        (
-            Fused((MinMax::new(), Sum::new(), CommonBits::new())),
-            RunCount::new(),
-            Sorted::new(),
-            BitWidthHistogram::new(),
-            DeltaRange::new(),
-        ),
+
+    let (cheap, runs, sorted, widths, deltas) = (
+        Schedule::<_, FUSED>::new((MinMax::new(), Sum::new(), CommonBits::new())),
+        RunCount::new(),
+        Sorted::new(),
+        BitWidthHistogram::new(),
+        DeltaRange::new(),
     );
-    let fused = compute(
-        &values,
-        &validity,
-        Fused((
-            MinMax::new(),
-            RunCount::new(),
-            Sorted::new(),
-            Sum::new(),
-            BitWidthHistogram::new(),
-            DeltaRange::new(),
-        )),
-    );
-    assert_eq!(generic_stats(&blocked), expected, "blocked");
-    assert_eq!(generic_stats(&grouped), expected, "grouped");
-    assert_eq!(generic_stats(&fused), expected, "fused");
+    let nested = compute(&values, &validity, (cheap, runs, sorted, widths, deltas));
+    assert_eq!(generic_stats(&nested), expected, "nested");
 }
 
 /// Values with runs, spanning several blocks of every type, plus a tail.
