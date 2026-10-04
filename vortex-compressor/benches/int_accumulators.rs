@@ -195,6 +195,34 @@ mod benchmarks {
             DeltaRange::new(),
         )
     ));
+    // Chosen from the `fusion_search` affinities: with every value valid, fuse the cheap
+    // reductions and the two neighbour comparisons; with nulls, where fusing measured no better,
+    // run one loop per statistic over each block.
+    int_bench!(planned_compressor_set, |v, m| if m.all_true() {
+        accumulate(
+            v,
+            m,
+            (
+                Fused((MinMax::new(), Sum::new(), CommonBits::new())),
+                Fused((RunCount::new(), Sorted::new())),
+                BitWidthHistogram::new(),
+                DeltaRange::new(),
+            ),
+        )
+        .map(|(cheap, (runs, sorted), widths, deltas)| (cheap, runs, sorted, widths, deltas))
+    } else {
+        accumulate(
+            v,
+            m,
+            (
+                (MinMax::new(), Sum::new(), CommonBits::new()),
+                RunCount::new(),
+                Sorted::new(),
+                BitWidthHistogram::new(),
+                DeltaRange::new(),
+            ),
+        )
+    });
     int_bench!(erased_grouped_compressor_set, |v, m| compute(
         v,
         m,

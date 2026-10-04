@@ -429,9 +429,12 @@ where
         }
         (None, true) => match Distinct::for_full_domain(len) {
             Some(distinct) => {
-                let (bounds, (distinct, runs)) =
+                let (bounds, (distinct, runs)) = if validity.all_true() {
+                    accumulate(values, &validity, Fused((MinMax::new(), distinct)))
+                } else {
                     accumulate(values, &validity, (MinMax::new(), distinct))
-                        .vortex_expect(expect_valid);
+                }
+                .vortex_expect(expect_valid);
                 (bounds, runs, Some(distinct))
             }
             None => {
