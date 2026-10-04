@@ -100,6 +100,13 @@ fn train_bins_at(latents: &[u64], level: usize) -> VortexResult<EntropyBinsChunk
     })
 }
 
+/// Index of the bin holding `v`, or `None` if no bin does. Cheap on misses, unlike [`bin_of`].
+fn bin_index(chunk: &EntropyBinsChunk, v: u64) -> Option<usize> {
+    let bin = chunk.lowers.partition_point(|&l| l <= v).checked_sub(1)?;
+    let width = chunk.widths[bin];
+    (width >= 64 || v - chunk.lowers[bin] < 1u64 << width).then_some(bin)
+}
+
 /// Index of the bin holding `v`: the last bin whose lower bound is at most `v`.
 pub(crate) fn bin_of(chunk: &EntropyBinsChunk, v: u64) -> VortexResult<usize> {
     let idx = chunk.lowers.partition_point(|&l| l <= v);
@@ -509,12 +516,12 @@ pub(crate) fn held_out_bits(train: &[u64], test: &[u64], level: usize) -> Vortex
     let escape = f64::from(64 - (hi - lo).leading_zeros()) + (n_bins as f64).log2() + 1.0;
     let bits: f64 = test
         .iter()
-        .map(|&v| match bin_of(&chunk, v) {
-            Ok(b) => {
+        .map(|&v| match bin_index(&chunk, v) {
+            Some(b) => {
                 -(f64::from(chunk.weights[b].max(1)) / total_weight).log2()
                     + f64::from(chunk.widths[b])
             }
-            Err(_) => escape,
+            None => escape,
         })
         .sum();
     Ok(bits / test.len() as f64)

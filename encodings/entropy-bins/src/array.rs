@@ -335,11 +335,11 @@ impl EntropyBins {
     ) -> VortexResult<EntropyBinsPlan> {
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
-        let wide = wide_values(parray);
-        let n = wide.len();
+        let n = parray.len();
+        let units = sample_units(parray);
         let mut best: Option<(usize, usize)> = None;
         for &lag in config.lags {
-            let coded = estimate_coded(&wide, ptype, config.level, lag)?;
+            let coded = estimate_coded(&units, n, ptype, config.level, lag)?;
             if best.is_none_or(|(_, b)| coded < b) {
                 best = Some((lag, coded));
             }
@@ -483,25 +483,46 @@ const PER_BLOCK_BYTES: usize = 37;
 const NARROW_WORD_SAVING_BYTES: usize = 8;
 
 /// The estimated bytes of the coded ids and offsets alone.
-fn estimate_coded(wide: &[u64], ptype: PType, level: usize, lag: usize) -> VortexResult<usize> {
-    let transform = Transform::new(ptype.is_signed_int(), lag)?;
-    let n = wide.len();
-    // Up to 32 evenly spaced units, alternating between training and scoring.
+/// Up to 32 evenly spaced runs of rows (sign- or zero-extended), alternately for training and
+/// scoring the estimate's bins. Only these rows are read.
+fn sample_units(parray: ArrayView<'_, Primitive>) -> Vec<Vec<u64>> {
+    let n = parray.len();
     let unit = if n >= 8 * BLOCK_VALUES {
         BLOCK_VALUES
     } else {
         (n / 8).max(1)
     };
     let n_units = (n / unit).clamp(1, 32);
+    match_each_integer_ptype!(parray.ptype(), |T| {
+        let values = parray.as_slice::<T>();
+        (0..n_units)
+            .map(|i| {
+                let start = if n_units == 1 {
+                    0
+                } else {
+                    i * (n - unit) / (n_units - 1)
+                };
+                values[start..(start + unit).min(n)]
+                    .iter()
+                    .map(|&v| v.wide())
+                    .collect()
+            })
+            .collect()
+    })
+}
+
+fn estimate_coded(
+    units: &[Vec<u64>],
+    n: usize,
+    ptype: PType,
+    level: usize,
+    lag: usize,
+) -> VortexResult<usize> {
+    let transform = Transform::new(ptype.is_signed_int(), lag)?;
     let (mut train, mut test) = (Vec::new(), Vec::new());
-    for i in 0..n_units {
-        let start = if n_units == 1 {
-            0
-        } else {
-            i * (n - unit) / (n_units - 1)
-        };
+    for (i, unit) in units.iter().enumerate() {
         let dst = if i % 2 == 0 { &mut train } else { &mut test };
-        transform.extend_latents(&wide[start..(start + unit).min(n)], dst);
+        transform.extend_latents(unit, dst);
     }
     if test.is_empty() {
         test.clone_from(&train);
@@ -580,13 +601,6 @@ macro_rules! wide_impl {
 wide_impl!(false: u8, u16, u32, u64);
 wide_impl!(true: i8, i16, i32, i64);
 
-/// The value of every row as a 64-bit integer (sign- or zero-extended).
-fn wide_values(parray: ArrayView<'_, Primitive>) -> Vec<u64> {
-    match_each_integer_ptype!(parray.ptype(), |T| {
-        parray.as_slice::<T>().iter().map(|&v| v.wide()).collect()
-    })
-}
-
 impl EntropyBinsData {
     fn encode(
         parray: ArrayView<'_, Primitive>,
@@ -601,18 +615,23 @@ impl EntropyBinsData {
         let ptype = parray.ptype();
         vortex_ensure!(ptype.is_int(), "entropy bins encode integers, got {ptype}");
         let block_log = block_log_of(block_values)?;
-        let wide = wide_values(parray);
         let transform = Transform::new(ptype.is_signed_int(), lag)?;
-        let mut latents = Vec::with_capacity(wide.len());
+        let mut latents = Vec::with_capacity(parray.len());
         let mut seeds = Vec::new();
         let width = ptype.byte_width();
-        for block in wide.chunks(block_values) {
-            transform.extend_latents(block, &mut latents);
-            for i in 0..lag {
-                let v = block.get(i).copied().unwrap_or(0);
-                seeds.extend_from_slice(&v.to_le_bytes()[..width]);
+        // Widen one block at a time into a reused buffer rather than the whole array.
+        let mut block = Vec::with_capacity(block_values);
+        match_each_integer_ptype!(ptype, |T| {
+            for values in parray.as_slice::<T>().chunks(block_values) {
+                block.clear();
+                block.extend(values.iter().map(|&v| v.wide()));
+                transform.extend_latents(&block, &mut latents);
+                for i in 0..lag {
+                    let v = block.get(i).copied().unwrap_or(0);
+                    seeds.extend_from_slice(&v.to_le_bytes()[..width]);
+                }
             }
-        }
+        });
         let n = latents.len();
         let mut metadata = EntropyBinsMetadata {
             chunks: Vec::new(),
