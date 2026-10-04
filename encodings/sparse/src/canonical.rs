@@ -355,9 +355,11 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             len,
             ctx,
         )?,
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => vortex_bail!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => vortex_bail!("Sparse canonicalization does not support Variant"),
-        DType::Extension(_ext_dtype) => todo!(),
+        DType::Extension(..) => {
+            vortex_bail!("Sparse canonicalization does not support Extension arrays yet")
+        }
     })
 }
 

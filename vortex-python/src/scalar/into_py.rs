@@ -84,7 +84,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 "Map scalars are not supported in Python",
             )),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => Err(PyValueError::new_err(
+                "Union scalars are not supported in Python yet",
+            )),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),

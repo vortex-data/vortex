@@ -36,8 +36,8 @@ pub struct GpuOptions {
 
 /// The GPU backend that measures `format`.
 #[cfg(feature = "cuda")]
-pub fn compressor(format: Format, options: GpuOptions) -> Box<dyn Compressor> {
-    match format {
+pub fn compressor(format: Format, options: GpuOptions) -> anyhow::Result<Box<dyn Compressor>> {
+    Ok(match format {
         Format::OnDiskVortex => Box::new(vortex::GpuVortexCompressor::new(
             options.verify,
             options.direct_io,
@@ -46,8 +46,8 @@ pub fn compressor(format: Format, options: GpuOptions) -> Box<dyn Compressor> {
             options.codec,
             options.verify,
         )),
-        _ => unimplemented!("GPU compress bench not implemented for {format}"),
-    }
+        _ => anyhow::bail!("GPU compress bench not implemented for {format}"),
+    })
 }
 
 /// Stands in for [`compressor`] in a build without the `cuda` feature.
@@ -56,7 +56,7 @@ pub fn compressor(format: Format, options: GpuOptions) -> Box<dyn Compressor> {
 /// bug. Destructuring the options is what marks their fields as read: they are only otherwise
 /// used by the gated backends, and without this they are dead code in a non-CUDA build.
 #[cfg(not(feature = "cuda"))]
-pub fn compressor(format: Format, options: GpuOptions) -> Box<dyn Compressor> {
+pub fn compressor(format: Format, options: GpuOptions) -> anyhow::Result<Box<dyn Compressor>> {
     let GpuOptions {
         codec: _,
         verify: _,

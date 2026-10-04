@@ -38,17 +38,17 @@ use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
-use crate::expr::lit;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::is_not_null_node;
 
 /// A cast expression that converts values to a target data type.
 #[derive(Clone)]
@@ -178,11 +178,15 @@ impl ScalarFnVTable for Cast {
         Ok(scalar.cast(target_dtype).ok().map(bound::lit))
     }
 
-    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
-        Ok(Some(if dtype.is_nullable() {
-            expression.child(0).validity()?
+    fn validity<T: ReduceNode>(
+        &self,
+        dtype: &DType,
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(if dtype.is_nullable() {
+            is_not_null_node(&node.child(0))?
         } else {
-            lit(true)
+            node.new_constant(true.into())
         }))
     }
 
@@ -216,9 +220,9 @@ fn cast_canonical(
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
         CanonicalView::Union(_) => {
-            todo!(
-                "TODO(connor)[Union]: implement Union casting with conformance coverage for outer \
-                 nullability changes, including validation of nullable-to-nonnullable casts"
+            vortex_bail!(
+                "TODO(connor)[Union]: implement Union casting with conformance coverage for \
+                 outer nullability changes, including validation of nullable-to-nonnullable casts"
             )
         }
         CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),

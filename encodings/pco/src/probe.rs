@@ -76,9 +76,12 @@ pub(crate) fn scalar_at(
 
     let value_index = match mask {
         Mask::AllTrue(_) => logical_index,
-        Mask::AllFalse(_) => unreachable!("probe dispatch checks validity"),
+        Mask::AllFalse(_) => return Ok(Scalar::null(array.dtype().clone())),
         Mask::Values(values) => {
             let bits = values.bit_buffer();
+            if !bits.value(logical_index) {
+                return Ok(Scalar::null(array.dtype().clone()));
+            }
             if state.rank.is_empty() {
                 state.rank.reserve(bits.len().div_ceil(RANK_STRIDE));
                 let mut count = 0;

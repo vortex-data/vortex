@@ -28,6 +28,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_error::vortex_bail;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -58,8 +59,9 @@ impl CudaExecute for FoRExecutor {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
         // Per-chunk references have no CUDA kernel yet, so decode them on the CPU.
+        // TODO(mk): implement CUDA FoR decoding for non-constant references.
         let Some(reference) = array.constant_reference() else {
-            return array.into_array().execute::<Canonical>(ctx.execution_ctx());
+            vortex_bail!("CUDA FoR decoding requires a constant reference")
         };
 
         // Fuse FOR + BP => FFOR

@@ -9,23 +9,20 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
-use crate::r#for::FoR;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
+use crate::for_::FoR;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
 impl CastReduce for FoR {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // FoR only supports integer types
-        if !dtype.is_int() {
+        // Only push down nullability change.
+        if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
 
-        // For type changes between integers, cast the components
         let casted_child = array.encoded().cast(dtype.clone())?;
-        // References are always non-nullable.
-        let casted_references = array.references().cast(dtype.as_nonnullable())?;
-
         Ok(Some(
-            FoR::try_new_chunked(casted_child, casted_references, array.offset())?.into_array(),
+            FoR::try_new_chunked(casted_child, array.references().clone(), array.offset())?
+                .into_array(),
         ))
     }
 }
@@ -48,6 +45,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::FoR;
@@ -100,6 +98,42 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
+    }
+
+    #[rstest]
+    // 127 is stored as 255, which wraps to -1 in `i8`, and would decode as -129 in `i16`.
+    #[case::widen_wrapped_offset(
+        FoR::encode(PrimitiveArray::from_iter([-128i8, 127]), &mut SESSION.create_execution_ctx()),
+        PType::I16,
+        Some(PrimitiveArray::from_iter([-128i16, 127]))
+    )]
+    // The reference and the offsets fit `i8`, but 200 does not.
+    #[case::narrow_out_of_range(
+        FoR::encode(PrimitiveArray::from_iter([100i16, 200]), &mut SESSION.create_execution_ctx()),
+        PType::I8,
+        None
+    )]
+    // The values fit `u32`, but the reference -5 does not.
+    #[case::reference_out_of_range(
+        FoR::try_new(buffer![10i32, 11, 12].into_array(), Scalar::from(-5i32)),
+        PType::U32,
+        Some(PrimitiveArray::from_iter([5u32, 6, 7]))
+    )]
+    fn cast_type_change(
+        #[case] array: VortexResult<FoRArray>,
+        #[case] ptype: PType,
+        #[case] expected: Option<PrimitiveArray>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let cast = array?
+            .into_array()
+            .cast(DType::Primitive(ptype, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(&mut ctx);
+        match expected {
+            Some(expected) => assert_arrays_eq!(cast?, expected, &mut ctx),
+            None => assert!(cast.is_err()),
+        }
+        Ok(())
     }
 
     #[rstest]

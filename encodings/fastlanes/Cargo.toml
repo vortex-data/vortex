@@ -34,12 +34,14 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+hegeltest = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-bench-support = { workspace = true }
 vortex-fastlanes = { path = ".", features = ["_test-harness"] }
 
 [features]
@@ -71,3 +73,11 @@ harness = false
 name = "cast_bitpacked"
 harness = false
 required-features = ["_test-harness"]
+
+[[bench]]
+name = "for_encode"
+harness = false
+
+[[bench]]
+name = "for_decode"
+harness = false

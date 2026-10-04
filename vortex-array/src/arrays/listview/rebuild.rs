@@ -5,6 +5,7 @@ use num_traits::FromPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
@@ -113,7 +114,9 @@ impl ListViewArray {
             ListViewRebuildMode::MakeZeroCopyToList => self.rebuild_zero_copy_to_list(ctx),
             ListViewRebuildMode::TrimElements => self.rebuild_trim_elements(ctx),
             ListViewRebuildMode::MakeExact => self.rebuild_make_exact(ctx),
-            ListViewRebuildMode::OverlapCompression => unimplemented!("Does P=NP?"),
+            ListViewRebuildMode::OverlapCompression => {
+                vortex_bail!("ListViewRebuildMode::OverlapCompression is not implemented")
+            }
         }
     }
 

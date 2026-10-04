@@ -2,9 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Benchmarks for `intersect_by_rank`.
+//!
+//! `random_rotating` carries `#[cpu_features]`, so it is measured in walltime on every
+//! CPU-feature leg rather than in simulation. The entry point picks its kernel at runtime:
+//! the x86 legs measure the BMI2 kernel and the NEON leg the portable one. On mixed masks
+//! the portable kernel spends most of its time in branch mispredictions, which only a
+//! walltime measurement on real hardware shows.
+
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 
@@ -60,6 +72,28 @@ const VERY_SPARSE_MASK_ARGS: &[(f64, f64, &str)] = &[
     (0.50, 0.02, "self_dense_mask_2pct"),
     (0.10, 0.01, "self_10pct_mask_1pct"),
 ];
+
+// Independent random bits: (self_density, mask_density).
+const RANDOM_ROTATING_ARGS: &[(f64, f64, &str)] = &[
+    (0.50, 0.50, "self_50pct_mask_50pct"),
+    (0.90, 0.90, "self_90pct_mask_90pct"),
+    (0.02, 0.50, "self_2pct_mask_50pct"),
+    (0.50, 0.02, "self_50pct_mask_2pct"),
+];
+
+/// Rows of `self` in each pair of the pool.
+const ROTATING_ROWS: usize = 1 << 18;
+
+/// Pairs the benchmark rotates through, one per iteration. The pool holds 32K words of
+/// `self`, twice the repeated sequence a Zen 5 predictor was seen to learn, in at most
+/// about 0.5 MiB, which stays in L2 on the walltime legs.
+const ROTATING_POOL: usize = 8;
+
+fn create_bernoulli_mask(rng: &mut StdRng, len: usize, density: f64) -> Mask {
+    Mask::from_buffer(BitBuffer::from_iter(
+        (0..len).map(|_| rng.random_bool(density)),
+    ))
+}
 
 fn create_random_mask(len: usize, selectivity: f64) -> Mask {
     Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| {
@@ -123,6 +157,25 @@ fn create_rank_indices_fixture(size: usize, self_density: f64, mask_density: f64
     let rank_len = base.true_count();
     let rank = create_random_indices_mask(rank_len, mask_density);
     (base, rank)
+}
+
+/// Random masks, a different pair on every iteration.
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = RANDOM_ROTATING_ARGS)]
+fn random_rotating(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let pool: Vec<(Mask, Mask)> = (0..ROTATING_POOL)
+        .map(|_| {
+            let base = create_bernoulli_mask(&mut rng, ROTATING_ROWS, self_density);
+            let rank = create_bernoulli_mask(&mut rng, base.true_count(), mask_density);
+            (base, rank)
+        })
+        .collect();
+    // Divan requires the input generator to be `Fn + Sync`, hence the atomic counter.
+    let next = AtomicUsize::new(0);
+    bencher
+        .with_inputs(|| &pool[next.fetch_add(1, Ordering::Relaxed) % ROTATING_POOL])
+        .bench_refs(|(base, rank)| base.intersect_by_rank(rank));
 }
 
 /// Standard patterns (random / runs)

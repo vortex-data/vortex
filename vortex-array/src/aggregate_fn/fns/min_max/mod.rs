@@ -449,7 +449,7 @@ impl AggregateFnVTable for MinMax {
                 Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
                 Canonical::Null(_) => Ok(()),
                 Canonical::Union(_) => {
-                    todo!("TODO(connor)[Union]: implement min_max for Union arrays")
+                    vortex_bail!("TODO(connor)[Union]: implement min_max for Union arrays")
                 }
                 Canonical::Struct(_)
                 | Canonical::List(_)

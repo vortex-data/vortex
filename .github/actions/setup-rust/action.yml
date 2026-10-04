@@ -58,8 +58,12 @@ runs:
       shell: bash
       run: |
         rustup toolchain install "$TOOLCHAIN" --profile minimal
-        [[ -n "$TARGETS" ]] && rustup target add --toolchain "$TOOLCHAIN" ${TARGETS//,/ }
-        [[ -n "$COMPONENTS" ]] && rustup component add --toolchain "$TOOLCHAIN" ${COMPONENTS//,/ }
+        if [[ -n "$TARGETS" ]]; then
+          rustup target add --toolchain "$TOOLCHAIN" ${TARGETS//,/ }
+        fi
+        if [[ -n "$COMPONENTS" ]]; then
+          rustup component add --toolchain "$TOOLCHAIN" ${COMPONENTS//,/ }
+        fi
       env:
         TOOLCHAIN: ${{ steps.toolchain-config.outputs.toolchain }}
         TARGETS: ${{ inputs.targets }}

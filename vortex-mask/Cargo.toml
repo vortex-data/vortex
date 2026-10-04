@@ -28,7 +28,9 @@ vortex-error = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 mimalloc = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
+vortex-bench-support = { workspace = true }
 
 [[bench]]
 name = "intersect_by_rank"

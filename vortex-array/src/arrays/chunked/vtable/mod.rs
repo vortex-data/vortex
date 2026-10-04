@@ -255,9 +255,9 @@ impl VTable for Chunked {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         match array.dtype() {
             DType::Union(..) => {
-                todo!(
-                    "TODO(connor)[Union]: canonicalize chunked Union arrays by packing type IDs and \
-                     every sparse child along identical chunk boundaries"
+                vortex_bail!(
+                    "TODO(connor)[Union]: canonicalize chunked Union arrays by packing type IDs \
+                     and every sparse child along identical chunk boundaries"
                 )
             }
             // Struct, List, FixedSizeList, and Variant need child swizzling that the builder path

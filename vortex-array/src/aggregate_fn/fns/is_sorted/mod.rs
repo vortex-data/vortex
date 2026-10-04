@@ -13,6 +13,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
@@ -248,7 +249,7 @@ impl AggregateFnVTable for IsSorted {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("IsSorted is not yet serializable");
+        vortex_bail!("IsSorted is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

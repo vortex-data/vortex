@@ -185,19 +185,19 @@ impl BenchMode {
 }
 
 /// Get a compressor for the given format.
-fn get_compressor(format: Format, mode: BenchMode) -> Box<dyn Compressor> {
+fn get_compressor(format: Format, mode: BenchMode) -> anyhow::Result<Box<dyn Compressor>> {
     if let BenchMode::Gpu(options) = mode {
         return gpu_compressor(format, options);
     }
 
-    match format {
+    Ok(match format {
         Format::ArrowIpc => Box::new(ArrowIpcCompressor),
         Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
         Format::Lance => Box::new(LanceCompressor),
-        _ => unimplemented!("Compress bench not implemented for {format}"),
-    }
+        _ => anyhow::bail!("Compress bench not implemented for {format}"),
+    })
 }
 
 /// The benchmark ID used for output path.
@@ -442,7 +442,7 @@ async fn run_benchmark_for_dataset(
     let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for format in formats {
-        let compressor = get_compressor(*format, mode);
+        let compressor = get_compressor(*format, mode)?;
         // Read the source once per format; every compression iteration starts from it.
         let input = compressor
             .load(&parquet_path)

@@ -45,7 +45,7 @@ impl Default for CompressionSession {
                 // Integer schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
                 // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
-                &integer::FoRScheme,
+                &integer::FOR_V1,
                 // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
                 &integer::ZigZagScheme,
                 &integer::BitPackingScheme,

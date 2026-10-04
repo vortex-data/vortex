@@ -10,6 +10,7 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtId;
+use vortex::error::vortex_panic;
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;
@@ -91,7 +92,7 @@ impl Display for DTypePythonRepr<'_> {
                     .join(", "),
                 n.python_repr()
             ),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => write!(f, "variant()"),
             DType::Extension(ext) => {
                 write!(

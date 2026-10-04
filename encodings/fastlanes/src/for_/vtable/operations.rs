@@ -11,8 +11,8 @@ use vortex_error::VortexResult;
 
 use super::FoR;
 use crate::FL_CHUNK_SIZE;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
 impl OperationsVTable<FoR> for FoR {
     type ProbeState = ();
 

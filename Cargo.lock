@@ -11158,6 +11158,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fastlanes 0.7.2",
+ "hegeltest",
  "itertools 0.14.0",
  "lending-iterator",
  "mimalloc",
@@ -11167,6 +11168,7 @@ dependencies = [
  "rstest",
  "vortex-alp",
  "vortex-array",
+ "vortex-bench-support",
  "vortex-buffer",
  "vortex-error",
  "vortex-fastlanes",
@@ -11439,8 +11441,10 @@ dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "mimalloc",
+ "rand 0.10.3",
  "rstest",
  "serde",
+ "vortex-bench-support",
  "vortex-buffer",
  "vortex-error",
 ]

@@ -84,6 +84,8 @@ def test_pr_target_selection() -> None:
         ("duckdb", "vortex"),
     }
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
+    for preset in (pr, pr_full, develop):
+        assert {engine for engine, _format in _targets(preset["statpopgen"])} == {"datafusion", "duckdb"}
     assert all(("datafusion", "lance") not in _targets(entry) for entry in pr_full.values())
     assert "vortex-compact" in cast("list[str]", pr_full["clickbench-nvme"]["data_formats"])
     for entry in pr_compact.values():

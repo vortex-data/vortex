@@ -16,24 +16,16 @@ use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
-use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFn> = ReduceRuleSet::new(&[
-    &ScalarFnPackToStructRule,
-    &IsNullReduceRule,
-    // Ordering is important. ScalarFn::reduce() must be called after all other
-    // optimizations
-    &ScalarFnAbstractReduceRule,
-]);
+pub(super) const RULES: ReduceRuleSet<ScalarFn> =
+    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ScalarFilterPushdownRule),
@@ -63,38 +55,6 @@ impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
             )?
             .into_array(),
         ))
-    }
-}
-
-/// Reduce IsNull(x) -> lit(false) if !x.nullable or x.validity().
-/// Reduce IsNotNull(x) -> lit(true) if !x.nullable or x.validity()
-#[derive(Debug)]
-struct IsNullReduceRule;
-impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
-    fn reduce(&self, view: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        let mut is_null = view.scalar_fn().is::<IsNull>();
-        if !is_null {
-            if view.scalar_fn().is::<IsNotNull>() {
-                is_null = false;
-            } else {
-                return Ok(None);
-            }
-        }
-
-        let validity = match view.get_child(0).validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                ConstantArray::new(!is_null, view.len()).into_array()
-            }
-            Validity::AllInvalid => ConstantArray::new(is_null, view.len()).into_array(),
-            Validity::Array(array) => {
-                if is_null {
-                    array.not()?
-                } else {
-                    array
-                }
-            }
-        };
-        Ok(Some(validity))
     }
 }
 

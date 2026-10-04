@@ -14,20 +14,16 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-
-fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new_expr(value.into(), [])
-}
 
 /// Expression that represents a literal scalar value.
 #[derive(Clone)]
@@ -94,12 +90,14 @@ impl ScalarFnVTable for Literal {
         Ok(ConstantArray::new(scalar.clone(), args.row_count()).into_array())
     }
 
-    fn validity(
+    fn validity<T: ReduceNode>(
         &self,
         scalar: &Scalar,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(scalar.is_valid())))
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(
+            node.new_constant(scalar.is_valid().into()),
+        ))
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

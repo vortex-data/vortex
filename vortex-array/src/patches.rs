@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
@@ -18,6 +17,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
@@ -638,17 +638,17 @@ impl Patches {
             );
         }
 
-        match mask.indices() {
-            AllOr::All => Ok(Some(self.clone())),
-            AllOr::None => Ok(None),
-            AllOr::Some(mask_indices) => {
+        match mask {
+            Mask::AllTrue(_) => Ok(Some(self.clone())),
+            Mask::AllFalse(_) => Ok(None),
+            Mask::Values(mask_values) => {
                 let flat_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
                         flat_indices.as_slice::<I>(),
                         self.offset(),
                         self.values(),
-                        mask_indices,
+                        mask_values,
                         ctx.allocator(),
                     )
                 })
@@ -1101,99 +1101,208 @@ where
 /// The filter mask may contain indices that are non-patched. The return value of this function
 /// is a new set of `Patches` with the indices relative to the provided `mask` rank, and the
 /// patch values.
+///
+/// We search the larger side for each element of the smaller side, without building the mask
+/// indices:
+///
+/// * More patches than mask indices: gallop through the patches.
+/// * Cached mask indices: gallop through the mask indices.
+/// * Otherwise: rank each patch in the mask bitmap.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
     patch_values: &ArrayRef,
-    mask_indices: &[usize],
+    mask: &MaskValues,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<Option<Patches>> {
-    let true_count = mask_indices.len();
-    let mut new_patch_indices = BufferMut::<u64>::with_capacity_in(true_count, allocator.clone());
-    let mut new_mask_indices = Vec::with_capacity(true_count);
+    let true_count = mask.true_count();
+    let patch_count = patch_indices.len();
+    let expected_matches = true_count.min(patch_count);
 
-    // Attempt to move the window by `STRIDE` elements on each iteration. This assumes that
-    // the patches are relatively sparse compared to the overall mask, and so many indices in the
-    // mask will end up being skipped.
-    const STRIDE: usize = 4;
+    // The mask rank and the original position of each kept patch.
+    let mut new_patch_indices =
+        BufferMut::<u64>::with_capacity_in(expected_matches, allocator.clone());
+    let mut kept_patches = Vec::with_capacity(expected_matches);
 
-    let mut mask_idx = 0usize;
-    let mut true_idx = 0usize;
-
-    while mask_idx < patch_indices.len() && true_idx < true_count {
-        // NOTE: we are searching for overlaps between sorted, unaligned indices in `patch_indices`
-        //  and `mask_indices`. We assume that Patches are sparse relative to the global space of
-        //  the mask (which covers both patch and non-patch values of the parent array), and so to
-        //  quickly jump through regions with no overlap, we attempt to move our pointers by STRIDE
-        //  elements on each iteration. If we cannot rule out overlap due to min/max values, we
-        //  fallback to performing a two-way iterator merge.
-        if (mask_idx + STRIDE) < patch_indices.len() && (true_idx + STRIDE) < mask_indices.len() {
-            // Load a vector of each into our registers.
-            let left_min = patch_indices[mask_idx]
-                .to_usize()
-                .ok_or_else(|| vortex_err!("patch index does not fit in usize"))?
-                - offset;
-            let left_max = patch_indices[mask_idx + STRIDE]
-                .to_usize()
-                .ok_or_else(|| vortex_err!("patch index does not fit in usize"))?
-                - offset;
-            let right_min = mask_indices[true_idx];
-            let right_max = mask_indices[true_idx + STRIDE];
-
-            if left_min > right_max {
-                // Advance right side
-                true_idx += STRIDE;
-                continue;
-            } else if right_min > left_max {
-                mask_idx += STRIDE;
-                continue;
-            } else {
-                // Fallthrough to direct comparison path.
-            }
-        }
-
-        // Two-way sorted iterator merge:
-
-        let left = patch_indices[mask_idx]
-            .to_usize()
-            .ok_or_else(|| vortex_err!("patch index does not fit in usize"))?
-            - offset;
-        let right = mask_indices[true_idx];
-
-        match left.cmp(&right) {
-            Ordering::Less => {
-                mask_idx += 1;
-            }
-            Ordering::Greater => {
-                true_idx += 1;
-            }
-            Ordering::Equal => {
-                // Save the mask index as well as the positional index.
-                new_mask_indices.push(mask_idx);
-                new_patch_indices.push(true_idx as u64);
-
-                mask_idx += 1;
-                true_idx += 1;
-            }
+    if patch_count > true_count {
+        gallop_patches_for_mask_indices(
+            patch_indices,
+            offset,
+            mask,
+            &mut new_patch_indices,
+            &mut kept_patches,
+        )?;
+    } else {
+        match mask.cached_indices() {
+            Some(mask_indices) => gallop_mask_indices_for_patches(
+                patch_indices,
+                offset,
+                mask_indices,
+                &mut new_patch_indices,
+                &mut kept_patches,
+            )?,
+            None => rank_patches_in_mask_bitmap(
+                patch_indices,
+                offset,
+                mask.bit_buffer(),
+                &mut new_patch_indices,
+                &mut kept_patches,
+            )?,
         }
     }
 
-    if new_mask_indices.is_empty() {
+    if kept_patches.is_empty() {
         return Ok(None);
     }
 
     let new_patch_indices = new_patch_indices.into_array();
     let new_patch_values =
-        patch_values.filter(Mask::from_indices(patch_values.len(), new_mask_indices))?;
+        patch_values.filter(Mask::from_indices(patch_values.len(), kept_patches))?;
 
-    Ok(Some(Patches::new(
-        true_count,
-        0,
-        new_patch_indices,
-        new_patch_values,
-        // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
-        None,
-    )?))
+    // SAFETY: there is one index and one value per kept patch. The indices are strictly
+    // increasing non-nullable `u64` mask ranks below `true_count`.
+    Ok(Some(unsafe {
+        Patches::new_unchecked(
+            true_count,
+            0,
+            new_patch_indices,
+            new_patch_values,
+            // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
+            None,
+            None,
+        )
+    }))
+}
+
+/// Returns the first position at or after `start` whose value is not less than `needle`.
+///
+/// The cost is logarithmic in the distance from `start` to the result.
+fn gallop_lower_bound<T: Ord>(values: &[T], start: usize, needle: &T) -> usize {
+    let mut low = start;
+    let mut high = start;
+    let mut step = 1;
+
+    while high < values.len() && values[high] < *needle {
+        low = high + 1;
+        high += step;
+        step *= 2;
+    }
+
+    let high = high.min(values.len());
+    low + values[low..high].partition_point(|value| value < needle)
+}
+
+/// Finds the patch of each mask index, for masks that are sparser than the patches.
+///
+/// Mask indices after the last patch cannot match, so we skip them.
+fn gallop_patches_for_mask_indices<T: IntegerPType>(
+    patch_indices: &[T],
+    offset: usize,
+    mask: &MaskValues,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut Vec<usize>,
+) -> VortexResult<()> {
+    let Some(&last_patch_index) = patch_indices.last() else {
+        return Ok(());
+    };
+    let last_mask_index = patch_index_to_usize(last_patch_index, offset)?;
+
+    let mut patch_position = 0;
+    let mut mask_position = 0;
+
+    let mut visit = |mask_index: usize| {
+        // At most the last patch index, so it fits in `T` and the search stays in bounds.
+        let needle = <T as NumCast>::from(mask_index + offset)
+            .vortex_expect("mask index is at most the last patch index");
+
+        patch_position = gallop_lower_bound(patch_indices, patch_position, &needle);
+        if patch_indices[patch_position] == needle {
+            new_patch_indices.push(mask_position as u64);
+            kept_patches.push(patch_position);
+            patch_position += 1;
+        }
+
+        mask_position += 1;
+    };
+
+    match mask.cached_indices() {
+        Some(mask_indices) => {
+            let end = mask_indices.partition_point(|&mask_index| mask_index <= last_mask_index);
+            mask_indices[..end]
+                .iter()
+                .for_each(|&mask_index| visit(mask_index));
+        }
+        None => mask
+            .bit_buffer()
+            .slice(..=last_mask_index)
+            .for_each_set_index(visit),
+    }
+
+    Ok(())
+}
+
+/// Finds the mask position of each patch, for patches that are not sparser than the mask.
+fn gallop_mask_indices_for_patches<T: IntegerPType>(
+    patch_indices: &[T],
+    offset: usize,
+    mask_indices: &[usize],
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut Vec<usize>,
+) -> VortexResult<()> {
+    let mut mask_position = 0;
+
+    for (patch_position, patch_index) in patch_indices.iter().enumerate() {
+        let index = patch_index_to_usize(*patch_index, offset)?;
+
+        mask_position = gallop_lower_bound(mask_indices, mask_position, &index);
+        if mask_position == mask_indices.len() {
+            break;
+        }
+
+        if mask_indices[mask_position] == index {
+            new_patch_indices.push(mask_position as u64);
+            kept_patches.push(patch_position);
+            mask_position += 1;
+        }
+    }
+
+    Ok(())
+}
+
+/// Finds the mask position of each patch from the mask bitmap, without building the mask indices.
+///
+/// The mask position is the number of set bits before the patch, counted between adjacent patches.
+fn rank_patches_in_mask_bitmap<T: IntegerPType>(
+    patch_indices: &[T],
+    offset: usize,
+    mask: &BitBuffer,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut Vec<usize>,
+) -> VortexResult<()> {
+    let mut rank = 0;
+    let mut previous_index = 0;
+
+    for (patch_position, patch_index) in patch_indices.iter().enumerate() {
+        let index = patch_index_to_usize(*patch_index, offset)?;
+
+        rank += mask.count_range(previous_index, index);
+        previous_index = index;
+
+        if mask.value(index) {
+            new_patch_indices.push(rank as u64);
+            kept_patches.push(patch_position);
+        }
+    }
+
+    Ok(())
+}
+
+#[inline]
+fn patch_index_to_usize<T: IntegerPType>(patch_index: T, offset: usize) -> VortexResult<usize> {
+    Ok(patch_index
+        .to_usize()
+        .ok_or_else(|| vortex_err!("patch index does not fit in usize"))?
+        - offset)
 }
 
 fn take_indices_with_search_fn<
@@ -1237,8 +1346,13 @@ fn take_indices_with_search_fn<
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -1681,6 +1795,115 @@ mod test {
             i32::try_from(&masked_values.execute_scalar(1, &mut ctx).unwrap()).unwrap(),
             300i32
         );
+    }
+
+    /// Covers each filter algorithm.
+    #[rstest]
+    #[case::sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(97).collect())]
+    #[case::sparse_patches((0..1000).step_by(97).collect(), (0..1000).step_by(2).collect())]
+    #[case::similar_sizes((0..1000).step_by(3).collect(), (0..1000).step_by(2).collect())]
+    #[case::no_overlap((0..500).collect(), (500..1000).step_by(50).collect())]
+    #[case::no_overlap_sparse_patches((500..1000).step_by(100).collect(), (0..500).collect())]
+    #[case::edges(vec![0, 1, 998, 999], vec![0, 999])]
+    fn test_filter_matches_naive(
+        #[case] patch_indices: Vec<usize>,
+        #[case] mask_indices: Vec<usize>,
+        #[values(0, 5)] offset: usize,
+        #[values(true, false)] cache_mask_indices: bool,
+    ) -> VortexResult<()> {
+        const LEN: usize = 1000;
+        let mut ctx = array_session().create_execution_ctx();
+
+        let patches = Patches::new(
+            LEN,
+            offset,
+            patch_indices
+                .iter()
+                .map(|&index| u32::try_from(index + offset).vortex_expect("index fits in u32"))
+                .collect::<Buffer<u32>>()
+                .into_array(),
+            (0i32..)
+                .take(patch_indices.len())
+                .collect::<Buffer<i32>>()
+                .into_array(),
+            None,
+        )?;
+
+        let mask = if cache_mask_indices {
+            Mask::from_indices(LEN, mask_indices.iter().copied())
+        } else {
+            Mask::from_buffer(BitBuffer::from_iter(
+                (0..LEN).map(|index| mask_indices.binary_search(&index).is_ok()),
+            ))
+        };
+
+        let (expected_indices, expected_values): (Vec<u64>, Vec<i32>) = mask_indices
+            .iter()
+            .enumerate()
+            .filter_map(|(mask_position, index)| {
+                patch_indices
+                    .binary_search(index)
+                    .ok()
+                    .map(|patch_position| {
+                        (
+                            mask_position as u64,
+                            i32::try_from(patch_position).vortex_expect("position fits in i32"),
+                        )
+                    })
+            })
+            .unzip();
+
+        let filtered = patches.filter(&mask, &mut ctx)?;
+
+        let Some(filtered) = filtered else {
+            assert!(expected_indices.is_empty());
+            return Ok(());
+        };
+
+        assert_eq!(filtered.array_len(), mask_indices.len());
+        assert_arrays_eq!(
+            filtered.indices(),
+            PrimitiveArray::from_iter(expected_indices),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            filtered.values(),
+            PrimitiveArray::from_iter(expected_values),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    /// Mask indices past the maximum of the patch index type cannot match a patch.
+    #[test]
+    fn test_filter_sparse_mask_past_index_type_max() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let patches = Patches::new(
+            1000,
+            0,
+            (0..=u8::MAX).collect::<Buffer<u8>>().into_array(),
+            (0..256i32).collect::<Buffer<i32>>().into_array(),
+            None,
+        )?;
+
+        let mask = Mask::from_indices(1000, [3, 255, 256, 900]);
+        let filtered = patches
+            .filter(&mask, &mut ctx)?
+            .expect("patches at 3 and 255 are kept");
+
+        assert_arrays_eq!(
+            filtered.indices(),
+            PrimitiveArray::from_iter([0u64, 1]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            filtered.values(),
+            PrimitiveArray::from_iter([3i32, 255]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[test]

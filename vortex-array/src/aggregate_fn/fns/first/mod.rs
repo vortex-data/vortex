@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -45,7 +46,7 @@ impl AggregateFnVTable for First {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("First is not yet serializable");
+        vortex_bail!("First is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

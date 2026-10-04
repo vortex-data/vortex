@@ -10,6 +10,9 @@ use arrow_array::RecordBatch;
 use arrow_ipc::writer::FileWriter;
 use async_trait::async_trait;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
+use parquet::file::properties::WriterProperties;
 use vortex::array::ArrayRef;
 
 use crate::Format;
@@ -72,6 +75,16 @@ pub fn parquet_to_arrow_file(parquet_path: PathBuf, arrow_path: String) -> Resul
     })
 }
 
+/// Parquet writer properties for the synthetic random-access datasets.
+///
+/// Compression is zstd level 3, matching every other benchmark data generator; parquet-rs would
+/// otherwise write these files uncompressed. Row group and page sizes are left at their defaults.
+pub fn random_access_writer_properties() -> Result<WriterProperties> {
+    Ok(WriterProperties::builder()
+        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+        .build())
+}
+
 /// Trait for a benchmark dataset that knows how to prepare data files.
 #[async_trait]
 pub trait BenchDataset: Send + Sync {
@@ -107,4 +120,19 @@ pub trait RandomAccessor: Send + Sync {
 
     /// Take rows at the given indices, returning the handle.
     async fn take(&self, indices: &[u64]) -> Result<RandomAccessorRet>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_parquet_is_zstd_level_3() -> Result<()> {
+        let props = random_access_writer_properties()?;
+        assert_eq!(
+            props.compression(&"embedding".into()),
+            Compression::ZSTD(ZstdLevel::try_new(3)?)
+        );
+        Ok(())
+    }
 }

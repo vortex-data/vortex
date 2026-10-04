@@ -164,7 +164,7 @@ impl VTable for Union {
         _builder: &mut dyn ArrayBuilder,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        todo!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
+        vortex_bail!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
     }
 
     fn reduce_parent(

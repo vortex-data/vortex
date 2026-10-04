@@ -7,7 +7,7 @@ Edit this file when changing CI benchmark coverage. The other modules in this pa
 validate, and render these declarations.
 """
 
-from ..config import Benchmark, Engine, Format
+from ..config import Benchmark, Format
 from .model import BenchmarkCase, Catalog, Coverage, Storage
 from .targets import df, duck
 
@@ -51,14 +51,11 @@ FULL_PR_TARGETS = df(
 )
 DEFAULT_WITH_DUCKDB_TARGETS = DEFAULT_TARGETS | duck(Format.DUCKDB)
 STANDARD_WITH_DUCKDB_TARGETS = STANDARD_TARGETS | duck(Format.DUCKDB)
-DUCKDB_DEFAULT_TARGETS = DEFAULT_TARGETS.only(Engine.DUCKDB)
-DUCKDB_STANDARD_TARGETS = STANDARD_TARGETS.only(Engine.DUCKDB)
 DATAFUSION_VORTEX_TARGETS = df(Format.VORTEX)
 COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
     Format.PARQUET,
     Format.VORTEX_COMPACT,
 )
-COMPACT_DUCKDB_TARGETS = duck(Format.PARQUET, Format.VORTEX_COMPACT)
 
 DEFAULT = Coverage(DEFAULT_TARGETS)
 STANDARD = Coverage(STANDARD_TARGETS)
@@ -72,11 +69,8 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
-DUCKDB_DEFAULT = Coverage(DUCKDB_DEFAULT_TARGETS)
-DUCKDB_STANDARD = Coverage(DUCKDB_STANDARD_TARGETS)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
-COMPACT_DUCKDB = Coverage(COMPACT_DUCKDB_TARGETS)
 
 # Concrete benchmark cases
 
@@ -203,11 +197,11 @@ BENCHMARKS = (
         scale_factor=100,
         local_dir="vortex-bench/data/statpopgen",
         runs={
-            "pr": DUCKDB_DEFAULT,
-            "pr-compact": COMPACT_DUCKDB,
-            "pr-all": DUCKDB_STANDARD,
-            "pr-full": DUCKDB_STANDARD,
-            "develop": DUCKDB_STANDARD,
+            "pr": DEFAULT,
+            "pr-compact": COMPACT,
+            "pr-all": STANDARD,
+            "pr-full": STANDARD,
+            "develop": STANDARD,
         },
     ),
     BenchmarkCase(

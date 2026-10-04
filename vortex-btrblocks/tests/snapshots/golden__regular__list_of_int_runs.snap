@@ -7,13 +7,13 @@ root: vortex.list(list(i32), len=4066) nbytes=11152
   metadata: 
   elements: vortex.runend(i32, len=16384) nbytes=3974
     metadata: offset: 0
-    ends: fastlanes.for(u16, len=1020) nbytes=1794
+    ends: fastlanes.for.v2(u16, len=1020) nbytes=1794
       metadata: offset: 0
       encoded: fastlanes.bitpacked(u16, len=1020) nbytes=1792
         metadata: bit_width: 14, offset: 0
       references: vortex.constant(u16, len=1) nbytes=2
         metadata: scalar: 13u16
-    values: fastlanes.for(i32, len=1020) nbytes=2180
+    values: fastlanes.for.v2(i32, len=1020) nbytes=2180
       metadata: offset: 0
       encoded: fastlanes.bitpacked(i32, len=1020) nbytes=2176
         metadata: bit_width: 17, offset: 0

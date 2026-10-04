@@ -1,7 +1,7 @@
 [package]
 name = "wasm-test"
 description = "Small integration smoketest for wasm32-unknown-unknown target support"
-repository = "https://github.com/spiraldb/vortex"
+repository = "https://github.com/vortex-data/vortex"
 authors = ["Vortex Authors <hello@vortex.dev>"]
 license = "Apache-2.0"
 version = "0.0.1"

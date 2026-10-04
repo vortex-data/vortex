@@ -294,7 +294,7 @@ fn compute_list_contains(
         return constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, options);
     }
 
-    todo!("unsupported list contains with list and element as arrays")
+    vortex_bail!("unsupported list contains with list and element as arrays")
 }
 
 /// There is a constant list scalar (haystack) being compared to an array of needles.

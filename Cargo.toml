@@ -78,7 +78,7 @@ resolver = "3"
 authors = ["Vortex Authors <hello@vortex.dev>"]
 categories = ["database-implementations", "data-structures", "compression"]
 edition = "2024"
-homepage = "https://github.com/spiraldb/vortex"
+homepage = "https://github.com/vortex-data/vortex"
 include = [
 
     "build.rs",
@@ -91,7 +91,7 @@ include = [
 keywords = ["vortex"]
 license = "Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/spiraldb/vortex"
+repository = "https://github.com/vortex-data/vortex"
 rust-version = "1.95"
 version = "0.1.0"
 
@@ -402,8 +402,8 @@ repeat_vec_with_capacity = "deny"
 reserve_after_initialization = "deny"
 same_name_method = "deny"
 tests_outside_test_module = "deny"
-# todo = "deny"
-# unimplemented = "deny"
+todo = "deny"
+unimplemented = "deny"
 unwrap_in_result = "deny"
 unwrap_used = "deny"
 use_debug = "deny"

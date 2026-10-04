@@ -21,6 +21,7 @@ use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 /// Baseline implementation of scalar_at that works on canonical arrays.
 /// This implementation manually extracts the scalar value from each canonical type
@@ -107,7 +108,7 @@ pub fn scalar_at_canonical_array(
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
         Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
+            vortex_bail!("TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
         }
         Canonical::Map(array) => {
             let entries = array.entries_at(index)?.execute::<StructArray>(ctx)?;

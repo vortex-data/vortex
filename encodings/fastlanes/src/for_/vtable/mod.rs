@@ -17,9 +17,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::require_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
@@ -30,14 +32,17 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
+use crate::BitPacked;
 use crate::FoRData;
-use crate::r#for::array::FoRSlots;
-use crate::r#for::array::FoRSlotsView;
-use crate::r#for::array::for_decompress::decompress;
-use crate::r#for::array::num_chunks;
-use crate::r#for::vtable::rules::PARENT_RULES;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::FoRSlots;
+use crate::for_::array::FoRSlotsView;
+use crate::for_::array::for_decompress::decompress;
+use crate::for_::array::num_chunks;
+use crate::for_::vtable::rules::PARENT_RULES;
+use crate::for_v2_id;
 
 mod kernels;
 mod operations;
@@ -71,8 +76,7 @@ impl VTable for FoR {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("fastlanes.for");
-        *ID
+        for_v2_id()
     }
 
     fn validate(
@@ -138,6 +142,21 @@ impl VTable for FoR {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = if array.constant_reference().is_some() {
+            array
+        } else {
+            require_child!(array, array.references(), FoRSlots::REFERENCES => Primitive)
+        };
+        // The fused unpack reads a bit-packed child's buffers directly. Its chunks line up with
+        // the FoR chunks when the references are constant or the offsets match.
+        let fused = array.encoded().as_opt::<BitPacked>().is_some_and(|bp| {
+            array.constant_reference().is_some() || bp.offset() == array.offset()
+        });
+        let array = if fused {
+            array
+        } else {
+            require_child!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
+        };
         Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
     }
 }
@@ -177,6 +196,11 @@ impl FoR {
     /// Encode a primitive array using Frame of Reference encoding.
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         FoRData::encode(array, ctx)
+    }
+
+    /// Encode a primitive array with one Frame of Reference per 1024-element chunk.
+    pub fn encode_chunked(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
+        FoRData::encode_chunked(array, ctx)
     }
 }
 

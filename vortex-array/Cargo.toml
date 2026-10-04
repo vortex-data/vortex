@@ -227,6 +227,10 @@ name = "validity_is_valid"
 harness = false
 
 [[bench]]
+name = "scalar_fn_probe"
+harness = false
+
+[[bench]]
 name = "dict_unreferenced_mask"
 harness = false
 
@@ -308,4 +312,8 @@ harness = false
 
 [[bench]]
 name = "slice_dict_primitive"
+harness = false
+
+[[bench]]
+name = "probe"
 harness = false

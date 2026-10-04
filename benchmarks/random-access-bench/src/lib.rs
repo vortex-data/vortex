@@ -282,7 +282,7 @@ async fn open_accessor(
                 random_access::LanceRandomAccessor::open(path, name).await?,
             ))
         }
-        other => unimplemented!("open_accessor not implemented for {other}"),
+        other => anyhow::bail!("open_accessor not implemented for {other}"),
     }
 }
 

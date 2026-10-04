@@ -23,6 +23,9 @@ impl OperationsVTable<Struct> for Struct {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
         let nfields = array.iter_unmasked_fields().len();
         let mut field_values = Vec::with_capacity(nfields);
         for field in 0..nfields {
@@ -33,8 +36,8 @@ impl OperationsVTable<Struct> for Struct {
                 .execute_scalar(index, ctx)?;
             field_values.push(value.into_value());
         }
-        // SAFETY: The vtable guarantees index is in-bounds and non-null before this is called.
-        // Each field read returns a value with the field's own dtype.
+        // SAFETY: The index is in-bounds and the row was checked valid above. Each field read
+        // returns a value with the field's own dtype.
         Ok(unsafe {
             Scalar::new_unchecked(
                 array.dtype().clone(),
