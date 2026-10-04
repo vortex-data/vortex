@@ -3,19 +3,27 @@
 
 //! Entropy-coded bins for integers.
 
+use std::cell::RefCell;
+use std::collections::VecDeque;
+
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_entropy_bins::EntropyBins;
 use vortex_entropy_bins::EntropyBinsConfig;
+use vortex_entropy_bins::EntropyBinsPlan;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -23,6 +31,67 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::schemes::integer::RUN_LENGTH_THRESHOLD;
+
+/// Plans kept from recent estimates.
+const CACHED_PLANS: usize = 16;
+
+thread_local! {
+    /// Plans from recent estimates, so `compress` does not plan the array it was just estimated
+    /// on again. A stale hit only costs size: any plan encodes any array correctly.
+    static PLANS: RefCell<VecDeque<(PlanKey, EntropyBinsPlan)>> =
+        RefCell::new(VecDeque::with_capacity(CACHED_PLANS));
+}
+
+/// Identifies an array's values: their buffer, length, type and a few of the values.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PlanKey {
+    addr: usize,
+    len: usize,
+    ptype: PType,
+    fingerprint: [i128; 3],
+    config: EntropyBinsConfig,
+}
+
+fn plan_key(primitive: ArrayView<'_, Primitive>, config: &EntropyBinsConfig) -> PlanKey {
+    match_each_integer_ptype!(primitive.ptype(), |T| {
+        let values = primitive.as_slice::<T>();
+        let at = |i: usize| values.get(i).map_or(0, |&v| i128::from(v));
+        PlanKey {
+            addr: values.as_ptr().addr(),
+            len: values.len(),
+            ptype: primitive.ptype(),
+            fingerprint: [
+                at(0),
+                at(values.len() / 2),
+                at(values.len().saturating_sub(1)),
+            ],
+            config: *config,
+        }
+    })
+}
+
+/// [`EntropyBins::plan`], reusing the plan of a recent estimate on the same array.
+fn cached_plan(
+    primitive: ArrayView<'_, Primitive>,
+    config: &EntropyBinsConfig,
+) -> VortexResult<EntropyBinsPlan> {
+    let key = plan_key(primitive, config);
+    if let Some(plan) = PLANS.with_borrow(|plans| {
+        plans
+            .iter()
+            .find_map(|(k, plan)| (*k == key).then_some(*plan))
+    }) {
+        return Ok(plan);
+    }
+    let plan = EntropyBins::plan(primitive, config)?;
+    PLANS.with_borrow_mut(|plans| {
+        if plans.len() == CACHED_PLANS {
+            plans.pop_front();
+        }
+        plans.push_back((key, plan));
+    });
+    Ok(plan)
+}
 
 /// Typical cost of one run under RunEnd in half-bytes: a value plus a delta-coded end, ~12 bits.
 const HALF_BYTES_PER_RUN: usize = 3;
@@ -96,7 +165,7 @@ impl Scheme for EntropyBinsScheme {
             move |_compressor, data, best_so_far, _ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let raw = primitive.len() * primitive.ptype().byte_width();
-                let estimate = EntropyBins::plan(primitive.as_view(), &config)?.nbytes;
+                let estimate = cached_plan(primitive.as_view(), &config)?.nbytes;
                 // RunEnd's sampled estimate cuts runs at every 64-row sample edge, so on
                 // run-heavy data it looks worse than it is. Leave such arrays to RunEnd (whose
                 // children may still use this scheme) when the runs are clearly cheaper.
@@ -126,7 +195,7 @@ impl Scheme for EntropyBinsScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array_as_primitive();
-        let plan = EntropyBins::plan(primitive, &self.config)?;
+        let plan = cached_plan(primitive, &self.config)?;
         // Bins that do not fit the encoding's limits leave the array as it is.
         match EntropyBins::from_primitive(primitive, self.config.level, plan.options) {
             Ok(array) => Ok(array.into_array()),
