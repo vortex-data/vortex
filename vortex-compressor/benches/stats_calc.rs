@@ -4,11 +4,12 @@
 use mimalloc::MiMalloc;
 
 #[cfg(not(codspeed))]
-#[divan::bench_group(items_count = 64_000u32)]
+#[divan::bench_group]
 mod benchmarks {
     use std::sync::LazyLock;
 
     use divan::Bencher;
+    use divan::counter::BytesCount;
     use num_traits::AsPrimitive;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -22,7 +23,8 @@ mod benchmarks {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-    const LEN: usize = 64_000;
+    /// The uncompressed size of each benchmarked array, matching a writer chunk.
+    const BYTES: usize = 4 << 20;
 
     #[derive(Debug, Copy, Clone)]
     enum Distribution {
@@ -56,12 +58,12 @@ mod benchmarks {
         }
     }
 
-    fn generate_runs(max_run: u32, distinct: u32) -> Vec<u32> {
+    fn generate_runs(len: usize, max_run: u32, distinct: u32) -> Vec<u32> {
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
-        let mut output = Vec::with_capacity(LEN);
+        let mut output = Vec::with_capacity(len);
         let mut run = 0;
         let mut value = 0;
-        for _ in 0..LEN {
+        for _ in 0..len {
             if run == 0 {
                 value = rng.next() % distinct;
                 run = std::cmp::max(rng.next() % max_run, 1);
@@ -77,15 +79,16 @@ mod benchmarks {
         T: NativePType,
         u32: AsPrimitive<T>,
     {
+        let len = BYTES / size_of::<T>();
         let values: Vec<u32> = match distribution {
-            Distribution::Constant => vec![7; LEN],
-            Distribution::LowCardinality => (0..1024).cycle().take(LEN).collect(),
-            Distribution::ShortRuns => generate_runs(4, 1024),
-            Distribution::LongRuns => generate_runs(64, 1024),
-            Distribution::VeryLongRuns => generate_runs(512, 1024),
+            Distribution::Constant => vec![7; len],
+            Distribution::LowCardinality => (0..1024).cycle().take(len).collect(),
+            Distribution::ShortRuns => generate_runs(len, 4, 1024),
+            Distribution::LongRuns => generate_runs(len, 64, 1024),
+            Distribution::VeryLongRuns => generate_runs(len, 512, 1024),
             Distribution::WideRandom => {
                 let mut rng = Rng(0x2545_F491_4F6C_DD1D);
-                (0..LEN).map(|_| rng.next() % 1_000_000).collect()
+                (0..len).map(|_| rng.next() % 1_000_000).collect()
             }
         };
         values.into_iter().map(|v| v.as_()).collect()
@@ -104,7 +107,7 @@ mod benchmarks {
         let validity = if nullable {
             let mut rng = Rng(0xD1B5_4A32_D192_ED03);
             Validity::from(BitBuffer::from_iter(
-                (0..LEN).map(|_| !rng.next().is_multiple_of(10)),
+                (0..values.len()).map(|_| !rng.next().is_multiple_of(10)),
             ))
         } else {
             Validity::NonNullable
@@ -112,6 +115,7 @@ mod benchmarks {
         // A fresh array per iteration, so min/max cached on the array by a previous iteration is
         // not reused.
         bencher
+            .counter(BytesCount::new(BYTES))
             .with_inputs(|| {
                 (
                     PrimitiveArray::new(values.clone(), validity.clone()),

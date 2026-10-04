@@ -6,13 +6,14 @@
 use mimalloc::MiMalloc;
 
 #[cfg(not(codspeed))]
-#[divan::bench_group(items_count = 64_000u32)]
+#[divan::bench_group]
 mod benchmarks {
     use std::hash::Hash;
     use std::sync::LazyLock;
 
     use divan::Bencher;
     use divan::black_box;
+    use divan::counter::BytesCount;
     use num_traits::AsPrimitive;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -39,7 +40,13 @@ mod benchmarks {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-    const LEN: usize = 64_000;
+    /// The uncompressed size of each benchmarked array, matching a writer chunk.
+    const BYTES: usize = 4 << 20;
+
+    /// The number of `T` values in [`BYTES`].
+    fn len<T>() -> usize {
+        BYTES / size_of::<T>()
+    }
 
     /// Runs of up to 64 equal values drawn from 1024 distinct values, from a seeded xorshift.
     fn generate<T>() -> Buffer<T>
@@ -54,13 +61,14 @@ mod benchmarks {
             state ^= state << 17;
             (state >> 32) as u32
         };
-        let mut output = Vec::with_capacity(LEN);
-        while output.len() < LEN {
+        let len = len::<T>();
+        let mut output = Vec::with_capacity(len);
+        while output.len() < len {
             let value = next() % 1024;
             let run = (next() % 64).max(1) as usize;
             output.extend(std::iter::repeat_n(
                 value.as_(),
-                run.min(LEN - output.len()),
+                run.min(len - output.len()),
             ));
         }
         output.into_iter().collect()
@@ -76,11 +84,13 @@ mod benchmarks {
     {
         let values = generate::<T>();
         let mask = if nullable {
-            Mask::from_iter((0..LEN).map(|i| !(i * 2_654_435_761).is_multiple_of(10)))
+            Mask::from_iter((0..len::<T>()).map(|i| !(i * 2_654_435_761).is_multiple_of(10)))
         } else {
-            Mask::new_true(LEN)
+            Mask::new_true(len::<T>())
         };
-        bencher.bench(|| f(black_box(&values), black_box(&mask)));
+        bencher
+            .counter(BytesCount::new(BYTES))
+            .bench(|| f(black_box(&values), black_box(&mask)));
     }
 
     macro_rules! int_bench {
@@ -104,7 +114,7 @@ mod benchmarks {
     int_bench!(distinct_only, |v, m| accumulate(
         v,
         m,
-        Distinct::new(T::zero(), 1023u32.as_(), LEN)
+        Distinct::new(T::zero(), 1023u32.as_(), len::<T>())
     ));
 
     int_bench!(sum_only, |v, m| accumulate(v, m, Sum::new()));
@@ -134,7 +144,7 @@ mod benchmarks {
             MinMax::new(),
             RunCount::new(),
             Sorted::new(),
-            Distinct::new(T::zero(), 1023u32.as_(), LEN),
+            Distinct::new(T::zero(), 1023u32.as_(), len::<T>()),
         )
     ));
 
@@ -192,6 +202,7 @@ mod benchmarks {
     {
         let array = PrimitiveArray::new(generate::<T>(), Validity::NonNullable);
         bencher
+            .counter(BytesCount::new(BYTES))
             .with_inputs(|| SESSION.create_execution_ctx())
             .bench_refs(|ctx| {
                 vortex_fastlanes::bitpack_compress::bit_width_histogram(array.as_view(), ctx)
@@ -208,6 +219,7 @@ mod benchmarks {
     {
         let values = generate::<T>();
         bencher
+            .counter(BytesCount::new(BYTES))
             .with_inputs(|| {
                 (
                     PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array(),
