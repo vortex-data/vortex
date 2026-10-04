@@ -35,6 +35,7 @@ mod coder;
 mod compare;
 mod decode;
 mod gather;
+mod pack;
 mod rules;
 mod slice;
 #[cfg(target_arch = "x86_64")]
@@ -76,7 +77,8 @@ pub struct EntropyBinsChunk {
     /// Log2 of the sum of the bin weights.
     #[prost(uint32, tag = "2")]
     pub ans_log: u32,
-    /// Lower bound of each bin, as an order-preserving unsigned latent.
+    /// Lower bound of each bin, as an order-preserving unsigned latent. Serialized as the first
+    /// followed by the differences between consecutive lower bounds.
     #[prost(uint64, repeated, tag = "3")]
     pub lowers: Vec<u64>,
     /// Offset bit width of each bin.

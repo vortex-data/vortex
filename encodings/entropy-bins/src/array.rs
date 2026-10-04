@@ -66,6 +66,8 @@ use crate::decode::OutInt;
 use crate::decode::decode_ids;
 use crate::decode::merge_block;
 use crate::decode::parse_block;
+use crate::pack;
+use crate::pack::pack;
 
 const SIGN: u64 = 1 << 63;
 
@@ -99,12 +101,13 @@ impl<T: TypedArrayRef<EntropyBins>> EntropyBinsArrayExt for T {}
 #[derive(Clone, Debug)]
 pub struct EntropyBinsData {
     pub(crate) metadata: EntropyBinsMetadata,
-    /// Byte length of every block in `data` (u16 little-endian).
+    /// Byte length of every block in `data`, packed (see [`crate::pack`]).
     pub(crate) block_lengths: ByteBuffer,
     /// Block segments followed by [`TAIL_PADDING`] zero bytes.
     pub(crate) data: ByteBuffer,
-    /// With `lag > 0`, each block's first `lag` values as `ptype` bytes (little-endian, zero for
-    /// rows past the end); else empty.
+    /// With `lag > 0` and rows to code, each block's first `lag` values (zero for rows past the
+    /// end): the first block's as little-endian `u64`s, then every later seed's zigzag difference
+    /// from the seed `lag` before it, packed (see [`crate::pack`]). Otherwise empty.
     pub(crate) seeds: ByteBuffer,
     ptype: PType,
     unsliced_n_rows: usize,
@@ -115,6 +118,8 @@ pub struct EntropyBinsData {
     /// Byte offset of every block in `data` plus the end of the last, from `block_lengths`;
     /// built on first use and shared by slices and clones.
     starts: Arc<OnceLock<Vec<u32>>>,
+    /// Every block's seeds, sign- or zero-extended, built on first use from `seeds`.
+    seed_values: Arc<OnceLock<Vec<u64>>>,
 }
 
 fn empty_decoders(n_chunks: usize) -> Arc<[OnceLock<ChunkDecoder>]> {
@@ -216,6 +221,7 @@ impl VTable for EntropyBins {
         let mut data = array.data().clone();
         data.block_lengths = buffers[0].clone().try_to_host_sync()?;
         data.starts = Arc::default();
+        data.seed_values = Arc::default();
         data.data = buffers[1].clone().try_to_host_sync()?;
         data.seeds = buffers[2].clone().try_to_host_sync()?;
         Ok(
@@ -228,7 +234,14 @@ impl VTable for EntropyBins {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(array.metadata.encode_to_vec()))
+        let mut metadata = array.metadata.clone();
+        for chunk in &mut metadata.chunks {
+            // Ascending lowers serialize as their first and the gaps between them.
+            for i in (1..chunk.lowers.len()).rev() {
+                chunk.lowers[i] = chunk.lowers[i].wrapping_sub(chunk.lowers[i - 1]);
+            }
+        }
+        Ok(Some(metadata.encode_to_vec()))
     }
 
     fn deserialize(
@@ -240,7 +253,12 @@ impl VTable for EntropyBins {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = EntropyBinsMetadata::decode(metadata)?;
+        let mut metadata = EntropyBinsMetadata::decode(metadata)?;
+        for chunk in &mut metadata.chunks {
+            for i in 1..chunk.lowers.len() {
+                chunk.lowers[i] = chunk.lowers[i].wrapping_add(chunk.lowers[i - 1]);
+            }
+        }
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
@@ -261,6 +279,7 @@ impl VTable for EntropyBins {
             metadata,
             block_lengths: buffers[0].clone().try_to_host_sync()?,
             starts: Arc::default(),
+            seed_values: Arc::default(),
             data: buffers[1].clone().try_to_host_sync()?,
             seeds: buffers[2].clone().try_to_host_sync()?,
             ptype: dtype.as_ptype(),
@@ -584,6 +603,46 @@ impl Transform {
 }
 
 /// Integers sign- or zero-extended to 64 bits.
+/// Serialize per-block seeds (`lag` per block) as described on [`EntropyBinsData::seeds`].
+fn pack_seeds(seeds: &[u64], lag: usize) -> Vec<u8> {
+    if lag == 0 || seeds.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<u8> = seeds[..lag].iter().flat_map(|s| s.to_le_bytes()).collect();
+    let diffs: Vec<u64> = seeds
+        .windows(lag + 1)
+        .map(|w| {
+            // Reinterpreting the wrapping difference as signed makes small steps small.
+            #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+            let d = w[lag].wrapping_sub(w[0]) as i64;
+            #[allow(clippy::cast_sign_loss)]
+            let zigzag = ((d << 1) ^ (d >> 63)) as u64;
+            zigzag
+        })
+        .collect();
+    out.extend(pack(&diffs));
+    out
+}
+
+/// The inverse of [`pack_seeds`] for seeds that passed validation.
+fn unpack_seeds(bytes: &[u8], lag: usize, n_blocks: usize) -> Vec<u64> {
+    let mut seeds: Vec<u64> = bytes[..8 * lag]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|&b| u64::from_le_bytes(b))
+        .collect();
+    seeds.reserve((n_blocks - 1) * lag);
+    for (i, zigzag) in pack::unpack(&bytes[8 * lag..], (n_blocks - 1) * lag)
+        .into_iter()
+        .enumerate()
+    {
+        let d = (zigzag >> 1) ^ (zigzag & 1).wrapping_neg();
+        seeds.push(seeds[i].wrapping_add(d));
+    }
+    seeds
+}
+
 pub(crate) trait Wide: NativePType {
     fn wide(self) -> u64;
 }
@@ -618,7 +677,6 @@ impl EntropyBinsData {
         let transform = Transform::new(ptype.is_signed_int(), lag)?;
         let mut latents = Vec::with_capacity(parray.len());
         let mut seeds = Vec::new();
-        let width = ptype.byte_width();
         // Widen one block at a time into a reused buffer rather than the whole array.
         let mut block = Vec::with_capacity(block_values);
         match_each_integer_ptype!(ptype, |T| {
@@ -626,10 +684,7 @@ impl EntropyBinsData {
                 block.clear();
                 block.extend(values.iter().map(|&v| v.wide()));
                 transform.extend_latents(&block, &mut latents);
-                for i in 0..lag {
-                    let v = block.get(i).copied().unwrap_or(0);
-                    seeds.extend_from_slice(&v.to_le_bytes()[..width]);
-                }
+                seeds.extend((0..lag).map(|i| block.get(i).copied().unwrap_or(0)));
             }
         });
         let n = latents.len();
@@ -640,14 +695,14 @@ impl EntropyBinsData {
             word_bits,
         };
         let mut data = Vec::new();
-        let mut lengths: Vec<u8> = Vec::with_capacity(2 * n.div_ceil(block_values));
+        let mut lengths = Vec::with_capacity(n.div_ceil(block_values));
         for chunk_latents in latents.chunks(CHUNK_VALUES) {
             let chunk = train_bins(chunk_latents, level)?;
             let table = IdTable::new(&chunk, word_bits)?;
             for block in chunk_latents.chunks(block_values) {
                 let start = data.len();
                 encode_block(&chunk, table.as_ref(), block, &mut data)?;
-                lengths.extend_from_slice(&u16::try_from(data.len() - start)?.to_le_bytes());
+                lengths.push(u64::try_from(data.len() - start)?);
             }
             metadata.chunks.push(chunk);
         }
@@ -657,10 +712,11 @@ impl EntropyBinsData {
         Ok(Self {
             decoders: empty_decoders(metadata.chunks.len()),
             metadata,
-            block_lengths: ByteBuffer::from(lengths),
+            block_lengths: ByteBuffer::from(pack(&lengths)),
             starts: Arc::default(),
+            seed_values: Arc::default(),
             data: ByteBuffer::from(data),
-            seeds: ByteBuffer::from(seeds),
+            seeds: ByteBuffer::from(pack_seeds(&seeds, lag)),
             ptype,
             unsliced_n_rows: n,
             slice_start: 0,
@@ -729,29 +785,27 @@ impl EntropyBinsData {
             "refill words must be 8 or 16 bits, got {}",
             self.metadata.word_bits
         );
-        let n_blocks = self.unsliced_n_rows.div_ceil(self.block_values());
-        vortex_ensure!(
-            self.block_lengths.len() == 2 * n_blocks,
-            "expected {n_blocks} block lengths"
-        );
+        let n_blocks = self.n_blocks();
+        pack::check(&self.block_lengths, n_blocks)?;
         vortex_ensure!(
             self.lag() <= MAX_LAG,
             "lag {} exceeds {MAX_LAG}",
             self.metadata.lag
         );
-        let expected_seeds = n_blocks * self.lag() * self.ptype.byte_width();
-        vortex_ensure!(
-            self.seeds.len() == expected_seeds,
-            "expected {expected_seeds} seed bytes, got {}",
-            self.seeds.len()
-        );
-        let end: u64 = self
-            .block_lengths
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&l| u64::from(u16::from_le_bytes(l)))
-            .sum();
+        let lag = self.lag();
+        if lag == 0 || n_blocks == 0 {
+            vortex_ensure!(self.seeds.is_empty(), "unexpected seeds");
+        } else {
+            vortex_ensure!(
+                self.seeds.len() >= 8 * lag,
+                "missing the first block's seeds"
+            );
+            pack::check(&self.seeds[8 * lag..], (n_blocks - 1) * lag)?;
+        }
+        let end = pack::unpack(&self.block_lengths, n_blocks)
+            .into_iter()
+            .try_fold(0u64, u64::checked_add)
+            .ok_or_else(|| vortex_err!("block lengths overflow"))?;
         vortex_ensure!(
             end + TAIL_PADDING as u64 <= self.data.len() as u64,
             "data buffer lacks its tail padding"
@@ -763,16 +817,22 @@ impl EntropyBinsData {
     pub(crate) fn block_start(&self, b: usize) -> usize {
         let starts = self.starts.get_or_init(|| {
             let mut at = 0u32;
-            let mut starts = Vec::with_capacity(self.block_lengths.len() / 2 + 1);
+            let mut starts = Vec::with_capacity(self.n_blocks() + 1);
             starts.push(0);
-            for &l in self.block_lengths.as_chunks::<2>().0 {
+            for l in pack::unpack(&self.block_lengths, self.n_blocks()) {
                 // `validate` checked that the lengths sum to at most `u32::MAX`.
-                at += u32::from(u16::from_le_bytes(l));
+                #[allow(clippy::cast_possible_truncation)]
+                let l = l as u32;
+                at += l;
                 starts.push(at);
             }
             starts
         });
         starts[b] as usize
+    }
+
+    fn n_blocks(&self) -> usize {
+        self.unsliced_n_rows.div_ceil(self.block_values())
     }
 
     pub(crate) fn block_values(&self) -> usize {
@@ -803,17 +863,16 @@ impl EntropyBinsData {
         }
     }
 
-    /// The seeds of block `b`: its first `lag` values, zero-extended (only their low `ptype`
-    /// bits matter).
+    /// The seeds of block `b`: its first `lag` values, sign- or zero-extended (only their low
+    /// `ptype` bits matter).
     pub(crate) fn seeds_of(&self, b: usize) -> ([u64; MAX_LAG], usize) {
         let lag = self.lag();
-        let width = self.ptype.byte_width();
         let mut seeds = [0u64; MAX_LAG];
-        let at = b * lag * width;
-        for (i, seed) in seeds[..lag].iter_mut().enumerate() {
-            let mut bytes = [0u8; 8];
-            bytes[..width].copy_from_slice(&self.seeds[at + i * width..at + (i + 1) * width]);
-            *seed = u64::from_le_bytes(bytes);
+        if lag > 0 {
+            let values = self
+                .seed_values
+                .get_or_init(|| unpack_seeds(&self.seeds, lag, self.n_blocks()));
+            seeds[..lag].copy_from_slice(&values[b * lag..(b + 1) * lag]);
         }
         (seeds, lag)
     }

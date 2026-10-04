@@ -5,15 +5,20 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use rstest::rstest;
+use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::NativePType;
+use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerializedArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_session::registry::ReadContext;
 
 use crate::BLOCK_VALUES;
 use crate::EntropyBins;
@@ -179,6 +184,52 @@ fn wide_outlier_bins(#[case] lag: usize) -> VortexResult<()> {
         })
         .collect();
     roundtrip_with(narrow, EntropyBinsOptions::new(lag, BLOCK_VALUES))
+}
+
+fn serde_roundtrip_with<T: NativePType>(values: Vec<T>, nullable: bool) -> VortexResult<()> {
+    let session = array_session();
+    crate::initialize(&session);
+    let validity = if nullable {
+        Validity::from_iter((0..values.len()).map(|i| i % 5 != 2))
+    } else {
+        Validity::NonNullable
+    };
+    let array = PrimitiveArray::new(Buffer::from(values), validity);
+    for lag in [0, 1, 3] {
+        let encoded = EntropyBins::from_primitive(
+            array.as_view(),
+            8,
+            EntropyBinsOptions::new(lag, BLOCK_VALUES),
+        )?
+        .into_array();
+        let ctx = ArrayContext::empty();
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in encoded.serialize(&ctx, &session, &SerializeOptions::default())? {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+            encoded.dtype(),
+            encoded.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        assert_arrays_eq!(
+            decoded,
+            array.clone().into_array(),
+            &mut session.create_execution_ctx()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn serde_roundtrip() -> VortexResult<()> {
+    let values = skewed(300_000, 3);
+    serde_roundtrip_with(values.clone(), false)?;
+    serde_roundtrip_with(values.iter().map(|&v| v as u64).collect::<Vec<_>>(), true)?;
+    serde_roundtrip_with(values.iter().map(|&v| v as i16).collect::<Vec<_>>(), true)?;
+    serde_roundtrip_with(vec![u8::MAX; 10], false)?;
+    serde_roundtrip_with(Vec::<i32>::new(), false)
 }
 
 /// Interleaved series (`x`, `y`, `z` per row group) are smallest with the matching lag.
