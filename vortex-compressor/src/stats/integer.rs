@@ -24,6 +24,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
 use super::accumulator::Distinct;
+use super::accumulator::Fused;
 use super::accumulator::MinMax;
 use super::accumulator::RunCount;
 use super::accumulator::accumulate;
@@ -415,8 +416,9 @@ where
             ((min, max), runs, Some(distinct))
         }
         (None, false) => {
-            let (bounds, runs) = accumulate(values, &validity, (MinMax::new(), RunCount::new()))
-                .vortex_expect(expect_valid);
+            let (bounds, runs) =
+                accumulate(values, &validity, Fused((MinMax::new(), RunCount::new())))
+                    .vortex_expect(expect_valid);
             (bounds, runs, None)
         }
         (None, true) => match Distinct::for_full_domain(len) {

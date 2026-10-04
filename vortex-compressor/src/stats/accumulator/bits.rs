@@ -154,16 +154,16 @@ const HISTOGRAMS: usize = 4;
 
 /// The number of valid values that need each bit width, from `0` to the type's width.
 ///
-/// For 8-bit and 16-bit values, a chunk counts the values below each power of two with vectorized
-/// compares, which gives the cumulative histogram: the number of values of at most `w` bits is the
-/// number below `2^w`. Wider types would need too many compares per value, so they increment one
-/// counter per value.
+/// For 8-bit values, a chunk counts the values below each power of two with vectorized compares,
+/// which gives the cumulative histogram: the number of values of at most `w` bits is the number
+/// below `2^w`. Wider types need too many compares per value, measured slower from 16 bits, so
+/// they increment one counter per value.
 #[derive(Debug, Clone)]
 pub struct BitWidthHistogram<T> {
     /// Interleaved histograms, indexed by bit width.
     counts: [[u32; 65]; HISTOGRAMS],
-    /// For 8-bit and 16-bit values, `below[w]` counts the chunk values below `2^w`.
-    below: [u32; 16],
+    /// For 8-bit values, `below[w]` counts the chunk values below `2^w`.
+    below: [u32; 8],
     /// The number of values counted in `below`.
     below_total: u32,
     /// The histogrammed type.
@@ -175,7 +175,7 @@ impl<T> BitWidthHistogram<T> {
     pub fn new() -> Self {
         Self {
             counts: [[0; 65]; HISTOGRAMS],
-            below: [0; 16],
+            below: [0; 8],
             below_total: 0,
             _type: std::marker::PhantomData,
         }
@@ -198,8 +198,8 @@ fn bit_width<T: PrimInt + AsPrimitive<u64>>(value: T) -> usize {
 
 /// Adds to `below[w]` the number of `bits` below `2^w`, for each `w` below `B`.
 #[inline(always)]
-fn count_below<U: PrimInt, const B: usize>(below: &mut [u32; 16], bits: &[U; CHUNK]) {
-    for (w, count) in below.iter_mut().enumerate().take(B) {
+fn count_below<U: PrimInt, const B: usize>(below: &mut [u32; B], bits: &[U; CHUNK]) {
+    for (w, count) in below.iter_mut().enumerate() {
         let threshold = U::one() << w;
         // At most 64, so a `u8` sum keeps full-width byte lanes.
         let n: u8 = bits.iter().map(|&b| u8::from(b < threshold)).sum();
@@ -220,11 +220,6 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
             1 => {
                 let bits: [u8; CHUNK] = std::array::from_fn(|i| values[i].as_());
                 count_below::<u8, 8>(&mut self.below, &bits);
-                self.below_total += CHUNK_U32;
-            }
-            2 => {
-                let bits: [u16; CHUNK] = std::array::from_fn(|i| values[i].as_());
-                count_below::<u16, 16>(&mut self.below, &bits);
                 self.below_total += CHUNK_U32;
             }
             _ => {

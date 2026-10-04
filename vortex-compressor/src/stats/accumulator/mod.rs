@@ -116,16 +116,15 @@ impl_int_value!(
 
 /// The capacity of a lane array. Lane-wise reductions keep one partial result per lane across
 /// chunks, so that they stay in vector registers with a single horizontal reduction at the end.
-const LANES: usize = 32;
-
-/// The bytes of lanes each lane array uses: two 128-bit registers, enough independent lanes to
-/// hide the latency of a reduction while leaving registers for several reductions fused in one
-/// loop.
-const LANE_BYTES: usize = 32;
+const LANES: usize = CHUNK;
 
 /// Folds `values` into the lanes `a` and `b` with `fa` and `fb`, in one loop.
 ///
-/// Each array uses [`LANE_BYTES`] of lanes, so narrow types use more lanes. `size_of` is a
+/// The lane count depends on the accumulator width, and was chosen by measurement. Narrow lanes
+/// use two or four 128-bit registers per array, leaving registers for a few reductions fused in
+/// one loop. 16-bit lanes use a whole chunk: with several groups of 16-bit lanes, the vectorizer
+/// packs across the groups and loads lane by lane. Without 64-bit vector compares in the baseline
+/// instruction set, wide lanes spill out of registers, so they use only a few. `size_of` is a
 /// constant, so the dispatch folds.
 #[inline(always)]
 fn fold_lanes2<A: Copy, B: Copy, T: Copy>(
@@ -135,11 +134,11 @@ fn fold_lanes2<A: Copy, B: Copy, T: Copy>(
     fa: impl Fn(A, T) -> A,
     fb: impl Fn(B, T) -> B,
 ) {
-    match LANE_BYTES / size_of::<A>().max(size_of::<B>()) {
-        32.. => fold_first_lanes::<A, B, T, 32>(a, b, values, fa, fb),
-        16.. => fold_first_lanes::<A, B, T, 16>(a, b, values, fa, fb),
-        8.. => fold_first_lanes::<A, B, T, 8>(a, b, values, fa, fb),
-        4.. => fold_first_lanes::<A, B, T, 4>(a, b, values, fa, fb),
+    match size_of::<A>().max(size_of::<B>()) {
+        1 => fold_first_lanes::<A, B, T, 32>(a, b, values, fa, fb),
+        2 => fold_first_lanes::<A, B, T, CHUNK>(a, b, values, fa, fb),
+        4 => fold_first_lanes::<A, B, T, 16>(a, b, values, fa, fb),
+        8 => fold_first_lanes::<A, B, T, 4>(a, b, values, fa, fb),
         _ => fold_first_lanes::<A, B, T, 2>(a, b, values, fa, fb),
     }
 }

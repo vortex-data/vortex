@@ -172,6 +172,12 @@ fn full_domain_distinct_needs_no_bounds() {
 }
 
 #[rstest]
+#[case::u8_max(vec![u8::MAX; 50_000], 255 * 50_000)]
+#[case::i8_min(vec![i8::MIN; 50_000], -128 * 50_000)]
+#[case::i8_max(vec![i8::MAX; 50_000], 127 * 50_000)]
+#[case::u16_max(vec![u16::MAX; 50_000], 65_535 * 50_000)]
+#[case::i16_min(vec![i16::MIN; 50_000], -32_768 * 50_000)]
+#[case::u32_max(vec![u32::MAX; 50_000], (u32::MAX as i128) * 50_000)]
 #[case::u64_max(vec![u64::MAX; 1000], (u64::MAX as i128) * 1000)]
 #[case::i64_min(vec![i64::MIN; 1000], (i64::MIN as i128) * 1000)]
 #[case::i64_mixed((0..1000).map(|i| if i % 2 == 0 { i64::MAX } else { -3 }).collect(), (i64::MAX as i128) * 500 - 1500)]

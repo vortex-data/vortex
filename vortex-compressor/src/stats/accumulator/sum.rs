@@ -28,8 +28,10 @@ use super::push_set_bits;
 pub struct Sum<T> {
     /// The sum of the flushed lanes and pushed values.
     total: i128,
-    /// Lanes for values of at most 16 bits. A block has 8 lanes of at most 512 16-bit values, so a
-    /// lane stays below `2^25`.
+    /// Wrapping lanes for 8-bit values. A block puts at most 128 values in each lane, whose sum
+    /// fits in 16 bits whether read as signed or unsigned.
+    byte: [u16; LANES],
+    /// Lanes for 16-bit values. A block puts at most 256 values in each lane, below `2^24`.
     narrow: [i32; LANES],
     /// Lanes for 32-bit values, or the low halves of 64-bit values.
     low: [i64; LANES],
@@ -44,6 +46,7 @@ impl<T> Sum<T> {
     pub fn new() -> Self {
         Self {
             total: 0,
+            byte: [0; LANES],
             narrow: [0; LANES],
             low: [0; LANES],
             high: [0; LANES],
@@ -67,7 +70,11 @@ impl<T: IntValue> IntAccumulator<T> for Sum<T> {
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
         match size_of::<T>() {
-            ..=2 => fold_lanes(&mut self.narrow, values, |acc, v| {
+            1 => fold_lanes(&mut self.byte, values, |acc, v| {
+                // Truncating the sign-extended value adds it modulo `2^16`.
+                acc.wrapping_add(AsPrimitive::<u16>::as_(AsPrimitive::<i32>::as_(v)))
+            }),
+            2 => fold_lanes(&mut self.narrow, values, |acc, v| {
                 acc + AsPrimitive::<i32>::as_(v)
             }),
             4 => fold_lanes(&mut self.low, values, |acc, v| {
@@ -108,10 +115,23 @@ impl<T: IntValue> IntAccumulator<T> for Sum<T> {
 
     #[inline(always)]
     fn end_block(&mut self) {
-        let narrow: i64 = self.narrow.iter().map(|&lane| i64::from(lane)).sum();
+        let signed = T::min_value() < T::zero();
+        let byte: i64 = self
+            .byte
+            .iter()
+            .map(|&lane| {
+                if signed {
+                    i64::from(lane.cast_signed())
+                } else {
+                    i64::from(lane)
+                }
+            })
+            .sum();
+        let narrow: i64 = byte + self.narrow.iter().map(|&lane| i64::from(lane)).sum::<i64>();
         let low: i128 = self.low.iter().map(|&lane| i128::from(lane)).sum();
         let high: i128 = self.high.iter().map(|&lane| i128::from(lane)).sum();
         self.total += i128::from(narrow) + low + (high << 32);
+        self.byte = [0; LANES];
         self.narrow = [0; LANES];
         self.low = [0; LANES];
         self.high = [0; LANES];
