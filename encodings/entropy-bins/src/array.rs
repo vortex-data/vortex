@@ -99,8 +99,8 @@ impl<T: TypedArrayRef<EntropyBins>> EntropyBinsArrayExt for T {}
 #[derive(Clone, Debug)]
 pub struct EntropyBinsData {
     pub(crate) metadata: EntropyBinsMetadata,
-    /// Byte offset of every block in `data`, plus the end of the last block (u32 little-endian).
-    pub(crate) block_starts: ByteBuffer,
+    /// Byte length of every block in `data` (u16 little-endian).
+    pub(crate) block_lengths: ByteBuffer,
     /// Block segments followed by [`TAIL_PADDING`] zero bytes.
     pub(crate) data: ByteBuffer,
     /// With `lag > 0`, each block's first `lag` values as `ptype` bytes (little-endian, zero for
@@ -112,6 +112,9 @@ pub struct EntropyBinsData {
     slice_stop: usize,
     /// Decode tables per chunk, built on first use and shared by slices and clones.
     decoders: Arc<[OnceLock<ChunkDecoder>]>,
+    /// Byte offset of every block in `data` plus the end of the last, from `block_lengths`;
+    /// built on first use and shared by slices and clones.
+    starts: Arc<OnceLock<Vec<u32>>>,
 }
 
 fn empty_decoders(n_chunks: usize) -> Arc<[OnceLock<ChunkDecoder>]> {
@@ -134,7 +137,7 @@ impl ArrayHash for EntropyBinsData {
         self.slice_start.hash(state);
         self.slice_stop.hash(state);
         self.metadata.encode_to_vec().hash(state);
-        self.block_starts.array_hash(state, accuracy);
+        self.block_lengths.array_hash(state, accuracy);
         self.data.array_hash(state, accuracy);
         self.seeds.array_hash(state, accuracy);
     }
@@ -146,7 +149,7 @@ impl ArrayEq for EntropyBinsData {
             && self.slice_start == other.slice_start
             && self.slice_stop == other.slice_stop
             && self.metadata == other.metadata
-            && self.block_starts.array_eq(&other.block_starts, accuracy)
+            && self.block_lengths.array_eq(&other.block_lengths, accuracy)
             && self.data.array_eq(&other.data, accuracy)
             && self.seeds.array_eq(&other.seeds, accuracy)
     }
@@ -183,7 +186,7 @@ impl VTable for EntropyBins {
 
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         BufferHandle::new_host(match idx {
-            0 => array.block_starts.clone(),
+            0 => array.block_lengths.clone(),
             1 => array.data.clone(),
             _ => array.seeds.clone(),
         })
@@ -192,7 +195,7 @@ impl VTable for EntropyBins {
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         Some(
             match idx {
-                0 => "block_starts",
+                0 => "block_lengths",
                 1 => "data",
                 _ => "seeds",
             }
@@ -211,7 +214,8 @@ impl VTable for EntropyBins {
             buffers.len()
         );
         let mut data = array.data().clone();
-        data.block_starts = buffers[0].clone().try_to_host_sync()?;
+        data.block_lengths = buffers[0].clone().try_to_host_sync()?;
+        data.starts = Arc::default();
         data.data = buffers[1].clone().try_to_host_sync()?;
         data.seeds = buffers[2].clone().try_to_host_sync()?;
         Ok(
@@ -255,7 +259,8 @@ impl VTable for EntropyBins {
         let data = EntropyBinsData {
             decoders: empty_decoders(metadata.chunks.len()),
             metadata,
-            block_starts: buffers[0].clone().try_to_host_sync()?,
+            block_lengths: buffers[0].clone().try_to_host_sync()?,
+            starts: Arc::default(),
             data: buffers[1].clone().try_to_host_sync()?,
             seeds: buffers[2].clone().try_to_host_sync()?,
             ptype: dtype.as_ptype(),
@@ -472,7 +477,7 @@ pub struct EntropyBinsPlan {
 
 /// Measured fixed cost of a coded block with 16-bit refill words: header, lane states, the stop
 /// field, part-filled lane words and the block's offset.
-const PER_BLOCK_BYTES: usize = 40;
+const PER_BLOCK_BYTES: usize = 37;
 
 /// Measured bytes per block that 8-bit refill words save over 16-bit ones.
 const NARROW_WORD_SAVING_BYTES: usize = 8;
@@ -616,23 +621,25 @@ impl EntropyBinsData {
             word_bits,
         };
         let mut data = Vec::new();
-        let mut starts: Vec<u32> = Vec::with_capacity(n.div_ceil(block_values) + 1);
+        let mut lengths: Vec<u8> = Vec::with_capacity(2 * n.div_ceil(block_values));
         for chunk_latents in latents.chunks(CHUNK_VALUES) {
             let chunk = train_bins(chunk_latents, level)?;
             let table = IdTable::new(&chunk, word_bits)?;
             for block in chunk_latents.chunks(block_values) {
-                starts.push(u32::try_from(data.len())?);
+                let start = data.len();
                 encode_block(&chunk, table.as_ref(), block, &mut data)?;
+                lengths.extend_from_slice(&u16::try_from(data.len() - start)?.to_le_bytes());
             }
             metadata.chunks.push(chunk);
         }
-        starts.push(u32::try_from(data.len())?);
+        u32::try_from(data.len())?;
         data.resize(data.len() + TAIL_PADDING, 0);
-        let block_starts: Vec<u8> = starts.iter().flat_map(|s| s.to_le_bytes()).collect();
+        data.shrink_to_fit();
         Ok(Self {
             decoders: empty_decoders(metadata.chunks.len()),
             metadata,
-            block_starts: ByteBuffer::from(block_starts),
+            block_lengths: ByteBuffer::from(lengths),
+            starts: Arc::default(),
             data: ByteBuffer::from(data),
             seeds: ByteBuffer::from(seeds),
             ptype,
@@ -705,9 +712,8 @@ impl EntropyBinsData {
         );
         let n_blocks = self.unsliced_n_rows.div_ceil(self.block_values());
         vortex_ensure!(
-            self.block_starts.len() == 4 * (n_blocks + 1),
-            "expected {} block offsets",
-            n_blocks + 1
+            self.block_lengths.len() == 2 * n_blocks,
+            "expected {n_blocks} block lengths"
         );
         vortex_ensure!(
             self.lag() <= MAX_LAG,
@@ -720,17 +726,34 @@ impl EntropyBinsData {
             "expected {expected_seeds} seed bytes, got {}",
             self.seeds.len()
         );
-        let end = self.block_start(n_blocks);
+        let end: u64 = self
+            .block_lengths
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&l| u64::from(u16::from_le_bytes(l)))
+            .sum();
         vortex_ensure!(
-            end + TAIL_PADDING <= self.data.len(),
+            end + TAIL_PADDING as u64 <= self.data.len() as u64,
             "data buffer lacks its tail padding"
         );
+        vortex_ensure!(u32::try_from(end).is_ok(), "blocks span more than 4 GiB");
         Ok(())
     }
 
     pub(crate) fn block_start(&self, b: usize) -> usize {
-        let s = &self.block_starts[4 * b..4 * b + 4];
-        u32::from_le_bytes([s[0], s[1], s[2], s[3]]) as usize
+        let starts = self.starts.get_or_init(|| {
+            let mut at = 0u32;
+            let mut starts = Vec::with_capacity(self.block_lengths.len() / 2 + 1);
+            starts.push(0);
+            for &l in self.block_lengths.as_chunks::<2>().0 {
+                // `validate` checked that the lengths sum to at most `u32::MAX`.
+                at += u32::from(u16::from_le_bytes(l));
+                starts.push(at);
+            }
+            starts
+        });
+        starts[b] as usize
     }
 
     pub(crate) fn block_values(&self) -> usize {

@@ -6,10 +6,10 @@
 //! Block segment layout, all little-endian:
 //!
 //! ```text
-//! flags: u8          bit 0 = uniform (every id is one bin), bit 1 = stop field present
-//! uniform:           bin id: u8
-//! otherwise:         word count: u16, lane states: 16 x S bits, stop field: 16 x 3 bits (if
-//!                    present), id words: W bits x word count
+//! uniform:           flags: u8 (bit 0 set: every id is one bin), bin id: u8
+//! otherwise:         u16 header: bit 0 clear, bit 1 = stop field present, word count above;
+//!                    lane states: 16 x S bits, stop field: 16 x 3 bits (if present),
+//!                    id words: W bits x word count
 //! offsets:           each value's offset, LSB first, at its bin's width
 //! ```
 //!
@@ -50,8 +50,10 @@ pub const MAX_LAG: usize = 8;
 const MAX_S: u32 = 7;
 /// How many rounds before the end a lane may stop refilling (3 bits per lane).
 const STOP_WINDOW: usize = 7;
-/// Zero bytes after the last block so vector loads may read past it.
-pub(crate) const TAIL_PADDING: usize = 256;
+/// Zero bytes after the last block so vector loads may read past it. The id kernel reads at most
+/// one unneeded word per lane past a block's words (32 bytes of 16-bit words) plus a 32-byte load,
+/// and the merges load a 64-byte window starting no later than the end of the offsets.
+pub(crate) const TAIL_PADDING: usize = 64;
 
 pub(crate) const FLAG_UNIFORM: u8 = 1;
 pub(crate) const FLAG_STOP: u8 = 2;
@@ -469,8 +471,9 @@ fn encode_ids(t: &IdTable, ids: &[u8], out: &mut Vec<u8>) -> VortexResult<()> {
         without
     };
 
-    out.push(if has_stop { FLAG_STOP } else { 0 });
-    out.extend_from_slice(&u16::try_from(words.len())?.to_le_bytes());
+    let flags = if has_stop { FLAG_STOP } else { 0 };
+    let header = u16::try_from(words.len() << 2)? | u16::from(flags);
+    out.extend_from_slice(&header.to_le_bytes());
     let mut sw = BitWriter::new();
     for &st in &states {
         sw.put(u64::from(st), t.s);

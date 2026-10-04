@@ -73,12 +73,11 @@ pub(crate) fn parse_block<'a>(
     let Some(t) = table else {
         vortex_bail!("coded block in a single-bin chunk");
     };
-    let mut p = start + 1;
-    let Some(nw) = data.get(p..p + 2) else {
+    let Some(header) = data.get(start..start + 2) else {
         vortex_bail!("truncated block header");
     };
-    let n_words = usize::from(u16::from_le_bytes([nw[0], nw[1]]));
-    p += 2;
+    let n_words = usize::from(u16::from_le_bytes([header[0], header[1]]) >> 2);
+    let mut p = start + 2;
     let state_bytes = (LANES * t.s as usize).div_ceil(8);
     let mut states = [0u8; LANES];
     for (lane, st) in states.iter_mut().enumerate() {
