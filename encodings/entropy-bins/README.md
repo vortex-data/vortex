@@ -61,6 +61,7 @@ Rejected or not yet worth it:
 | Same-lane context, per-block tables, entropy-coded top offset bits | Upper bounds 0.4–1.3% each, before the cost of the extra tables. |
 | Per-block bin-id ranges for pruning | 2 B/block; prunes about as well as existing 8K zone maps. |
 | Mid-block checkpoints | A restart needs each lane's buffered bits as well as its state, so it costs about a block boundary. |
+| Per-block or per-group layout choices | Measured on 1 MB arrays at their planned layout (64-bit / narrow): lag 0 or 1 per block −0.26% / −0.53%; adding a per-block base −0.27% / −0.49%; 2 or 4 weight tables per chunk with a block selector −0.16% / −0.87% and −0.22% / −0.93%; per-bin offset trimming −0.07% / −0.14%; per-block trimming 0%. Offsets are 79% / 53% of the bytes and the chunk's bins already fit them, so per-block choices mostly move the ids, and switching tables per block would break the four-block lockstep id decode. |
 | Trial-encoding the two best lags | Fixes the estimator's lag misses on 3 narrow columns (+1.54% → +0.23% vs an exhaustive search) but those columns go to RunEnd in the cascade; +16–33% compression time for no cascade gain. |
 
 Gaps that belong to parent encodings, not this leaf: pco alone is smaller on 35 of 50 64-bit
