@@ -108,7 +108,10 @@ impl CompressorContext {
     }
 
     /// Returns a context marked as sample compression.
-    pub(crate) fn with_sampling(mut self) -> Self {
+    ///
+    /// Custom estimators that compress their own samples use this so that the sample is treated
+    /// like the compressor's own samples (for example, constant detection is skipped).
+    pub fn with_sampling(mut self) -> Self {
         self.is_sample = true;
         self
     }
