@@ -102,6 +102,9 @@ fn main() -> anyhow::Result<()> {
     std::panic::set_hook(Box::new(|_| {}));
 
     let session = VortexSession::default();
+    if wrap::SESSION.set(session.clone()).is_err() {
+        anyhow::bail!("session already set");
+    }
     let mut ctx = session.create_execution_ctx();
     let variants = build_variants(&session, &args.variants)?;
     eprintln!(
@@ -259,6 +262,54 @@ fn build_variants(session: &VortexSession, filter: &[String]) -> anyhow::Result<
         }),
         timed: false,
     });
+    variants.push(Variant {
+        name: "model/runend+sparse".to_string(),
+        compressor: replaced(&|_| Some(Mode::SizeModel)),
+        timed: true,
+    });
+    let wide = wrap::SamplePolicy {
+        slices: 4,
+        slice_len: 1024,
+        serialized: true,
+        zero_ok: true,
+        all: false,
+    };
+    variants.push(Variant {
+        name: "model+strat-4x1k".to_string(),
+        compressor: replaced(&|s| {
+            Some(if named("runend", s) || named("sparse", s) {
+                Mode::SizeModel
+            } else {
+                Mode::Estimate(wide)
+            })
+        }),
+        timed: true,
+    });
+    let estimates = [
+        ("est/prod", 16, 64, false, false, false),
+        ("est/zero-ok", 16, 64, false, true, false),
+        ("est/serialized", 16, 64, true, true, false),
+        ("est/serialized-all", 16, 64, true, true, true),
+        ("est/contig-1k", 1, 1024, true, true, false),
+        ("est/contig-4k", 1, 4096, true, true, false),
+        ("est/strat-4x1k", 4, 1024, true, true, false),
+        ("est/strat-4x1k-all", 4, 1024, true, true, true),
+        ("est/strat-64x64", 64, 64, true, true, false),
+    ];
+    for (name, slices, slice_len, serialized, zero_ok, all) in estimates {
+        let policy = wrap::SamplePolicy {
+            slices,
+            slice_len,
+            serialized,
+            zero_ok,
+            all,
+        };
+        variants.push(Variant {
+            name: name.to_string(),
+            compressor: replaced(&|_| Some(Mode::Estimate(policy))),
+            timed: true,
+        });
+    }
     for scheme in &int_schemes {
         let short = scheme.scheme_name().trim_start_matches("vortex.int.");
         variants.push(Variant {

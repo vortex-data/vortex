@@ -141,6 +141,55 @@ decode time, picking per chunk among the production and forced trees:
    ~19% of compression time, but it doesn't generalise across sources yet. Revisit after
    items 1 and 2, with a much larger and more diverse corpus.
 
+## Follow-up: why the sample misranks schemes, and a fix
+
+The harness's `est/*` and `model/*` variants replace each scheme's estimate with a custom one.
+The custom estimator reproduces production: `est/prod` is within 0.16% of default and picks the
+same tree on 87% of chunks.
+
+| Estimator | Bytes vs production | Headroom captured | Compress time | Decode time |
+|---|---|---|---|---|
+| Production (16 slices × 64 values) | 0 | 0% | 1.00× | 1.00× |
+| Zero-byte samples allowed to compete | +0.2% | −2% | 1.00× | 0.97× |
+| Sizes include metadata (16 × 64) | +2.4% | −32% | 1.42× | 0.99× |
+| One contiguous 4,096-value window | −3.1% | 41% | 1.30× | 1.07× |
+| 4 slices × 1,024 values | −3.2% | 42% | 1.32× | 1.08× |
+| **Size model for RunEnd and Sparse** | **−6.9%** | **89%** | **1.01×** | 1.37× |
+| Size model + 4 × 1,024 sample for the rest | −7.3% | 95% | 1.15× | 1.59× |
+
+Per source, the size model captures most of the available headroom:
+
+| Source | Size model | Oracle |
+|---|---|---|
+| ClickBench | −4.1% | −5.3% |
+| Taxi | −2.4% | −2.6% |
+| TPC-H lineitem | −15.4% | −15.4% |
+| TPC-H partsupp | −33.2% | −33.2% |
+
+Findings:
+
+- **The misses are closed-form estimates and caps that ignore value widths.**
+  - RunEnd pays off at an average run of only ~2 when values are wide. ClickBench
+    `ClientEventTime` and `HID` are 31-bit values with runs of 2, and RunEnd makes them 22%
+    smaller. Its run-length threshold skips them.
+  - Sparse pays off well below its 90% cap. `FetchTiming` has an 81% top value, and Sparse makes
+    it 31% smaller.
+  - The size model decides both from bits:
+    - RunEnd: `runs × (value-range bits + position bits)`.
+    - Sparse: `exceptions × (value-range bits + position bits)`.
+    - Both are compared with `len × width`.
+- **`IntegerStats::average_run_length` is a `u32`,** so an average run of 1.97 truncates to 1.
+  The model needs the exact run count, which should become part of the stats.
+- **Longer sample slices help sorted and run-heavy data,** like TPC-H keys, where 64-value slices
+  break runs and sequences apart. They don't help ClickBench, and they cost about 30% compression
+  time.
+- **A sample that compresses to zero buffer bytes is disqualified** (`EstimateScore::ZeroBytes`
+  fails `is_valid`). Allowing it alone changed nothing measurable here, but it's wrong: it
+  rejects the best possible encoding.
+- **The size model trades decode speed for size:** RunEnd and Sparse decode slower than
+  bit-packing (+37% decode time). That's the size-vs-decode tradeoff from question 4. A
+  decode-aware preset would weigh it.
+
 ## Caveats
 
 - Integers only. The oracle is one step (root only), so the true headroom is at least this large.
