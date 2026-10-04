@@ -65,6 +65,7 @@ members = [
     "benchmarks/bench-support",
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
+    "benchmarks/compressor-feasibility",
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",

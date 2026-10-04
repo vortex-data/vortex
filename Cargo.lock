@@ -1826,6 +1826,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e8ccc4ea9f6acc32d102c0f6d471d11d913ad15f20c04de743374861fa1d414"
 
 [[package]]
+name = "compressor-feasibility"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
+ "clap",
+ "parquet 59.3.0",
+ "tpchgen",
+ "tpchgen-arrow",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-btrblocks",
+ "vortex-compressor",
+ "vortex-error",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,38 @@
+[package]
+name = "compressor-feasibility"
+description = "Feasibility experiments for learned compression scheme selection"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+parquet = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
+vortex = { workspace = true }
+vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
+vortex-btrblocks = { workspace = true, features = ["pco"] }
+vortex-compressor = { workspace = true }
+vortex-error = { workspace = true }
+
+[[bin]]
+name = "compressor-feasibility"
+path = "src/main.rs"
+test = false
+
+[lints]
+workspace = true
