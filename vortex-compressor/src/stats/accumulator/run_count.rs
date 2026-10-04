@@ -10,9 +10,6 @@ use super::ErasedAccumulator;
 use super::IntAccumulator;
 use super::IntStat;
 use super::IntStats;
-use super::forward_fill;
-use super::is_mostly_valid;
-use super::push_set_bits;
 use super::transitions;
 
 /// The number of runs of equal consecutive valid values. Nulls do not break runs.
@@ -43,6 +40,8 @@ impl<T: PrimInt> Default for RunCount<T> {
 impl<T: PrimInt> IntAccumulator<T> for RunCount<T> {
     type Output = u32;
 
+    const USES_FILL: bool = true;
+
     #[inline(always)]
     fn start(&mut self, head: T) {
         self.prev = head;
@@ -56,12 +55,9 @@ impl<T: PrimInt> IntAccumulator<T> for RunCount<T> {
     }
 
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        if is_mostly_valid(valid) {
-            self.chunk(&forward_fill(values, valid, self.prev));
-        } else {
-            push_set_bits(self, values, valid);
-        }
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], _valid: u64) {
+        // Filled nulls repeat their predecessor, so they add no runs.
+        self.chunk(filled);
     }
 
     #[inline(always)]

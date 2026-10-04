@@ -10,9 +10,6 @@ use super::ErasedAccumulator;
 use super::IntAccumulator;
 use super::IntStat;
 use super::IntStats;
-use super::forward_fill;
-use super::is_mostly_valid;
-use super::push_set_bits;
 
 /// Whether the valid values are sorted, non-strictly and strictly, in ascending order.
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +51,8 @@ pub struct SortedResult {
 impl<T: PrimInt> IntAccumulator<T> for Sorted<T> {
     type Output = SortedResult;
 
+    const USES_FILL: bool = true;
+
     #[inline(always)]
     fn start(&mut self, head: T) {
         self.prev = head;
@@ -75,14 +74,10 @@ impl<T: PrimInt> IntAccumulator<T> for Sorted<T> {
     }
 
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        if is_mostly_valid(valid) {
-            self.chunk(&forward_fill(values, valid, self.prev));
-            // Each filled null repeats the value before it, adding exactly one equal pair.
-            self.repeats -= (!valid).count_ones();
-        } else {
-            push_set_bits(self, values, valid);
-        }
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        self.chunk(filled);
+        // Each filled null repeats the value before it, adding exactly one equal pair.
+        self.repeats -= (!valid).count_ones();
     }
 
     #[inline(always)]

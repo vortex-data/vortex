@@ -133,6 +133,11 @@ mod benchmarks {
         m,
         (MinMax::new(), RunCount::new())
     ));
+    int_bench!(chunk_fused_min_max_runs, |v, m| accumulate(
+        v,
+        m,
+        Fused((MinMax::new(), RunCount::new()))
+    ));
     int_bench!(fused_min_max_runs_sorted, |v, m| accumulate(
         v,
         m,

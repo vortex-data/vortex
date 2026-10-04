@@ -416,9 +416,15 @@ where
             ((min, max), runs, Some(distinct))
         }
         (None, false) => {
-            let (bounds, runs) =
+            // Measured: fusing min/max with the run count is as fast or faster when every value
+            // is valid, and running them one after the other over each block is as fast or
+            // faster with nulls.
+            let (bounds, runs) = if validity.all_true() {
                 accumulate(values, &validity, Fused((MinMax::new(), RunCount::new())))
-                    .vortex_expect(expect_valid);
+            } else {
+                accumulate(values, &validity, (MinMax::new(), RunCount::new()))
+            }
+            .vortex_expect(expect_valid);
             (bounds, runs, None)
         }
         (None, true) => match Distinct::for_full_domain(len) {

@@ -15,10 +15,8 @@ use super::IntStat;
 use super::IntStats;
 use super::IntValue;
 use super::LANES;
-use super::fill_nulls;
 use super::fold_lanes2;
-use super::is_mostly_valid;
-use super::push_set_bits;
+use super::null_indices;
 
 /// Returns the bit pattern of `value`, zero-extended to 64 bits.
 #[inline(always)]
@@ -39,8 +37,6 @@ pub struct CommonBits<T> {
     and: [T; LANES],
     /// The OR so far of each lane.
     or: [T; LANES],
-    /// The first valid value, which stands in for nulls without changing the result.
-    head: T,
 }
 
 impl<T: PrimInt> CommonBits<T> {
@@ -49,7 +45,6 @@ impl<T: PrimInt> CommonBits<T> {
         Self {
             and: [!T::zero(); LANES],
             or: [T::zero(); LANES],
-            head: T::zero(),
         }
     }
 }
@@ -94,10 +89,10 @@ impl CommonBitsResult {
 impl<T: IntValue> IntAccumulator<T> for CommonBits<T> {
     type Output = CommonBitsResult;
 
+    const USES_FILL: bool = true;
+
     #[inline(always)]
-    fn start(&mut self, head: T) {
-        self.head = head;
-    }
+    fn start(&mut self, _head: T) {}
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -111,12 +106,9 @@ impl<T: IntValue> IntAccumulator<T> for CommonBits<T> {
     }
 
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        if is_mostly_valid(valid) {
-            self.chunk(&fill_nulls(values, valid, self.head));
-        } else {
-            push_set_bits(self, values, valid);
-        }
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], _valid: u64) {
+        // Filled nulls repeat valid values, which changes neither the AND nor the OR.
+        self.chunk(filled);
     }
 
     #[inline(always)]
@@ -166,6 +158,8 @@ pub struct BitWidthHistogram<T> {
     below: [u32; 8],
     /// The number of values counted in `below`.
     below_total: u32,
+    /// Filled nulls that were counted, by bit width.
+    filled: [u32; 65],
     /// The histogrammed type.
     _type: std::marker::PhantomData<T>,
 }
@@ -177,6 +171,7 @@ impl<T> BitWidthHistogram<T> {
             counts: [[0; 65]; HISTOGRAMS],
             below: [0; 8],
             below_total: 0,
+            filled: [0; 65],
             _type: std::marker::PhantomData,
         }
     }
@@ -211,6 +206,8 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
     /// The count of each bit width, from `0` to the type's width.
     type Output = Vec<u32>;
 
+    const USES_FILL: bool = true;
+
     #[inline(always)]
     fn start(&mut self, _head: T) {}
 
@@ -229,6 +226,15 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
                     }
                 }
             }
+        }
+    }
+
+    #[inline(always)]
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        self.chunk(filled);
+        // Remember the values that filled the nulls, to remove them when finishing.
+        for i in null_indices(valid) {
+            self.filled[bit_width(filled[i])] += 1;
         }
     }
 
@@ -257,6 +263,9 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
             for w in 1..=width {
                 histogram[w] += cumulative(w) - cumulative(w - 1);
             }
+        }
+        for (count, filled) in histogram.iter_mut().zip(self.filled) {
+            *count -= filled;
         }
         histogram
     }

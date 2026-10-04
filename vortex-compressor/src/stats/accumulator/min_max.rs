@@ -14,9 +14,6 @@ use super::IntStats;
 use super::IntValue;
 use super::LANES;
 use super::fold_lanes2;
-use super::forward_fill;
-use super::is_mostly_valid;
-use super::push_set_bits;
 use super::reduce_lanes;
 
 /// The minimum and maximum valid values.
@@ -26,8 +23,6 @@ pub struct MinMax<T> {
     min: [T; LANES],
     /// The maximum so far of each lane.
     max: [T; LANES],
-    /// The first valid value, which stands in for leading nulls in [`forward_fill`].
-    head: T,
 }
 
 impl<T: PrimInt> MinMax<T> {
@@ -36,7 +31,6 @@ impl<T: PrimInt> MinMax<T> {
         Self {
             min: [T::max_value(); LANES],
             max: [T::min_value(); LANES],
-            head: T::zero(),
         }
     }
 }
@@ -51,10 +45,10 @@ impl<T: PrimInt> IntAccumulator<T> for MinMax<T> {
     /// `(min, max)`.
     type Output = (T, T);
 
+    const USES_FILL: bool = true;
+
     #[inline(always)]
-    fn start(&mut self, head: T) {
-        self.head = head;
-    }
+    fn start(&mut self, _head: T) {}
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -68,12 +62,8 @@ impl<T: PrimInt> IntAccumulator<T> for MinMax<T> {
     }
 
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        if is_mostly_valid(valid) {
-            self.chunk(&forward_fill(values, valid, self.head));
-        } else {
-            push_set_bits(self, values, valid);
-        }
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], _valid: u64) {
+        self.chunk(filled);
     }
 
     #[inline(always)]

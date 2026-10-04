@@ -198,11 +198,17 @@ const MAX_BLOCK_CHUNKS: usize = BLOCK_BYTES / CHUNK;
 ///
 /// [`accumulate`] calls [`start`](Self::start) once with the first valid value, then feeds every
 /// valid value, including the first, exactly once and in order. It splits the values into blocks
-/// that fit in L1 and passes each to [`block`](Self::block), or [`masked_block`](Self::masked_block)
-/// with nulls, then the trailing values to [`push`](Self::push).
+/// that fit in L1 and passes each to [`block`](Self::block), or with nulls to
+/// [`filled_block`](Self::filled_block), then the trailing values to [`push`](Self::push).
+///
+/// With nulls, the driver fills each block once, replacing every null with the closest valid value
+/// before it, and every accumulator shares the filled block. Repeating a valid value changes
+/// neither the extrema, the bits, the runs nor the sortedness, so most statistics run their fully
+/// valid kernel on a filled chunk and correct for the repeats.
 ///
 /// The default block methods feed each chunk of [`CHUNK`] values to [`chunk`](Self::chunk), or
-/// [`masked_chunk`](Self::masked_chunk) with nulls, and then call [`end_block`](Self::end_block).
+/// with nulls to [`filled_chunk`](Self::filled_chunk), and then call
+/// [`end_block`](Self::end_block).
 ///
 /// A tuple of accumulators passes each block to each element in turn, so each element runs its
 /// own loop with its state in registers while the block stays in L1. [`Fused`] instead passes each
@@ -212,17 +218,27 @@ pub trait IntAccumulator<T: Copy> {
     /// The computed statistic.
     type Output;
 
+    /// Whether [`filled_chunk`](Self::filled_chunk) reads the filled nulls. If no accumulator in
+    /// a pass does, the driver skips filling and passes chunks with arbitrary values in place of
+    /// nulls.
+    const USES_FILL: bool = false;
+
     /// Initializes the state from the first valid value.
     fn start(&mut self, head: T);
 
     /// Accumulates [`CHUNK`] consecutive valid values.
     fn chunk(&mut self, values: &[T; CHUNK]);
 
-    /// Accumulates the values of `values` whose bit is set in `valid`, least significant bit
-    /// first.
+    /// Accumulates the values of a chunk with nulls, whose bits are set in `valid`, least
+    /// significant bit first.
+    ///
+    /// If [`USES_FILL`](Self::USES_FILL), `filled` holds the chunk with each null replaced by the
+    /// closest valid value before it, so a null repeats its predecessor, or the last valid value
+    /// before the chunk. Otherwise the nulls hold arbitrary values. The default pushes the valid
+    /// values.
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        push_set_bits(self, values, valid);
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        push_set_bits(self, filled, valid);
     }
 
     /// Accumulates one valid value.
@@ -237,14 +253,15 @@ pub trait IntAccumulator<T: Copy> {
         self.end_block();
     }
 
-    /// Accumulates a block of chunks with one validity word per chunk.
+    /// Accumulates a block of filled chunks with one validity word per chunk. See
+    /// [`filled_chunk`](Self::filled_chunk).
     #[inline(always)]
-    fn masked_block(&mut self, chunks: &[[T; CHUNK]], valid: &[u64]) {
-        for (chunk, &word) in chunks.iter().zip(valid) {
+    fn filled_block(&mut self, filled: &[[T; CHUNK]], valid: &[u64]) {
+        for (chunk, &word) in filled.iter().zip(valid) {
             match word {
                 0 => {}
                 u64::MAX => self.chunk(chunk),
-                _ => self.masked_chunk(chunk, word),
+                _ => self.filled_chunk(chunk, word),
             }
         }
         self.end_block();
@@ -313,11 +330,14 @@ where
             let Some(head) = validity.first() else {
                 return false;
             };
-            acc.start(values[head]);
+            // The last valid value seen, which fills the nulls that lead a chunk.
+            let mut prev = values[head];
+            acc.start(prev);
             let bit_chunks = bits.chunks();
             let mut words = bit_chunks.iter();
             let (chunks, remainder) = values.as_chunks::<CHUNK>();
             let mut block_words = [0u64; MAX_BLOCK_CHUNKS];
+            let mut filled: Vec<[T; CHUNK]> = Vec::with_capacity(block_chunks.min(chunks.len()));
             for block in chunks.chunks(block_chunks) {
                 let block_words = &mut block_words[..block.len()];
                 for (slot, word) in block_words.iter_mut().zip(&mut words) {
@@ -325,8 +345,21 @@ where
                 }
                 if block_words.iter().all(|&word| word == u64::MAX) {
                     acc.block(block);
+                    prev = block[block.len() - 1][CHUNK - 1];
+                } else if !A::USES_FILL {
+                    if block_words.iter().any(|&word| word != 0) {
+                        acc.filled_block(block, block_words);
+                    }
                 } else if block_words.iter().any(|&word| word != 0) {
-                    acc.masked_block(block, block_words);
+                    filled.clear();
+                    filled.extend_from_slice(block);
+                    for (chunk, &word) in filled.iter_mut().zip(block_words.iter()) {
+                        if word != 0 {
+                            forward_fill(chunk, word, prev);
+                            prev = chunk[CHUNK - 1];
+                        }
+                    }
+                    acc.filled_block(&filled, block_words);
                 }
             }
             push_set_bits(acc, remainder, bit_chunks.remainder_bits());
@@ -397,40 +430,30 @@ fn push_set_bits<T: Copy, A: IntAccumulator<T> + ?Sized>(acc: &mut A, values: &[
     }
 }
 
-/// Whether a chunk has few enough nulls that [`forward_fill`] beats pushing each valid value.
+/// Replaces each null of `chunk`, whose bit is unset in `valid`, with the closest valid value
+/// before it, or with `prev`, the last valid value before the chunk. The cost is one store per
+/// null.
 #[inline(always)]
-fn is_mostly_valid(valid: u64) -> bool {
-    valid.count_ones() >= CHUNK_U32 / 2
-}
-
-/// Returns `values` with each null replaced by the closest valid value before it, or by `prev`,
-/// the last valid value before the chunk.
-///
-/// Repeating a valid value changes neither the extrema, the runs, nor the sortedness, so
-/// accumulators of those can process the filled chunk with their fully valid kernel. The cost is
-/// one store per null.
-#[inline(always)]
-fn forward_fill<T: Copy>(values: &[T; CHUNK], valid: u64, prev: T) -> [T; CHUNK] {
-    let mut filled = *values;
+fn forward_fill<T: Copy>(chunk: &mut [T; CHUNK], valid: u64, prev: T) {
     let mut nulls = !valid;
     while nulls != 0 {
         let i = nulls.trailing_zeros() as usize;
-        filled[i] = if i == 0 { prev } else { filled[i - 1] };
+        chunk[i] = if i == 0 { prev } else { chunk[i - 1] };
         nulls &= nulls - 1;
     }
-    filled
 }
 
-/// Returns `values` with each null replaced by `fill`.
+/// Returns the indices of the nulls of a chunk, whose bits are unset in `valid`.
 #[inline(always)]
-fn fill_nulls<T: Copy>(values: &[T; CHUNK], valid: u64, fill: T) -> [T; CHUNK] {
-    let mut filled = *values;
+fn null_indices(valid: u64) -> impl Iterator<Item = usize> {
     let mut nulls = !valid;
-    while nulls != 0 {
-        filled[nulls.trailing_zeros() as usize] = fill;
-        nulls &= nulls - 1;
-    }
-    filled
+    std::iter::from_fn(move || {
+        (nulls != 0).then(|| {
+            let i = nulls.trailing_zeros() as usize;
+            nulls &= nulls - 1;
+            i
+        })
+    })
 }
 
 /// Implements [`IntAccumulator`] and [`ErasedAccumulator`] for a tuple of accumulators by forwarding to each element.
@@ -438,6 +461,8 @@ macro_rules! impl_tuple_accumulator {
     ($($name:ident),+) => {
         impl<T: Copy, $($name: IntAccumulator<T>),+> IntAccumulator<T> for ($($name,)+) {
             type Output = ($($name::Output,)+);
+
+            const USES_FILL: bool = false $(|| $name::USES_FILL)+;
 
             #[inline(always)]
             fn start(&mut self, head: T) {
@@ -454,10 +479,10 @@ macro_rules! impl_tuple_accumulator {
             }
 
             #[inline(always)]
-            fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
+            fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
-                $($name.masked_chunk(values, valid);)+
+                $($name.filled_chunk(filled, valid);)+
             }
 
             #[inline(always)]
@@ -475,10 +500,10 @@ macro_rules! impl_tuple_accumulator {
             }
 
             #[inline(always)]
-            fn masked_block(&mut self, chunks: &[[T; CHUNK]], valid: &[u64]) {
+            fn filled_block(&mut self, filled: &[[T; CHUNK]], valid: &[u64]) {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
-                $($name.masked_block(chunks, valid);)+
+                $($name.filled_block(filled, valid);)+
             }
 
             #[inline(always)]
@@ -528,6 +553,8 @@ pub struct Fused<A>(pub A);
 impl<T: Copy, A: IntAccumulator<T>> IntAccumulator<T> for Fused<A> {
     type Output = A::Output;
 
+    const USES_FILL: bool = A::USES_FILL;
+
     #[inline(always)]
     fn start(&mut self, head: T) {
         self.0.start(head);
@@ -539,8 +566,8 @@ impl<T: Copy, A: IntAccumulator<T>> IntAccumulator<T> for Fused<A> {
     }
 
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        self.0.masked_chunk(values, valid);
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        self.0.filled_chunk(filled, valid);
     }
 
     #[inline(always)]

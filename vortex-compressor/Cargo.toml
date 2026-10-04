@@ -51,3 +51,8 @@ test = false
 name = "int_accumulators"
 harness = false
 test = false
+
+[[bench]]
+name = "fusion_search"
+harness = false
+test = false

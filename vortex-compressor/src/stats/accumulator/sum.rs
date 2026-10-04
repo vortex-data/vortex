@@ -14,11 +14,9 @@ use super::IntStat;
 use super::IntStats;
 use super::IntValue;
 use super::LANES;
-use super::fill_nulls;
 use super::fold_lanes;
 use super::fold_lanes2;
-use super::is_mostly_valid;
-use super::push_set_bits;
+use super::null_indices;
 
 /// The exact sum of the valid values.
 ///
@@ -100,12 +98,13 @@ impl<T: IntValue> IntAccumulator<T> for Sum<T> {
     }
 
     #[inline(always)]
-    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
-        if is_mostly_valid(valid) {
-            self.chunk(&fill_nulls(values, valid, T::zero()));
-        } else {
-            push_set_bits(self, values, valid);
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        // Zeros do not change the sum, so this needs no fill and replaces the nulls itself.
+        let mut zeroed = *filled;
+        for i in null_indices(valid) {
+            zeroed[i] = T::zero();
         }
+        self.chunk(&zeroed);
     }
 
     #[inline(always)]
