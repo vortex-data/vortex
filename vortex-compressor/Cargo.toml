@@ -56,3 +56,8 @@ test = false
 name = "fusion_search"
 harness = false
 test = false
+
+[[bench]]
+name = "schedule_search"
+harness = false
+test = false
