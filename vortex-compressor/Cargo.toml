@@ -31,6 +31,7 @@ divan = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-fastlanes = { workspace = true }
 vortex-session = { workspace = true }
 
 [lints]

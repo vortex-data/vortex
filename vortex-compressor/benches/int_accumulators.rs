@@ -14,7 +14,6 @@ mod benchmarks {
     use divan::Bencher;
     use divan::black_box;
     use num_traits::AsPrimitive;
-    use num_traits::PrimInt;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -24,11 +23,17 @@ mod benchmarks {
     use vortex_array::dtype::IntegerPType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_compressor::stats::accumulator::BitWidthHistogram;
+    use vortex_compressor::stats::accumulator::CommonBits;
+    use vortex_compressor::stats::accumulator::DeltaRange;
     use vortex_compressor::stats::accumulator::Distinct;
+    use vortex_compressor::stats::accumulator::IntValue;
     use vortex_compressor::stats::accumulator::MinMax;
     use vortex_compressor::stats::accumulator::RunCount;
     use vortex_compressor::stats::accumulator::Sorted;
+    use vortex_compressor::stats::accumulator::Sum;
     use vortex_compressor::stats::accumulator::accumulate;
+    use vortex_compressor::stats::accumulator::compute;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
@@ -83,7 +88,7 @@ mod benchmarks {
             #[divan::bench(types = [u8, u16, u32, u64, i64], args = NULLABLE)]
             fn $name<T>(bencher: Bencher, nullable: bool)
             where
-                T: IntegerPType + PrimInt + Sync + Send,
+                T: IntValue + Sync + Send,
                 NativeValue<T>: Eq + Hash,
                 u32: AsPrimitive<T>,
             {
@@ -101,6 +106,15 @@ mod benchmarks {
         m,
         Distinct::new(T::zero(), 1023u32.as_(), LEN)
     ));
+
+    int_bench!(sum_only, |v, m| accumulate(v, m, Sum::new()));
+    int_bench!(common_bits_only, |v, m| accumulate(v, m, CommonBits::new()));
+    int_bench!(bit_width_histogram_only, |v, m| accumulate(
+        v,
+        m,
+        BitWidthHistogram::new()
+    ));
+    int_bench!(delta_range_only, |v, m| accumulate(v, m, DeltaRange::new()));
 
     // Fused compositions.
     int_bench!(fused_min_max_runs, |v, m| accumulate(
@@ -124,12 +138,65 @@ mod benchmarks {
         )
     ));
 
+    // Seven statistics the integer schemes use: fused, through the type-erased set, and as
+    // separate passes.
+    int_bench!(fused_compressor_set, |v, m| accumulate(
+        v,
+        m,
+        (
+            MinMax::new(),
+            RunCount::new(),
+            Sorted::new(),
+            Sum::new(),
+            CommonBits::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        )
+    ));
+    int_bench!(erased_compressor_set, |v, m| compute(
+        v,
+        m,
+        (
+            MinMax::new(),
+            RunCount::new(),
+            Sorted::new(),
+            Sum::new(),
+            CommonBits::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        )
+    ));
+    int_bench!(separate_compressor_set, |v, m| (
+        accumulate(v, m, MinMax::new()),
+        accumulate(v, m, RunCount::new()),
+        accumulate(v, m, Sorted::new()),
+        accumulate(v, m, Sum::new()),
+        accumulate(v, m, CommonBits::new()),
+        accumulate(v, m, BitWidthHistogram::new()),
+        accumulate(v, m, DeltaRange::new()),
+    ));
+
     // The same statistics as separate passes.
     int_bench!(separate_min_max_runs_sorted, |v, m| (
         accumulate(v, m, MinMax::new()),
         accumulate(v, m, RunCount::new()),
         accumulate(v, m, Sorted::new()),
     ));
+
+    /// The bit width histogram that the bit packing scheme computes in its own pass.
+    #[divan::bench(types = [u8, u16, u32, u64, i64])]
+    fn fastlanes_bit_width_histogram<T>(bencher: Bencher)
+    where
+        T: IntegerPType + Sync + Send,
+        u32: AsPrimitive<T>,
+    {
+        let array = PrimitiveArray::new(generate::<T>(), Validity::NonNullable);
+        bencher
+            .with_inputs(|| SESSION.create_execution_ctx())
+            .bench_refs(|ctx| {
+                vortex_fastlanes::bitpack_compress::bit_width_histogram(array.as_view(), ctx)
+            });
+    }
 
     /// The hand-written min/max kernel in `vortex-array`, on a fresh array each iteration so its
     /// result is not cached.
