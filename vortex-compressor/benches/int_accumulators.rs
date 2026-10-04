@@ -157,34 +157,36 @@ mod benchmarks {
         )
     ));
 
-    /// The seven statistics the integer schemes use, in the order the schedules below group them.
+    /// The seven statistics the integer schemes use, in the order of `schedule_search`, so that
+    /// its schedules apply unchanged.
     #[allow(clippy::type_complexity)]
     fn compressor_set<T: IntValue>() -> (
-        MinMax<T>,
         Sum<T>,
+        MinMax<T>,
         CommonBits<T>,
-        RunCount<T>,
-        Sorted<T>,
         BitWidthHistogram<T>,
         DeltaRange<T>,
+        Sorted<T>,
+        RunCount<T>,
     ) {
         (
-            MinMax::new(),
             Sum::new(),
+            MinMax::new(),
             CommonBits::new(),
-            RunCount::new(),
-            Sorted::new(),
             BitWidthHistogram::new(),
             DeltaRange::new(),
+            Sorted::new(),
+            RunCount::new(),
         )
     }
 
     /// The cheap reductions in one loop, then one loop each.
     const GROUPED: u64 = groups(&[3, 4, 5, 6]);
 
-    /// The cheap reductions in one loop, the two neighbour comparisons in another, then one loop
-    /// each, chosen from the `fusion_search` affinities with every value valid.
-    const PLANNED: u64 = groups(&[3, 5, 6]);
+    /// The schedule `schedule_search` measured closest to the best of every type with every
+    /// value valid: `Sum` with `MinMax`, `CommonBits` alone, and the four costlier statistics in
+    /// one loop. With nulls, one loop for all measured closest to the best.
+    const PLANNED_VALID: u64 = groups(&[2, 3]);
 
     // The same seven statistics in different schedules, which changes only the loops: one loop
     // each over every L1-sized block, one loop for all, groups in between, and separate passes
@@ -204,11 +206,14 @@ mod benchmarks {
         m,
         Schedule::<_, GROUPED>::new(compressor_set::<T>())
     ));
-    // With nulls, fusing measured no better, so the plan runs one loop each.
     int_bench!(planned_compressor_set, |v, m| if m.all_true() {
-        accumulate(v, m, Schedule::<_, PLANNED>::new(compressor_set::<T>()))
+        accumulate(
+            v,
+            m,
+            Schedule::<_, PLANNED_VALID>::new(compressor_set::<T>()),
+        )
     } else {
-        accumulate(v, m, Schedule::<_, EACH>::new(compressor_set::<T>()))
+        accumulate(v, m, Schedule::<_, FUSED>::new(compressor_set::<T>()))
     });
     int_bench!(erased_grouped_compressor_set, |v, m| compute(
         v,
