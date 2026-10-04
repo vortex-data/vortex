@@ -38,6 +38,8 @@ pub const BLOCK_VALUES: usize = 1024;
 /// Most values per block; arrays whose blocks would be dominated by their fixed per-block costs
 /// use larger blocks, up to this.
 pub const MAX_BLOCK_VALUES: usize = 4096;
+/// Most refill words a lane takes in one block: up to `MAX_S` bits per value, 8-bit words.
+const MAX_LANE_WORDS: usize = MAX_BLOCK_VALUES / LANES * MAX_S as usize / 8 + 1;
 /// Values per chunk sharing one set of bins.
 pub const CHUNK_VALUES: usize = 1 << 18;
 /// Interleaved tANS lanes.
@@ -110,6 +112,37 @@ pub(crate) fn bin_of(chunk: &EntropyBinsChunk, v: u64) -> VortexResult<usize> {
     Ok(bin)
 }
 
+/// [`bin_of`] for a block of values, without building an error per value: the error is built
+/// only if some value falls outside every bin.
+fn bin_ids(chunk: &EntropyBinsChunk, latents: &[u64]) -> VortexResult<Vec<u8>> {
+    let lowers = &chunk.lowers;
+    let widths = &chunk.widths;
+    let last = lowers.len().saturating_sub(1);
+    let mut ids = Vec::with_capacity(latents.len());
+    let mut ok = !lowers.is_empty();
+    for &v in latents {
+        // The last bin whose lower bound is at most `v`. Real columns are clustered, so the
+        // search's branches predict well.
+        let b = lowers
+            .partition_point(|&l| l <= v)
+            .saturating_sub(1)
+            .min(last);
+        let w = widths[b];
+        let in_bin = v >= lowers[b] && (w >= 64 || v - lowers[b] < 1u64 << w);
+        ok &= in_bin;
+        // At most `MAX_FAST_BINS` bins, so the index fits a byte.
+        #[allow(clippy::cast_possible_truncation)]
+        ids.push(b as u8);
+    }
+    if !ok {
+        for &v in latents {
+            bin_of(chunk, v)?;
+        }
+        vortex_bail!("a value is outside every bin");
+    }
+    Ok(ids)
+}
+
 /// tANS tables for the bin ids of one chunk (absent when the chunk has a single bin).
 #[derive(Clone, Debug)]
 pub(crate) struct IdTable {
@@ -122,6 +155,10 @@ pub(crate) struct IdTable {
     freq: Vec<u32>,
     cum: Vec<u32>,
     enc_states: Vec<u32>,
+    /// Encoding symbol `s` from state `x` emits `nb_base[s] - (x < nb_thresh[s])` bits: the
+    /// smallest `nb` with `x >> nb < 2 freq[s]`.
+    nb_base: Vec<u32>,
+    nb_thresh: Vec<u32>,
     /// Decode tables indexed by `state & 127` for states in `[2^s, 2^(s+1))`.
     pub(crate) sym_tab: [u8; 128],
     pub(crate) xs_tab: [u8; 128],
@@ -205,6 +242,13 @@ impl IdTable {
             enc_states[(cum[sym] + seen[sym]) as usize] = u32::try_from(x)?;
             seen[sym] += 1;
         }
+        let (nb_base, nb_thresh) = freq
+            .iter()
+            .map(|&f| {
+                let b = s - f.ilog2();
+                (b, f << b)
+            })
+            .unzip();
         Ok(Some(Self {
             s,
             r: (word_bits as usize / s as usize).min(8),
@@ -212,6 +256,8 @@ impl IdTable {
             freq,
             cum,
             enc_states,
+            nb_base,
+            nb_thresh,
             sym_tab,
             xs_tab,
         }))
@@ -265,132 +311,163 @@ pub(crate) fn encode_block(
     latents: &[u64],
     out: &mut Vec<u8>,
 ) -> VortexResult<()> {
-    let ids: Vec<usize> = latents
-        .iter()
-        .map(|&v| bin_of(chunk, v))
-        .collect::<VortexResult<_>>()?;
+    let ids = bin_ids(chunk, latents)?;
     match table {
         Some(t) if ids.iter().any(|&s| s != ids[0]) => encode_ids(t, &ids, out)?,
         _ => {
             out.push(FLAG_UNIFORM);
-            out.push(u8::try_from(ids.first().copied().unwrap_or(0))?);
+            out.push(ids.first().copied().unwrap_or(0));
         }
     }
     let mut w = BitWriter::new();
     for (&v, &id) in latents.iter().zip(&ids) {
+        let id = usize::from(id);
         w.put(v - chunk.lowers[id], chunk.widths[id]);
     }
     out.extend_from_slice(&w.finish());
     Ok(())
 }
 
-fn encode_ids(t: &IdTable, ids: &[usize], out: &mut Vec<u8>) -> VortexResult<()> {
+fn encode_ids(t: &IdTable, ids: &[u8], out: &mut Vec<u8>) -> VortexResult<()> {
     let n = ids.len();
     let n_pad = n.div_ceil(LANES) * LANES;
-    let sym = |i: usize| ids[i.min(n - 1)];
+    let steps = n_pad / LANES;
+    let sym = |i: usize| usize::from(ids[i.min(n - 1)]);
     let l = 1u32 << t.s;
-    // Encode each lane backwards to get every value's state bits. A lane's last symbol needs no
-    // bits: the state the decoder would rebuild after it is never used, so the lane starts in
-    // the smallest state of that symbol instead (zstd's `FSE_initCState2`).
-    let mut bits = vec![(0u64, 0u32); n_pad];
-    let mut states = [0u8; LANES];
-    for (lane, state) in states.iter_mut().enumerate() {
-        let last = n_pad - LANES + lane;
-        let s_last = sym(last);
-        let first_state = t.cum[s_last] as usize;
-        let mut x = t.enc_states[first_state..first_state + t.freq[s_last] as usize]
+    // Encode the lanes backwards, all 16 per step so their state chains overlap, to get every
+    // value's state bits. A lane's last symbol needs no bits: the state the decoder would
+    // rebuild after it is never used, so the lane starts in the smallest state of that symbol
+    // instead (zstd's `FSE_initCState2`).
+    let mut bit_value = [0u8; MAX_BLOCK_VALUES];
+    let mut bit_count = [0u8; MAX_BLOCK_VALUES];
+    let mut x = [0u32; LANES];
+    for (lane, xl) in x.iter_mut().enumerate() {
+        let s_last = sym(n_pad - LANES + lane);
+        let first = t.cum[s_last] as usize;
+        *xl = t.enc_states[first..first + t.freq[s_last] as usize]
             .iter()
             .copied()
             .min()
             .unwrap_or(l);
-        if last < LANES {
-            *state = u8::try_from(x - l)?;
-            continue;
-        }
-        let mut i = last - LANES;
-        loop {
-            let s = sym(i);
-            let f = t.freq[s];
-            let mut nb = 0u32;
-            while (x >> nb) >= 2 * f {
-                nb += 1;
-            }
-            bits[i] = (u64::from(x & ((1u32 << nb) - 1)), nb);
-            x = t.enc_states[(t.cum[s] + (x >> nb) - f) as usize];
-            if i < LANES {
-                break;
-            }
-            i -= LANES;
-        }
-        *state = u8::try_from(x - l)?;
     }
+    for step in (0..steps - 1).rev() {
+        for (lane, xl) in x.iter_mut().enumerate() {
+            let i = step * LANES + lane;
+            let s = sym(i);
+            let nb = t.nb_base[s] - u32::from(*xl < t.nb_thresh[s]);
+            // `nb <= s_log <= 7`, so both fit a byte.
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                bit_value[i] = (*xl & ((1u32 << nb) - 1)) as u8;
+                bit_count[i] = nb as u8;
+            }
+            *xl = t.enc_states[(t.cum[s] + (*xl >> nb) - t.freq[s]) as usize];
+        }
+    }
+    let mut states = [0u8; LANES];
+    for (state, &xl) in states.iter_mut().zip(&x) {
+        *state = u8::try_from(xl - l)?;
+    }
+    let bits = |i: usize| (bit_value[i], bit_count[i]);
     // Per-lane word streams.
     let wb = t.word_bits;
     let word_mask = (1u64 << wb) - 1;
-    let mut lanes: Vec<Vec<u16>> = vec![Vec::new(); LANES];
+    let mut lane_words = [[0u16; MAX_LANE_WORDS]; LANES];
+    let mut lane_len = [0usize; LANES];
     let mut acc = [0u64; LANES];
     let mut nacc = [0u32; LANES];
-    for (i, &(b, w)) in bits.iter().enumerate() {
+    for i in 0..n_pad {
         let lane = i % LANES;
+        let (b, w) = bits(i);
         if w == 0 {
             continue;
         }
-        acc[lane] |= b << nacc[lane];
-        nacc[lane] += w;
-        while nacc[lane] >= wb {
-            lanes[lane].push(u16::try_from(acc[lane] & word_mask)?);
+        acc[lane] |= u64::from(b) << nacc[lane];
+        nacc[lane] += u32::from(w);
+        if nacc[lane] >= wb {
+            lane_words[lane][lane_len[lane]] = u16::try_from(acc[lane] & word_mask)?;
+            lane_len[lane] += 1;
             acc[lane] >>= wb;
             nacc[lane] -= wb;
         }
     }
     for lane in 0..LANES {
         if nacc[lane] > 0 {
-            lanes[lane].push(u16::try_from(acc[lane] & word_mask)?);
+            lane_words[lane][lane_len[lane]] = u16::try_from(acc[lane] & word_mask)?;
+            lane_len[lane] += 1;
         }
     }
+    let lanes: [&[u16]; LANES] = std::array::from_fn(|lane| &lane_words[lane][..lane_len[lane]]);
     // Interleave the words in the order the decoder takes them, with and without a stop field.
     let r = t.r;
     let rounds = (n_pad / LANES).div_ceil(r);
-    let build = |window: usize| -> VortexResult<(Vec<u16>, [u16; LANES])> {
-        let mut words = Vec::new();
+    // Bits each lane consumes per round: refills happen only at round starts.
+    let mut round_bits = vec![[0u16; LANES]; rounds];
+    for (step, counts) in bit_count[..n_pad].as_chunks::<LANES>().0.iter().enumerate() {
+        let consumed = &mut round_bits[step / r];
+        for (c, &w) in consumed.iter_mut().zip(counts) {
+            *c += u16::from(w);
+        }
+    }
+    // One pass builds the stream with a stop field over the last `window` rounds and counts how
+    // long the stream without one would be: the two differ only by the zero words lanes with
+    // nothing left take inside that window.
+    let build = |window: usize| -> VortexResult<(Vec<u16>, [u16; LANES], usize)> {
+        let mut words = Vec::with_capacity(n_pad / 2);
         let mut real_end = 0;
+        let (mut len_without, mut real_end_without) = (0usize, 0usize);
         let mut next = [0usize; LANES];
         let mut avail = [0i64; LANES];
         let mut stop = [u16::try_from(rounds)?; LANES];
-        for step in 0..n_pad / LANES {
-            if step % r == 0 {
-                let round = step / r;
-                for lane in 0..LANES {
-                    if avail[lane] < i64::from(wb) && round < usize::from(stop[lane]) {
-                        match lanes[lane].get(next[lane]) {
-                            Some(&w) => {
-                                words.push(w);
-                                real_end = words.len();
-                            }
-                            None if window > 0 && round + window >= rounds => {
-                                stop[lane] = u16::try_from(round)?;
-                                continue;
-                            }
-                            None => words.push(0),
-                        }
-                        next[lane] += 1;
-                        avail[lane] += i64::from(wb);
-                    }
-                }
-            }
+        for (round, consumed) in round_bits.iter().enumerate() {
             for lane in 0..LANES {
-                avail[lane] -= i64::from(bits[step * LANES + lane].1);
+                if avail[lane] < i64::from(wb) && round < usize::from(stop[lane]) {
+                    match lanes[lane].get(next[lane]) {
+                        Some(&w) => {
+                            words.push(w);
+                            real_end = words.len();
+                            len_without += 1;
+                            real_end_without = len_without;
+                        }
+                        None if window > 0 && round + window >= rounds => {
+                            stop[lane] = u16::try_from(round)?;
+                            // Without a stop field the lane keeps taking zero words.
+                            let mut a = avail[lane];
+                            for later in &round_bits[round..] {
+                                if a < i64::from(wb) {
+                                    len_without += 1;
+                                    a += i64::from(wb);
+                                }
+                                a -= i64::from(later[lane]);
+                            }
+                            avail[lane] = a;
+                            continue;
+                        }
+                        None => {
+                            words.push(0);
+                            len_without += 1;
+                        }
+                    }
+                    next[lane] += 1;
+                    avail[lane] += i64::from(wb);
+                }
+                avail[lane] -= i64::from(consumed[lane]);
             }
         }
         // Trailing words a lane never needs are served by the zero padding.
         words.truncate(real_end);
-        Ok((words, stop))
+        Ok((words, stop, real_end_without))
     };
-    let (with_stop, stop) = build(STOP_WINDOW)?;
-    let (without, _) = build(0)?;
+    let (with_stop, stop, without_len) = build(STOP_WINDOW)?;
     let word_bytes = wb as usize / 8;
-    let has_stop = with_stop.len() * word_bytes + 6 < without.len() * word_bytes;
-    let words = if has_stop { with_stop } else { without };
+    let has_stop = with_stop.len() * word_bytes + 6 < without_len * word_bytes;
+    let words = if has_stop {
+        with_stop
+    } else {
+        let (without, _, len) = build(0)?;
+        debug_assert_eq!(without.len(), len);
+        without
+    };
 
     out.push(if has_stop { FLAG_STOP } else { 0 });
     out.extend_from_slice(&u16::try_from(words.len())?.to_le_bytes());
