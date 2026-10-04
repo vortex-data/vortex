@@ -12,7 +12,7 @@ use super::IntStat;
 use super::IntStats;
 use super::IntValue;
 use super::LANES;
-use super::fold_lanes;
+use super::fold_lanes2;
 
 /// The smallest and largest exact difference between consecutive valid values.
 ///
@@ -80,15 +80,12 @@ impl<T: IntValue> IntAccumulator<T> for DeltaRange<T> {
             // leaves the extrema unchanged.
             deltas[0] = deltas[1];
         }
-        fold_lanes(
+        fold_lanes2(
             &mut self.min,
-            &deltas,
-            |acc, d| if d < acc { d } else { acc },
-        );
-        fold_lanes(
             &mut self.max,
             &deltas,
-            |acc, d| if d > acc { d } else { acc },
+            |min, d| if d < min { d } else { min },
+            |max, d| if d > max { d } else { max },
         );
         self.prev = values[CHUNK - 1];
         self.started = true;

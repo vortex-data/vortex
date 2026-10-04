@@ -8,6 +8,7 @@ use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 
 use super::CHUNK;
+use super::CHUNK_U32;
 use super::ErasedAccumulator;
 use super::IntAccumulator;
 use super::IntStat;
@@ -15,7 +16,7 @@ use super::IntStats;
 use super::IntValue;
 use super::LANES;
 use super::fill_nulls;
-use super::fold_lanes;
+use super::fold_lanes2;
 use super::is_mostly_valid;
 use super::push_set_bits;
 
@@ -100,8 +101,13 @@ impl<T: IntValue> IntAccumulator<T> for CommonBits<T> {
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
-        fold_lanes(&mut self.and, values, |acc, v| acc & v);
-        fold_lanes(&mut self.or, values, |acc, v| acc | v);
+        fold_lanes2(
+            &mut self.and,
+            &mut self.or,
+            values,
+            |acc, v| acc & v,
+            |acc, v| acc | v,
+        );
     }
 
     #[inline(always)]
@@ -147,10 +153,19 @@ impl<T: IntValue> ErasedAccumulator<T> for CommonBits<T> {
 const HISTOGRAMS: usize = 4;
 
 /// The number of valid values that need each bit width, from `0` to the type's width.
+///
+/// For 8-bit and 16-bit values, a chunk counts the values below each power of two with vectorized
+/// compares, which gives the cumulative histogram: the number of values of at most `w` bits is the
+/// number below `2^w`. Wider types would need too many compares per value, so they increment one
+/// counter per value.
 #[derive(Debug, Clone)]
 pub struct BitWidthHistogram<T> {
     /// Interleaved histograms, indexed by bit width.
     counts: [[u32; 65]; HISTOGRAMS],
+    /// For 8-bit and 16-bit values, `below[w]` counts the chunk values below `2^w`.
+    below: [u32; 16],
+    /// The number of values counted in `below`.
+    below_total: u32,
     /// The histogrammed type.
     _type: std::marker::PhantomData<T>,
 }
@@ -160,6 +175,8 @@ impl<T> BitWidthHistogram<T> {
     pub fn new() -> Self {
         Self {
             counts: [[0; 65]; HISTOGRAMS],
+            below: [0; 16],
+            below_total: 0,
             _type: std::marker::PhantomData,
         }
     }
@@ -179,6 +196,17 @@ fn bit_width<T: PrimInt + AsPrimitive<u64>>(value: T) -> usize {
     (u64::BITS - to_bits(value).leading_zeros()) as usize
 }
 
+/// Adds to `below[w]` the number of `bits` below `2^w`, for each `w` below `B`.
+#[inline(always)]
+fn count_below<U: PrimInt, const B: usize>(below: &mut [u32; 16], bits: &[U; CHUNK]) {
+    for (w, count) in below.iter_mut().enumerate().take(B) {
+        let threshold = U::one() << w;
+        // At most 64, so a `u8` sum keeps full-width byte lanes.
+        let n: u8 = bits.iter().map(|&b| u8::from(b < threshold)).sum();
+        *count += u32::from(n);
+    }
+}
+
 impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
     /// The count of each bit width, from `0` to the type's width.
     type Output = Vec<u32>;
@@ -188,9 +216,23 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
-        for group in values.as_chunks::<HISTOGRAMS>().0 {
-            for (counts, &v) in self.counts.iter_mut().zip(group) {
-                counts[bit_width(v)] += 1;
+        match size_of::<T>() {
+            1 => {
+                let bits: [u8; CHUNK] = std::array::from_fn(|i| values[i].as_());
+                count_below::<u8, 8>(&mut self.below, &bits);
+                self.below_total += CHUNK_U32;
+            }
+            2 => {
+                let bits: [u16; CHUNK] = std::array::from_fn(|i| values[i].as_());
+                count_below::<u16, 16>(&mut self.below, &bits);
+                self.below_total += CHUNK_U32;
+            }
+            _ => {
+                for group in values.as_chunks::<HISTOGRAMS>().0 {
+                    for (counts, &v) in self.counts.iter_mut().zip(group) {
+                        counts[bit_width(v)] += 1;
+                    }
+                }
             }
         }
     }
@@ -202,9 +244,26 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
 
     #[inline]
     fn finish(self) -> Vec<u32> {
-        (0..=8 * size_of::<T>())
-            .map(|width| self.counts.iter().map(|counts| counts[width]).sum())
-            .collect()
+        let width = 8 * size_of::<T>();
+        let mut histogram: Vec<u32> = (0..=width)
+            .map(|w| self.counts.iter().map(|counts| counts[w]).sum())
+            .collect();
+        if self.below_total > 0 {
+            // `below[w]` is the cumulative count of widths up to `w`, and every value has at most
+            // `width` bits.
+            let cumulative = |w: usize| {
+                if w < width {
+                    self.below[w]
+                } else {
+                    self.below_total
+                }
+            };
+            histogram[0] += cumulative(0);
+            for w in 1..=width {
+                histogram[w] += cumulative(w) - cumulative(w - 1);
+            }
+        }
+        histogram
     }
 }
 

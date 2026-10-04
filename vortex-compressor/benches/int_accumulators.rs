@@ -28,6 +28,7 @@ mod benchmarks {
     use vortex_compressor::stats::accumulator::CommonBits;
     use vortex_compressor::stats::accumulator::DeltaRange;
     use vortex_compressor::stats::accumulator::Distinct;
+    use vortex_compressor::stats::accumulator::Fused;
     use vortex_compressor::stats::accumulator::IntValue;
     use vortex_compressor::stats::accumulator::MinMax;
     use vortex_compressor::stats::accumulator::RunCount;
@@ -148,9 +149,11 @@ mod benchmarks {
         )
     ));
 
-    // Seven statistics the integer schemes use: fused, through the type-erased set, and as
-    // separate passes.
-    int_bench!(fused_compressor_set, |v, m| accumulate(
+    // Seven statistics the integer schemes use, in four layouts: a plain tuple runs one loop per
+    // statistic over each L1-sized block; `Fused` runs one loop over each block for all of them;
+    // the grouped layout fuses only the cheap statistics; and separate passes read the array
+    // once per statistic.
+    int_bench!(blocked_compressor_set, |v, m| accumulate(
         v,
         m,
         (
@@ -163,15 +166,37 @@ mod benchmarks {
             DeltaRange::new(),
         )
     ));
-    int_bench!(erased_compressor_set, |v, m| compute(
+    int_bench!(chunk_fused_compressor_set, |v, m| accumulate(
         v,
         m,
-        (
+        Fused((
             MinMax::new(),
             RunCount::new(),
             Sorted::new(),
             Sum::new(),
             CommonBits::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        ))
+    ));
+    int_bench!(grouped_compressor_set, |v, m| accumulate(
+        v,
+        m,
+        (
+            Fused((MinMax::new(), Sum::new(), CommonBits::new())),
+            RunCount::new(),
+            Sorted::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        )
+    ));
+    int_bench!(erased_grouped_compressor_set, |v, m| compute(
+        v,
+        m,
+        (
+            Fused((MinMax::new(), Sum::new(), CommonBits::new())),
+            RunCount::new(),
+            Sorted::new(),
             BitWidthHistogram::new(),
             DeltaRange::new(),
         )
@@ -184,6 +209,23 @@ mod benchmarks {
         accumulate(v, m, CommonBits::new()),
         accumulate(v, m, BitWidthHistogram::new()),
         accumulate(v, m, DeltaRange::new()),
+    ));
+
+    // The cheap statistics alone: fused in one loop, one loop each per block, and separate passes.
+    int_bench!(fused_cheap, |v, m| accumulate(
+        v,
+        m,
+        Fused((MinMax::new(), Sum::new(), CommonBits::new()))
+    ));
+    int_bench!(blocked_cheap, |v, m| accumulate(
+        v,
+        m,
+        (MinMax::new(), Sum::new(), CommonBits::new())
+    ));
+    int_bench!(separate_cheap, |v, m| (
+        accumulate(v, m, MinMax::new()),
+        accumulate(v, m, Sum::new()),
+        accumulate(v, m, CommonBits::new()),
     ));
 
     // The same statistics as separate passes.

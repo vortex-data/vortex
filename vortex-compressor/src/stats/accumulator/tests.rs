@@ -3,6 +3,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use num_traits::AsPrimitive;
 use rstest::rstest;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
@@ -241,4 +242,149 @@ fn erased_stats() -> VortexResult<()> {
     let none = compute(&[1u8, 2], &Mask::new_false(2), MinMax::new());
     assert!(none.is_empty());
     Ok(())
+}
+
+/// Every statistic of the valid values computed naively, in a type-independent form.
+fn naive_generic<T: IntValue>(values: &[T], valid: &[bool]) -> Option<GenericStats> {
+    let v: Vec<T> = values
+        .iter()
+        .zip(valid)
+        .filter(|(_, ok)| **ok)
+        .map(|(v, _)| *v)
+        .collect();
+    let width = 8 * size_of::<T>();
+    let mut widths = vec![0u32; width + 1];
+    for &x in &v {
+        let bits: u64 = x.as_();
+        let bits = if width == 64 {
+            bits
+        } else {
+            bits & ((1 << width) - 1)
+        };
+        widths[(64 - bits.leading_zeros()) as usize] += 1;
+    }
+    let deltas: Vec<i128> = v
+        .windows(2)
+        .map(|w| AsPrimitive::<i128>::as_(w[1]) - AsPrimitive::<i128>::as_(w[0]))
+        .collect();
+    Some(GenericStats {
+        min_max: (v.iter().min()?.to_pvalue(), v.iter().max()?.to_pvalue()),
+        runs: 1 + v.windows(2).filter(|w| w[0] != w[1]).count() as u32,
+        sorted: v.is_sorted(),
+        sum: v.iter().map(|&x| AsPrimitive::<i128>::as_(x)).sum(),
+        widths,
+        deltas: deltas
+            .iter()
+            .min()
+            .zip(deltas.iter().max())
+            .map(|(a, b)| (*a, *b)),
+    })
+}
+
+/// The statistics compared by [`compositions_match_naive`].
+#[derive(Debug, PartialEq)]
+struct GenericStats {
+    min_max: (PValue, PValue),
+    runs: u32,
+    sorted: bool,
+    sum: i128,
+    widths: Vec<u32>,
+    deltas: Option<(i128, i128)>,
+}
+
+fn generic_stats(stats: &IntStats) -> Option<GenericStats> {
+    Some(GenericStats {
+        min_max: *stats.get::<MinMaxStat>()?,
+        runs: *stats.get::<RunCountStat>()?,
+        sorted: stats.get::<SortedStat>()?.sorted,
+        sum: *stats.get::<SumStat>()?,
+        widths: stats.get::<BitWidthHistogramStat>()?.clone(),
+        deltas: *stats.get::<DeltaRangeStat>()?,
+    })
+}
+
+/// Checks that plain tuples, which run one loop per statistic over each block, and [`Fused`]
+/// groups, which run one loop for all, match a naive reference across block boundaries.
+fn check_compositions<T: IntValue>(values: Vec<T>, valid: Vec<bool>) {
+    let validity = if valid.iter().all(|&v| v) {
+        Mask::new_true(values.len())
+    } else {
+        Mask::from_iter(valid.iter().copied())
+    };
+    let expected = naive_generic(&values, &valid);
+
+    let blocked = compute(
+        &values,
+        &validity,
+        (
+            MinMax::new(),
+            RunCount::new(),
+            Sorted::new(),
+            Sum::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        ),
+    );
+    let grouped = compute(
+        &values,
+        &validity,
+        (
+            Fused((MinMax::new(), Sum::new(), CommonBits::new())),
+            RunCount::new(),
+            Sorted::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        ),
+    );
+    let fused = compute(
+        &values,
+        &validity,
+        Fused((
+            MinMax::new(),
+            RunCount::new(),
+            Sorted::new(),
+            Sum::new(),
+            BitWidthHistogram::new(),
+            DeltaRange::new(),
+        )),
+    );
+    assert_eq!(generic_stats(&blocked), expected, "blocked");
+    assert_eq!(generic_stats(&grouped), expected, "grouped");
+    assert_eq!(generic_stats(&fused), expected, "fused");
+}
+
+/// Values with runs, spanning several blocks of every type, plus a tail.
+fn wide_values(len: usize) -> Vec<i64> {
+    (0..len as i64)
+        .map(|i| (i / 3).wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as i64) ^ (i >> 7))
+        .collect()
+}
+
+#[rstest]
+fn compositions_match_naive(
+    #[values(0, 1, 63, 64 * 300 + 5, 40_000)] len: usize,
+    #[values(None, Some(10), Some(2))] null_every: Option<usize>,
+    #[values(false, true)] null_blocks: bool,
+) {
+    // Optionally null out whole blocks, so that some blocks are skipped entirely.
+    let valid: Vec<bool> = (0..len)
+        .map(|i| null_every.is_none_or(|n| i % n != 0) && !(null_blocks && (i / 9000) % 2 == 1))
+        .collect();
+    let raw = wide_values(len);
+    macro_rules! check {
+        ($($T:ty),+) => {
+            $(check_compositions::<$T>(
+                raw.iter().map(|&v| v as $T).collect(),
+                valid.clone(),
+            );)+
+        };
+    }
+    check!(u8, i8, u16, i16, u32, i32, u64, i64);
+    // Narrow values exercise the low histogram buckets and dense equal runs.
+    check!(u8, u16);
+    check_compositions::<u8>(
+        raw.iter().map(|&v| (v & 0x7) as u8).collect(),
+        valid.clone(),
+    );
+    check_compositions::<u16>(raw.iter().map(|&v| (v & 0x3FF) as u16).collect(), valid);
 }

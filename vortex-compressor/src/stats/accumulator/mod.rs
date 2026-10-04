@@ -71,7 +71,15 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 /// An integer type that every statistic supports.
-pub trait IntValue: IntegerPType + AsPrimitive<i64> + AsPrimitive<u64> + AsPrimitive<i128> {
+pub trait IntValue:
+    IntegerPType
+    + AsPrimitive<u8>
+    + AsPrimitive<u16>
+    + AsPrimitive<i32>
+    + AsPrimitive<i64>
+    + AsPrimitive<u64>
+    + AsPrimitive<i128>
+{
     /// The narrowest signed type that holds the exact difference of any two values, so that
     /// differences vectorize in lanes as narrow as possible.
     type Delta: PrimInt + Into<i128> + Send + Sync + 'static;
@@ -106,45 +114,71 @@ impl_int_value!(
     i8 => i16, i16 => i32, i32 => i64, i64 => i128
 );
 
-/// The number of independent lanes that lane-wise reductions keep across chunks, so that the
-/// reduction stays in vector registers with a single horizontal reduction when finishing.
-const LANES: usize = CHUNK;
+/// The capacity of a lane array. Lane-wise reductions keep one partial result per lane across
+/// chunks, so that they stay in vector registers with a single horizontal reduction at the end.
+const LANES: usize = 32;
 
-/// Folds `values` into `lanes` with `f`.
+/// The bytes of lanes each lane array uses: two 128-bit registers, enough independent lanes to
+/// hide the latency of a reduction while leaving registers for several reductions fused in one
+/// loop.
+const LANE_BYTES: usize = 32;
+
+/// Folds `values` into the lanes `a` and `b` with `fa` and `fb`, in one loop.
 ///
-/// Narrow accumulators use every lane, so that each lane group fills whole vector registers.
-/// Without 64-bit vector compares in the baseline instruction set, wide accumulators spill out of
-/// registers, so they use only the first few lanes. `size_of` is a constant, so this folds.
+/// Each array uses [`LANE_BYTES`] of lanes, so narrow types use more lanes. `size_of` is a
+/// constant, so the dispatch folds.
+#[inline(always)]
+fn fold_lanes2<A: Copy, B: Copy, T: Copy>(
+    a: &mut [A; LANES],
+    b: &mut [B; LANES],
+    values: &[T; CHUNK],
+    fa: impl Fn(A, T) -> A,
+    fb: impl Fn(B, T) -> B,
+) {
+    match LANE_BYTES / size_of::<A>().max(size_of::<B>()) {
+        32.. => fold_first_lanes::<A, B, T, 32>(a, b, values, fa, fb),
+        16.. => fold_first_lanes::<A, B, T, 16>(a, b, values, fa, fb),
+        8.. => fold_first_lanes::<A, B, T, 8>(a, b, values, fa, fb),
+        4.. => fold_first_lanes::<A, B, T, 4>(a, b, values, fa, fb),
+        _ => fold_first_lanes::<A, B, T, 2>(a, b, values, fa, fb),
+    }
+}
+
+/// Folds `values` into `lanes` with `f`. See [`fold_lanes2`].
 #[inline(always)]
 fn fold_lanes<A: Copy, T: Copy>(
     lanes: &mut [A; LANES],
     values: &[T; CHUNK],
     f: impl Fn(A, T) -> A,
 ) {
-    match size_of::<A>() {
-        // A whole chunk per group: with two groups of 16-bit lanes, the vectorizer packs across
-        // the groups and loads lane by lane.
-        2 => fold_first_lanes::<A, T, CHUNK>(lanes, values, f),
-        ..8 => fold_first_lanes::<A, T, 32>(lanes, values, f),
-        _ => fold_first_lanes::<A, T, 4>(lanes, values, f),
-    }
+    let mut unused = [(); LANES];
+    fold_lanes2(lanes, &mut unused, values, f, |(), _| ());
 }
 
-/// Folds `values` into the first `L` of `lanes` with `f`.
+/// Folds `values` into the first `L` lanes of `a` and `b`.
 #[inline(always)]
-fn fold_first_lanes<A: Copy, T: Copy, const L: usize>(
-    lanes: &mut [A; LANES],
+fn fold_first_lanes<A: Copy, B: Copy, T: Copy, const L: usize>(
+    a: &mut [A; LANES],
+    b: &mut [B; LANES],
     values: &[T; CHUNK],
-    f: impl Fn(A, T) -> A,
+    fa: impl Fn(A, T) -> A,
+    fb: impl Fn(B, T) -> B,
 ) {
-    let Some(lanes) = lanes.first_chunk_mut::<L>() else {
+    let (Some(a), Some(b)) = (a.first_chunk_mut::<L>(), b.first_chunk_mut::<L>()) else {
         unreachable!("L is at most LANES")
     };
     for group in values.as_chunks::<L>().0 {
         for i in 0..L {
-            lanes[i] = f(lanes[i], group[i]);
+            a[i] = fa(a[i], group[i]);
+            b[i] = fb(b[i], group[i]);
         }
     }
+}
+
+/// Reduces the lanes to one value.
+#[inline(always)]
+fn reduce_lanes<A: Copy>(lanes: &[A; LANES], init: A, f: impl Fn(A, A) -> A) -> A {
+    lanes.iter().fold(init, |acc, &lane| f(acc, lane))
 }
 
 /// The number of values that every accumulator processes per fused step. This matches the width
@@ -154,12 +188,27 @@ pub const CHUNK: usize = 64;
 /// [`CHUNK`] as a `u32`.
 const CHUNK_U32: u32 = 64;
 
+/// The bytes of values in a block. Every accumulator in a tuple passes over a block in turn, so a
+/// block must stay in L1 meanwhile.
+const BLOCK_BYTES: usize = 8 << 10;
+
+/// The most chunks in a block, for the narrowest values.
+const MAX_BLOCK_CHUNKS: usize = BLOCK_BYTES / CHUNK;
+
 /// A statistic over the valid values of an integer array, computed in a single pass.
 ///
 /// [`accumulate`] calls [`start`](Self::start) once with the first valid value, then feeds every
-/// valid value, including the first, exactly once and in order: fully valid runs of [`CHUNK`]
-/// values through [`chunk`](Self::chunk), partially valid runs through
-/// [`masked_chunk`](Self::masked_chunk), and the trailing values through [`push`](Self::push).
+/// valid value, including the first, exactly once and in order. It splits the values into blocks
+/// that fit in L1 and passes each to [`block`](Self::block), or [`masked_block`](Self::masked_block)
+/// with nulls, then the trailing values to [`push`](Self::push).
+///
+/// The default block methods feed each chunk of [`CHUNK`] values to [`chunk`](Self::chunk), or
+/// [`masked_chunk`](Self::masked_chunk) with nulls, and then call [`end_block`](Self::end_block).
+///
+/// A tuple of accumulators passes each block to each element in turn, so each element runs its
+/// own loop with its state in registers while the block stays in L1. [`Fused`] instead passes each
+/// chunk to every element in one loop, for cheap statistics whose state fits in registers
+/// together.
 pub trait IntAccumulator<T: Copy> {
     /// The computed statistic.
     type Output;
@@ -179,6 +228,32 @@ pub trait IntAccumulator<T: Copy> {
 
     /// Accumulates one valid value.
     fn push(&mut self, value: T);
+
+    /// Accumulates a block of fully valid chunks.
+    #[inline(always)]
+    fn block(&mut self, chunks: &[[T; CHUNK]]) {
+        for chunk in chunks {
+            self.chunk(chunk);
+        }
+        self.end_block();
+    }
+
+    /// Accumulates a block of chunks with one validity word per chunk.
+    #[inline(always)]
+    fn masked_block(&mut self, chunks: &[[T; CHUNK]], valid: &[u64]) {
+        for (chunk, &word) in chunks.iter().zip(valid) {
+            match word {
+                0 => {}
+                u64::MAX => self.chunk(chunk),
+                _ => self.masked_chunk(chunk, word),
+            }
+        }
+        self.end_block();
+    }
+
+    /// Called after each block, for example to flush narrow per-block lanes.
+    #[inline(always)]
+    fn end_block(&mut self) {}
 
     /// Returns the statistic.
     fn finish(self) -> Self::Output;
@@ -219,6 +294,7 @@ where
     A: IntAccumulator<T>,
 {
     debug_assert_eq!(values.len(), validity.len());
+    let block_chunks = BLOCK_BYTES / size_of::<T>() / CHUNK;
     match validity.bit_buffer() {
         AllOr::None => return false,
         AllOr::All => {
@@ -227,8 +303,8 @@ where
             };
             acc.start(head);
             let (chunks, remainder) = values.as_chunks::<CHUNK>();
-            for chunk in chunks {
-                acc.chunk(chunk);
+            for block in chunks.chunks(block_chunks) {
+                acc.block(block);
             }
             for &value in remainder {
                 acc.push(value);
@@ -240,12 +316,18 @@ where
             };
             acc.start(values[head]);
             let bit_chunks = bits.chunks();
+            let mut words = bit_chunks.iter();
             let (chunks, remainder) = values.as_chunks::<CHUNK>();
-            for (chunk, word) in chunks.iter().zip(bit_chunks.iter()) {
-                match word {
-                    0 => {}
-                    u64::MAX => acc.chunk(chunk),
-                    _ => acc.masked_chunk(chunk, word),
+            let mut block_words = [0u64; MAX_BLOCK_CHUNKS];
+            for block in chunks.chunks(block_chunks) {
+                let block_words = &mut block_words[..block.len()];
+                for (slot, word) in block_words.iter_mut().zip(&mut words) {
+                    *slot = word;
+                }
+                if block_words.iter().all(|&word| word == u64::MAX) {
+                    acc.block(block);
+                } else if block_words.iter().any(|&word| word != 0) {
+                    acc.masked_block(block, block_words);
                 }
             }
             push_set_bits(acc, remainder, bit_chunks.remainder_bits());
@@ -386,6 +468,27 @@ macro_rules! impl_tuple_accumulator {
                 $($name.push(value);)+
             }
 
+            #[inline(always)]
+            fn block(&mut self, chunks: &[[T; CHUNK]]) {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = self;
+                $($name.block(chunks);)+
+            }
+
+            #[inline(always)]
+            fn masked_block(&mut self, chunks: &[[T; CHUNK]], valid: &[u64]) {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = self;
+                $($name.masked_block(chunks, valid);)+
+            }
+
+            #[inline(always)]
+            fn end_block(&mut self) {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = self;
+                $($name.end_block();)+
+            }
+
             #[inline]
             fn finish(self) -> Self::Output {
                 #[allow(non_snake_case)]
@@ -413,6 +516,56 @@ impl_tuple_accumulator!(A, B, C, D, E);
 impl_tuple_accumulator!(A, B, C, D, E, F);
 impl_tuple_accumulator!(A, B, C, D, E, F, G);
 impl_tuple_accumulator!(A, B, C, D, E, F, G, H);
+
+/// Accumulates every element of `A`, typically a tuple, in one loop per block, passing each chunk
+/// to every element in turn.
+///
+/// This saves loop overhead and repeated loads for cheap statistics, as long as their state fits
+/// in registers together. Otherwise the state spills each chunk, and a plain tuple, which runs
+/// one loop per element over each block, is faster.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Fused<A>(pub A);
+
+impl<T: Copy, A: IntAccumulator<T>> IntAccumulator<T> for Fused<A> {
+    type Output = A::Output;
+
+    #[inline(always)]
+    fn start(&mut self, head: T) {
+        self.0.start(head);
+    }
+
+    #[inline(always)]
+    fn chunk(&mut self, values: &[T; CHUNK]) {
+        self.0.chunk(values);
+    }
+
+    #[inline(always)]
+    fn masked_chunk(&mut self, values: &[T; CHUNK], valid: u64) {
+        self.0.masked_chunk(values, valid);
+    }
+
+    #[inline(always)]
+    fn push(&mut self, value: T) {
+        self.0.push(value);
+    }
+
+    #[inline(always)]
+    fn end_block(&mut self) {
+        self.0.end_block();
+    }
+
+    #[inline]
+    fn finish(self) -> A::Output {
+        self.0.finish()
+    }
+}
+
+impl<T: Copy, A: ErasedAccumulator<T>> ErasedAccumulator<T> for Fused<A> {
+    #[inline]
+    fn finish_into(self, stats: &mut IntStats) {
+        self.0.finish_into(stats);
+    }
+}
 
 /// Counts the value changes in `values`, including the change from `prev` to `values[0]`.
 #[inline(always)]
