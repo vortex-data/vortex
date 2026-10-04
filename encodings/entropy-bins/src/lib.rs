@@ -16,8 +16,15 @@
 //! folds its prefix sum into the merge and the differences of adjacent rows entropy-code better
 //! than a transposed delta's residuals.
 
+use vortex_array::ArrayVTable;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::dict::TakeExecuteAdaptor;
+use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_array::session::ArraySessionExt;
@@ -27,6 +34,7 @@ mod array;
 mod coder;
 mod compare;
 mod decode;
+mod gather;
 mod rules;
 mod slice;
 #[cfg(target_arch = "x86_64")]
@@ -40,11 +48,23 @@ pub use coder::MAX_BLOCK_VALUES;
 /// Register the encoding and its compute kernels with `session`.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(EntropyBins);
-    session.kernels().register_execute_parent_kernel(
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(
         Binary.id(),
         EntropyBins,
         CompareExecuteAdaptor(EntropyBins),
     );
+    kernels.register_execute_parent_kernel(
+        Between.id(),
+        EntropyBins,
+        BetweenExecuteAdaptor(EntropyBins),
+    );
+    kernels.register_execute_parent_kernel(
+        Filter.id(),
+        EntropyBins,
+        FilterExecuteAdaptor(EntropyBins),
+    );
+    kernels.register_execute_parent_kernel(Dict.id(), EntropyBins, TakeExecuteAdaptor(EntropyBins));
 }
 
 /// The bins of one chunk, sorted by lower bound.

@@ -805,7 +805,7 @@ impl EntropyBinsData {
 
     /// The seeds of block `b`: its first `lag` values, zero-extended (only their low `ptype`
     /// bits matter).
-    fn seeds_of(&self, b: usize) -> ([u64; MAX_LAG], usize) {
+    pub(crate) fn seeds_of(&self, b: usize) -> ([u64; MAX_LAG], usize) {
         let lag = self.lag();
         let width = self.ptype.byte_width();
         let mut seeds = [0u64; MAX_LAG];
@@ -861,20 +861,34 @@ impl EntropyBinsData {
         let bv = self.block_values();
         let first = start / bv;
         let last = (stop - 1) / bv;
-        let covered = (last + 1) * bv - first * bv;
+        let covered = ((last + 1) * bv).min(self.unsliced_n_rows) - first * bv;
         let mut out = BufferMut::<T>::with_capacity(covered);
-        // SAFETY: every position of the covered blocks is written below before it is read.
-        unsafe { out.set_len(covered.min(self.unsliced_n_rows - first * bv)) };
+        // SAFETY: `decode_blocks` writes every position of the covered blocks.
+        unsafe { out.set_len(covered) };
+        self.decode_blocks(first, last + 1, &mut out, &mut [0u8; 4 * IDS_SCRATCH])?;
+        let offset = start - first * bv;
+        Ok(out.freeze().slice(offset..offset + (stop - start)))
+    }
+
+    /// Decode the blocks `first..stop` into `out`, which must hold exactly their rows. `ids` is
+    /// scratch space for four blocks' ids.
+    pub(crate) fn decode_blocks<T: OutInt>(
+        &self,
+        first: usize,
+        stop: usize,
+        out: &mut [T],
+        ids: &mut [u8; 4 * IDS_SCRATCH],
+    ) -> VortexResult<()> {
+        let bv = self.block_values();
         let blocks_per_chunk = CHUNK_VALUES / bv;
-        let mut ids = vec![0u8; 4 * IDS_SCRATCH];
         let data = self.data.as_slice();
         let mut b = first;
-        while b <= last {
+        while b < stop {
             let ci = b / blocks_per_chunk;
             let decoder = self.decoder(ci)?;
-            let chunk_last = ((ci + 1) * blocks_per_chunk - 1).min(last);
-            while b <= chunk_last {
-                let group = if b + 3 <= chunk_last && (b + 4) * bv <= self.unsliced_n_rows {
+            let chunk_stop = ((ci + 1) * blocks_per_chunk).min(stop);
+            while b < chunk_stop {
+                let group = if b + 4 <= chunk_stop && (b + 4) * bv <= self.unsliced_n_rows {
                     4
                 } else {
                     1
@@ -885,7 +899,7 @@ impl EntropyBinsData {
                         parse_block(data, self.block_start(b + k), n, decoder.table.as_ref())
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
-                decode_ids(decoder, &views, &mut ids);
+                decode_ids(decoder, &views, ids);
                 for (k, view) in views.iter().enumerate() {
                     let row0 = (b + k - first) * bv;
                     let (seeds, lag) = self.seeds_of(b + k);
@@ -900,8 +914,7 @@ impl EntropyBinsData {
                 b += group;
             }
         }
-        let offset = start - first * bv;
-        Ok(out.freeze().slice(offset..offset + (stop - start)))
+        Ok(())
     }
 
     /// Decode one row by decoding its block's ids up to that row and reading one offset.

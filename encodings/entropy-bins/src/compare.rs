@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compare against a constant on the bin ids.
+//! Compare and between against constants on the bin ids.
 //!
-//! A bin covers a contiguous range of values, so for most bins a comparison has the same answer
-//! for every value in it. Blocks whose ids all fall in such bins are answered from their decoded
-//! ids alone, skipping the offsets; only blocks holding a value of a straddling bin are merged.
-//! This needs the values themselves, so arrays coding differences (`lag > 0`) are left to the
-//! generic path.
+//! Both predicates accept an interval of values (or, for `!=`, its complement), and a bin covers
+//! a contiguous range of values, so for most bins the predicate has the same answer for every
+//! value in it. Blocks whose ids all fall in such bins are answered from their decoded ids alone,
+//! skipping the offsets; only blocks holding a value of a straddling bin are merged. This needs
+//! the values themselves, so arrays coding differences (`lag > 0`) are left to the generic path.
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -15,7 +15,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::between::BetweenKernel;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_buffer::BitBufferMut;
@@ -50,28 +54,82 @@ impl CompareKernel for EntropyBins {
         if data.metadata.lag != 0 {
             return Ok(None);
         }
-        let Some(constant) = rhs.as_constant() else {
-            return Ok(None);
-        };
-        let Some(constant) = constant.as_primitive_opt() else {
-            return Ok(None);
-        };
-        if constant.ptype() != data.ptype() {
-            return Ok(None);
-        }
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
-        let validity = lhs.validity()?.union_nullability(nullability);
         let bits = match_each_integer_ptype!(data.ptype(), |T| {
-            let Some(c) = constant.typed_value::<T>() else {
+            let Some(c) = constant_of::<T>(rhs) else {
                 return Ok(None);
             };
-            match compare_typed::<T>(data, c, operator)? {
+            let c = latent(c, data.ptype().is_signed_int());
+            let (lo, hi, negate) = match operator {
+                CompareOperator::Eq => (Some(c), Some(c), false),
+                CompareOperator::NotEq => (Some(c), Some(c), true),
+                CompareOperator::Lt => (Some(0), c.checked_sub(1), false),
+                CompareOperator::Lte => (Some(0), Some(c), false),
+                CompareOperator::Gt => (c.checked_add(1), Some(u64::MAX), false),
+                CompareOperator::Gte => (Some(c), Some(u64::MAX), false),
+            };
+            match predicate_typed::<T>(data, Accept::<T>::new(data, lo, hi, negate))? {
                 Some(bits) => bits,
                 None => return Ok(None),
             }
         });
-        Ok(Some(BoolArray::new(bits, validity).into_array()))
+        Ok(Some(answer(lhs, bits, nullability)?))
     }
+}
+
+impl BetweenKernel for EntropyBins {
+    fn between(
+        array: ArrayView<'_, Self>,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
+        options: &BetweenOptions,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let data = array.data();
+        if data.metadata.lag != 0 {
+            return Ok(None);
+        }
+        let nullability =
+            array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+        let bits = match_each_integer_ptype!(data.ptype(), |T| {
+            let (Some(l), Some(u)) = (constant_of::<T>(lower), constant_of::<T>(upper)) else {
+                return Ok(None);
+            };
+            let signed = data.ptype().is_signed_int();
+            let (l, u) = (latent(l, signed), latent(u, signed));
+            let lo = match options.lower_strict {
+                StrictComparison::Strict => l.checked_add(1),
+                StrictComparison::NonStrict => Some(l),
+            };
+            let hi = match options.upper_strict {
+                StrictComparison::Strict => u.checked_sub(1),
+                StrictComparison::NonStrict => Some(u),
+            };
+            match predicate_typed::<T>(data, Accept::<T>::new(data, lo, hi, false))? {
+                Some(bits) => bits,
+                None => return Ok(None),
+            }
+        });
+        Ok(Some(answer(array, bits, nullability)?))
+    }
+}
+
+/// The value of `rhs` if it is a non-null constant of type `T`.
+fn constant_of<T: NativePType>(rhs: &ArrayRef) -> Option<T> {
+    let constant = rhs.as_constant()?;
+    let constant = constant.as_primitive_opt()?;
+    (constant.ptype() == T::PTYPE)
+        .then(|| constant.typed_value::<T>())
+        .flatten()
+}
+
+fn answer(
+    array: ArrayView<'_, EntropyBins>,
+    bits: vortex_buffer::BitBuffer,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let validity = array.validity()?.union_nullability(nullability);
+    Ok(BoolArray::new(bits, validity).into_array())
 }
 
 /// Order-preserving latent of a value (matches the encoder's lag-0 latents).
@@ -79,14 +137,39 @@ fn latent<T: Wide>(v: T, signed: bool) -> u64 {
     if signed { v.wide() ^ SIGN } else { v.wide() }
 }
 
-fn holds(operator: CompareOperator, l: u64, c: u64) -> bool {
-    match operator {
-        CompareOperator::Eq => l == c,
-        CompareOperator::NotEq => l != c,
-        CompareOperator::Lt => l < c,
-        CompareOperator::Lte => l <= c,
-        CompareOperator::Gt => l > c,
-        CompareOperator::Gte => l >= c,
+/// The values a predicate accepts: the latents `lo..=hi`, or all others when `negate` is set.
+/// The bounds are clamped to the type's latents, so they convert back to values of the type.
+struct Accept<T> {
+    lo: u64,
+    hi: u64,
+    lo_value: T,
+    hi_value: T,
+    empty: bool,
+    negate: bool,
+}
+
+impl<T: OutInt> Accept<T> {
+    fn new(data: &EntropyBinsData, lo: Option<u64>, hi: Option<u64>, negate: bool) -> Self {
+        let bits = data.ptype().bit_width();
+        let signed = data.ptype().is_signed_int();
+        let (min, max) = match (signed, bits) {
+            (_, 64) => (0, u64::MAX),
+            (false, _) => (0, (1u64 << bits) - 1),
+            (true, _) => (SIGN - (1u64 << (bits - 1)), SIGN + (1u64 << (bits - 1)) - 1),
+        };
+        let (lo, hi) = match (lo, hi) {
+            (Some(lo), Some(hi)) => (lo.max(min), hi.min(max)),
+            _ => (1, 0),
+        };
+        let unlatent = |l: u64| T::truncate_from(if signed { l ^ SIGN } else { l });
+        Self {
+            lo,
+            hi,
+            lo_value: unlatent(lo),
+            hi_value: unlatent(hi),
+            empty: lo > hi,
+            negate,
+        }
     }
 }
 
@@ -104,7 +187,12 @@ fn expected_straddlers(chunk: &EntropyBinsChunk, class: &[u8]) -> f64 {
 }
 
 /// The answer for each bin of `chunk` (zero-padded to 64 entries for the vector lookup).
-fn classes(chunk: &EntropyBinsChunk, operator: CompareOperator, c: u64) -> Vec<u8> {
+fn classes<T>(chunk: &EntropyBinsChunk, accept: &Accept<T>) -> Vec<u8> {
+    let (yes, no) = if accept.negate {
+        (FALSE, TRUE)
+    } else {
+        (TRUE, FALSE)
+    };
     let mut out = vec![FALSE; chunk.lowers.len().max(64)];
     for (class, (&lo, &w)) in out.iter_mut().zip(chunk.lowers.iter().zip(&chunk.widths)) {
         let hi = if w >= 64 {
@@ -112,30 +200,21 @@ fn classes(chunk: &EntropyBinsChunk, operator: CompareOperator, c: u64) -> Vec<u
         } else {
             lo.saturating_add((1u64 << w) - 1)
         };
-        let (at_lo, at_hi) = (holds(operator, lo, c), holds(operator, hi, c));
-        // Order comparisons change answer at most once over a range; equality only at `c`.
-        let uniform = match operator {
-            CompareOperator::Eq | CompareOperator::NotEq => lo == hi || c < lo || c > hi,
-            _ => at_lo == at_hi,
-        };
-        *class = if !uniform {
-            STRADDLES
-        } else if at_lo {
-            TRUE
+        *class = if accept.empty || hi < accept.lo || lo > accept.hi {
+            no
+        } else if accept.lo <= lo && hi <= accept.hi {
+            yes
         } else {
-            FALSE
+            STRADDLES
         };
     }
     out
 }
 
-fn compare_typed<T: NativePType + OutInt + Wide>(
+fn predicate_typed<T: NativePType + OutInt + Wide>(
     data: &EntropyBinsData,
-    rhs: T,
-    operator: CompareOperator,
+    accept: Accept<T>,
 ) -> VortexResult<Option<vortex_buffer::BitBuffer>> {
-    let signed = data.ptype().is_signed_int();
-    let rhs_latent = latent(rhs, signed);
     let (start, stop) = data.slice_range();
     let len = stop - start;
     if len == 0 {
@@ -150,7 +229,7 @@ fn compare_typed<T: NativePType + OutInt + Wide>(
     // for every chunk, decoding and comparing the values is as fast as this kernel can be.
     let straddle_heavy = |ci: usize| {
         let chunk = &data.metadata.chunks[ci];
-        expected_straddlers(chunk, &classes(chunk, operator, rhs_latent)) * bv as f64 >= 1.0
+        expected_straddlers(chunk, &classes(chunk, &accept)) * bv as f64 >= 1.0
     };
     if (first / blocks_per_chunk..=last / blocks_per_chunk).all(straddle_heavy) {
         return Ok(None);
@@ -165,14 +244,14 @@ fn compare_typed<T: NativePType + OutInt + Wide>(
         let ci = b / blocks_per_chunk;
         let chunk_last = ((ci + 1) * blocks_per_chunk - 1).min(last);
         let chunk = &data.metadata.chunks[ci];
-        let class = classes(chunk, operator, rhs_latent);
+        let class = classes(chunk, &accept);
         let seg =
             &mut words[(b - first) * words_per_block..(chunk_last + 1 - first) * words_per_block];
         // A straddle-heavy chunk next to lighter ones: decode its blocks in bulk.
         if expected_straddlers(chunk, &class) * bv as f64 >= 1.0 {
             let stop_row = ((chunk_last + 1) * bv).min(n_rows);
             let decoded = data.decode_range::<T>(b * bv, stop_row)?;
-            compare_values(seg, &decoded, rhs, operator);
+            accept_values(seg, &decoded, &accept);
             b = chunk_last + 1;
             continue;
         }
@@ -188,7 +267,7 @@ fn compare_typed<T: NativePType + OutInt + Wide>(
                     _ => {
                         decoder.ids(&view, &mut ids, usize::MAX);
                         merge_block(decoder, &view, &ids, &mut values, &[]);
-                        compare_values(out, &values[..n], rhs, operator);
+                        accept_values(out, &values[..n], &accept);
                     }
                 }
                 continue;
@@ -196,7 +275,7 @@ fn compare_typed<T: NativePType + OutInt + Wide>(
             decoder.ids(&view, &mut ids, usize::MAX);
             if !classify(&ids[..n], &class, out) {
                 merge_block(decoder, &view, &ids, &mut values, &[]);
-                compare_values(out, &values[..n], rhs, operator);
+                accept_values(out, &values[..n], &accept);
             }
         }
         b = chunk_last + 1;
@@ -220,20 +299,13 @@ fn fill_true(out: &mut [u64], n: usize) {
     }
 }
 
-/// Overwrite `out` with `values[i] <op> rhs`, one bit per value.
-fn compare_values<T: NativePType>(
-    out: &mut [u64],
-    values: &[T],
-    rhs: T,
-    operator: CompareOperator,
-) {
-    match operator {
-        CompareOperator::Eq => pack(out, values, |v| v.is_eq(rhs)),
-        CompareOperator::NotEq => pack(out, values, |v| !v.is_eq(rhs)),
-        CompareOperator::Lt => pack(out, values, |v| v.is_lt(rhs)),
-        CompareOperator::Lte => pack(out, values, |v| v.is_le(rhs)),
-        CompareOperator::Gt => pack(out, values, |v| v.is_gt(rhs)),
-        CompareOperator::Gte => pack(out, values, |v| v.is_ge(rhs)),
+/// Overwrite `out` with whether each of `values` is accepted, one bit per value.
+fn accept_values<T: NativePType>(out: &mut [u64], values: &[T], accept: &Accept<T>) {
+    let (lo, hi) = (accept.lo_value, accept.hi_value);
+    match (accept.empty, accept.negate) {
+        (true, negate) => pack(out, values, |_| negate),
+        (false, false) => pack(out, values, |v| v.is_ge(lo) & v.is_le(hi)),
+        (false, true) => pack(out, values, |v| v.is_lt(lo) | v.is_gt(hi)),
     }
 }
 
@@ -278,6 +350,9 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::scalar_fn::fns::between::BetweenKernel;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::scalar_fn::fns::operators::Operator;
@@ -382,6 +457,134 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case(StrictComparison::NonStrict, StrictComparison::NonStrict)]
+    #[case(StrictComparison::Strict, StrictComparison::NonStrict)]
+    #[case(StrictComparison::NonStrict, StrictComparison::Strict)]
+    #[case(StrictComparison::Strict, StrictComparison::Strict)]
+    fn between_matches_primitive(
+        #[case] lower_strict: StrictComparison,
+        #[case] upper_strict: StrictComparison,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let n = 20_000;
+        let v = values(n);
+        let validity = Validity::from_iter((0..n).map(|i| i % 11 != 0));
+        let prim = PrimitiveArray::new(Buffer::from(v.clone()), validity);
+        let encoded = EntropyBins::from_primitive(
+            prim.as_view(),
+            8,
+            crate::EntropyBinsOptions::new(0, BLOCK_VALUES),
+        )?
+        .into_array();
+        let mut sorted = v;
+        sorted.sort_unstable();
+        let bounds = [
+            (i32::MIN, i32::MIN),
+            (i32::MAX, i32::MAX),
+            (i32::MIN, i32::MAX),
+            (sorted[n / 3], sorted[n / 3]),
+            (sorted[n / 3], sorted[2 * n / 3]),
+            (sorted[2 * n / 3], sorted[n / 3]),
+            (sorted[0] - 1, sorted[n / 100]),
+            (sorted[n / 2], sorted[n / 2] + 1),
+        ];
+        let options = BetweenOptions {
+            lower_strict,
+            upper_strict,
+        };
+        let mut engaged = 0;
+        for (a, b) in [(0, n), (1500, 9999)] {
+            let lhs = encoded.slice(a..b)?;
+            let lhs_view = lhs
+                .as_opt::<EntropyBins>()
+                .ok_or_else(|| vortex_error::vortex_err!("slice is not entropy bins"))?;
+            for &(lo, hi) in &bounds {
+                let lower = ConstantArray::new(lo, b - a).into_array();
+                let upper = ConstantArray::new(hi, b - a).into_array();
+                let Some(got) = <EntropyBins as BetweenKernel>::between(
+                    lhs_view, &lower, &upper, &options, &mut ctx,
+                )?
+                else {
+                    continue;
+                };
+                engaged += 1;
+                let got = got.execute::<BoolArray>(&mut ctx)?;
+                let want = prim
+                    .clone()
+                    .into_array()
+                    .slice(a..b)?
+                    .between(lower, upper, options.clone())?
+                    .execute::<BoolArray>(&mut ctx)?;
+                assert_arrays_eq!(got, want, &mut ctx);
+            }
+        }
+        assert!(engaged >= bounds.len(), "kernel engaged {engaged} times");
+        Ok(())
+    }
+
+    /// Bounds at the edges of a narrow type clamp to the type's values.
+    #[rstest]
+    #[case(0u8, 255u8)]
+    #[case(1u8, 254u8)]
+    #[case(255u8, 255u8)]
+    #[case(0u8, 0u8)]
+    #[case(200u8, 100u8)]
+    fn narrow_edges(#[case] lo: u8, #[case] hi: u8) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let n = 5000;
+        let v: Vec<u8> = (0..n)
+            .map(|i| [0, 1, 2, 3, 128, 253, 254, 255][(i * i + i / 7) % 8])
+            .collect();
+        let prim = PrimitiveArray::new(Buffer::from(v), Validity::NonNullable);
+        let encoded = EntropyBins::from_primitive(
+            prim.as_view(),
+            8,
+            crate::EntropyBinsOptions::new(0, BLOCK_VALUES),
+        )?;
+        let declined = || vortex_error::vortex_err!("kernel declined");
+        let (lower, upper) = (
+            ConstantArray::new(lo, n).into_array(),
+            ConstantArray::new(hi, n).into_array(),
+        );
+        for strict in [StrictComparison::Strict, StrictComparison::NonStrict] {
+            let options = BetweenOptions {
+                lower_strict: strict,
+                upper_strict: strict,
+            };
+            let got = <EntropyBins as BetweenKernel>::between(
+                encoded.as_view(),
+                &lower,
+                &upper,
+                &options,
+                &mut ctx,
+            )?
+            .ok_or_else(declined)?
+            .execute::<BoolArray>(&mut ctx)?;
+            let want = prim
+                .clone()
+                .into_array()
+                .between(lower.clone(), upper.clone(), options)?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got, want, &mut ctx);
+        }
+        for op in OPERATORS {
+            for rhs in [&lower, &upper] {
+                let got =
+                    <EntropyBins as CompareKernel>::compare(encoded.as_view(), rhs, op, &mut ctx)?
+                        .ok_or_else(declined)?
+                        .execute::<BoolArray>(&mut ctx)?;
+                let want = prim
+                    .clone()
+                    .into_array()
+                    .binary(rhs.clone(), Operator::from(op))?
+                    .execute::<BoolArray>(&mut ctx)?;
+                assert_arrays_eq!(got, want, &mut ctx);
+            }
+        }
+        Ok(())
+    }
+
     /// A straddle-heavy chunk (uniform values) next to one of a few distinct values: the kernel
     /// engages and decodes the heavy chunk in bulk.
     #[test]
@@ -442,7 +645,13 @@ mod tests {
         )?;
         let chunk = &encoded.data().metadata.chunks[0];
         let rhs_value = 1u32 << 23;
-        let class = super::classes(chunk, CompareOperator::Lt, u64::from(rhs_value));
+        let lt = super::Accept::<u32>::new(
+            encoded.data(),
+            Some(0),
+            Some(u64::from(rhs_value) - 1),
+            false,
+        );
+        let class = super::classes(chunk, &lt);
         assert!(super::expected_straddlers(chunk, &class) * BLOCK_VALUES as f64 >= 1.0);
         let rhs = ConstantArray::new(rhs_value, 9000).into_array();
         let declined = <EntropyBins as CompareKernel>::compare(

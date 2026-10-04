@@ -22,7 +22,7 @@ use crate::EntropyBinsOptions;
 use crate::MAX_BLOCK_VALUES;
 
 /// Deterministic xorshift values with a skewed, clustered distribution.
-fn skewed(len: usize, seed: u64) -> Vec<i64> {
+pub(crate) fn skewed(len: usize, seed: u64) -> Vec<i64> {
     let mut state = seed | 1;
     let mut value = 0i64;
     (0..len)
