@@ -1,0 +1,41 @@
+[package]
+name = "compressor-lab"
+description = "Deterministic, checkpointed data generation for learning Vortex compression scheme selection"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-schema = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+glob = { workspace = true }
+parquet = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+toml = { workspace = true }
+vortex-btrblocks = { workspace = true, features = ["pco", "zstd"] }
+
+[dev-dependencies]
+arrow-array = { workspace = true }
+tempfile = { workspace = true }
+
+[[bin]]
+name = "vx-lab"
+path = "src/main.rs"
+test = false
+
+[lib]
+
+[lints]
+workspace = true
