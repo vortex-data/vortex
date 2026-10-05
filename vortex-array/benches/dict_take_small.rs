@@ -18,6 +18,16 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::test_harness::take_values_fallback_u8;
+use vortex_array::test_harness::take_values_fallback_u16;
+use vortex_array::test_harness::take_values_fallback_u32;
+use vortex_array::test_harness::take_values_fallback_u64;
+use vortex_array::test_harness::take_values_u8;
+use vortex_array::test_harness::take_values_u16;
+use vortex_array::test_harness::take_values_u32;
+use vortex_array::test_harness::take_values_u64;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -33,14 +43,21 @@ fn main() {
 
 fn codes<const NUM_VALUES: usize>() -> Vec<u8> {
     assert!(NUM_VALUES.is_power_of_two());
-    assert!(NUM_VALUES <= 64);
+    assert!(NUM_VALUES <= 256);
     (0..LEN)
         .map(|index| ((index.wrapping_mul(37) ^ (index >> 3)) & (NUM_VALUES - 1)) as u8)
         .collect()
 }
 
-fn values<const NUM_VALUES: usize>() -> [u8; 64] {
-    let mut values = [0; 64];
+fn codes_with_len<const NUM_VALUES: usize>(len: usize) -> Vec<u8> {
+    assert!(NUM_VALUES.is_power_of_two());
+    (0..len)
+        .map(|index| ((index.wrapping_mul(37) ^ (index >> 3)) & (NUM_VALUES - 1)) as u8)
+        .collect()
+}
+
+fn values<const NUM_VALUES: usize>() -> [u8; 256] {
+    let mut values = [0; 256];
     for (index, value) in values[..NUM_VALUES].iter_mut().enumerate() {
         *value = (index as u8).wrapping_mul(37).wrapping_add(11);
     }
@@ -54,7 +71,7 @@ fn take_scalar(values: &[u8], codes: &[u8], output: &mut [u8]) {
     }
 }
 
-#[divan::bench(consts = [2usize, 4, 8, 16, 32, 64])]
+#[divan::bench(consts = [2usize, 4, 8, 16, 32, 64, 128, 256])]
 fn scalar<const NUM_VALUES: usize>(bencher: Bencher) {
     let values = values::<NUM_VALUES>();
     let codes = codes::<NUM_VALUES>();
@@ -69,7 +86,7 @@ fn scalar<const NUM_VALUES: usize>(bencher: Bencher) {
     });
 }
 
-#[divan::bench(consts = [2usize, 4, 8, 16, 32, 64])]
+#[divan::bench(consts = [2usize, 4, 8, 16, 32, 64, 128, 256])]
 fn vortex_take<const NUM_VALUES: usize>(bencher: Bencher) {
     let values = PrimitiveArray::from_iter(values::<NUM_VALUES>()[..NUM_VALUES].iter().copied())
         .into_array();
@@ -86,6 +103,128 @@ fn vortex_take<const NUM_VALUES: usize>(bencher: Bencher) {
         });
 }
 
+#[divan::bench(consts = [2usize, 4, 8, 16, 32, 64, 128, 256])]
+fn vortex_kernel<const NUM_VALUES: usize>(bencher: Bencher) {
+    let values = values::<NUM_VALUES>();
+    let codes = codes::<NUM_VALUES>();
+    let allocator = BufferAllocatorRef::statically_allocated();
+    bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
+        take_values_u8(
+            black_box(&values[..NUM_VALUES]),
+            black_box(&codes),
+            black_box(&allocator),
+        )
+    });
+}
+
+const TAKE_LENGTHS: &[usize] = &[16, 32, 63, 64, 65, 128, 256, 1_024, 16_384];
+
+#[divan::bench(args = TAKE_LENGTHS)]
+fn vortex_kernel_by_len(bencher: Bencher, len: usize) {
+    let values = values::<32>();
+    let codes = codes_with_len::<32>(len);
+    let allocator = BufferAllocatorRef::statically_allocated();
+    bencher.counter(ItemsCount::new(len)).bench_local(|| {
+        take_values_u8(
+            black_box(&values[..32]),
+            black_box(&codes),
+            black_box(&allocator),
+        )
+    });
+}
+
+#[divan::bench(args = TAKE_LENGTHS)]
+fn scalar_kernel_by_len(bencher: Bencher, len: usize) {
+    let values = values::<32>();
+    let codes = codes_with_len::<32>(len);
+    let allocator = BufferAllocatorRef::statically_allocated();
+    bencher.counter(ItemsCount::new(len)).bench_local(|| {
+        take_values_fallback_u8(
+            black_box(&values[..32]),
+            black_box(&codes),
+            black_box(&allocator),
+        )
+    });
+}
+
+macro_rules! bench_wide_kernel {
+    ($name:ident, $ty:ty, $take:path, [$($num_values:expr),+ $(,)?]) => {
+        #[divan::bench(consts = [$($num_values),+])]
+        fn $name<const NUM_VALUES: usize>(bencher: Bencher) {
+            let values = (0..NUM_VALUES)
+                .map(|index| <$ty>::from((index as u8).wrapping_mul(37).wrapping_add(11)))
+                .collect::<Vec<_>>();
+            let codes = codes::<NUM_VALUES>();
+            let allocator = BufferAllocatorRef::statically_allocated();
+            bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
+                $take(
+                    black_box(&values),
+                    black_box(&codes),
+                    black_box(&allocator),
+                )
+            });
+        }
+    };
+}
+
+bench_wide_kernel!(
+    vortex_kernel_u16,
+    u16,
+    take_values_u16,
+    [2usize, 4, 8, 16, 32, 64, 128]
+);
+bench_wide_kernel!(
+    gather_u16,
+    u16,
+    take_values_fallback_u16,
+    [2usize, 4, 8, 16, 32, 64, 128]
+);
+bench_wide_kernel!(
+    vortex_kernel_u32,
+    u32,
+    take_values_u32,
+    [2usize, 4, 8, 16, 32, 64]
+);
+bench_wide_kernel!(
+    gather_u32,
+    u32,
+    take_values_fallback_u32,
+    [2usize, 4, 8, 16, 32, 64]
+);
+bench_wide_kernel!(
+    vortex_kernel_u64,
+    u64,
+    take_values_u64,
+    [2usize, 4, 8, 16, 32]
+);
+bench_wide_kernel!(
+    gather_u64,
+    u64,
+    take_values_fallback_u64,
+    [2usize, 4, 8, 16, 32]
+);
+
+#[divan::bench]
+fn allocate_and_copy(bencher: Bencher) {
+    let codes = codes::<64>();
+    let allocator = BufferAllocatorRef::statically_allocated();
+    bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
+        let mut output = BufferMut::with_capacity_in(LEN, black_box(allocator.clone()));
+        output.extend_from_slice(black_box(&codes));
+        black_box(output.freeze())
+    });
+}
+
+#[divan::bench]
+fn reuse_and_copy(bencher: Bencher) {
+    let codes = codes::<64>();
+    let mut output = vec![0; LEN];
+    bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
+        black_box(&mut output).copy_from_slice(black_box(&codes));
+        black_box(output[0]);
+    });
+}
+
 mod fearless {
     use fearless_simd::Level;
     use fearless_simd::Simd;
@@ -100,7 +239,7 @@ mod fearless {
     #[inline(never)]
     fn take_kernel<S: Simd, const NUM_VALUES: usize>(
         simd: S,
-        values: &[u8; 64],
+        values: &[u8; 256],
         codes: &[u8],
         output: &mut [u8],
     ) {
@@ -121,7 +260,7 @@ mod fearless {
     #[inline(never)]
     fn take<const NUM_VALUES: usize>(
         level: Level,
-        values: &[u8; 64],
+        values: &[u8; 256],
         codes: &[u8],
         output: &mut [u8],
     ) {

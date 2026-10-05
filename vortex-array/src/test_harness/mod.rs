@@ -11,6 +11,54 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::fixed_width::take::take_values;
+use crate::arrays::fixed_width::take::take_values_fallback;
+
+/// Runs the fixed-width byte take kernel directly for benchmarks.
+#[doc(hidden)]
+pub fn take_values_u8(
+    values: &[u8],
+    indices: &[u8],
+    allocator: &vortex_buffer::BufferAllocatorRef,
+) -> vortex_buffer::Buffer<u8> {
+    take_values(values, indices, allocator)
+}
+
+/// Runs the fixed-width byte take fallback directly for benchmarks.
+#[doc(hidden)]
+pub fn take_values_fallback_u8(
+    values: &[u8],
+    indices: &[u8],
+    allocator: &vortex_buffer::BufferAllocatorRef,
+) -> vortex_buffer::Buffer<u8> {
+    take_values_fallback(values, indices, allocator)
+}
+
+macro_rules! export_take_benchmarks {
+    ($take:ident, $fallback:ident, $ty:ty) => {
+        #[doc(hidden)]
+        pub fn $take(
+            values: &[$ty],
+            indices: &[u8],
+            allocator: &vortex_buffer::BufferAllocatorRef,
+        ) -> vortex_buffer::Buffer<$ty> {
+            take_values(values, indices, allocator)
+        }
+
+        #[doc(hidden)]
+        pub fn $fallback(
+            values: &[$ty],
+            indices: &[u8],
+            allocator: &vortex_buffer::BufferAllocatorRef,
+        ) -> vortex_buffer::Buffer<$ty> {
+            take_values_fallback(values, indices, allocator)
+        }
+    };
+}
+
+export_take_benchmarks!(take_values_u16, take_values_fallback_u16, u16);
+export_take_benchmarks!(take_values_u32, take_values_fallback_u32, u32);
+export_take_benchmarks!(take_values_u64, take_values_fallback_u64, u64);
 
 #[cfg(not(codspeed))]
 pub mod trace;

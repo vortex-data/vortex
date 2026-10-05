@@ -55,11 +55,17 @@ fn take_eight_byte_values() {
 #[case(33)]
 #[case(63)]
 #[case(64)]
+#[case(65)]
+#[case(127)]
+#[case(128)]
+#[case(129)]
+#[case(255)]
+#[case(256)]
 fn take_small_byte_table(#[case] cardinality: usize) {
     let values = (0..cardinality)
         .map(|value| {
             u8::try_from(value)
-                .vortex_expect("cardinality is at most 64")
+                .vortex_expect("cardinality is at most 256")
                 .wrapping_mul(37)
                 .wrapping_add(11)
         })
@@ -67,7 +73,7 @@ fn take_small_byte_table(#[case] cardinality: usize) {
     for len in [64, 65, 79, 128, 129] {
         let indices = (0..len)
             .map(|index| {
-                u8::try_from((index * 37) % cardinality).vortex_expect("cardinality is at most 64")
+                u8::try_from((index * 37) % cardinality).vortex_expect("cardinality is at most 256")
             })
             .collect::<Vec<_>>();
         let expected = indices
@@ -100,6 +106,59 @@ fn take_small_signed_byte_table() {
 }
 
 #[rstest]
+#[case(2)]
+#[case(8)]
+#[case(16)]
+#[case(17)]
+#[case(32)]
+#[case(33)]
+#[case(64)]
+#[case(128)]
+fn take_small_two_byte_table(#[case] cardinality: usize) {
+    let values = (0..cardinality)
+        .map(|value| {
+            u16::try_from(value)
+                .vortex_expect("cardinality is at most 128")
+                .wrapping_mul(379)
+                .wrapping_add(11)
+        })
+        .collect::<Vec<_>>();
+    for len in [64, 65, 79, 128, 129] {
+        let indices = (0..len)
+            .map(|index| {
+                u8::try_from((index * 37) % cardinality).vortex_expect("cardinality is at most 128")
+            })
+            .collect::<Vec<_>>();
+        let expected = indices
+            .iter()
+            .map(|index| values[usize::from(*index)])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            take_values(&values, &indices, &allocator()).as_slice(),
+            expected.as_slice()
+        );
+    }
+}
+
+#[test]
+fn take_small_signed_two_byte_table() {
+    let values = [i16::MIN, -1, 0, i16::MAX];
+    let indices = [3u8, 0, 1, 2, 3, 1, 0]
+        .into_iter()
+        .cycle()
+        .take(129)
+        .collect::<Vec<_>>();
+    let expected = indices
+        .iter()
+        .map(|index| values[usize::from(*index)])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        take_values(&values, &indices, &allocator()).as_slice(),
+        expected.as_slice()
+    );
+}
+
+#[rstest]
 #[case::vector(64)]
 #[case::tail(128)]
 #[should_panic]
@@ -107,6 +166,16 @@ fn take_small_byte_table_rejects_out_of_bounds_index(#[case] offset: usize) {
     let mut indices = vec![0u8; 129];
     indices[offset] = 4;
     drop(take_values(&[10u8, 20, 30, 40], &indices, &allocator()));
+}
+
+#[rstest]
+#[case::vector(64)]
+#[case::tail(128)]
+#[should_panic]
+fn take_small_two_byte_table_rejects_out_of_bounds_index(#[case] offset: usize) {
+    let mut indices = vec![0u8; 129];
+    indices[offset] = 4;
+    drop(take_values(&[10u16, 20, 30, 40], &indices, &allocator()));
 }
 
 #[rstest]
