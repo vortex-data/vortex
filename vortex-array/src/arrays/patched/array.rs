@@ -368,6 +368,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
     use super::PatchedSlots;
@@ -494,6 +495,39 @@ mod tests {
         let owned = VariadicSlots::from_slots(slot_vec.into());
         assert!(owned.chunks.is_empty());
         assert_eq!(owned.into_slots().len(), 2);
+    }
+
+    #[test]
+    fn variadic_slots_spilled_tail_keeps_order() {
+        let offsets = PrimitiveArray::new(buffer![0u64], Validity::NonNullable).into_array();
+        let chunks: Vec<ArrayRef> = (0..5u8)
+            .map(|len| {
+                PrimitiveArray::new((0..len).collect::<Buffer<u8>>(), Validity::NonNullable)
+                    .into_array()
+            })
+            .collect();
+
+        let slots = VariadicSlots {
+            offsets: offsets.clone(),
+            maybe_validity: None,
+            chunks,
+        }
+        .into_slots();
+
+        assert!(slots.spilled());
+        assert_eq!(slots.len(), VariadicSlots::FIXED_COUNT + 5);
+        assert_eq!(
+            slots[VariadicSlots::OFFSETS].as_ref().map(|s| s.len()),
+            Some(offsets.len())
+        );
+        assert!(slots[VariadicSlots::MAYBE_VALIDITY].is_none());
+        assert_eq!(
+            slots[VariadicSlots::CHUNKS_OFFSET..]
+                .iter()
+                .map(|s| s.as_ref().map(|c| c.len()))
+                .collect::<Vec<_>>(),
+            (0..5).map(Some).collect::<Vec<_>>()
+        );
     }
 
     #[test]
