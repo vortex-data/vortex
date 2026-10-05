@@ -43,7 +43,9 @@ const CHUNK_ROWS: i32 = 1000;
 const DTYPE: DType = DType::Primitive(PType::I32, NonNullable);
 
 /// Four chunks of consecutive integers, `0..4000`.
-async fn write_layout(session: &VortexSession) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+async fn write_layout(
+    session: &VortexSession,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
     let chunks = (0..4)
@@ -77,7 +79,12 @@ fn builder(
     layout: &LayoutRef,
     case: &Case,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
-    let reader = layout.new_reader("".into(), Arc::clone(segments), session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(segments),
+        session,
+        &Default::default(),
+    )?;
     let mut builder = ScanBuilder::new(session.clone(), reader);
     if case.filter {
         builder = builder.with_filter(gt(root(), lit(1500_i32)).bind(&DTYPE)?);
@@ -155,8 +162,9 @@ fn execute_matches_default(
         let (segments, layout) = write_layout(&session).await?;
 
         let default = builder(&session, &segments, &layout, &case)?.prepare()?;
-        let replacement = v2::ScanBuilder::from_default(builder(&session, &segments, &layout, &case)?)
-            .prepare()?;
+        let replacement =
+            v2::ScanBuilder::from_default(builder(&session, &segments, &layout, &case)?)
+                .prepare()?;
         assert_eq!(replacement.dtype(), default.dtype());
 
         let expected = await_tasks(default.execute(execute_range.clone())?).await?;
