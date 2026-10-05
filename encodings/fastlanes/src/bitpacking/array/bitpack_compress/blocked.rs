@@ -316,7 +316,7 @@ mod tests {
 
     use super::*;
     use crate::BitPackedData;
-    use crate::BitWidths;
+    use crate::BitWidthsView;
     use crate::bitpack_compress::bitpack_primitive;
     use crate::bitpacking::array::BitPackedArrayExt;
 
@@ -331,10 +331,10 @@ mod tests {
         array: &BitPackedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
-        let BitWidths::Blocked(offsets) = array.bit_widths() else {
+        let BitWidthsView::Blocked(offsets) = array.bit_widths() else {
             vortex_bail!("expected block offsets");
         };
-        offsets.execute::<PrimitiveArray>(ctx)
+        offsets.clone().execute::<PrimitiveArray>(ctx)
     }
 
     /// The bit width of each block, from the distance between its boundaries.
@@ -468,7 +468,7 @@ mod tests {
             &mut ctx,
         )?;
 
-        let BitWidths::Blocked(offsets) = array.bit_widths() else {
+        let BitWidthsView::Blocked(offsets) = array.bit_widths() else {
             vortex_bail!("expected block offsets");
         };
         assert!(offsets.is::<Primitive>());
