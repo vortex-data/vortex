@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! NEON byte-table take for `u8` codes and at most 16 one-byte values.
+//! NEON byte-table take for `u8` codes and at most 32 one-byte values.
 
 use std::arch::aarch64::uint8x16_t;
+use std::arch::aarch64::uint8x16x2_t;
 use std::arch::aarch64::vdupq_n_u8;
 use std::arch::aarch64::vld1q_u8;
 use std::arch::aarch64::vmaxq_u8;
 use std::arch::aarch64::vmaxvq_u8;
 use std::arch::aarch64::vqtbl1q_u8;
+use std::arch::aarch64::vqtbl2q_u8;
 use std::arch::aarch64::vst1q_u8;
 
 use vortex_buffer::Buffer;
@@ -60,7 +62,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
 ) -> Buffer<T> {
     if I::PTYPE != PType::U8
         || values.is_empty()
-        || values.len() > 16
+        || values.len() > 32
         || size_of::<T>() != 1
         || indices.len() < 64
     {
@@ -71,15 +73,21 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     let indices: &[u8] =
         unsafe { std::slice::from_raw_parts(indices.as_ptr().cast(), indices.len()) };
 
-    let mut table = [values[0]; 16];
+    let mut table = [values[0]; 32];
     table[..values.len()].copy_from_slice(values);
 
     let mut output = BufferMut::<T>::with_capacity_in(indices.len(), allocator.clone());
     let spare = output.spare_capacity_mut();
     let output_ptr = spare.as_mut_ptr().cast::<u8>();
     // SAFETY: AArch64 always provides NEON. T is one byte with no uninitialized bytes, the table
-    // contains 16 values, and the output has capacity for every index.
-    let (offset, max_code) = unsafe { take_vectors(&table, indices, output_ptr) };
+    // contains 32 initialized values, and the output has capacity for every index.
+    let (offset, max_code) = unsafe {
+        if values.len() <= 16 {
+            take_vectors::<T, false>(&table, indices, output_ptr)
+        } else {
+            take_vectors::<T, true>(&table, indices, output_ptr)
+        }
+    };
 
     for offset in offset..indices.len() {
         let code = usize::from(indices[offset]);
@@ -100,18 +108,28 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     output.freeze()
 }
 
-unsafe fn take_vectors<T: FixedWidthTakeValue>(
-    table: &[T; 16],
+unsafe fn take_vectors<T: FixedWidthTakeValue, const TWO_TABLES: bool>(
+    table: &[T; 32],
     indices: &[u8],
     output: *mut u8,
 ) -> (usize, u8) {
-    let table = unsafe { vld1q_u8(table.as_ptr().cast::<u8>()) };
+    // SAFETY: The caller supplies 32 initialized one-byte values.
+    let low = unsafe { vld1q_u8(table.as_ptr().cast::<u8>()) };
+    let high = unsafe { vld1q_u8(table.as_ptr().add(16).cast::<u8>()) };
+    let table = uint8x16x2_t(low, high);
     let mut max_codes: uint8x16_t = unsafe { vdupq_n_u8(0) };
     let mut offset = 0;
     while offset + 16 <= indices.len() {
+        // SAFETY: The loop condition guarantees 16 input codes and output slots are in bounds.
         let codes = unsafe { vld1q_u8(indices.as_ptr().add(offset)) };
         max_codes = unsafe { vmaxq_u8(max_codes, codes) };
-        unsafe { vst1q_u8(output.add(offset), vqtbl1q_u8(table, codes)) };
+        let taken = if TWO_TABLES {
+            unsafe { vqtbl2q_u8(table, codes) }
+        } else {
+            unsafe { vqtbl1q_u8(low, codes) }
+        };
+        // SAFETY: The output has capacity for every index, as guaranteed by the caller.
+        unsafe { vst1q_u8(output.add(offset), taken) };
         offset += 16;
     }
     (offset, unsafe { vmaxvq_u8(max_codes) })

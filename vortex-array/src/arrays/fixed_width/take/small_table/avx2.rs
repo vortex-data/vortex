@@ -112,7 +112,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
 /// Requires AVX2, one-byte T, and between 1 and 32 values. When `TWO_TABLES` is false,
 /// the dictionary must contain at most 16 values.
 #[target_feature(enable = "avx2")]
-pub(super) unsafe fn take_avx2<T: FixedWidthTakeValue, const TWO_TABLES: bool>(
+unsafe fn take_avx2<T: FixedWidthTakeValue, const TWO_TABLES: bool>(
     values: &[T],
     indices: &[u8],
     allocator: &BufferAllocatorRef,
