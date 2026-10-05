@@ -318,3 +318,7 @@ harness = false
 [[bench]]
 name = "probe"
 harness = false
+
+[[bench]]
+name = "take_bool"
+harness = false
