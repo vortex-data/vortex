@@ -19,6 +19,9 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::half::f16;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -32,12 +35,20 @@ fn main() {
 }
 
 const LENGTHS: &[usize] = &[64, 1_024, 65_536, 1_000_000];
-const CARDINALITIES: &[u8] = &[2, 4, 8, 16, 32];
+const CARDINALITIES: &[usize] = &[2, 4, 8, 16, 17, 24, 32, 33, 48, 64, 65, 96, 128, 129, 192, 256];
 
-fn run<const CARDINALITY: u8>(bencher: Bencher, len: usize, skewed: bool) {
+fn run<T: NativePType, const CARDINALITY: usize>(bencher: Bencher, len: usize, skewed: bool) {
     // Non-identity values prevent a copy of the codes from looking like a correct lookup.
     let values = (0..CARDINALITY)
-        .map(|code| code.wrapping_mul(37).wrapping_add(129))
+        .map(|code| {
+            let byte = (code as u8).wrapping_mul(37).wrapping_add(129);
+            let value = if T::PTYPE == PType::I8 {
+                i16::from(byte as i8)
+            } else {
+                i16::from(byte)
+            };
+            T::from(value).unwrap()
+        })
         .collect::<Vec<_>>();
     let mut rng = StdRng::seed_from_u64(0);
     let codes = (0..len)
@@ -45,7 +56,7 @@ fn run<const CARDINALITY: u8>(bencher: Bencher, len: usize, skewed: bool) {
             if skewed && rng.random_ratio(9, 10) {
                 0
             } else {
-                rng.random_range(0..CARDINALITY)
+                rng.random_range(0..CARDINALITY) as u8
             }
         })
         .collect::<Vec<_>>();
@@ -64,7 +75,7 @@ fn run<const CARDINALITY: u8>(bencher: Bencher, len: usize, skewed: bool) {
         .clone()
         .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
-    assert_eq!(actual.as_slice::<u8>(), expected);
+    assert_eq!(actual.as_slice::<T>(), expected);
 
     bencher
         .counter(ItemsCount::new(len))
@@ -73,13 +84,21 @@ fn run<const CARDINALITY: u8>(bencher: Bencher, len: usize, skewed: bool) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = LENGTHS, consts = CARDINALITIES)]
-fn uniform<const CARDINALITY: u8>(bencher: Bencher, len: usize) {
-    run::<CARDINALITY>(bencher, len, false);
+#[divan::bench(
+    types = [u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64],
+    args = LENGTHS,
+    consts = CARDINALITIES
+)]
+fn uniform<T: NativePType, const CARDINALITY: usize>(bencher: Bencher, len: usize) {
+    run::<T, CARDINALITY>(bencher, len, false);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = LENGTHS, consts = CARDINALITIES)]
-fn skewed<const CARDINALITY: u8>(bencher: Bencher, len: usize) {
-    run::<CARDINALITY>(bencher, len, true);
+#[divan::bench(
+    types = [u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64],
+    args = LENGTHS,
+    consts = CARDINALITIES
+)]
+fn skewed<T: NativePType, const CARDINALITY: usize>(bencher: Bencher, len: usize) {
+    run::<T, CARDINALITY>(bencher, len, true);
 }
