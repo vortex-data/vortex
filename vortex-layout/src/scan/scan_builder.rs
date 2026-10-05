@@ -298,6 +298,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Moves this builder's configuration into the alternative scan builder.
+    // TODO(joe): Remove once the V2 migration is complete.
     pub(crate) fn into_parts(self) -> ScanParts<A> {
         ScanParts {
             session: self.session,
@@ -412,6 +413,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 }
 
 /// Configuration transferred to the alternative scan builder.
+// TODO(joe): Remove once the V2 migration is complete.
 pub(crate) struct ScanParts<A> {
     pub(crate) session: VortexSession,
     pub(crate) layout_reader: LayoutReaderRef,
