@@ -76,36 +76,33 @@ pub fn filter_fixed_size_list(
 ///
 /// The output `Mask` is guaranteed to have a length equal to `selection_mask.len() * list_size`.
 ///
-/// The element bitmap is built directly rather than from a list of ranges: lists of 2 or 4
-/// elements expand each selection byte through a lookup table, and other sizes fill the runs of
-/// selected lists a word at a time.
+/// The element bitmap is built directly rather than from a list of ranges: each run of selected
+/// lists is filled a word at a time.
 fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) -> Mask {
     let selection = selection_mask.bit_buffer();
     let len = selection.len() * list_size;
 
-    match list_size {
-        1 => Mask::from_buffer(selection.clone()),
-        2 => Mask::from_buffer(repeat_bits_pow2::<2>(selection)),
-        4 => Mask::from_buffer(repeat_bits_pow2::<4>(selection)),
-        _ => {
-            let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
-            let words_mut = words.as_mut_slice();
-            let mut slices = Vec::new();
-            for (start, end) in selection.set_slices() {
-                let (start, end) = (start * list_size, end * list_size);
-                set_bit_range(words_mut, start, end);
-                if list_size >= MIN_CACHED_SLICES_LIST_SIZE {
-                    slices.push((start, end));
-                }
-            }
+    if list_size == 1 {
+        return Mask::from_buffer(selection.clone());
+    }
 
-            let elements = BitBuffer::new(words.freeze().into_byte_buffer(), len);
-            if list_size >= MIN_CACHED_SLICES_LIST_SIZE {
-                Mask::from_buffer_with_slices(elements, slices)
-            } else {
-                Mask::from_buffer(elements)
-            }
+    let cache_slices = list_size >= MIN_CACHED_SLICES_LIST_SIZE;
+    let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
+    let words_mut = words.as_mut_slice();
+    let mut slices = Vec::new();
+    for (start, end) in selection.set_slices() {
+        let (start, end) = (start * list_size, end * list_size);
+        set_bit_range(words_mut, start, end);
+        if cache_slices {
+            slices.push((start, end));
         }
+    }
+
+    let elements = BitBuffer::new(words.freeze().into_byte_buffer(), len);
+    if cache_slices {
+        Mask::from_buffer_with_slices(elements, slices)
+    } else {
+        Mask::from_buffer(elements)
     }
 }
 
@@ -125,55 +122,6 @@ fn set_bit_range(words: &mut [u64], start: usize, end: usize) {
     if end_bit != 0 {
         words[end_word] |= !(u64::MAX << end_bit);
     }
-}
-
-/// Lookup table from a byte to that byte with each bit repeated `N` times.
-struct RepeatBitsLut<const N: usize>;
-
-impl<const N: usize> RepeatBitsLut<N> {
-    const TABLE: [u64; 256] = {
-        assert!(N > 0 && 8 * N <= 64);
-        let mut table = [0u64; 256];
-        let mut byte = 0;
-        while byte < 256 {
-            let mut bit = 0;
-            while bit < 8 {
-                if byte & (1 << bit) != 0 {
-                    table[byte] |= (u64::MAX >> (64 - N)) << (bit * N);
-                }
-                bit += 1;
-            }
-            byte += 1;
-        }
-        table
-    };
-}
-
-/// Returns `bits` with each bit repeated `N` times, where `N` divides 8.
-///
-/// Every input word expands to exactly `N` output words through a per-byte lookup, which is
-/// branch-free regardless of how the selected bits are distributed.
-fn repeat_bits_pow2<const N: usize>(bits: &BitBuffer) -> BitBuffer {
-    const { assert!(8 % N == 0) };
-    let bytes_per_word = 8 / N;
-
-    let chunks = bits.chunks();
-    let mut words = BufferMut::<u64>::zeroed(bits.len().div_ceil(64) * N);
-    for (word, out) in chunks
-        .iter_padded()
-        .zip(words.as_mut_slice().as_chunks_mut::<N>().0)
-    {
-        for (out, bytes) in out
-            .iter_mut()
-            .zip(word.to_le_bytes().chunks_exact(bytes_per_word))
-        {
-            *out = bytes.iter().enumerate().fold(0, |acc, (i, &byte)| {
-                acc | (RepeatBitsLut::<N>::TABLE[byte as usize] << (i * 8 * N))
-            });
-        }
-    }
-
-    BitBuffer::new(words.freeze().into_byte_buffer(), bits.len() * N)
 }
 
 #[cfg(test)]

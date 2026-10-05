@@ -36,7 +36,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const NUM_ELEMENTS: usize = 1 << 17;
 
-/// List sizes 2, 3 and 16 cover the lookup-table, run-filling and cached-slices expansions.
+/// List sizes 2 and 3 cover the plain-bitmap expansion with many short runs, and 16 covers the
+/// cached-slices expansion.
 #[divan::bench(consts = [2, 3, 16], args = [0.01, 0.5])]
 fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
     let len = NUM_ELEMENTS / LIST_SIZE as usize;
