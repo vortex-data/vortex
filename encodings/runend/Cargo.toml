@@ -66,3 +66,7 @@ harness = false
 [[bench]]
 name = "run_end_ci"
 harness = false
+
+[[bench]]
+name = "run_end_bool_coalesce"
+harness = false
