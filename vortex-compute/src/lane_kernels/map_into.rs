@@ -253,14 +253,14 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
             )
         };
 
-        #[allow(clippy::inline_always)]
-        #[inline(always)]
-        fn chunk<S, R, Fail, Apply>(
+        /// # Safety
+        ///
+        /// `base + LANES` must not exceed either `values.len()` or `out.len()`.
+        unsafe fn chunk<const LANES: usize, S, R, Fail, Apply>(
             values: &S,
             out: &mut [MaybeUninit<R>],
             apply: &Apply,
             base: usize,
-            count: usize,
         ) -> Fail
         where
             S: IndexedSource,
@@ -268,9 +268,9 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
             Apply: Fn(S::Item) -> (R, Fail),
         {
             let mut failed = Fail::default();
-            for offset in 0..count {
+            for offset in 0..LANES {
                 let idx = base + offset;
-                // SAFETY: the caller proves base + count <= values.len() == out.len().
+                // SAFETY: the caller guarantees base + LANES <= values.len().
                 let value = unsafe { values.get_unchecked(idx) };
                 let (result, failure) = apply(value);
                 failed |= failure;
@@ -286,14 +286,22 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
 
         // Fixed trip counts let LLVM unroll checked loops independently of the surrounding code.
         let chunks_count = len / CHUNK_LEN;
-        let remainder = len % CHUNK_LEN;
         let mut failed = Fail::default();
         for chunk_idx in 0..chunks_count {
-            failed |= chunk(&values, out, &apply, chunk_idx * CHUNK_LEN, CHUNK_LEN);
+            // SAFETY: each full chunk ends at or before len, and out.len() == len.
+            failed |= unsafe {
+                chunk::<CHUNK_LEN, _, _, _, _>(&values, out, &apply, chunk_idx * CHUNK_LEN)
+            };
         }
-        if remainder != 0 {
-            failed |= chunk(&values, out, &apply, chunks_count * CHUNK_LEN, remainder);
+        for idx in chunks_count * CHUNK_LEN..len {
+            // SAFETY: the remainder loop proves idx < values.len().
+            let value = unsafe { values.get_unchecked(idx) };
+            let (result, failure) = apply(value);
+            failed |= failure;
+            // SAFETY: idx < len == out.len().
+            unsafe { out.get_unchecked_mut(idx).write(result) };
         }
+
         failed
     }
 
