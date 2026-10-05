@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(target_arch = "aarch64")]
+use fearless_simd::prelude::*;
+#[cfg(target_arch = "aarch64")]
+use vortex_error::VortexExpect;
+
 use super::count_ones::align_offset_len;
 use crate::dispatch::CpuKernel;
 
@@ -11,7 +16,7 @@ use crate::dispatch::CpuKernel;
 /// Returns `None` if `nth` is out of bounds.
 ///
 /// Uses architecture-specific optimizations:
-/// - **aarch64**: NEON `vcnt`-based popcount for the 64-byte chunk scan.
+/// - **aarch64**: Fearless SIMD popcounts for chunk scans and the final word selection.
 /// - **x86_64 + AVX-512 VPOPCNTDQ**: 64-byte chunk scan.
 /// - **x86_64 + AVX-512 VBMI2**: byte-lane compress for the final in-word select.
 /// - **x86_64 + BMI2**: `pdep` + `tzcnt` for the final in-word select.
@@ -83,20 +88,17 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
 ///
 /// If `chunk_index < chunks.len()`, the target bit is inside that chunk and `remaining`
 /// is the rank *within* that chunk. Otherwise all chunks were consumed.
+#[cfg(not(target_arch = "aarch64"))]
 type ScanChunks = unsafe fn(&[[u8; 64]], usize, usize) -> (usize, usize, usize);
 
 #[inline]
+#[cfg(not(target_arch = "aarch64"))]
 fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
     // Scans of a couple of chunks don't amortize the dispatch indirection: call the
     // per-architecture unconditional kernel directly so it stays inlinable (see the
     // size-gating note in the CpuKernel docs).
     if chunks.len() <= 2 {
-        #[cfg(target_arch = "aarch64")]
-        return scan_chunks_neon(chunks, remaining, pos);
-        #[allow(unreachable_code)]
-        {
-            return scan_chunks_scalar(chunks, remaining, pos);
-        }
+        return scan_chunks_scalar(chunks, remaining, pos);
     }
 
     static KERNEL: CpuKernel<ScanChunks> = CpuKernel::new(|| {
@@ -106,14 +108,7 @@ fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usi
                 return scan_chunks_avx512_vpopcnt;
             }
         }
-        #[cfg(target_arch = "aarch64")]
-        return scan_chunks_neon;
-        // The aarch64 arm above returns unconditionally (NEON needs no probe), making
-        // this portable default unreachable there.
-        #[allow(unreachable_code)]
-        {
-            scan_chunks_scalar
-        }
+        scan_chunks_scalar
     });
     // SAFETY: the selector only returns kernels that are safe or whose required CPU
     // features were probed before selection.
@@ -121,52 +116,41 @@ fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usi
 }
 
 #[cfg(target_arch = "aarch64")]
-#[allow(clippy::cast_possible_truncation)] // u64 → usize is lossless on aarch64 (64-bit)
 #[inline]
-fn scan_chunks_neon(
+fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
+    fearless_simd::dispatch!(fearless_simd::Level::new(), simd => {
+        scan_chunks_fearless(simd, chunks, remaining, pos)
+    })
+}
+
+#[cfg(target_arch = "aarch64")]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn scan_chunks_fearless<S: Simd>(
+    simd: S,
     chunks: &[[u8; 64]],
     mut remaining: usize,
     mut pos: usize,
 ) -> (usize, usize, usize) {
-    use std::arch::aarch64::vcntq_u8;
-    use std::arch::aarch64::vgetq_lane_u64;
-    use std::arch::aarch64::vld1q_u8;
-    use std::arch::aarch64::vpaddlq_u8;
-    use std::arch::aarch64::vpaddlq_u16;
-    use std::arch::aarch64::vpaddlq_u32;
-
     for (idx, chunk) in chunks.iter().enumerate() {
-        let ptr = chunk.as_ptr();
-        // SAFETY: chunk is exactly 64 bytes split across four 128-bit NEON loads.
-        // NEON vld1q_u8 supports unaligned access.
-        let total = unsafe {
-            let pop_0 = vcntq_u8(vld1q_u8(ptr));
-            let pop_1 = vcntq_u8(vld1q_u8(ptr.add(16)));
-            let pop_2 = vcntq_u8(vld1q_u8(ptr.add(32)));
-            let pop_3 = vcntq_u8(vld1q_u8(ptr.add(48)));
-            let sums_0 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_0)));
-            let sums_1 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_1)));
-            let sums_2 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_2)));
-            let sums_3 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_3)));
-
-            (vgetq_lane_u64::<0>(sums_0)
-                + vgetq_lane_u64::<1>(sums_0)
-                + vgetq_lane_u64::<0>(sums_1)
-                + vgetq_lane_u64::<1>(sums_1)
-                + vgetq_lane_u64::<0>(sums_2)
-                + vgetq_lane_u64::<1>(sums_2)
-                + vgetq_lane_u64::<0>(sums_3)
-                + vgetq_lane_u64::<1>(sums_3)) as usize
-        };
-
+        let total: usize = chunk
+            .as_chunks::<16>()
+            .0
+            .iter()
+            .map(|bytes| {
+                usize::from(
+                    fearless_simd::u8x16::from_slice(simd, bytes)
+                        .count_ones()
+                        .reduce_sum(),
+                )
+            })
+            .sum();
         if remaining < total {
             return (remaining, pos, idx);
         }
-
         remaining -= total;
         pos += 512;
     }
-
     (remaining, pos, chunks.len())
 }
 
@@ -201,6 +185,7 @@ unsafe fn scan_chunks_avx512_vpopcnt(
     (remaining, pos, chunks.len())
 }
 
+#[cfg(not(target_arch = "aarch64"))]
 #[inline]
 fn scan_chunks_scalar(
     chunks: &[[u8; 64]],
@@ -295,10 +280,12 @@ fn scan_words_scalar(
 
 // ── In-chunk select ─────────────────────────────────────────────────────
 
+#[cfg(not(target_arch = "aarch64"))]
 type SelectInChunk = unsafe fn(&[u8; 64], usize) -> usize;
 
 /// Position of the `nth` set bit inside a 64-byte chunk (0-indexed).
 #[inline]
+#[cfg(not(target_arch = "aarch64"))]
 fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
     static KERNEL: CpuKernel<SelectInChunk> = CpuKernel::new(|| {
         #[cfg(target_arch = "x86_64")]
@@ -315,6 +302,33 @@ fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
     // SAFETY: the selector only returns kernels that are safe or whose required CPU
     // features were probed before selection.
     unsafe { KERNEL.get()(chunk, nth) }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline]
+fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
+    fearless_simd::dispatch!(fearless_simd::Level::new(), simd => {
+        select_in_chunk_fearless(simd, chunk, nth)
+    })
+}
+
+#[cfg(target_arch = "aarch64")]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn select_in_chunk_fearless<S: Simd>(simd: S, chunk: &[u8; 64], mut nth: usize) -> usize {
+    let words: [u64; 8] = std::array::from_fn(|i| u64::from_le_bytes(chunk.as_chunks::<8>().0[i]));
+    let counts = fearless_simd::u64x8::from_slice(simd, &words)
+        .count_ones()
+        .to_array();
+    for (idx, count) in counts.into_iter().enumerate() {
+        // Each lane is the popcount of a u64, hence at most 64.
+        let count = usize::try_from(count).vortex_expect("u64 popcount fits in usize");
+        if nth < count {
+            return idx * 64 + select_in_word(words[idx], nth);
+        }
+        nth -= count;
+    }
+    unreachable!("select_in_chunk: nth exceeds popcount")
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -347,6 +361,7 @@ unsafe fn select_in_chunk_vbmi2(chunk: &[u8; 64], mut nth: usize) -> usize {
     unreachable!("select_in_chunk: nth exceeds popcount")
 }
 
+#[cfg(not(target_arch = "aarch64"))]
 #[inline]
 fn select_in_chunk_scalar(chunk: &[u8; 64], mut nth: usize) -> usize {
     let words = chunk.as_chunks::<8>().0;
@@ -363,6 +378,7 @@ fn select_in_chunk_scalar(chunk: &[u8; 64], mut nth: usize) -> usize {
     unreachable!("select_in_chunk: nth exceeds popcount")
 }
 
+#[cfg(not(target_arch = "aarch64"))]
 #[inline]
 fn count_ones_chunk(chunk: &[u8; 64]) -> usize {
     let words = chunk.as_chunks::<8>().0;
