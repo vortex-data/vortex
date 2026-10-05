@@ -43,6 +43,10 @@ use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 /// A [`Decimal`]-encoded Vortex array.
+///
+/// The physical storage type is no wider than [`DecimalType::smallest_decimal_value_type`]
+/// for the precision; smaller storage is allowed when the values fit. See [`DecimalData`]
+/// for the full storage contract.
 pub type DecimalArray = Array<Decimal>;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -124,9 +128,18 @@ impl VTable for Decimal {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let DType::Decimal(_, nullability) = dtype else {
+        let DType::Decimal(decimal_dtype, nullability) = dtype else {
             vortex_bail!("Expected decimal dtype, got {dtype:?}");
         };
+        vortex_ensure_eq!(
+            data.decimal_dtype,
+            *decimal_dtype,
+            InvalidArgument: "DecimalArray data dtype does not match outer dtype",
+        );
+        vortex_ensure!(
+            data.values_type <= DecimalType::smallest_decimal_value_type(decimal_dtype),
+            InvalidArgument: "DecimalArray storage exceeds the type required by its precision",
+        );
         vortex_ensure_eq!(
             data.len(),
             len,
@@ -220,7 +233,10 @@ mod tests {
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
     use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
+    use crate::dtype::Nullability;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
     use crate::validity::Validity;
@@ -253,6 +269,43 @@ mod tests {
             .decode(&dtype, 5, &ReadContext::new(array_ctx.to_ids()), &session)
             .unwrap();
         assert!(decoded.is::<Decimal>());
+    }
+
+    #[test]
+    fn deserialize_legacy_oversized_storage() {
+        let session = array_session();
+        let array = DecimalArray::new(
+            buffer![100i64, -200, 300],
+            DecimalDType::new(10, 2),
+            Validity::NonNullable,
+        );
+        let array_ctx = ArrayContext::empty();
+        let buffers = array
+            .into_array()
+            .serialize(&array_ctx, &session, &SerializeOptions::default())
+            .unwrap();
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in buffers {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        // Older writers allowed i64 storage with precision 3. Decode the same wire storage
+        // with that logical dtype and ensure it is normalized before reaching kernels.
+        let dtype = DecimalDType::new(3, 2);
+        let parts = SerializedArray::try_from(bytes.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &DType::Decimal(dtype, Nullability::NonNullable),
+                3,
+                &ReadContext::new(array_ctx.to_ids()),
+                &session,
+            )
+            .unwrap();
+        assert_eq!(decoded.as_::<Decimal>().values_type(), DecimalType::I16);
+        assert_arrays_eq!(
+            decoded,
+            DecimalArray::new(buffer![100i16, -200, 300], dtype, Validity::NonNullable),
+            &mut session.create_execution_ctx()
+        );
     }
 
     #[test]

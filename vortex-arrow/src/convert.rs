@@ -200,7 +200,9 @@ impl_from_arrow_primitive!(Float16Type);
 impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
-/// Zero-copy conversion of an Arrow `Decimal32` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal32` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal32(
     array: &ArrowPrimitiveArray<Decimal32Type>,
     nullable: bool,
@@ -220,7 +222,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
     }
 }
 
-/// Zero-copy conversion of an Arrow `Decimal64` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal64` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal64(
     array: &ArrowPrimitiveArray<Decimal64Type>,
     nullable: bool,
@@ -240,7 +244,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
     }
 }
 
-/// Zero-copy conversion of an Arrow `Decimal128` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal128` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal128(
     array: &ArrowPrimitiveArray<Decimal128Type>,
     nullable: bool,
@@ -260,7 +266,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
     }
 }
 
-/// Zero-copy conversion of an Arrow `Decimal256` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal256` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal256(
     array: &ArrowPrimitiveArray<Decimal256Type>,
     nullable: bool,

@@ -48,7 +48,7 @@ mod tests {
     fn test_slice() {
         let array = DecimalArray::new(
             buffer![100i128, 200i128, 300i128, 4000i128],
-            DecimalDType::new(3, 2),
+            DecimalDType::new(4, 2),
             Validity::NonNullable,
         )
         .into_array();
@@ -57,14 +57,14 @@ mod tests {
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_::<Decimal>();
-        assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
+        assert_eq!(decimal.buffer::<i16>(), buffer![200i16, 300i16]);
     }
 
     #[test]
     fn test_slice_nullable() {
         let array = DecimalArray::new(
             buffer![100i128, 200i128, 300i128, 4000i128],
-            DecimalDType::new(3, 2),
+            DecimalDType::new(4, 2),
             Validity::from_iter([false, true, false, true]),
         )
         .into_array();
