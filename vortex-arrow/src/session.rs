@@ -801,6 +801,10 @@ pub struct ArrowExporter<'a> {
 }
 
 impl ArrowExporter<'_> {
+    pub(crate) fn options(&self) -> &ArrowExportOptions {
+        self.options
+    }
+
     /// Execute a Vortex array into an Arrow array with the bound options.
     ///
     /// Behaves like [`ArrowSession::execute_arrow`]. The options are propagated to nested arrays
@@ -819,8 +823,7 @@ impl ArrowExporter<'_> {
         let target_field = match target {
             Some(field) => field,
             None => {
-                let session = ctx.session().clone();
-                arrow_field = session.arrow().to_arrow_field("", array.dtype())?;
+                arrow_field = self.session.to_arrow_field("", array.dtype())?;
                 &arrow_field
             }
         };
@@ -858,15 +861,10 @@ impl ArrowExporter<'_> {
                 "unsupported Arrow extension type encountered, falling back to naive execution"
             );
 
-            return execute_arrow_naive(current, Some(target_field.data_type()), self.options, ctx);
+            return execute_arrow_naive(current, Some(target_field.data_type()), self, ctx);
         }
 
-        execute_arrow_naive(
-            array,
-            target.map(|field| field.data_type()),
-            self.options,
-            ctx,
-        )
+        execute_arrow_naive(array, target.map(|field| field.data_type()), self, ctx)
     }
 }
 
