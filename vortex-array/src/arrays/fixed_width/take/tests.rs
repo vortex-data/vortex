@@ -61,13 +61,10 @@ fn take_small_byte_table(#[case] len: usize) {
     );
 }
 
-// The bounds-check message is specific to the NEON table path; other targets reach a different
-// fallback with its own message.
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
 #[rstest]
 #[case::vector(64)]
 #[case::tail(128)]
-#[should_panic(expected = "take index")]
+#[should_panic]
 fn take_small_byte_table_rejects_out_of_bounds_index(#[case] offset: usize) {
     let mut indices = vec![0u8; 129];
     indices[offset] = 4;
