@@ -94,7 +94,8 @@ fn parse_system_csv(instance: String, contents: &str) -> Result<SystemTable> {
         timestamps_ms.push(seconds * 1000);
 
         let mut parsed = 0;
-        for (field, (name, values)) in fields.by_ref().zip(metrics.iter_mut()) {
+        // Stop at the metric count without consuming an extra field before validation.
+        for ((name, values), field) in metrics.iter_mut().zip(fields.by_ref()) {
             values.push(
                 field
                     .trim()
@@ -201,6 +202,7 @@ mod tests {
     use arrow_array::Array;
     use arrow_array::cast::AsArray;
     use arrow_array::types::Int64Type;
+    use rstest::rstest;
 
     use super::*;
 
@@ -217,10 +219,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn rejects_short_rows() {
-        let csv = "timestamp,load-1m,load-5m\n0,0.1\n";
-        assert!(parse_system_csv("system-1".to_string(), csv).is_err());
+    #[rstest]
+    #[case::short("0,0.1")]
+    #[case::one_extra("0,0.1,0.2,0.3")]
+    #[case::multiple_extra("0,0.1,0.2,0.3,0.4")]
+    #[case::trailing_comma("0,0.1,0.2,")]
+    fn rejects_wrong_row_width(#[case] row: &str) {
+        let csv = format!("timestamp,load-1m,load-5m\n{row}\n");
+        let error = parse_system_csv("system-1".to_string(), &csv)
+            .err()
+            .expect("wrong row width should be rejected");
+        assert_eq!(error.to_string(), "system-1 line 2: expected 2 values");
     }
 
     #[test]

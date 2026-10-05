@@ -1,3 +1,6 @@
+-- SPDX-License-Identifier: Apache-2.0
+-- SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 -- `ts` is int64 milliseconds since the start of collection. Windows used below:
 -- day 10 = [864000000, 950400000), a 6 hour window = [864000000, 885600000),
 -- a 1 hour window = [871200000, 874800000), week 2 = [604800000, 1209600000).

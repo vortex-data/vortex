@@ -92,6 +92,12 @@ def test_pr_target_selection() -> None:
         ("duckdb", "parquet"),
         ("duckdb", "vortex"),
     }
+    assert _targets(pr_full["westermo"]) == {
+        ("datafusion", "parquet"),
+        ("datafusion", "vortex"),
+        ("duckdb", "parquet"),
+        ("duckdb", "vortex"),
+    }
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
     for preset in (pr_full, develop):
         assert {engine for engine, _format in _targets(preset["statpopgen"])} == {"datafusion", "duckdb"}

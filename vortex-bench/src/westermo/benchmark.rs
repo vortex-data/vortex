@@ -32,6 +32,7 @@ pub struct WestermoBenchmark {
 }
 
 impl WestermoBenchmark {
+    /// Create a benchmark using the local Westermo data directory.
     pub fn new() -> Result<Self> {
         let data_path = DATASET_NAME.to_data_path();
         let data_url =

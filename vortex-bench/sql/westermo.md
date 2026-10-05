@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+
 # Westermo node_exporter metrics benchmark
 
 A benchmark over real Prometheus metrics: the
