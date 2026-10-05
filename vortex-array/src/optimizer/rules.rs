@@ -130,6 +130,14 @@ impl<V: VTable> ReduceRuleSet<V> {
         Self { rules }
     }
 
+    /// Describe the rules in evaluation order for diagnostic reports.
+    ///
+    /// These debug names identify declarations, not applicability to a particular input.
+    #[expect(clippy::use_debug, reason = "diagnostics expose the rule debug descriptions")]
+    pub fn descriptions(&self) -> Vec<String> {
+        self.rules.iter().map(|rule| format!("{rule:?}")).collect()
+    }
+
     /// Evaluate the reduction rules on the given array.
     pub fn evaluate(&self, array: ArrayView<'_, V>) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
@@ -154,6 +162,14 @@ impl<V: VTable> ParentRuleSet<V> {
     /// Use [`ParentRuleSet::lift`] to lift static rules into dynamic trait objects.
     pub const fn new(rules: &'static [&'static dyn DynArrayParentReduceRule<V>]) -> Self {
         Self { rules }
+    }
+
+    /// Describe the rules and their parent matchers in evaluation order.
+    ///
+    /// These debug names identify declarations, not applicability to a particular input.
+    #[expect(clippy::use_debug, reason = "diagnostics expose the rule debug descriptions")]
+    pub fn descriptions(&self) -> Vec<String> {
+        self.rules.iter().map(|rule| format!("{rule:?}")).collect()
     }
 
     /// Lift the given rule into a dynamic trait object.

@@ -29,6 +29,7 @@ use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_pvalue;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::proto::scalar::ScalarValue as ProtoScalarValue;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -415,12 +416,8 @@ impl VTable for Sequence {
         sequence_decompress(&array).map(ExecutionResult::done)
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 

@@ -8,6 +8,7 @@ A small, helpful CLI tool for exploring and analyzing Vortex files.
 * `convert`: Convert a Parquet file to a Vortex file
 * `query`: Run a SQL query against a Vortex file and print JSON
 * `segments`: Print the segment layout of a Vortex file as JSON
+* `coverage`: Inventory session registrations and warn about missing expected fast paths
 
 ## Examples
 
@@ -141,3 +142,64 @@ TODO:
 
 * [ ] `cat` to print a Vortex file as JSON to stdout
 * [ ] `compress` to ingest JSON/CSV/other formats that are Arrow-compatible
+
+## Diagnosing kernel coverage
+
+`vx coverage` inspects the active session after initialization. It lists in-memory encoding
+plugins (without counting historical wire IDs twice), layout and function IDs, parent execution
+kernels, session parent reductions, exposed static reduction rules, and ordinary/grouped aggregate
+kernels. Custom sessions passed to `launch_from` are inspected in the same way.
+
+```bash
+cargo run -p vortex-tui --bin vx -- coverage
+vx coverage --json
+
+# Capture the current declarations, then review/edit the required set for each encoding.
+vx coverage --baseline > coverage-expectations.json
+vx coverage --expectations coverage-expectations.json
+vx coverage --expectations coverage-expectations.json --strict --json
+```
+
+The default report is an inventory, with no implied minimum kernel set. Supplying expectations
+adds warnings; `--strict` returns a failure after printing the report if any expectations are
+unmet. Invalid JSON, unknown manifest fields, and unknown kinds are always errors. This minimal
+manifest requires two compute paths, an aggregate kernel, and the flat layout:
+
+```json
+{
+  "layouts": ["vortex.flat"],
+  "encodings": {
+    "vortex.runend": [
+      {"kind": "compute", "operation": "vortex.filter"},
+      {"kind": "compute", "operation": "vortex.dict"},
+      {"kind": "aggregate", "operation": "vortex.sum"}
+    ]
+  }
+}
+```
+
+Kinds are `compute`, `session_reduce`, `static_reduce`, `static_parent_reduce`, `aggregate`,
+and `grouped_aggregate`. Compute and session-reduce operations are parent array or scalar-function
+IDs (`vortex.dict` is the take parent). Static-rule operations are exact debug descriptions from
+`--baseline`, including their matcher types. They are diagnostic names, so a Rust rule or module
+rename can require updating expectations. `--baseline` also enables `require_all_encodings`, which
+warns when a registered encoding has no entry in the manifest. Set it to `false` (the default for
+hand-written manifests) to validate a selected subset. An empty per-encoding list requires that
+encoding or kernel owner to exist, without requiring any particular kernel.
+
+Aggregate operation `"*"` means an encoding-wide aggregate candidate; encoding `"*"` holds
+encoding-agnostic grouped candidates. These are literal declarations, not expectation wildcards:
+an encoding-wide candidate does not satisfy an expectation for a function-specific registration.
+Aggregate vtable shortcuts and canonical fallbacks are outside this registry report. Likewise,
+opaque reduction hooks are reported as unknown, never inferred to be missing or supported. Static
+rules are discovered through registered array plugins; execution-only arrays without a plugin
+may appear as kernel owners but do not expose their static rules through this inventory.
+
+Registration coverage and runtime traces answer different questions. This command identifies
+missing declarations and registration regressions; it does not prove a candidate accepts a dtype,
+nullability, child position, or input shape. It also does not measure file layout usage, time, bytes,
+or rows. For a specific execution path, the existing `vortex_array::test_harness::trace` harness
+can show applied and declined reductions and parent kernels with `TraceResolution::Attempts`.
+That capture is thread-local and feature-gated, so it is not a whole-query profiler. A future
+runtime report should correlate candidate attempts, successes, decode fallbacks, rows, bytes,
+and timing with the encoding/function pairs reported here, including aggregate and layout events.

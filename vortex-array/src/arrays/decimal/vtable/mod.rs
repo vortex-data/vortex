@@ -27,6 +27,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::serde::ArrayChildren;
 mod kernel;
 mod operations;
@@ -195,12 +196,8 @@ impl VTable for Decimal {
         builder.append_decimal_array(&array.into_owned(), ctx)
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 

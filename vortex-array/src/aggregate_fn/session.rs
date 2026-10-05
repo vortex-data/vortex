@@ -49,6 +49,17 @@ use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::dtype::DType;
 
+/// An aggregate kernel declaration, including encoding-agnostic registrations.
+#[derive(Clone, Debug)]
+pub struct AggregateKernelRegistration {
+    /// Encoding ID, or `None` for an encoding-agnostic grouped kernel.
+    pub encoding: Option<ArrayId>,
+    /// Aggregate function ID, or `None` for an encoding-wide aggregate kernel.
+    pub function: Option<AggregateFnId>,
+    /// Whether this is a grouped aggregate kernel.
+    pub grouped: bool,
+}
+
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
 /// The default session registers the built-in aggregate functions and kernels. Additional
@@ -140,6 +151,54 @@ impl Default for AggregateFnSession {
 }
 
 impl AggregateFnSession {
+    /// Snapshot registered aggregate function IDs, sorted by ID.
+    pub fn registered_ids(&self) -> Vec<AggregateFnId> {
+        let mut ids = self
+            .registry
+            .read(|registry| registry.keys().copied().collect::<Vec<_>>());
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Snapshot aggregate kernel declarations for diagnostics.
+    ///
+    /// Call after session initialization. These candidates may decline particular inputs;
+    /// aggregate vtable shortcuts and canonical fallbacks are not represented here.
+    pub fn kernel_registrations(&self) -> Vec<AggregateKernelRegistration> {
+        let mut entries = self.kernels.read(|kernels| {
+            kernels
+                .keys()
+                .map(|&(encoding, function)| AggregateKernelRegistration {
+                    encoding: Some(encoding),
+                    function,
+                    grouped: false,
+                })
+                .collect::<Vec<_>>()
+        });
+        self.grouped_kernels.read(|kernels| {
+            entries.extend(
+                kernels
+                    .keys()
+                    .map(|&function| AggregateKernelRegistration {
+                        encoding: None,
+                        function: Some(function),
+                        grouped: true,
+                    }),
+            );
+        });
+        self.grouped_encoding_kernels.read(|kernels| {
+            entries.extend(kernels.keys().map(|&(encoding, function)| {
+                AggregateKernelRegistration {
+                    encoding: Some(encoding),
+                    function: Some(function),
+                    grouped: true,
+                }
+            }));
+        });
+        entries.sort_by_key(|entry| (entry.encoding, entry.function, entry.grouped));
+        entries
+    }
+
     /// Returns the aggregate function plugin registered for `id`, if any.
     pub fn find_plugin(&self, id: &AggregateFnId) -> Option<AggregateFnPluginRef> {
         self.registry.get(id)

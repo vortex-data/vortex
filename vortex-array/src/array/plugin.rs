@@ -99,6 +99,17 @@ impl<'a> ArrayDeserialization<'a> {
     }
 }
 
+/// Discoverable static reduction tables for an encoding.
+///
+/// An absent table is opaque: it does not prove that no custom reduction hook exists.
+#[derive(Clone, Debug, Default)]
+pub struct ArrayReductionRules {
+    /// Self-reduction rules in evaluation order, if exposed.
+    pub reduce: Option<Vec<String>>,
+    /// Parent-reduction rules in evaluation order, if exposed.
+    pub parent_reduce: Option<Vec<String>>,
+}
+
 /// Registry trait for serializing and deserializing an in-memory array representation.
 ///
 /// A plugin has one [`id`](Self::id) for the in-memory representation and one or more
@@ -113,6 +124,11 @@ impl<'a> ArrayDeserialization<'a> {
 pub trait ArrayPlugin: 'static + Send + Sync {
     /// Returns the ID of the in-memory array representation handled by this plugin.
     fn id(&self) -> ArrayId;
+
+    /// Describe static reduction tables, if the plugin exposes them.
+    fn reduction_rules(&self) -> ArrayReductionRules {
+        ArrayReductionRules::default()
+    }
 
     /// Returns the serialized array IDs understood by this plugin, ordered oldest to newest.
     ///
@@ -163,6 +179,13 @@ impl Debug for dyn ArrayPlugin {
 }
 
 impl<V: VTable> ArrayPlugin for V {
+    fn reduction_rules(&self) -> ArrayReductionRules {
+        ArrayReductionRules {
+            reduce: V::reduce_rules().map(|rules| rules.descriptions()),
+            parent_reduce: V::parent_reduce_rules().map(|rules| rules.descriptions()),
+        }
+    }
+
     fn id(&self) -> ArrayId {
         VTable::id(self)
     }

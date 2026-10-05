@@ -34,6 +34,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 pub(crate) mod canonical;
@@ -191,12 +192,8 @@ impl VTable for VarBin {
         VarBinSlots::NAMES[idx].to_string()
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 
     fn append_to_builder(

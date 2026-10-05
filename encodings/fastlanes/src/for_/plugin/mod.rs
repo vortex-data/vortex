@@ -6,6 +6,7 @@
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
+use vortex_array::ArrayReductionRules;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::VTable;
@@ -47,6 +48,10 @@ pub fn for_v2_id() -> ArrayId {
 pub struct FoRPlugin;
 
 impl ArrayPlugin for FoRPlugin {
+    fn reduction_rules(&self) -> ArrayReductionRules {
+        ArrayPlugin::reduction_rules(&FoR)
+    }
+
     fn id(&self) -> ArrayId {
         VTable::id(&FoR)
     }

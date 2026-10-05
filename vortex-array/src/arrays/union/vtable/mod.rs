@@ -28,6 +28,7 @@ use crate::arrays::union::union_type_ids_dtype;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::serde::ArrayChildren;
 
 mod operations;
@@ -161,11 +162,7 @@ impl VTable for Union {
         vortex_bail!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 }

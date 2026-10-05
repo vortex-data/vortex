@@ -45,6 +45,8 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::rules::ReduceRuleSet;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -187,13 +189,29 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// incorrectly contains null values.
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
+    /// Static self-reduction rules, when this encoding uses a discoverable rule table.
+    ///
+    /// `None` means no table is exposed; a custom `reduce` hook may still exist.
+    fn reduce_rules() -> Option<&'static ReduceRuleSet<Self>> {
+        None
+    }
+
+    /// Static parent-reduction rules, when this encoding uses a discoverable rule table.
+    ///
+    /// `None` means no table is exposed; a custom `reduce_parent` hook may still exist.
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        None
+    }
+
     /// Attempt to reduce the array to a simpler representation without changing logical values.
     ///
     /// Reductions are opportunistic and may return `Ok(None)` when no cheaper representation is
     /// known.
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
-        _ = array;
-        Ok(None)
+        match Self::reduce_rules() {
+            Some(rules) => rules.evaluate(array),
+            None => Ok(None),
+        }
     }
 
     /// Attempt to reduce `parent` after this array appears as one of its children.
@@ -204,8 +222,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        _ = (array, parent, child_idx);
-        Ok(None)
+        match Self::parent_reduce_rules() {
+            Some(rules) => rules.evaluate(array, parent, child_idx),
+            None => Ok(None),
+        }
     }
 }
 

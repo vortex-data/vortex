@@ -177,6 +177,19 @@ type ReduceParentRegistry = ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>;
 /// Registry of [`ExecuteParentKernelRef`]s, keyed by hashed `(parent, child)` pair.
 type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
 
+/// A registered parent/child pair and the number of kernels available for each phase.
+#[derive(Clone, Debug)]
+pub struct ParentKernelRegistration {
+    /// Parent array or scalar function ID.
+    pub parent: Id,
+    /// Child encoding ID.
+    pub child: Id,
+    /// Number of registered metadata-only rewrites.
+    pub reduce: usize,
+    /// Number of registered execution kernels.
+    pub execute: usize,
+}
+
 /// Session-scoped registry of optimizer kernel functions.
 ///
 /// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
@@ -185,6 +198,8 @@ type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKer
 pub struct ArrayKernels {
     reduce_parent: ReduceParentRegistry,
     execute_parent: ExecuteParentRegistry,
+    // Preserve readable IDs outside the hot-path maps, whose keys are pre-hashed.
+    pairs: ArcSwapMap<(Id, Id), ()>,
 }
 
 impl Default for ArrayKernels {
@@ -201,7 +216,33 @@ impl ArrayKernels {
         Self {
             reduce_parent: ReduceParentRegistry::default(),
             execute_parent: ExecuteParentRegistry::default(),
+            pairs: ArcSwapMap::default(),
         }
+    }
+
+    /// Snapshot registered pairs for diagnostics, sorted by child then parent ID.
+    ///
+    /// Call after session initialization. Registration across the separate maps is not atomic.
+    /// Counts describe candidates only; every candidate can decline an input.
+    pub fn registrations(&self) -> Vec<ParentKernelRegistration> {
+        let reduce = self.reduce_parent.snapshot();
+        let execute = self.execute_parent.snapshot();
+        let mut entries = self.pairs.read(|pairs| {
+            pairs
+                .keys()
+                .map(|&(parent, child)| {
+                    let key = hash_fn_id(parent, child);
+                    ParentKernelRegistration {
+                        parent,
+                        child,
+                        reduce: reduce.get(&key).map_or(0, |kernels| kernels.len()),
+                        execute: execute.get(&key).map_or(0, |kernels| kernels.len()),
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+        entries.sort_by_key(|entry| (entry.child, entry.parent));
+        entries
     }
 
     fn register_builtin_reduce_parent(&self) {
@@ -225,6 +266,7 @@ impl ArrayKernels {
     pub fn register_reduce_parent(&self, parent: Id, child: Id, fns: &[ReduceParentFn]) {
         self.reduce_parent
             .extend(hash_fn_id(parent, child).into(), fns);
+        self.pairs.insert((parent, child), ());
     }
 
     /// Look up the [`ReduceParentFn`]s registered for `(parent, child)`.
@@ -250,6 +292,7 @@ impl ArrayKernels {
             .collect();
         self.execute_parent
             .extend(hash_fn_id(parent, child).into(), kernels.as_slice());
+        self.pairs.insert((parent, child), ());
     }
 
     /// Register a typed [`ExecuteParentKernel`] for `(parent, child.id())`.
@@ -273,6 +316,7 @@ impl ArrayKernels {
                 kernel,
             }) as ExecuteParentKernelRef,
         );
+        self.pairs.insert((parent, child_id), ());
     }
 
     /// Returns true when one or more execute-parent kernels are registered for `(parent, child)`.

@@ -36,6 +36,8 @@ pub mod segment_tree;
 #[cfg(feature = "native")]
 pub mod convert;
 #[cfg(feature = "native")]
+pub mod coverage;
+#[cfg(feature = "native")]
 pub mod datafusion_helper;
 #[cfg(feature = "native")]
 pub mod inspect;
@@ -68,6 +70,8 @@ mod native_cli {
 
     #[derive(Debug, clap::Subcommand)]
     enum Commands {
+        /// Report registered kernels, reductions, functions, and layouts
+        Coverage(super::coverage::CoverageArgs),
         /// Print tree views of a Vortex file (layout tree or array tree)
         Tree(super::tree::TreeArgs),
         /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
@@ -83,8 +87,9 @@ mod native_cli {
     }
 
     impl Commands {
-        fn file_path(&self) -> &PathBuf {
-            match self {
+        fn file_path(&self) -> Option<&PathBuf> {
+            Some(match self {
+                Commands::Coverage(_) => return None,
                 Commands::Tree(args) => match &args.mode {
                     super::tree::TreeMode::Array { file, .. } => file,
                     super::tree::TreeMode::Layout { file, .. } => file,
@@ -94,7 +99,7 @@ mod native_cli {
                 Commands::Inspect(args) => &args.file,
                 Commands::Query(args) => &args.file,
                 Commands::Segments(args) => &args.file,
-            }
+            })
         }
     }
 
@@ -129,8 +134,9 @@ mod native_cli {
         // See https://github.com/vortex-data/vortex/issues/7910.
         let cli = Cli::try_parse_from(args)?;
 
-        let path = cli.command.file_path();
-        if !std::fs::exists(path)? {
+        if let Some(path) = cli.command.file_path()
+            && !std::fs::exists(path)?
+        {
             return Err(Cli::command()
                 .error(
                     clap::error::ErrorKind::Io,
@@ -143,6 +149,7 @@ mod native_cli {
         }
 
         match cli.command {
+            Commands::Coverage(args) => super::coverage::exec_coverage(session, args)?,
             Commands::Tree(args) => super::tree::exec_tree(session, args).await?,
             Commands::Convert(flags) => super::convert::exec_convert(session, flags).await?,
             Commands::Browse { file } => super::browse::exec_tui(session, file).await?,
@@ -158,6 +165,21 @@ mod native_cli {
     mod tests {
         use vortex::VortexSessionDefault;
         use vortex::session::VortexSession;
+
+        #[test]
+        fn coverage_does_not_require_a_file() -> Result<(), clap::Error> {
+            let cli = <super::Cli as clap::Parser>::try_parse_from(["vx", "coverage", "--json"])?;
+            assert!(cli.command.file_path().is_none());
+            Ok(())
+        }
+
+        #[test]
+        fn coverage_strict_requires_expectations() {
+            assert!(
+                <super::Cli as clap::Parser>::try_parse_from(["vx", "coverage", "--strict"])
+                    .is_err()
+            );
+        }
 
         /// Regression test for https://github.com/vortex-data/vortex/issues/7910:
         /// `vx --help` must surface as a `clap::Error` rather than calling

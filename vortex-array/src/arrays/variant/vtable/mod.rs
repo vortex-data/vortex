@@ -33,6 +33,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::proto::dtype as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -187,12 +188,8 @@ impl VTable for Variant {
         Ok(ExecutionResult::done(array))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 

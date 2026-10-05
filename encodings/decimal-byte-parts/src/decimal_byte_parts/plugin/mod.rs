@@ -6,6 +6,7 @@
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
+use vortex_array::ArrayReductionRules;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::IntoArray;
@@ -51,6 +52,10 @@ pub fn decimal_byte_parts_v2_id() -> ArrayId {
 pub struct DecimalBytePartsPlugin;
 
 impl ArrayPlugin for DecimalBytePartsPlugin {
+    fn reduction_rules(&self) -> ArrayReductionRules {
+        ArrayPlugin::reduction_rules(&DecimalByteParts)
+    }
+
     fn id(&self) -> ArrayId {
         VTable::id(&DecimalByteParts)
     }

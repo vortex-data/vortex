@@ -41,6 +41,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::rules::ReduceRuleSet;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -185,16 +187,12 @@ impl VTable for Filter {
         ))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 
-    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array)
+    fn reduce_rules() -> Option<&'static ReduceRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 impl OperationsVTable<Filter> for Filter {
