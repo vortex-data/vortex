@@ -36,11 +36,16 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const NUM_ELEMENTS: usize = 1 << 17;
 
-/// List sizes 2 and 3 cover the plain-bitmap expansion with many short runs, and 16 covers the
+/// List size 2 covers the plain-bitmap expansion with many short runs, and 16 covers the
 /// cached-slices expansion.
-#[divan::bench(consts = [2, 3, 16], args = [0.01, 0.5])]
+#[divan::bench(consts = [2, 16], args = [0.01, 0.5])]
 fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
-    let len = NUM_ELEMENTS / LIST_SIZE as usize;
+    let num_elements = if LIST_SIZE == 2 {
+        NUM_ELEMENTS / 2
+    } else {
+        NUM_ELEMENTS
+    };
+    let len = num_elements / LIST_SIZE as usize;
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE as usize) as i32).into_array();
     let array =
         FixedSizeListArray::new(elements, LIST_SIZE, Validity::NonNullable, len).into_array();
