@@ -430,7 +430,7 @@ macro_rules! vortex_ensure {
 /// A macro that mirrors `assert_eq!` but instead of panicking when `left != right`, it will
 /// immediately return an erroneous `VortexResult` to the calling context.
 ///
-/// Both values must implement [`PartialEq`] and [`Display`](std::fmt::Display), and each is
+/// Both values must implement [`PartialEq`] and [`Display`], and each is
 /// evaluated exactly once. Use [`vortex_ensure!`] for values that do not implement `Display`.
 ///
 /// By default this returns an [`AssertionFailed`](VortexError::AssertionFailed) error that

@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
+#[cfg(debug_assertions)]
 use vortex_error::vortex_ensure_eq;
 
 use crate::plan::Plan;
