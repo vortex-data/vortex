@@ -410,6 +410,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
     use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
@@ -465,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_propagates_stats() -> VortexResult<()> {
+    fn test_canonicalize_propagates_portable_stats() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
@@ -481,12 +482,26 @@ mod tests {
             if stat.dtype(canonical.dtype()).is_none() {
                 continue;
             }
-            assert_eq!(
-                canonical_stats.get(stat),
-                stats_ref.get(stat),
-                "stat mismatch {stat}"
-            );
+            if stat.finalized_aggregate_fn().is_representation_invariant() {
+                assert_eq!(
+                    canonical_stats.get(stat),
+                    stats_ref.get(stat),
+                    "stat mismatch {stat}"
+                );
+            } else {
+                assert!(
+                    canonical_stats.get(stat).is_absent(),
+                    "stat transferred {stat}"
+                );
+            }
         }
+
+        // Four Boolean values occupy one byte in the canonical bit buffer.
+        assert_eq!(uncompressed_size_in_bytes(&canonical, &mut ctx)?, 1);
+        assert_eq!(
+            canonical.statistics().get(Stat::UncompressedSizeInBytes),
+            stats_ref.get(Stat::UncompressedSizeInBytes)
+        );
         Ok(())
     }
 

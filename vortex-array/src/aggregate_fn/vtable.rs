@@ -175,6 +175,31 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         None
     }
 
+    /// Whether an existing finalized result can be reused after changing the input representation.
+    ///
+    /// Reuse requires the same logical input, values, validity, order, dtype, and bound options.
+    /// Matching dtype and length alone does not establish this. Slices, filters, and other inputs
+    /// need their own results. The default keeps results attached to their physical input.
+    ///
+    /// Opting in permits reuse under the aggregate's numerical semantics. It does not promise
+    /// bit-identical fresh computation through another encoding, particularly for floating sums.
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        false
+    }
+
+    /// Recover a mergeable partial from a finalized result when no merge information was lost.
+    ///
+    /// The recovered state must behave like the state that produced `result`, including ordered
+    /// merges and saturation. Return `None` when finalization loses information needed for merging.
+    /// Equal result and state dtypes alone do not establish this contract. The default declines.
+    fn partial_from_result(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        Ok(None)
+    }
+
     /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed

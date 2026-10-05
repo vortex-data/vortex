@@ -29,7 +29,8 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::legacy_session;
-use crate::stats::ArrayStats;
+use crate::stats::Aggregations;
+use crate::stats::AggregationsRef;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -47,7 +48,7 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
     pub(crate) slots: ArraySlots,
-    pub(crate) stats: ArrayStats,
+    pub(crate) aggregations: Aggregations,
     pub(crate) data: D, // must be last for unsized coercion
 }
 
@@ -125,7 +126,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
             encoding_id: new.vtable.id(),
             dtype: new.dtype,
             slots: new.slots,
-            stats: ArrayStats::default(),
+            aggregations: Aggregations::default(),
             data: ArrayData {
                 vtable: new.vtable,
                 data: new.data,
@@ -143,14 +144,14 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         dtype: DType,
         data: V::TypedArrayData,
         slots: ArraySlots,
-        stats: ArrayStats,
+        aggregations: Aggregations,
     ) -> Self {
         ArrayInner {
             len,
             encoding_id: vtable.id(),
             dtype,
             slots,
-            stats,
+            aggregations,
             data: ArrayData { vtable, data },
         }
     }
@@ -236,7 +237,7 @@ impl<V: VTable> Array<V> {
                 new.dtype,
                 new.data,
                 new.slots,
-                ArrayStats::default(),
+                Aggregations::default(),
             )
         };
         let inner = ArrayRef::from_inner(Arc::new(store));
@@ -289,6 +290,11 @@ impl<V: VTable> Array<V> {
     /// Returns the encoding ID for `V`.
     pub fn encoding_id(&self) -> ArrayId {
         self.inner.encoding_id()
+    }
+
+    /// Returns finalized aggregate results bound to this array.
+    pub fn aggregations(&self) -> AggregationsRef<'_> {
+        self.inner.aggregations()
     }
 
     /// Returns this array's statistics set.

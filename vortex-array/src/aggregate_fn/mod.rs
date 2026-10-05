@@ -55,3 +55,6 @@ mod sealed {
     /// This can be the **only** implementor for [`super::typed::DynAggregateFn`].
     impl<V: AggregateFnVTable> Sealed for AggregateFnInner<V> {}
 }
+
+#[cfg(test)]
+mod tests;

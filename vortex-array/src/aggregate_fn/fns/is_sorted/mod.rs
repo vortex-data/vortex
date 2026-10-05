@@ -243,6 +243,10 @@ impl AggregateFnVTable for IsSorted {
     type Options = IsSortedOptions;
     type Partial = IsSortedPartial;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.is_sorted");
         *ID

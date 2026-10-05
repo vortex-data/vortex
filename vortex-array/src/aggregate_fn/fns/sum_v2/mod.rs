@@ -122,6 +122,10 @@ impl AggregateFnVTable for SumV2 {
     type Options = NumericalAggregateOpts;
     type Partial = SumV2Partial;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.sum_v2");
         *ID

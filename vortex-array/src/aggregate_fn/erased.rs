@@ -23,6 +23,7 @@ use crate::aggregate_fn::options::AggregateFnOptions;
 use crate::aggregate_fn::typed::AggregateFnInner;
 use crate::aggregate_fn::typed::DynAggregateFn;
 use crate::dtype::DType;
+use crate::scalar::Scalar;
 
 /// A type-erased aggregate function, pairing a vtable with bound options behind a trait object.
 ///
@@ -85,6 +86,27 @@ impl AggregateFnRef {
     /// Returns `None` if the input dtype is not supported by the aggregate function.
     pub fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
         self.0.return_dtype(input_dtype)
+    }
+
+    /// Whether this bound function permits result reuse after an input representation change.
+    ///
+    /// See [`AggregateFnVTable::is_representation_invariant`] for the same input contract. Bound
+    /// options remain part of the function identity; this does not permit reuse across options.
+    pub fn is_representation_invariant(&self) -> bool {
+        self.0.is_representation_invariant()
+    }
+
+    /// Recover a partial scalar using [`AggregateFnVTable::partial_from_result`].
+    ///
+    /// `result` must describe this aggregate with its bound options over `input_dtype`. The returned
+    /// scalar has this aggregate's state dtype. Returns `None` for unsupported input types or when
+    /// the aggregate declines recovery, and an error for incompatible result or partial dtypes.
+    pub fn partial_from_result(
+        &self,
+        input_dtype: &DType,
+        result: &Scalar,
+    ) -> VortexResult<Option<Scalar>> {
+        self.0.partial_from_result(input_dtype, result)
     }
 
     /// DType of the intermediate accumulator state.

@@ -12,6 +12,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::dtype::DType;
+use crate::stats::AggregationsRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -74,6 +75,11 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     /// Returns the encoding ID.
     pub fn encoding_id(&self) -> ArrayId {
         self.array.encoding_id()
+    }
+
+    /// Returns finalized aggregate results bound to this array.
+    pub fn aggregations(&self) -> AggregationsRef<'_> {
+        self.array.aggregations()
     }
 
     /// Returns the array's statistics set.

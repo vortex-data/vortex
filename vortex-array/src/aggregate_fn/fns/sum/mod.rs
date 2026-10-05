@@ -26,11 +26,9 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -48,27 +46,9 @@ use crate::scalar::Scalar;
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum) {
-        return Ok(sum_scalar);
-    }
-
-    // Compute using Accumulator<Sum>.
-    // TODO(ngates): we may want to wrap this three-step dance up into an extension crate maybe.
-    let mut acc = Accumulator::try_new(
-        Sum,
-        NumericalAggregateOpts::default(),
-        array.dtype().clone(),
-    )?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
-
-    // Cache the computed sum as a statistic (only if non-null, i.e. no overflow).
-    if let Some(val) = result.value().cloned() {
-        array.statistics().set(Stat::Sum, Precision::Exact(val));
-    }
-
-    Ok(result)
+    array
+        .aggregations()
+        .compute_result(Stat::Sum.finalized_aggregate_fn(), ctx)
 }
 
 /// Sum an array, starting from zero.
@@ -94,6 +74,10 @@ pub(crate) fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
 impl AggregateFnVTable for Sum {
     type Options = NumericalAggregateOpts;
     type Partial = SumPartial;
+
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.sum");
@@ -167,6 +151,14 @@ impl AggregateFnVTable for Sum {
             Some(sum_state_from_scalar(&scalar, args.return_dtype)?)
         };
         Ok(SumPartial { current })
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(

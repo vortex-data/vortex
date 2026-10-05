@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::SmallVec;
 use vortex_error::VortexResult;
 
 use super::Dict;
@@ -21,7 +20,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
-use crate::stats::StatsSet;
 use crate::validity::Validity;
 
 pub trait TakeReduce: VTable {
@@ -148,25 +146,22 @@ pub(crate) fn propagate_take_stats(
         indices.validity()?,
         Validity::NonNullable | Validity::AllValid
     );
-    target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices_all_valid {
-            let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
-            if matches!(is_constant, Precision::Exact(true)) {
-                // Any combination of elements from a constant array is still const
-                st.set(Stat::IsConstant, Precision::exact(true));
-            }
+    if indices_all_valid
+        && source.statistics().get_as::<bool>(Stat::IsConstant) == Precision::Exact(true)
+    {
+        target
+            .statistics()
+            .set(Stat::IsConstant, Precision::exact(true));
+    }
+    for stat in [Stat::Min, Stat::Max] {
+        let value = source
+            .statistics()
+            .get(stat)
+            .into_inexact()
+            .and_then(Scalar::into_value);
+        if !value.is_absent() && !target.statistics().get(stat).is_exact() {
+            target.statistics().set(stat, value);
         }
-        let inexact_min_max = [Stat::Min, Stat::Max]
-            .into_iter()
-            .filter_map(|stat| match source.statistics().get(stat).into_inexact() {
-                Precision::Exact(scalar) | Precision::Inexact(scalar) => {
-                    scalar.into_value().map(|sv| (stat, Precision::Inexact(sv)))
-                }
-                Precision::Absent => None,
-            })
-            .collect::<SmallVec<_>>();
-        st.combine_sets(
-            &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
-        )
-    })
+    }
+    Ok(())
 }

@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::LazyLock;
 
 use enum_iterator::Sequence;
 use enum_iterator::all;
@@ -196,19 +197,34 @@ impl Stat {
 
     /// Return the built-in aggregate function corresponding to this statistic, if one exists.
     pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
-        // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
-        Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
-            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
-            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
-            Self::UncompressedSizeInBytes => {
+        match self {
+            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => None,
+            _ => Some(self.finalized_aggregate_fn().clone()),
+        }
+    }
+
+    /// Return the shared finalized request for this historical field.
+    ///
+    /// Numerical fields skip NaNs. Boolean flags identify final results and do not supply the
+    /// boundary values required by sortedness or constantness partial states.
+    pub(crate) fn finalized_aggregate_fn(self) -> &'static AggregateFnRef {
+        static FUNCTIONS: LazyLock<[AggregateFnRef; 9]> = LazyLock::new(|| {
+            [
+                aggregate_fn::fns::is_constant::IsConstant.bind(EmptyOptions),
+                aggregate_fn::fns::is_sorted::IsSorted
+                    .bind(aggregate_fn::fns::is_sorted::IsSortedOptions { strict: false }),
+                aggregate_fn::fns::is_sorted::IsSorted
+                    .bind(aggregate_fn::fns::is_sorted::IsSortedOptions { strict: true }),
+                aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
+                aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
+                aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
+                aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
                 aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .bind(EmptyOptions)
-            }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
-        })
+                    .bind(EmptyOptions),
+                aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
+            ]
+        });
+        &FUNCTIONS[usize::from(u8::from(self))]
     }
 
     /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
@@ -267,8 +283,16 @@ impl Display for Stat {
 #[cfg(test)]
 mod test {
     use enum_iterator::all;
+    use rstest::rstest;
 
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
+    use crate::aggregate_fn::fns::sum::Sum;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::Stat;
@@ -289,5 +313,53 @@ mod test {
         for stat in all::<Stat>().filter(|s| !matches!(s, Stat::Min | Stat::Max)) {
             assert!(!stat.has_same_dtype_as_array());
         }
+    }
+
+    #[rstest]
+    #[case(Stat::Min, Min.bind(NumericalAggregateOpts::include_nans()))]
+    #[case(Stat::Max, Max.bind(NumericalAggregateOpts::include_nans()))]
+    #[case(Stat::Sum, Sum.bind(NumericalAggregateOpts::include_nans()))]
+    fn finalized_numerical_keys_skip_nans(
+        #[case] stat: Stat,
+        #[case] include_nans: crate::aggregate_fn::AggregateFnRef,
+    ) {
+        let key = stat.finalized_aggregate_fn();
+        assert_eq!(stat.aggregate_fn().as_ref(), Some(key));
+        assert_ne!(key, &include_nans);
+        assert_eq!(Stat::from_aggregate_fn(key), Some(stat));
+        assert_eq!(Stat::from_aggregate_fn(&include_nans), None);
+    }
+
+    #[rstest]
+    #[case(Stat::IsConstant)]
+    #[case(Stat::IsSorted)]
+    #[case(Stat::IsStrictSorted)]
+    fn finalized_flags_do_not_supply_partial_requests(#[case] stat: Stat) {
+        let key = stat.finalized_aggregate_fn();
+        assert!(stat.aggregate_fn().is_none());
+        assert!(Stat::from_aggregate_fn(key).is_none());
+        match stat {
+            Stat::IsConstant => assert!(key.is::<IsConstant>()),
+            _ => assert_eq!(key.as_::<IsSorted>().strict, stat == Stat::IsStrictSorted),
+        }
+    }
+
+    #[test]
+    fn finalized_keys_are_shared_and_distinct() {
+        for stat in Stat::all() {
+            let key = stat.finalized_aggregate_fn();
+            assert!(std::ptr::eq(key, stat.finalized_aggregate_fn()));
+            assert_eq!(
+                Stat::all()
+                    .filter(|other| other.finalized_aggregate_fn() == key)
+                    .count(),
+                1
+            );
+        }
+        let key = Stat::Min.finalized_aggregate_fn();
+        let cloned = key.clone();
+        let partial_request = Stat::Min.aggregate_fn().unwrap();
+        assert!(std::ptr::eq(key.as_::<Min>(), cloned.as_::<Min>()));
+        assert!(std::ptr::eq(key.as_::<Min>(), partial_request.as_::<Min>()));
     }
 }

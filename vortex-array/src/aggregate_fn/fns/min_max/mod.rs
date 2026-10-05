@@ -24,12 +24,13 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -49,85 +50,101 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "
 /// The minimum and maximum non-null values of an array, or `None` if there are no non-null values.
 ///
 /// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
-/// default) NaN values are ignored and the cached `Stat::Min`/`Stat::Max` statistics are consulted
-/// and updated. With `skip_nans=false`, any NaN value in a float array poisons both extrema to
-/// NaN; an exact `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction.
+/// default) NaN values are ignored and cached NaN-skipping extrema are consulted and updated.
+/// Otherwise, any NaN value poisons both extrema to NaN. An exact `Stat::NaNCount` statistic
+/// shortcircuits the NaN scan in either direction.
 ///
 /// The result scalars have the non-nullable version of the array dtype.
-/// This will update the stats set of the array as a side effect.
+/// Computed extrema are retained in the array's finalized aggregate cache.
 pub fn min_max(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
     options: NumericalAggregateOpts,
 ) -> VortexResult<Option<MinMaxResult>> {
+    // Extensions can have floating storage, so their options remain distinct.
+    let nan_options_are_equivalent = match array.dtype() {
+        DType::Primitive(ptype, _) => !ptype.is_float(),
+        DType::Bool(_) | DType::Decimal(..) | DType::Utf8(_) | DType::Binary(_) => true,
+        _ => false,
+    };
+    let mut use_legacy_extrema = options.skip_nans || nan_options_are_equivalent;
     if !options.skip_nans && array.dtype().is_float() {
         match array.statistics().get_as::<u64>(Stat::NaNCount) {
-            // NaN-free: identical to the NaN-skipping path below, including its stat caching.
-            Precision::Exact(0) => {}
-            // At least one NaN value poisons both extrema.
-            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
-            _ => {
-                if array.is_empty() || array.valid_count(ctx)? == 0 {
-                    return Ok(None);
-                }
-                // Compute with NaN-including options; the NaN-skipping `Stat::Min`/`Stat::Max`
-                // caches are neither read nor written.
-                let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
-                acc.accumulate(array, ctx)?;
-                return MinMaxResult::from_scalar(acc.finish()?);
+            Precision::Exact(0) => use_legacy_extrema = true,
+            Precision::Exact(_) => {
+                let result = Some(nan_minmax_result(array.dtype()));
+                cache_min_max(array, options, result.as_ref())?;
+                return Ok(result);
             }
+            _ => {}
         }
     }
 
-    // NaN-skipping path. Also reached for NaN-free not-skipping float arrays and all non-float
-    // arrays, where `skip_nans` has no effect.
-
-    // Short-circuit using cached array statistics.
-    let cached_min = array.statistics().get(Stat::Min).as_exact();
-    let cached_max = array.statistics().get(Stat::Max).as_exact();
-    if let Some((min, max)) = cached_min.zip(cached_max) {
-        let non_nullable_dtype = array.dtype().as_nonnullable();
-        return Ok(Some(MinMaxResult {
-            min: min.cast(&non_nullable_dtype)?,
-            max: max.cast(&non_nullable_dtype)?,
-        }));
+    if use_legacy_extrema {
+        let cached_min = array
+            .aggregations()
+            .get_result(Stat::Min.finalized_aggregate_fn())
+            .as_exact();
+        let cached_max = array
+            .aggregations()
+            .get_result(Stat::Max.finalized_aggregate_fn())
+            .as_exact();
+        if let Some((min, max)) = cached_min.zip(cached_max) {
+            if min.is_null() || max.is_null() {
+                return Ok(None);
+            }
+            let non_nullable_dtype = array.dtype().as_nonnullable();
+            return Ok(Some(MinMaxResult {
+                min: min.cast(&non_nullable_dtype)?,
+                max: max.cast(&non_nullable_dtype)?,
+            }));
+        }
     }
 
-    // Short-circuit for empty arrays or all-null arrays.
     if array.is_empty() || array.valid_count(ctx)? == 0 {
+        if minmax_compute_supported_dtype(array.dtype()) {
+            cache_min_max(array, options, None)?;
+        }
         return Ok(None);
     }
-
-    // Short-circuit for dtypes this helper cannot currently compute.
     if !minmax_compute_supported_dtype(array.dtype()) {
         return Ok(None);
     }
 
-    // Compute using Accumulator<MinMax>.
-    let mut acc = Accumulator::try_new(
-        MinMax,
-        NumericalAggregateOpts::default(),
-        array.dtype().clone(),
-    )?;
-    acc.accumulate(array, ctx)?;
-    let result_scalar = acc.finish()?;
-    let result = MinMaxResult::from_scalar(result_scalar)?;
-
-    // Cache the computed min/max as statistics.
-    if let Some(r) = &result {
-        if let Some(min_value) = r.min.value() {
-            array
-                .statistics()
-                .set(Stat::Min, Precision::Exact(min_value.clone()));
-        }
-        if let Some(max_value) = r.max.value() {
-            array
-                .statistics()
-                .set(Stat::Max, Precision::Exact(max_value.clone()));
-        }
+    let aggregate = MinMax.bind(options);
+    let result = MinMaxResult::from_scalar(array.aggregations().compute_result(&aggregate, ctx)?)?;
+    cache_min_max(array, options, result.as_ref())?;
+    // An exact NaN count of zero also makes these extrema valid for NaN-skipping requests.
+    if !options.skip_nans && use_legacy_extrema {
+        cache_min_max(array, NumericalAggregateOpts::skip_nans(), result.as_ref())?;
     }
-
     Ok(result)
+}
+
+fn cache_min_max(
+    array: &ArrayRef,
+    options: NumericalAggregateOpts,
+    result: Option<&MinMaxResult>,
+) -> VortexResult<()> {
+    let dtype = array.dtype().as_nullable();
+    let (min, max) = match result {
+        Some(result) => (result.min.cast(&dtype)?, result.max.cast(&dtype)?),
+        None => (Scalar::null(dtype.clone()), Scalar::null(dtype)),
+    };
+    let aggregations = array.aggregations();
+    let min_fn = if options.skip_nans {
+        Stat::Min.finalized_aggregate_fn().clone()
+    } else {
+        Min.bind(options)
+    };
+    let max_fn = if options.skip_nans {
+        Stat::Max.finalized_aggregate_fn().clone()
+    } else {
+        Max.bind(options)
+    };
+    aggregations.insert_result(min_fn, Precision::Exact(min));
+    aggregations.insert_result(max_fn, Precision::Exact(max));
+    Ok(())
 }
 
 /// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.
@@ -293,6 +310,10 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
 impl AggregateFnVTable for MinMax {
     type Options = NumericalAggregateOpts;
     type Partial = MinMaxPartial;
+
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.min_max");

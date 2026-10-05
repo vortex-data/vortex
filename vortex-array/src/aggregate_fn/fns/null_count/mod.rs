@@ -60,6 +60,10 @@ impl AggregateFnVTable for NullCount {
     type Options = EmptyOptions;
     type Partial = u64;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.null_count");
         *ID
@@ -101,6 +105,14 @@ impl AggregateFnVTable for NullCount {
             .as_primitive()
             .typed_value::<u64>()
             .vortex_expect("null_count partial should not be null"))
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(

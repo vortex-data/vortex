@@ -75,6 +75,10 @@ impl AggregateFnVTable for Max {
     type Options = NumericalAggregateOpts;
     type Partial = MaxPartial;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.max");
         *ID
@@ -136,6 +140,14 @@ impl AggregateFnVTable for Max {
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
         partial.merge(args, scalar);
         Ok(partial)
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(

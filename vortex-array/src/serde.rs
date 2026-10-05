@@ -782,9 +782,14 @@ mod tests {
     use crate::ArraySerialization;
     use crate::ArrayVTable;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProvider;
 
     static SERIALIZER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -912,6 +917,92 @@ mod tests {
             blob.extend_from_slice(buffer.as_ref());
         }
         Ok(blob.freeze())
+    }
+
+    #[test]
+    fn integer_node_preserves_historical_nan_count() -> VortexResult<()> {
+        let session = array_session();
+        let ctx = ArrayContext::empty();
+        let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let source = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+
+        // Construct the historical wire field directly, without relying on the cache setter.
+        let mut fbb = FlatBufferBuilder::new();
+        let metadata = fbb.create_vector(source.metadata());
+        let buffer_indices = source
+            .flatbuffer()
+            .buffers()
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>();
+        let buffers = fbb.create_vector(&buffer_indices);
+        let stats = fba::ArrayStats::create(
+            &mut fbb,
+            &fba::ArrayStatsArgs {
+                nan_count: Some(0),
+                ..Default::default()
+            },
+        );
+        let node = fba::ArrayNode::create(
+            &mut fbb,
+            &fba::ArrayNodeArgs {
+                encoding: source.encoding_id(),
+                metadata: Some(metadata),
+                buffers: Some(buffers),
+                stats: Some(stats),
+                ..Default::default()
+            },
+        );
+        let source_array = root::<fba::Array>(source.flatbuffer.as_ref())?;
+        let buffer_descriptors = source_array
+            .buffers()
+            .unwrap()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        let buffers = fbb.create_vector(&buffer_descriptors);
+        let tree = fba::Array::create(
+            &mut fbb,
+            &fba::ArrayArgs {
+                root: Some(node),
+                buffers: Some(buffers),
+            },
+        );
+        fbb.finish_minimal(tree);
+        let historical = SerializedArray::from_flatbuffer_with_buffers(
+            ByteBuffer::from(fbb.finished_data().to_vec()),
+            source.buffers.to_vec(),
+        )?;
+        let decoded = historical.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        assert_eq!(
+            decoded.statistics().get(Stat::NaNCount),
+            Precision::Exact(0u64.into())
+        );
+        assert_eq!(
+            decoded.statistics().to_owned().get(Stat::NaNCount),
+            Precision::exact(0u64)
+        );
+
+        let rewritten = SerializedArray::try_from(serialize_blob(&decoded, &ctx, &session)?)?;
+        assert_eq!(rewritten.flatbuffer().stats().unwrap().nan_count(), Some(0));
+        let roundtrip = rewritten.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        assert_eq!(
+            roundtrip.statistics().get(Stat::NaNCount),
+            Precision::Exact(0u64.into())
+        );
+        let mut execution_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(roundtrip, array, &mut execution_ctx);
+        Ok(())
     }
 
     #[test]
