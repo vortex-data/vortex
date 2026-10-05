@@ -33,6 +33,7 @@ use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::VarBinView;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::ResolvedViews;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
@@ -682,6 +683,11 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
+    /// Resolve the data buffers of this array for per-row access.
+    pub fn resolved_views(&self) -> ResolvedViews<'_> {
+        ResolvedViews::new(self)
+    }
+
     #[inline]
     fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: ArraySlots) -> Self {
         let len = data.len();

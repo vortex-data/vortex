@@ -12,7 +12,6 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
-use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::scalar::Scalar;
@@ -31,7 +30,7 @@ fn compute_min_max_with_validity(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<MinMaxResult>> {
-    let resolved = ResolvedViews::new(array);
+    let resolved = array.resolved_views();
     let views = resolved.views();
     let buffers = resolved.buffers();
 

@@ -227,7 +227,7 @@ pub(crate) fn execute_like(
             );
         };
         let values = array.clone().execute::<VarBinViewArray>(ctx)?;
-        let haystack = ResolvedViews::new(&values);
+        let haystack = values.resolved_views();
         // The ASCII case-insensitive fast paths are only sound when the haystack is pure
         // ASCII; see `LikePattern::compile`.
         let ascii_haystack =
@@ -245,8 +245,8 @@ pub(crate) fn execute_like(
     // Per-row patterns: compile each pattern individually.
     let values = array.clone().execute::<VarBinViewArray>(ctx)?;
     let patterns = pattern.clone().execute::<VarBinViewArray>(ctx)?;
-    let haystack = ResolvedViews::new(&values);
-    let pattern_views = ResolvedViews::new(&patterns);
+    let haystack = values.resolved_views();
+    let pattern_views = patterns.resolved_views();
     let ascii_haystack = options.case_insensitive && is_ascii(&haystack);
 
     // Reuse the previous row's compiled pattern while the pattern bytes repeat, so runs of
@@ -491,7 +491,6 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::varbinview::ResolvedViews;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -807,7 +806,7 @@ mod tests {
     #[test]
     fn suffix_bytes_are_value_suffixes() {
         let array = VarBinViewArray::from_iter_str(["short", LONG, "another long value here"]);
-        let haystack = ResolvedViews::new(&array);
+        let haystack = array.resolved_views();
         for (index, view) in haystack.views().iter().enumerate() {
             let value = haystack.bytes(index);
             for suffix_len in 0..=value.len() {
@@ -825,6 +824,6 @@ mod tests {
     #[case::referenced_non_ascii([LONG, "a long value ending in é"], false)]
     fn detects_ascii(#[case] values: [&str; 2], #[case] expected: bool) {
         let array = VarBinViewArray::from_iter_str(values);
-        assert_eq!(is_ascii(&ResolvedViews::new(&array)), expected);
+        assert_eq!(is_ascii(&array.resolved_views()), expected);
     }
 }

@@ -12,7 +12,6 @@ use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
-use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::validity::Validity;
@@ -60,7 +59,7 @@ fn two_buffer_array() -> VortexResult<VarBinViewArray> {
 #[test]
 fn resolves_values_across_data_buffers() -> VortexResult<()> {
     let array = two_buffer_array()?;
-    let resolved = ResolvedViews::new(&array);
+    let resolved = array.resolved_views();
 
     assert_eq!(resolved.len(), TWO_BUFFER_VALUES.len());
     assert!(!resolved.is_empty());
@@ -75,7 +74,7 @@ fn resolves_values_across_data_buffers() -> VortexResult<()> {
 #[case::referenced(VarBinViewArray::from_iter_str([LONG, "another long value here"]))]
 #[case::mixed(VarBinViewArray::from_iter_str(["short", LONG, "", "twelve bytes"]))]
 fn bytes_matches_bytes_at(#[case] array: VarBinViewArray) {
-    let resolved = ResolvedViews::new(&array);
+    let resolved = array.resolved_views();
     for index in 0..array.len() {
         assert_eq!(resolved.bytes(index), array.bytes_at(index).as_slice());
     }
@@ -84,7 +83,7 @@ fn bytes_matches_bytes_at(#[case] array: VarBinViewArray) {
 #[test]
 fn view_bytes_matches_bytes() -> VortexResult<()> {
     let array = two_buffer_array()?;
-    let resolved = ResolvedViews::new(&array);
+    let resolved = array.resolved_views();
 
     for (index, view) in resolved.views().iter().enumerate() {
         assert_eq!(resolved.view_bytes(view), resolved.bytes(index));
@@ -101,7 +100,7 @@ fn resolves_through_a_slice() -> VortexResult<()> {
     let array = two_buffer_array()?
         .slice(2..4)?
         .execute::<VarBinViewArray>(&mut ctx)?;
-    let resolved = ResolvedViews::new(&array);
+    let resolved = array.resolved_views();
 
     assert_eq!(resolved.len(), 2);
     assert_eq!(array.data_buffers().len(), 2, "slice kept both buffers");

@@ -15,7 +15,7 @@ pub struct ResolvedViews<'a> {
 
 impl<'a> ResolvedViews<'a> {
     /// Resolve the data buffers of `array`.
-    pub fn new(array: &'a VarBinViewArray) -> Self {
+    pub(super) fn new(array: &'a VarBinViewArray) -> Self {
         Self {
             views: array.views(),
             buffers: (0..array.data_buffers().len())

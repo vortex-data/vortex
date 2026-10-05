@@ -143,18 +143,18 @@ pub(super) fn compare_bytes(
     let bits = match (&lhs, &rhs) {
         (BytesOperand::Array { values: l, .. }, BytesOperand::Array { values: r, .. }) => {
             compare_views(
-                &ResolvedViews::new(l),
-                &ResolvedViews::new(r),
+                &l.resolved_views(),
+                &r.resolved_views(),
                 op,
                 ctx.allocator(),
             )
         }
         (BytesOperand::Array { values, .. }, BytesOperand::Constant { value, .. }) => {
-            compare_views_constant(&ResolvedViews::new(values), value, op, ctx.allocator())
+            compare_views_constant(&values.resolved_views(), value, op, ctx.allocator())
         }
         (BytesOperand::Constant { value, .. }, BytesOperand::Array { values, .. }) => {
             compare_views_constant(
-                &ResolvedViews::new(values),
+                &values.resolved_views(),
                 value,
                 op.swap(),
                 ctx.allocator(),
