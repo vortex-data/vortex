@@ -46,7 +46,7 @@ use crate::bitpack_decompress;
 ///
 /// Returns an error if `array` is not an integer array, contains negative values, or is nonempty
 /// and every block chooses the array's native bit width.
-pub fn bitpack_to_best_bit_widths(
+pub fn bitpack_blocked_to_best_bit_widths(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitPackedArray> {
@@ -382,7 +382,7 @@ mod tests {
             .chain((0..1024).map(|i| (1 << 19) + i))
             .chain((0..100).map(|i| i % 32))
             .collect();
-        let array = bitpack_to_best_bit_widths(
+        let array = bitpack_blocked_to_best_bit_widths(
             &PrimitiveArray::from_iter(values.iter().copied()),
             &mut ctx,
         )?;
@@ -459,7 +459,7 @@ mod tests {
     fn best_bit_widths_charge_partial_blocks_for_padding() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // Packing these values would take a full 2688-byte block; patching them takes 80 bytes.
-        let array = bitpack_to_best_bit_widths(
+        let array = bitpack_blocked_to_best_bit_widths(
             &PrimitiveArray::from_iter(vec![(1u32 << 20) + 1; 10]),
             &mut ctx,
         )?;
@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn best_bit_widths_materialize_uniform_offsets() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = bitpack_to_best_bit_widths(
+        let array = bitpack_blocked_to_best_bit_widths(
             &PrimitiveArray::from_iter((0..3000u32).map(|i| i % 128)),
             &mut ctx,
         )?;
@@ -503,7 +503,7 @@ mod tests {
                 .collect::<Buffer<_>>(),
             Validity::from_iter((0..2048).map(|i| i % 10 != 0)),
         );
-        let array = bitpack_to_best_bit_widths(&values, &mut ctx)?;
+        let array = bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?;
 
         assert_eq!(block_widths(&array, &mut ctx)?, [4, 4]);
         assert!(array.patches().is_none());
@@ -513,8 +513,10 @@ mod tests {
     #[test]
     fn best_bit_widths_of_empty_array() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let array =
-            bitpack_to_best_bit_widths(&PrimitiveArray::from_iter(Vec::<u32>::new()), &mut ctx)?;
+        let array = bitpack_blocked_to_best_bit_widths(
+            &PrimitiveArray::from_iter(Vec::<u32>::new()),
+            &mut ctx,
+        )?;
 
         assert_arrays_eq!(
             block_offsets(&array, &mut ctx)?,
@@ -531,7 +533,7 @@ mod tests {
     fn encode_blocked_rejects_invalid_values(#[case] array: PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
         assert!(matches!(
-            bitpack_to_best_bit_widths(&array, &mut ctx).unwrap_err(),
+            bitpack_blocked_to_best_bit_widths(&array, &mut ctx).unwrap_err(),
             VortexError::InvalidArgument(_, _)
         ));
         assert!(matches!(
