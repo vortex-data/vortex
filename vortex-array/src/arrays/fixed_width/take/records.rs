@@ -1,51 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 
+use super::FixedWidthTakeValue;
 use super::take_values;
-use crate::arrays::fixed_width::match_each_record_width;
-use crate::dtype::UnsignedPType;
+use crate::array::ArrayView;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::fixed_width::FixedWidthArray;
+use crate::match_each_unsigned_integer_ptype;
 
-pub(super) fn take_byte_records<I: UnsignedPType>(
-    values: &ByteBuffer,
-    byte_width: usize,
-    record_count: usize,
-    indices: &[I],
+// Avoid duplicating the indices dispatch in every record-width arm of `take`.
+#[inline(never)]
+pub(super) fn take_records<V: FixedWidthArray, T: FixedWidthTakeValue>(
+    array: ArrayView<'_, V>,
+    indices: &PrimitiveArray,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<ByteBuffer> {
-    let alignment = values.alignment();
-
-    match_each_record_width!(
-        byte_width,
-        |W| {
-            let records = Buffer::<[u8; W]>::from_byte_buffer(values.clone());
-            debug_assert_eq!(records.len(), record_count);
-            Ok(take_values(records.as_slice(), indices, allocator)
-                .into_byte_buffer()
-                .aligned(alignment))
-        },
-        _ => {
-            let output_len = indices
-                .len()
-                .checked_mul(byte_width)
-                .ok_or_else(|| vortex_err!("Fixed-width take output length overflows usize"))?;
-            let mut result = BufferMut::<u8>::with_capacity_in(output_len, allocator.clone());
-            for index in indices {
-                let index = index.as_();
-                assert!(
-                    index < record_count,
-                    "take index {index} out of bounds for length {record_count}"
-                );
-                let start = index * byte_width;
-                result.extend_from_slice(&values[start..start + byte_width]);
-            }
-            Ok(result.freeze().into_byte_buffer().aligned(alignment))
-        }
-    )
+    let values = V::values::<T>(array);
+    vortex_ensure!(
+        values.len() == array.len(),
+        "Fixed-width values buffer length does not match record count"
+    );
+    let taken = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        take_values(values.as_slice(), indices.as_slice::<I>(), allocator)
+    });
+    Ok(taken.into_byte_buffer().aligned(values.alignment()))
 }
