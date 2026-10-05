@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -52,7 +53,7 @@ impl VTable for Null {
         _len: usize,
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
+        vortex_ensure_eq!(*dtype, DType::Null, "NullArray dtype must be DType::Null");
         Ok(())
     }
 

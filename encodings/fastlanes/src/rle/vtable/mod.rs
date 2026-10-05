@@ -25,6 +25,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -301,10 +302,10 @@ fn validate_parts(
         indices.len()
     );
 
-    vortex_ensure!(
-        indices.len().div_ceil(crate::FL_CHUNK_SIZE) == values_idx_offsets.len(),
-        "RLE must have one value idx offset per chunk, got {}",
-        values_idx_offsets.len()
+    vortex_ensure_eq!(
+        indices.len().div_ceil(crate::FL_CHUNK_SIZE),
+        values_idx_offsets.len(),
+        "RLE must have one value idx offset per chunk"
     );
 
     vortex_ensure!(
@@ -315,10 +316,7 @@ fn validate_parts(
     );
 
     let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-    vortex_ensure!(
-        dtype == &expected_dtype,
-        "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
-    );
+    vortex_ensure_eq!(dtype, &expected_dtype, "RLE dtype mismatch");
 
     Ok(())
 }

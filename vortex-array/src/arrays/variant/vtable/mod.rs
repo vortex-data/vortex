@@ -9,6 +9,7 @@ use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -72,12 +73,7 @@ impl VTable for Variant {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == VariantSlots::COUNT,
-            "VariantArray expects {} slots, got {}",
-            VariantSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), VariantSlots::COUNT);
         vortex_ensure!(
             slots[VariantSlots::CORE_STORAGE].is_some(),
             "VariantArray core_storage slot must be present"
@@ -89,24 +85,21 @@ impl VTable for Variant {
             matches!(dtype, DType::Variant(_)),
             "Expected Variant DType, got {dtype}"
         );
-        vortex_ensure!(
-            core_storage.dtype() == dtype,
-            "VariantArray core_storage dtype {} does not match outer dtype {}",
+        vortex_ensure_eq!(
             core_storage.dtype(),
-            dtype
+            dtype,
+            "VariantArray core_storage dtype does not match outer dtype",
         );
-        vortex_ensure!(
-            core_storage.len() == len,
-            "VariantArray core_storage length {} does not match outer length {}",
+        vortex_ensure_eq!(
             core_storage.len(),
-            len
+            len,
+            "VariantArray core_storage length does not match outer length",
         );
         if let Some(shredded) = slots[VariantSlots::SHREDDED].as_ref() {
-            vortex_ensure!(
-                shredded.len() == len,
-                "VariantArray shredded length {} does not match outer length {}",
+            vortex_ensure_eq!(
                 shredded.len(),
-                len
+                len,
+                "VariantArray shredded length does not match outer length",
             );
         }
         Ok(())
@@ -167,12 +160,7 @@ impl VTable for Variant {
             .transpose()?;
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         let expected_children = 1 + usize::from(shredded_dtype.is_some());
-        vortex_ensure!(
-            children.len() == expected_children,
-            "Expected {} children, got {}",
-            expected_children,
-            children.len(),
-        );
+        vortex_ensure_eq!(children.len(), expected_children);
         let core_storage = children.get(0, dtype, len)?;
         let shredded = shredded_dtype
             .map(|dtype| children.get(1, &dtype, len))

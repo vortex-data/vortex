@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -402,11 +403,10 @@ impl VarBinViewData {
 
     fn check_nullability(dtype: &DType, validity: &Validity) -> VortexResult<bool> {
         let (is_utf8, nullability) = Self::dtype_parts(dtype)?;
-        vortex_ensure!(
-            validity.nullability() == nullability,
-            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
-            validity,
-            nullability
+        vortex_ensure_eq!(
+            validity.nullability(),
+            nullability,
+            InvalidArgument: "validity nullability is incompatible with dtype nullability",
         );
         Ok(is_utf8)
     }

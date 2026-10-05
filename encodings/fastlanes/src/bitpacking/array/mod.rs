@@ -23,6 +23,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 pub mod bitpack_compress;
@@ -158,9 +159,10 @@ impl BitPackedData {
         vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
 
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == length,
-                "BitPackedArray validity length {validity_len} != array length {length}",
+            vortex_ensure_eq!(
+                validity_len,
+                length,
+                "BitPackedArray validity length must match array length"
             );
         }
 
@@ -172,12 +174,7 @@ impl BitPackedData {
         // Validate packed buffer
         let expected_packed_len =
             (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
-        vortex_ensure!(
-            packed.len() == expected_packed_len,
-            "Expected {} packed bytes, got {}",
-            expected_packed_len,
-            packed.len()
-        );
+        vortex_ensure_eq!(packed.len(), expected_packed_len);
 
         Ok(())
     }
@@ -191,10 +188,10 @@ impl BitPackedData {
             ptype
         );
 
-        vortex_ensure!(
-            patches.array_len() == len,
-            "BitPackedArray patches length {} != expected {len}",
+        vortex_ensure_eq!(
             patches.array_len(),
+            len,
+            "BitPackedArray patches length mismatch"
         );
 
         Ok(())

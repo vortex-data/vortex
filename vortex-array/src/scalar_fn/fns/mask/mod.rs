@@ -6,7 +6,7 @@ mod kernel;
 pub use kernel::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -91,10 +91,10 @@ impl ScalarFnVTable for Mask {
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        vortex_ensure!(
-            arg_dtypes[1] == DType::Bool(Nullability::NonNullable),
-            "The mask argument to 'mask' must be a non-nullable boolean array, got {}",
-            arg_dtypes[1]
+        vortex_ensure_eq!(
+            arg_dtypes[1],
+            DType::Bool(Nullability::NonNullable),
+            "The mask argument to 'mask' must be a non-nullable boolean array"
         );
         Ok(arg_dtypes[0].as_nullable())
     }

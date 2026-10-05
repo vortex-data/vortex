@@ -21,6 +21,7 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -126,18 +127,16 @@ pub(crate) async fn execute_patches<
         "Applying patches with null values not currently supported on the GPU"
     );
 
-    vortex_ensure!(
-        indices.ptype() == IndicesT::PTYPE,
-        "expected PType {} for patch indices, was {}",
+    vortex_ensure_eq!(
+        indices.ptype(),
         IndicesT::PTYPE,
-        indices.ptype()
+        "unexpected PType for patch indices"
     );
 
-    vortex_ensure!(
-        values.ptype() == ValuesT::PTYPE,
-        "expected PType {} for patch values, was {}",
+    vortex_ensure_eq!(
+        values.ptype(),
         ValuesT::PTYPE,
-        values.ptype()
+        "unexpected PType for patch values"
     );
 
     let patches_len = indices.len();

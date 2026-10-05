@@ -93,7 +93,7 @@ impl Scalar {
                 vortex_ensure_eq!(
                     len,
                     *size as usize,
-                    "fixed-size list dtype expected {size} elements, got {len}",
+                    "fixed-size list scalar has the wrong number of elements",
                 );
 
                 for (i, element) in elements.iter().enumerate() {
@@ -121,8 +121,7 @@ impl Scalar {
                     vortex_ensure_eq!(
                         values.len(),
                         2,
-                        "map entry at index {index} expected 2 values, got {}",
-                        values.len(),
+                        "map entry at index {index} has the wrong number of values",
                     );
 
                     Self::validate(&key_dtype, values[0].as_ref()).map_err(|error| {
@@ -143,7 +142,7 @@ impl Scalar {
                 vortex_ensure_eq!(
                     nvalues,
                     nfields,
-                    "struct dtype expected {nfields} fields, got {nvalues}",
+                    "struct scalar has the wrong number of fields",
                 );
 
                 for (field, field_value) in fields.fields().zip(values.iter()) {

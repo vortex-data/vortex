@@ -11,6 +11,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -223,11 +224,10 @@ impl VarBinData {
 
         // Check validity length
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len() - 1,
-                "Validity length {} doesn't match array length {}",
+            vortex_ensure_eq!(
                 validity_len,
-                offsets.len() - 1
+                offsets.len() - 1,
+                "Validity length doesn't match array length",
             );
         }
 

@@ -3,7 +3,6 @@ name = "vortex-session"
 authors.workspace = true
 description = "Session object for Vortex"
 edition = { workspace = true }
-homepage = { workspace = true }
 categories = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }

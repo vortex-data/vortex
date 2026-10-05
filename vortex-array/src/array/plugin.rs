@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -172,11 +172,10 @@ impl<V: VTable> ArrayPlugin for V {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        vortex_ensure!(
-            self.id() == array.encoding_id(),
-            "array plugin {} cannot serialize in-memory array {}",
+        vortex_ensure_eq!(
             self.id(),
             array.encoding_id(),
+            "array plugin cannot serialize an in-memory array of another encoding",
         );
         Ok(V::serialize(array.as_::<V>(), session)?
             .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)))
@@ -187,11 +186,10 @@ impl<V: VTable> ArrayPlugin for V {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            self.id() == parts.serialized_id,
-            "array plugin {} does not recognize serialized ID {}",
+        vortex_ensure_eq!(
             self.id(),
             parts.serialized_id,
+            "array plugin does not recognize the serialized ID",
         );
         Ok(Array::<V>::try_from_parts(V::deserialize(
             self,

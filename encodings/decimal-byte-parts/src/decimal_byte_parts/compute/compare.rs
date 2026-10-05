@@ -90,7 +90,7 @@ impl CompareKernel for DecimalByteParts {
 // Used to represent the overflow direction when trying to
 // convert into the scalar type.
 #[derive(Debug)]
-enum Sign {
+pub(super) enum Sign {
     Positive,
     Negative,
 }
@@ -108,8 +108,9 @@ fn unconvertible_value(sign: Sign, operator: CompareOperator, nullability: Nulla
     }
 }
 
-// this value return None is the decimal scalar cannot be cast the ptype.
-fn decimal_value_wrapper_to_primitive(
+/// Converts a decimal value into the MSP's primitive type, or returns the direction in which the
+/// value overflows that type.
+pub(super) fn decimal_value_wrapper_to_primitive(
     decimal_value: DecimalValue,
     ptype: PType,
 ) -> Result<ScalarValue, Sign> {

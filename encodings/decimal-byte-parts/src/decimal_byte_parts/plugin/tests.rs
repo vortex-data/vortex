@@ -161,13 +161,13 @@ fn v1_metadata_is_unchanged() -> VortexResult<()> {
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::U64 as i32]),
     vec![msp()],
-    "expected 2 children, got 1"
+    "v2 expects the msp child plus one child per lower part"
 )]
 #[case::v2_extra_child(
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::U64 as i32]),
     vec![msp(), lower_part(), lower_part()],
-    "expected 2 children, got 3"
+    "v2 expects the msp child plus one child per lower part"
 )]
 #[case::v2_too_many_lower_parts(
     decimal_byte_parts_v2_id(),

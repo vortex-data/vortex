@@ -18,6 +18,7 @@ use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -30,10 +31,10 @@ use crate::scalar_fn::row::PolygonSink;
 
 /// Resolve the strict native `MultiPoint -> Polygon` overload.
 fn convex_hull_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
-    vortex_ensure!(
-        dtypes.len() == 1,
-        "spatial: convex_hull requires exactly one MultiPoint operand, got {}",
-        dtypes.len()
+    vortex_ensure_eq!(
+        dtypes.len(),
+        1,
+        "spatial: convex_hull requires exactly one MultiPoint operand"
     );
     let Some(input) = dtypes[0].as_extension_opt() else {
         vortex_bail!(

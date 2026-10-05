@@ -9,6 +9,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -93,10 +94,10 @@ fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
 ) -> VortexResult<usize> {
     // The two selectors are validated to equal length at construction, which is the output length.
     let len = branches.len();
-    vortex_ensure!(
-        rows.len() == len,
-        "interleave selectors differ in length: array_indices {len}, row_indices {}",
-        rows.len()
+    vortex_ensure_eq!(
+        rows.len(),
+        len,
+        "interleave row_indices length does not match array_indices length",
     );
 
     for i in 0..len {

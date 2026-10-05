@@ -17,6 +17,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -73,10 +74,10 @@ impl ZonedReader {
             "zoned layout reader requires a non-zero zone length"
         );
         let expected_zones = row_count.div_ceil(zone_len as u64);
-        vortex_ensure!(
-            zone_count as u64 == expected_zones,
-            "zoned layout declares {zone_count} zones, but {row_count} rows of {zone_len}-row \
-             zones require {expected_zones}"
+        vortex_ensure_eq!(
+            zone_count as u64,
+            expected_zones,
+            "zoned layout zone count must cover {row_count} rows of {zone_len}-row zones"
         );
 
         Ok(Self {
@@ -535,7 +536,7 @@ mod test {
     #[rstest]
     #[case::too_few_zones(2)]
     #[case::too_many_zones(5)]
-    #[should_panic(expected = "declares 3 zones")]
+    #[should_panic(expected = "zone count must cover 9 rows of")]
     fn new_reader_rejects_mismatched_zone_count(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
         #[case] zone_len: usize,

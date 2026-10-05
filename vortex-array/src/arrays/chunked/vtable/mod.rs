@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -90,32 +91,28 @@ impl VTable for Chunked {
         let chunk_offsets = slots[ChunkedSlots::CHUNK_OFFSETS]
             .as_ref()
             .vortex_expect("validated chunk offsets slot");
-        vortex_ensure!(
-            chunk_offsets.dtype() == &DType::Primitive(PType::U64, Nullability::NonNullable),
-            "ChunkedArray chunk offsets must be non-nullable u64, found {}",
-            chunk_offsets.dtype()
+        vortex_ensure_eq!(
+            chunk_offsets.dtype(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable),
+            "ChunkedArray chunk offsets must be non-nullable u64",
         );
-        vortex_ensure!(
-            chunk_offsets.len() == data.chunk_offsets.len(),
-            "ChunkedArray chunk offsets slot length {} does not match cached offsets length {}",
+        vortex_ensure_eq!(
             chunk_offsets.len(),
-            data.chunk_offsets.len()
-        );
-        vortex_ensure!(
-            data.chunk_offsets.len() == slots.len() - ChunkedSlots::CHUNKS_OFFSET + 1,
-            "ChunkedArray chunk offsets length {} does not match {} chunks",
             data.chunk_offsets.len(),
-            slots.len() - ChunkedSlots::CHUNKS_OFFSET
+            "ChunkedArray chunk offsets slot length does not match cached offsets length",
         );
-        vortex_ensure!(
+        vortex_ensure_eq!(
+            data.chunk_offsets.len(),
+            slots.len() - ChunkedSlots::CHUNKS_OFFSET + 1,
+            "ChunkedArray must have one more chunk offset than chunks",
+        );
+        vortex_ensure_eq!(
             data.chunk_offsets
                 .last()
                 .copied()
-                .vortex_expect("chunked arrays always have a leading 0 offset")
-                == len,
-            "ChunkedArray length {} does not match outer length {}",
-            data.chunk_offsets.last().copied().unwrap_or_default(),
-            len
+                .vortex_expect("chunked arrays always have a leading 0 offset"),
+            len,
+            "ChunkedArray length does not match outer length",
         );
         for (idx, (start, end)) in data
             .chunk_offsets
@@ -127,18 +124,15 @@ impl VTable for Chunked {
             let chunk = slots[ChunkedSlots::CHUNKS_OFFSET + idx]
                 .as_ref()
                 .vortex_expect("validated chunk slot");
-            vortex_ensure!(
-                chunk.dtype() == dtype,
-                "ChunkedArray chunk dtype {} does not match outer dtype {}",
+            vortex_ensure_eq!(
                 chunk.dtype(),
-                dtype
+                dtype,
+                "ChunkedArray chunk dtype does not match outer dtype",
             );
-            vortex_ensure!(
-                chunk.len() == end - start,
-                "ChunkedArray chunk {} len {} does not match offsets span {}",
-                idx,
+            vortex_ensure_eq!(
                 chunk.len(),
-                end - start
+                end - start,
+                "ChunkedArray chunk {idx} len does not match offsets span",
             );
         }
         Ok(())

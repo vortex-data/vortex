@@ -35,7 +35,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -101,11 +101,7 @@ impl VTable for ByteBool {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
         let data = ByteBoolData::new(buffers[0].clone());
         Ok(
             ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
@@ -260,17 +256,10 @@ impl ByteBoolData {
         len: usize,
     ) -> VortexResult<()> {
         let expected_dtype = DType::Bool(validity.nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "expected dtype {expected_dtype}, got {dtype}"
-        );
-        vortex_ensure!(
-            buffer.len() == len,
-            "expected len {len}, got {}",
-            buffer.len()
-        );
+        vortex_ensure_eq!(dtype, &expected_dtype);
+        vortex_ensure_eq!(buffer.len(), len);
         if let Some(vlen) = validity.maybe_len() {
-            vortex_ensure!(vlen == len, "expected validity len {len}, got {vlen}");
+            vortex_ensure_eq!(vlen, len);
         }
         Ok(())
     }

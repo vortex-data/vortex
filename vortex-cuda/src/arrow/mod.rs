@@ -55,7 +55,7 @@ use vortex::dtype::DecimalType;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
@@ -405,12 +405,7 @@ impl DeviceArrayStreamPrivateData {
 
     /// Export one array from the Vortex stream, validating it against the device stream.
     fn export_stream_array(&mut self, array: ArrayRef) -> VortexResult<ArrowDeviceArray> {
-        vortex_ensure!(
-            array.dtype() == &self.dtype,
-            "stream array dtype changed from {} to {}",
-            self.dtype,
-            array.dtype()
-        );
+        vortex_ensure_eq!(array.dtype(), &self.dtype, "stream array dtype changed");
 
         if self.ctx.cuda_session().dictionary_export() == DictionaryExport::Decode {
             self.get_or_init_schema()?;
@@ -461,16 +456,15 @@ impl DeviceArrayStreamPrivateData {
     }
 
     fn check_device(&self, device_array: &ArrowDeviceArray) -> VortexResult<()> {
-        vortex_ensure!(
-            device_array.device_type == ARROW_DEVICE_CUDA,
-            "stream array exported on non-CUDA device type {}",
-            device_array.device_type
+        vortex_ensure_eq!(
+            device_array.device_type,
+            ARROW_DEVICE_CUDA,
+            "stream array exported on non-CUDA device type"
         );
-        vortex_ensure!(
-            device_array.device_id == self.device_id,
-            "stream array moved from CUDA device {} to {}",
+        vortex_ensure_eq!(
+            device_array.device_id,
             self.device_id,
-            device_array.device_id
+            "stream array moved from CUDA device"
         );
         Ok(())
     }

@@ -203,30 +203,28 @@ impl PyVortexDataset {
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<Py<PyAny>> {
-        let vxf = self_.vxf.clone();
+        let vxf = &self_.vxf;
         let projection = projection_from_python(columns, vxf.dtype())?;
         let filter = filter_from_python(row_filter);
 
-        let reader = self_.py().detach(move || {
-            let projection = projection.bind(vxf.dtype())?.optimize_recursive()?;
-            let filter = filter
-                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
-                .transpose()?;
-            let mut scan = vxf
-                .scan()?
-                .with_projection(projection)
-                .with_some_filter(filter)
-                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
-            if let Some((l, r)) = row_range {
-                scan = scan.with_row_range(l..r);
-            }
+        // Building the reader is lazy and cheap, so it runs without releasing the GIL. The scan
+        // runs as pyarrow pulls batches, and pyarrow releases the GIL while it does.
+        let projection = projection.bind(vxf.dtype())?.optimize_recursive()?;
+        let filter = filter
+            .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
+            .transpose()?;
+        let mut scan = vxf
+            .scan()?
+            .with_projection(projection)
+            .with_some_filter(filter)
+            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
+        if let Some((l, r)) = row_range {
+            scan = scan.with_row_range(l..r);
+        }
 
-            let schema = Arc::new(session().arrow().to_arrow_schema(&scan.dtype()?)?);
-            let runtime = current_runtime();
-            let reader: Box<dyn RecordBatchReader + Send> =
-                Box::new(scan.into_record_batch_reader(schema, &runtime)?);
-            VortexResult::Ok(reader)
-        })?;
+        let schema = Arc::new(session().arrow().to_arrow_schema(&scan.dtype()?)?);
+        let reader: Box<dyn RecordBatchReader + Send> =
+            Box::new(scan.into_record_batch_reader(schema, &current_runtime())?);
 
         Ok(reader.into_pyarrow(self_.py())?)
     }

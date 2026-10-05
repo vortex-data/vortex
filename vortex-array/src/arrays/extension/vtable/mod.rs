@@ -106,8 +106,7 @@ impl VTable for Extension {
         vortex_ensure_eq!(
             storage.len(),
             len,
-            "ExtensionArray length {} does not match outer length {len}",
-            storage.len(),
+            "ExtensionArray length does not match outer length",
         );
 
         let ext_dtype = dtype
@@ -118,7 +117,7 @@ impl VTable for Extension {
         vortex_ensure_eq!(
             &actual_dtype,
             dtype,
-            "ExtensionArray dtype {actual_dtype} does not match outer dtype {dtype}",
+            "ExtensionArray dtype does not match outer dtype",
         );
 
         Ok(())

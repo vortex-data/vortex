@@ -22,6 +22,7 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
@@ -94,10 +95,10 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     );
     // The unchecked construction below needs the views in bounds of the *exported* elements, so
     // confirm the export preserved the length the Vortex invariant was checked against.
-    vortex_ensure!(
-        elements.len() == n_elements,
-        "Arrow export changed the elements length: {n_elements} became {}",
-        elements.len()
+    vortex_ensure_eq!(
+        elements.len(),
+        n_elements,
+        "Arrow export changed the elements length"
     );
 
     let offsets = offsets

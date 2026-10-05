@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -88,10 +89,11 @@ impl VTable for Masked {
         let child = slots[MaskedSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
-        vortex_ensure!(child.len() == len, "MaskedArray child length mismatch");
-        vortex_ensure!(
-            child.dtype().as_nullable() == *dtype,
-            "MaskedArray dtype does not match child and validity"
+        vortex_ensure_eq!(child.len(), len, "MaskedArray child length mismatch");
+        vortex_ensure_eq!(
+            child.dtype().as_nullable(),
+            *dtype,
+            "MaskedArray dtype does not match child and validity",
         );
         vortex_ensure!(
             child.all_valid(&mut legacy_session().create_execution_ctx())?,

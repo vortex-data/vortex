@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -101,11 +102,7 @@ impl VTable for Bool {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
         let mut data = array.data().clone();
         data.bits = buffers[0].clone();
         Ok(
@@ -148,11 +145,10 @@ impl VTable for Bool {
 
         let validity = child_to_validity(slots[BoolSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "BoolArray validity len {} does not match outer length {}",
+            vortex_ensure_eq!(
                 validity_len,
-                len
+                len,
+                "BoolArray validity len does not match outer length",
             );
         }
 

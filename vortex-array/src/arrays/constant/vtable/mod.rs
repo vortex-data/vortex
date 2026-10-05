@@ -8,7 +8,7 @@ use std::hash::Hasher;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -92,9 +92,10 @@ impl VTable for Constant {
         _len: usize,
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            data.scalar.dtype() == dtype,
-            "ConstantArray scalar dtype does not match outer dtype"
+        vortex_ensure_eq!(
+            data.scalar.dtype(),
+            dtype,
+            "ConstantArray scalar dtype does not match outer dtype",
         );
         Ok(())
     }
@@ -150,11 +151,7 @@ impl VTable for Constant {
         _children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
 
         let buffer = buffers[0].clone().try_to_host_sync()?;
         let bytes: &[u8] = buffer.as_ref();
