@@ -95,17 +95,12 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         Self::with_capacity_in(
             element_dtype,
             nullability,
-            // We arbitrarily choose 2 times the number of list scalars for the capacity of the
-            // elements builder since we cannot know this ahead of time.
-            DEFAULT_BUILDER_CAPACITY * 2,
             DEFAULT_BUILDER_CAPACITY,
             allocator,
         )
     }
 
-    /// Create a new [`ListViewArray`] builder with a with the given `capacity`, as well as an
-    /// initial capacity for the `elements` builder (since we cannot know that ahead of time solely
-    /// based on the outer array `capacity`).
+    /// Create a new [`ListViewArray`] builder with the given `capacity`.
     ///
     /// # Panics
     ///
@@ -114,19 +109,18 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
+        _elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         Self::with_capacity_in(
             element_dtype,
             nullability,
-            elements_capacity,
             capacity,
             BufferAllocatorRef::static_ref(),
         )
     }
 
-    /// Creates a list-view builder with the given capacities using `allocator`.
+    /// Creates a list-view builder with the given capacity using `allocator`.
     ///
     /// # Panics
     ///
@@ -134,12 +128,10 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity_in(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
         capacity: usize,
         allocator: &BufferAllocatorRef,
     ) -> Self {
-        let elements_builder =
-            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator);
+        let elements_builder = ChildBuilder::with_capacity(&element_dtype, 2 * capacity, allocator);
 
         let offsets_builder =
             PrimitiveBuilder::<O>::with_capacity_in(Nullability::NonNullable, capacity, allocator);
@@ -487,12 +479,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
 
         // Since we consider the "zero" element of a list an empty list, we simply update the
         // `offsets` and `sizes` metadata to add an empty list.
-        for _ in 0..n {
-            self.offsets_builder.append_value(
-                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
-            );
-            self.sizes_builder.append_value(S::zero());
-        }
+        self.offsets_builder.append_n_values(
+            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+            n,
+        );
+        self.sizes_builder.append_n_values(S::zero(), n);
 
         self.nulls.append_n_non_nulls(n);
     }
@@ -505,12 +496,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
         let curr_offset = self.elements_builder.len();
 
         // A null list can have any representation, but we choose to use the zero representation.
-        for _ in 0..n {
-            self.offsets_builder.append_value(
-                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
-            );
-            self.sizes_builder.append_value(S::zero());
-        }
+        self.offsets_builder.append_n_values(
+            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+            n,
+        );
+        self.sizes_builder.append_n_values(S::zero(), n);
 
         // This is the only difference from `append_zeros`.
         self.nulls.append_n_nulls(n);
@@ -526,6 +516,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
 
         let list_scalar = scalar.as_list();
         self.append_value(list_scalar)
+    }
+
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.elements_builder.reserve_chunks(additional);
+        self.nulls.reserve_runs(additional);
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -670,6 +665,7 @@ fn extend_converted_sizes<S: OffsetBuilderPType, A: IntegerPType>(
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -700,7 +696,6 @@ mod tests {
             Arc::new(I32.into()),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -715,7 +710,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             Nullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -786,7 +780,6 @@ mod tests {
             Arc::clone(&dtype),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -835,7 +828,6 @@ mod tests {
             Arc::clone(&dtype2),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -860,6 +852,43 @@ mod tests {
         }
     }
 
+    /// Empty lists are appended in bulk rather than one offset/size pair at a time, so a large
+    /// `n` has to land exactly as a per-row loop would: `n` empty lists, all sharing the current
+    /// end of `elements`, with validity taken from which method was called.
+    #[rstest]
+    #[case::zeros(false)]
+    #[case::nulls(true)]
+    fn test_bulk_empty_lists(#[case] null: bool) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        // Put something in `elements` first, so the empty lists have a non-zero offset to share.
+        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
+
+        const N: usize = 5;
+        if null {
+            builder.append_nulls(N);
+        } else {
+            builder.append_zeros(N);
+        }
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), N + 1);
+        for i in 1..=N {
+            assert_eq!(listview.size_at(i), 0);
+            assert_eq!(listview.offset_at(i), 2);
+            assert_eq!(listview.validity()?.execute_is_valid(i, &mut ctx)?, !null);
+        }
+
+        Ok(())
+    }
+
     #[test]
     fn test_builder_trait_methods() {
         let mut ctx = array_session().create_execution_ctx();
@@ -867,7 +896,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             Nullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -933,7 +961,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             Nullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -1016,7 +1043,6 @@ mod tests {
             Arc::clone(&dtype),
             Nullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
         builder.append_list_array(source.as_view(), &mut ctx)?;
@@ -1054,7 +1080,6 @@ mod tests {
             element_dtype,
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
         constant.append_to_builder(&mut builder, &mut ctx)?;
@@ -1091,7 +1116,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             NonNullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -1142,7 +1166,6 @@ mod tests {
             Arc::clone(&dtype),
             Nullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
         builder
@@ -1182,7 +1205,6 @@ mod tests {
             Arc::clone(&dtype),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -1208,7 +1230,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             NonNullable,
-            20,
             10,
             BufferAllocatorRef::static_ref(),
         );
@@ -1270,7 +1291,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             dtype,
             NonNullable,
-            20,
             10,
             BufferAllocatorRef::static_ref(),
         );
