@@ -7,7 +7,7 @@
 //! construction; canonical execution yields a cast to the logical integer width.
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -55,20 +55,12 @@ impl VTable for Narrow {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == 1,
-            "Narrow requires one child, got {}",
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), 1);
         let values = slots[0]
             .as_ref()
             .ok_or_else(|| vortex_err!("Narrow requires a values child"))?;
         validate_dtypes(values.dtype(), dtype)?;
-        vortex_ensure!(
-            values.len() == len,
-            "Narrow requires child length {len}, got {}",
-            values.len()
-        );
+        vortex_ensure_eq!(values.len(), len);
 
         Ok(())
     }
@@ -109,16 +101,8 @@ impl VTable for Narrow {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "Narrow requires no buffers, got {}",
-            buffers.len()
-        );
-        vortex_ensure!(
-            children.len() == 1,
-            "Narrow requires one child, got {}",
-            children.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 0);
+        vortex_ensure_eq!(children.len(), 1);
         let [storage_ptype] = metadata else {
             return Err(vortex_err!(
                 "Narrow requires one metadata byte, got {}",

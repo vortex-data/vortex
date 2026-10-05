@@ -17,6 +17,7 @@ mod vtable;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -69,18 +70,12 @@ pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<
         storage_ptype.is_int() && logical_ptype.is_int(),
         "Narrow requires integer dtypes, got {storage} and {logical}"
     );
-    vortex_ensure!(
-        storage_ptype.is_signed_int() == logical_ptype.is_signed_int(),
-        "Narrow requires matching signedness, got {storage} and {logical}"
-    );
+    vortex_ensure_eq!(storage_ptype.is_signed_int(), logical_ptype.is_signed_int());
     vortex_ensure!(
         storage_ptype.byte_width() < logical_ptype.byte_width(),
         "Narrow requires storage narrower than {logical}, got {storage}"
     );
-    vortex_ensure!(
-        storage.nullability() == logical.nullability(),
-        "Narrow requires matching nullability, got {storage} and {logical}"
-    );
+    vortex_ensure_eq!(storage.nullability(), logical.nullability());
 
     Ok(())
 }
