@@ -433,13 +433,7 @@ pub trait ParquetVariantArrayExt:
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
-    fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
-        self.to_arrow_with_options(&ArrowExportOptions::default(), ctx)
-    }
-
-    /// Converts this storage array to Arrow's canonical Parquet Variant extension storage with
-    /// explicit export options.
-    fn to_arrow_with_options(
+    fn to_arrow(
         &self,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
@@ -530,6 +524,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
+    use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -555,7 +550,7 @@ mod tests {
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let roundtripped = inner.to_arrow(&mut ctx)?;
+        let roundtripped = inner.to_arrow(&ArrowExportOptions::default(), &mut ctx)?;
         let roundtripped = roundtripped.inner();
 
         assert_eq!(struct_array.len(), roundtripped.len());
@@ -663,7 +658,7 @@ mod tests {
         let pv_array = ParquetVariant::try_new(Validity::NonNullable, metadata, Some(value), None)?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let variant_arr = pv_array.to_arrow(&mut ctx)?;
+        let variant_arr = pv_array.to_arrow(&ArrowExportOptions::default(), &mut ctx)?;
         let struct_arr = variant_arr.inner();
 
         assert_eq!(struct_arr.num_columns(), 2);
@@ -685,7 +680,7 @@ mod tests {
         )?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let variant_arr = pv_array.to_arrow(&mut ctx)?;
+        let variant_arr = pv_array.to_arrow(&ArrowExportOptions::default(), &mut ctx)?;
         let struct_arr = variant_arr.inner();
 
         assert_eq!(struct_arr.num_columns(), 3);
@@ -772,7 +767,7 @@ mod tests {
         assert!(parquet_array.typed_value().is_some());
 
         let mut ctx = SESSION.create_execution_ctx();
-        let roundtripped = parquet_array.to_arrow(&mut ctx)?;
+        let roundtripped = parquet_array.to_arrow(&ArrowExportOptions::default(), &mut ctx)?;
         let roundtripped = roundtripped.inner();
         assert_eq!(
             roundtripped.column_names(),

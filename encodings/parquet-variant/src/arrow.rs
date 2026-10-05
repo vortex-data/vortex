@@ -111,7 +111,7 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let arrow_variant = parquet_array.to_arrow_with_options(options, ctx)?;
+    let arrow_variant = parquet_array.to_arrow(options, ctx)?;
     let unshredded = unshred_variant(&arrow_variant)?;
     let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
         ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())?
@@ -232,11 +232,8 @@ impl ArrowExportVTable for ParquetVariant {
             )?));
         }
 
-        let arrow_variant = Arc::new(
-            parquet_array
-                .to_arrow_with_options(options, ctx)?
-                .into_inner(),
-        ) as ArrowArrayRef;
+        let arrow_variant =
+            Arc::new(parquet_array.to_arrow(options, ctx)?.into_inner()) as ArrowArrayRef;
 
         if arrow_variant.data_type() == target.data_type() {
             Ok(ArrowExport::Exported(arrow_variant))
