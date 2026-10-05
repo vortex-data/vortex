@@ -36,6 +36,7 @@ use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -640,12 +641,8 @@ impl VTable for OnPair {
         Ok(())
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 

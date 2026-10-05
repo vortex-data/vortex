@@ -34,6 +34,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -171,12 +172,8 @@ impl VTable for RunEnd {
         RunEndSlots::NAMES[idx].to_string()
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

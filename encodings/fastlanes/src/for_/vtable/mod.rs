@@ -21,6 +21,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::require_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
@@ -134,12 +135,8 @@ impl VTable for FoR {
         vortex_bail!("FoR deserialization requires FoRPlugin")
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

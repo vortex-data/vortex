@@ -27,6 +27,7 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
 use crate::dtype::DType;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -203,12 +204,8 @@ impl VTable for Bool {
         Ok(ExecutionResult::done(array))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 

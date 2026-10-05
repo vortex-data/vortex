@@ -15,6 +15,7 @@ use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayPlugin;
+use vortex_array::ArrayReductionRules;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
@@ -56,6 +57,10 @@ pub struct BitPackedMetadata {
 pub struct BitPackedPlugin;
 
 impl ArrayPlugin for BitPackedPlugin {
+    fn reduction_rules(&self) -> ArrayReductionRules {
+        ArrayPlugin::reduction_rules(&BitPacked)
+    }
+
     fn id(&self) -> ArrayId {
         ArrayVTable::id(&BitPacked)
     }

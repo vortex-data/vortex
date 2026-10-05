@@ -61,6 +61,17 @@ impl ArraySession {
         &self.registry
     }
 
+    /// Snapshot in-memory array plugins, sorted by encoding ID.
+    ///
+    /// Unlike `registry`, this lists each serializer once rather than once per wire ID.
+    pub fn plugins(&self) -> Vec<ArrayPluginRef> {
+        let mut plugins = self
+            .serializers
+            .read(|registry| registry.values().cloned().collect::<Vec<_>>());
+        plugins.sort_by_key(|plugin| plugin.id());
+        plugins
+    }
+
     /// Register an in-memory array plugin and all of its recognized serialized IDs.
     ///
     /// This replaces any serializer with the same in-memory ID and any deserializer registered

@@ -21,6 +21,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::require_patches;
@@ -197,12 +198,8 @@ impl VTable for BitPacked {
         ))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 

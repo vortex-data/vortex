@@ -37,6 +37,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod operations;
@@ -92,12 +93,8 @@ impl VTable for List {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 
     fn serialize(

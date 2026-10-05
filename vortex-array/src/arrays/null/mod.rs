@@ -26,6 +26,7 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::NullBuilder;
 use crate::dtype::DType;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -111,12 +112,8 @@ impl VTable for Null {
         ))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

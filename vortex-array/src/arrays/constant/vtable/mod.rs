@@ -47,6 +47,7 @@ use crate::match_each_decimal_value;
 use crate::match_each_listview_builder;
 use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
@@ -167,12 +168,8 @@ impl VTable for Constant {
         ))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

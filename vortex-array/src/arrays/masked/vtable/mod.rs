@@ -43,6 +43,7 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::legacy_session;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -200,12 +201,8 @@ impl VTable for Masked {
         ))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&PARENT_RULES)
     }
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         MaskedSlots::NAMES[idx].to_string()

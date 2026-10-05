@@ -23,6 +23,7 @@ use vortex_array::array_slots;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -154,12 +155,8 @@ impl VTable for ByteBool {
         ByteBoolSlots::NAMES[idx].to_string()
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&crate::rules::RULES)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

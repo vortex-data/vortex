@@ -21,6 +21,7 @@ use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::serde::ArrayChildren;
 mod kernel;
 mod operations;
@@ -194,12 +195,8 @@ impl VTable for Primitive {
         vortex_bail!("append_to_builder for Primitive requires a matching PrimitiveBuilder");
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+    fn parent_reduce_rules() -> Option<&'static ParentRuleSet<Self>> {
+        Some(&RULES)
     }
 }
 
