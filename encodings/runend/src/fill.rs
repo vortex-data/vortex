@@ -48,7 +48,7 @@ fn decode_exact<T: Copy>(runs: impl Iterator<Item = (usize, T)>, length: usize) 
     for (end, value) in runs {
         check_end(end, pos, length);
         // SAFETY: `pos <= end <= length` and the buffer has `length` capacity.
-        unsafe { fill_exact(decoded.as_mut_ptr().add(pos), value, end - pos) };
+        unsafe { decoded.push_n_unchecked(value, end - pos) };
         pos = end;
     }
     // SAFETY: the runs filled every element of `[0, pos)`.

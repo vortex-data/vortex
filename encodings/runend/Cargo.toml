@@ -62,3 +62,7 @@ harness = false
 [[bench]]
 name = "run_end_sum"
 harness = false
+
+[[bench]]
+name = "run_end_ci"
+harness = false
