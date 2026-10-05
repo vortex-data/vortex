@@ -26,6 +26,9 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 #[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::is_sorted::IS_SORTED;
+#[cfg(debug_assertions)]
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
@@ -37,7 +40,6 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::OffsetBuilderPType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 #[cfg(debug_assertions)]
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
@@ -425,15 +427,16 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         // prevent VarBinArray::validate from recomputing it after deserialization.
         #[cfg(debug_assertions)]
         {
-            let offsets_are_sorted = offsets
-                .statistics()
-                .compute_is_sorted(&mut legacy_session().create_execution_ctx())
-                .unwrap_or(false);
+            let offsets_are_sorted = is_sorted(
+                offsets.as_ref(),
+                &mut legacy_session().create_execution_ctx(),
+            )
+            .unwrap_or(false);
             debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
         }
         offsets
-            .statistics()
-            .set(Stat::IsSorted, Precision::Exact(true.into()));
+            .aggregations()
+            .insert_result(IS_SORTED.clone(), Precision::Exact(true.into()));
 
         // SAFETY: The builder maintains all invariants:
         // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).
@@ -731,6 +734,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::is_sorted::IS_SORTED;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -743,8 +747,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
 
     #[test]
@@ -1065,8 +1067,8 @@ mod tests {
 
         let is_sorted = array
             .offsets()
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .aggregations()
+            .get_result_as::<bool>(&IS_SORTED)?;
         assert_eq!(is_sorted, Precision::Exact(true));
         Ok(())
     }
@@ -1081,8 +1083,8 @@ mod tests {
 
         let is_sorted = array
             .offsets()
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .aggregations()
+            .get_result_as::<bool>(&IS_SORTED)?;
         assert_eq!(is_sorted, Precision::Exact(true));
         Ok(())
     }

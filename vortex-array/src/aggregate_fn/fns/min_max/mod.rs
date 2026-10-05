@@ -26,11 +26,15 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::max::Max;
-use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::max::MAX_INCLUDE_NANS;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+use crate::aggregate_fn::fns::min::MIN_INCLUDE_NANS;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
+use crate::aggregate_fn::fns::nan_count::NAN_COUNT;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -38,12 +42,14 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::half::f16;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
+
+static MIN_MAX_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| MinMax.bind(NumericalAggregateOpts::skip_nans()));
+static MIN_MAX_INCLUDE_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| MinMax.bind(NumericalAggregateOpts::include_nans()));
 
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
 
@@ -51,8 +57,8 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "
 ///
 /// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
 /// default) NaN values are ignored and cached NaN-skipping extrema are consulted and updated.
-/// Otherwise, any NaN value poisons both extrema to NaN. An exact `Stat::NaNCount` statistic
-/// shortcircuits the NaN scan in either direction.
+/// Otherwise, any NaN value poisons both extrema to NaN. An exact cached NaN count shortcircuits
+/// the NaN scan in either direction.
 ///
 /// The result scalars have the non-nullable version of the array dtype.
 /// Computed extrema are retained in the array's finalized aggregate cache.
@@ -67,10 +73,10 @@ pub fn min_max(
         DType::Bool(_) | DType::Decimal(..) | DType::Utf8(_) | DType::Binary(_) => true,
         _ => false,
     };
-    let mut use_legacy_extrema = options.skip_nans || nan_options_are_equivalent;
+    let mut use_skip_nans_extrema = options.skip_nans || nan_options_are_equivalent;
     if !options.skip_nans && array.dtype().is_float() {
-        match array.statistics().get_as::<u64>(Stat::NaNCount) {
-            Precision::Exact(0) => use_legacy_extrema = true,
+        match array.aggregations().get_result_as::<u64>(&NAN_COUNT)? {
+            Precision::Exact(0) => use_skip_nans_extrema = true,
             Precision::Exact(_) => {
                 let result = Some(nan_minmax_result(array.dtype()));
                 cache_min_max(array, options, result.as_ref())?;
@@ -80,15 +86,9 @@ pub fn min_max(
         }
     }
 
-    if use_legacy_extrema {
-        let cached_min = array
-            .aggregations()
-            .get_result(Stat::Min.finalized_aggregate_fn())
-            .as_exact();
-        let cached_max = array
-            .aggregations()
-            .get_result(Stat::Max.finalized_aggregate_fn())
-            .as_exact();
+    if use_skip_nans_extrema {
+        let cached_min = array.aggregations().get_result(&MIN_SKIP_NANS).as_exact();
+        let cached_max = array.aggregations().get_result(&MAX_SKIP_NANS).as_exact();
         if let Some((min, max)) = cached_min.zip(cached_max) {
             if min.is_null() || max.is_null() {
                 return Ok(None);
@@ -111,11 +111,15 @@ pub fn min_max(
         return Ok(None);
     }
 
-    let aggregate = MinMax.bind(options);
-    let result = MinMaxResult::from_scalar(array.aggregations().compute_result(&aggregate, ctx)?)?;
+    let aggregate = if options.skip_nans {
+        &*MIN_MAX_SKIP_NANS
+    } else {
+        &*MIN_MAX_INCLUDE_NANS
+    };
+    let result = MinMaxResult::from_scalar(array.aggregations().compute_result(aggregate, ctx)?)?;
     cache_min_max(array, options, result.as_ref())?;
     // An exact NaN count of zero also makes these extrema valid for NaN-skipping requests.
-    if !options.skip_nans && use_legacy_extrema {
+    if !options.skip_nans && use_skip_nans_extrema {
         cache_min_max(array, NumericalAggregateOpts::skip_nans(), result.as_ref())?;
     }
     Ok(result)
@@ -133,14 +137,14 @@ fn cache_min_max(
     };
     let aggregations = array.aggregations();
     let min_fn = if options.skip_nans {
-        Stat::Min.finalized_aggregate_fn().clone()
+        MIN_SKIP_NANS.clone()
     } else {
-        Min.bind(options)
+        MIN_INCLUDE_NANS.clone()
     };
     let max_fn = if options.skip_nans {
-        Stat::Max.finalized_aggregate_fn().clone()
+        MAX_SKIP_NANS.clone()
     } else {
-        Max.bind(options)
+        MAX_INCLUDE_NANS.clone()
     };
     aggregations.insert_result(min_fn, Precision::Exact(min));
     aggregations.insert_result(max_fn, Precision::Exact(max));
@@ -356,6 +360,15 @@ impl AggregateFnVTable for MinMax {
         Ok(partial)
     }
 
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        // Finalization uses `to_scalar`, so parsing it recovers the normalized extrema.
+        self.partial_from_scalar(args, result).map(Some)
+    }
+
     fn merge_partials(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -402,13 +415,16 @@ impl AggregateFnVTable for MinMax {
         if args.options.skip_nans || !args.dtype.is_float() {
             return Ok(false);
         }
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+        match batch.aggregations().get_result_as::<u64>(&NAN_COUNT)? {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping extrema (if any) are valid.
-                let cached_min = batch.statistics().get(Stat::Min).as_exact();
-                let cached_max = batch.statistics().get(Stat::Max).as_exact();
+                let cached_min = batch.aggregations().get_result(&MIN_SKIP_NANS).as_exact();
+                let cached_max = batch.aggregations().get_result(&MAX_SKIP_NANS).as_exact();
                 if let Some((min, max)) = cached_min.zip(cached_max) {
-                    // Cached float stats carry the (possibly nullable) array dtype; `to_scalar`
+                    if min.is_null() || max.is_null() {
+                        return Ok(true);
+                    }
+                    // Cached float results carry a nullable dtype; `to_scalar`
                     // builds a struct with non-nullable fields, so normalise here.
                     let non_nullable_dtype = args.dtype.as_nonnullable();
                     partial.merge(
@@ -505,17 +521,23 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateDTypes;
+    use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::min_max::MinMax;
@@ -523,6 +545,10 @@ mod tests {
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
     use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
     use crate::aggregate_fn::fns::min_max::min_max;
+    use crate::aggregate_fn::kernels::DynAggregateKernel;
+    use crate::aggregate_fn::session::AggregateFnSession;
+    use crate::array::VTable;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -530,6 +556,7 @@ mod tests {
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
+    use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::dtype::DType;
@@ -543,7 +570,7 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     #[test]
     fn test_prim_min_max() -> VortexResult<()> {
@@ -1150,6 +1177,100 @@ mod tests {
             )?,
             None
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::skip_values(NumericalAggregateOpts::skip_nans(), false)]
+    #[case::include_values(NumericalAggregateOpts::include_nans(), false)]
+    #[case::skip_nulls(NumericalAggregateOpts::skip_nans(), true)]
+    #[case::include_nulls(NumericalAggregateOpts::include_nans(), true)]
+    fn finalized_extrema_recover_mergeable_partials(
+        #[case] options: NumericalAggregateOpts,
+        #[case] all_null: bool,
+    ) -> VortexResult<()> {
+        let array = if all_null {
+            PrimitiveArray::from_option_iter([None::<f64>, None, None]).into_array()
+        } else {
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), Some(3.0)]).into_array()
+        };
+        let aggregate = MinMax.bind(options);
+        let mut ctx = array_session().create_execution_ctx();
+        let result = array.aggregations().compute_result(&aggregate, &mut ctx)?;
+        let partial = aggregate
+            .partial_from_result(array.dtype(), &result)?
+            .expect("MinMax opts in to partial recovery");
+        let mut accumulator = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
+        accumulator.combine_partials(partial)?;
+        let next = PrimitiveArray::from_option_iter([Some(-5.0f64), Some(10.0)]).into_array();
+        accumulator.accumulate(&next, &mut ctx)?;
+        let result =
+            MinMaxResult::from_scalar(accumulator.finish()?)?.expect("the next batch has values");
+        if options.skip_nans || all_null {
+            assert_eq!(f64::try_from(&result.min)?, -5.0);
+            assert_eq!(f64::try_from(&result.max)?, 10.0);
+        } else {
+            assert!(f64::try_from(&result.min)?.is_nan());
+            assert!(f64::try_from(&result.max)?.is_nan());
+        }
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct RejectMinMaxKernel;
+
+    impl DynAggregateKernel for RejectMinMaxKernel {
+        fn aggregate(
+            &self,
+            _aggregate: &AggregateFnRef,
+            _batch: &ArrayRef,
+            _ctx: &mut crate::ExecutionCtx,
+        ) -> VortexResult<Option<Scalar>> {
+            vortex_bail!("the cached MinMax result should precede this kernel")
+        }
+    }
+
+    #[test]
+    fn cached_fused_result_precedes_encoding_kernel_dispatch() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3].into_array();
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let options = NumericalAggregateOpts::skip_nans();
+        let aggregate = MinMax.bind(options);
+        let expected = array.aggregations().compute_result(&aggregate, &mut ctx)?;
+        static KERNEL: RejectMinMaxKernel = RejectMinMaxKernel;
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Primitive.id(), Some(MinMax.id()), &KERNEL);
+
+        let mut accumulator = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
+        accumulator.accumulate(&array, &mut ctx)?;
+        assert_eq!(accumulator.finish()?, expected);
+        array.aggregations().clear();
+        assert!(accumulator.accumulate(&array, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn nan_free_null_extrema_remain_an_empty_partial() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter([None::<f64>, None]).into_array();
+        let mut ctx = array_session().create_execution_ctx();
+        assert!(min_max(&array, &mut ctx, NumericalAggregateOpts::skip_nans())?.is_none());
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::exact(0u64));
+        let mut accumulator = Accumulator::try_new(
+            MinMax,
+            NumericalAggregateOpts::include_nans(),
+            array.dtype().clone(),
+        )?;
+        accumulator.accumulate(&array, &mut ctx)?;
+        let next = PrimitiveArray::from_option_iter([Some(-1.0f64), Some(2.0)]).into_array();
+        accumulator.accumulate(&next, &mut ctx)?;
+        let result =
+            MinMaxResult::from_scalar(accumulator.finish()?)?.expect("the next batch has values");
+        assert_eq!(f64::try_from(&result.min)?, -1.0);
+        assert_eq!(f64::try_from(&result.max)?, 2.0);
         Ok(())
     }
 }

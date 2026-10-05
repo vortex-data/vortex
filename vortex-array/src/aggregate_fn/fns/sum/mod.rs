@@ -5,8 +5,12 @@ mod bool;
 mod constant;
 mod decimal;
 mod grouped;
-mod primitive;
 pub(crate) use grouped::PrimitiveGroupedSumEncodingKernel;
+
+mod primitive;
+
+use std::sync::LazyLock;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,27 +32,28 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::nan_count::NAN_COUNT;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+
+pub(crate) static SUM_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Sum.bind(NumericalAggregateOpts::skip_nans()));
 
 /// Return the sum of an array.
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    array
-        .aggregations()
-        .compute_result(Stat::Sum.finalized_aggregate_fn(), ctx)
+    array.aggregations().compute_result(&SUM_SKIP_NANS, ctx)
 }
 
 /// Sum an array, starting from zero.
@@ -225,11 +230,11 @@ impl AggregateFnVTable for Sum {
         if args.options.skip_nans || !matches!(partial.current, Some(SumState::Float(_))) {
             return Ok(false);
         }
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+        match batch.aggregations().get_result_as::<u64>(&NAN_COUNT)? {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping sum (if any) equals the
                 // NaN-including sum.
-                if let Precision::Exact(sum) = batch.statistics().get(Stat::Sum) {
+                if let Precision::Exact(sum) = batch.aggregations().get_result(&SUM_SKIP_NANS) {
                     let sum = if sum.dtype() == args.return_dtype {
                         sum
                     } else {

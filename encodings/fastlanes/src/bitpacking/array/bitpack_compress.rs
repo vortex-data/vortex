@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -30,6 +36,9 @@ use vortex_mask::Mask;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
+
+static MIN_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Min.bind(NumericalAggregateOpts::skip_nans()));
 
 pub fn bitpack_to_best_bit_width(
     array: &PrimitiveArray,
@@ -55,7 +64,11 @@ pub fn bitpack_encode(
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
+            array
+                .aggregations()
+                .compute_as::<P>(&MIN_SKIP_NANS, ctx)
+                .unwrap_or_default()
+                < 0
         });
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
@@ -88,7 +101,7 @@ pub fn bitpack_encode(
         array.len(),
         0,
     )?;
-    bitpacked.statistics().inherit_from(array.statistics());
+    bitpacked.aggregations().inherit_from(array.aggregations());
     Ok(bitpacked)
 }
 
@@ -107,7 +120,6 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
-    let arr_ref = array.clone().into_array();
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
@@ -118,7 +130,7 @@ pub unsafe fn bitpack_encode_unchecked(
         0,
     )
     .vortex_expect("bitpacked array construction should succeed");
-    bitpacked.statistics().inherit_from(arr_ref.statistics());
+    bitpacked.aggregations().inherit_from(array.aggregations());
     Ok(bitpacked)
 }
 
@@ -427,16 +439,20 @@ pub mod test_harness {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::fns::count::Count;
+    use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::expr::stats::Precision;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
     use vortex_error::vortex_err;
@@ -452,6 +468,24 @@ mod test {
         crate::initialize(&session);
         session
     });
+
+    #[test]
+    fn bitpack_preserves_logical_results_and_discards_physical_size() -> VortexResult<()> {
+        let source = PrimitiveArray::from_iter([1u32, 2, 3]);
+        let mut ctx = SESSION.create_execution_ctx();
+        let count = Count.bind(NumericalAggregateOpts::skip_nans());
+        let size = UncompressedSizeInBytes.bind(EmptyOptions);
+        source.aggregations().compute_result(&count, &mut ctx)?;
+        source.aggregations().compute_result(&size, &mut ctx)?;
+
+        let packed = bitpack_encode(&source, 2, None, &mut ctx)?;
+        assert_eq!(
+            packed.aggregations().get_result_as::<u64>(&count)?,
+            Precision::Exact(3)
+        );
+        assert_eq!(packed.aggregations().get_result(&size), Precision::Absent);
+        Ok(())
+    }
 
     #[test]
     fn test_best_bit_width() {

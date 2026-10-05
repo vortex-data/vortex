@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_schema::DataType;
 use arrow_schema::Schema;
@@ -45,15 +46,20 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::array::aggregate_fn::AggregateFnRef;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
+use vortex::array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::array::memory::MemorySessionExt;
-use vortex::dtype::DType;
-use vortex::dtype::Nullability;
-use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
@@ -61,7 +67,6 @@ use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
-use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -72,6 +77,15 @@ use crate::PrecisionExt as _;
 use crate::convert::ExpressionConvertor;
 use crate::convert::TryToDataFusion;
 use crate::convert::stats::is_constant_to_distinct_count;
+
+static MIN: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Min.bind(NumericalAggregateOpts::skip_nans()));
+static MAX: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Max.bind(NumericalAggregateOpts::skip_nans()));
+static NULL_COUNT: LazyLock<AggregateFnRef> = LazyLock::new(|| NullCount.bind(EmptyOptions));
+static UNCOMPRESSED_SIZE: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| UncompressedSizeInBytes.bind(EmptyOptions));
+static IS_CONSTANT: LazyLock<AggregateFnRef> = LazyLock::new(|| IsConstant.bind(EmptyOptions));
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -666,27 +680,15 @@ impl FileFormat for VortexFormat {
                     column_statistics.push(ColumnStatistics::default());
                     continue;
                 };
-                let (stats_set, stats_dtype) = file_stats.get(col_idx);
-
-                // Update the total size in bytes.
-                let column_size =
-                    stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
-
-                let min = scalar_stat_to_df(
-                    Stat::Min,
-                    stats_set.get(Stat::Min),
-                    stats_dtype,
-                    field.data_type(),
-                );
-
-                let max = scalar_stat_to_df(
-                    Stat::Max,
-                    stats_set.get(Stat::Max),
-                    stats_dtype,
-                    field.data_type(),
-                );
-
-                let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+                let (results, _) = file_stats.get(col_idx);
+                let column_size = results
+                    .get_result(&UNCOMPRESSED_SIZE)
+                    .and_then(|value| usize::try_from(&value).ok());
+                let min = scalar_stat_to_df(results.get_result(&MIN), field.data_type());
+                let max = scalar_stat_to_df(results.get_result(&MAX), field.data_type());
+                let null_count = results
+                    .get_result(&NULL_COUNT)
+                    .and_then(|value| usize::try_from(&value).ok());
 
                 column_statistics.push(ColumnStatistics {
                     null_count: null_count.to_df(),
@@ -694,10 +696,9 @@ impl FileFormat for VortexFormat {
                     max_value: max,
                     sum_value: DFPrecision::Absent,
                     distinct_count: is_constant_to_distinct_count(
-                        stats_set.get_as::<bool>(
-                            Stat::IsConstant,
-                            &DType::Bool(Nullability::NonNullable),
-                        ),
+                        results
+                            .get_result(&IS_CONSTANT)
+                            .and_then(|value| bool::try_from(&value).ok()),
                     ),
                     byte_size: column_size.to_df(),
                 })
@@ -770,22 +771,15 @@ impl FileFormat for VortexFormat {
 }
 
 fn scalar_stat_to_df(
-    stat: Stat,
-    value: Precision<VortexScalarValue>,
-    stats_dtype: &DType,
+    value: Precision<Scalar>,
     target_dtype: &DataType,
 ) -> DFPrecision<DFScalarValue> {
-    let Some(stat_dtype) = stat.dtype(stats_dtype) else {
-        return DFPrecision::Absent;
-    };
-
     value
-        .and_then(|stat_value| {
-            let scalar = Scalar::try_new(stat_dtype, Some(stat_value))
-                .ok()?
-                .try_to_df()
-                .ok()?;
-            scalar.cast_to(target_dtype).ok()
+        .and_then(|scalar| {
+            if scalar.is_null() {
+                return None;
+            }
+            scalar.try_to_df().ok()?.cast_to(target_dtype).ok()
         })
         .to_df()
 }
@@ -807,7 +801,10 @@ mod tests {
     use datafusion_physical_expr::projection::ProjectionExprs;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
     use rstest::rstest;
+    use vortex::array::stats::StatsSet;
+    use vortex::array::stats::compat::legacy_stats_to_results;
     use vortex::expr::Expression;
+    use vortex::expr::stats::Stat;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
@@ -867,8 +864,12 @@ mod tests {
             (Precision::Inexact(value), DFPrecision::Inexact(expected))
         };
 
+        let mut legacy = StatsSet::default();
+        legacy.set(stat, value);
+        let results = legacy_stats_to_results(scalar.dtype(), &legacy)?;
+        let aggregate = if stat == Stat::Min { &*MIN } else { &*MAX };
         assert_eq!(
-            scalar_stat_to_df(stat, value, scalar.dtype(), &target_dtype),
+            scalar_stat_to_df(results.get_result(aggregate), &target_dtype),
             expected
         );
         Ok(())
@@ -896,8 +897,12 @@ mod tests {
             .value()
             .cloned()
             .ok_or_else(|| vortex_err!("expected non-null scalar"))?;
+        let mut legacy = StatsSet::default();
+        legacy.set(stat, Precision::Exact(value));
+        let results = legacy_stats_to_results(scalar.dtype(), &legacy)?;
+        let aggregate = if stat == Stat::Min { &*MIN } else { &*MAX };
         assert_eq!(
-            scalar_stat_to_df(stat, Precision::Exact(value), scalar.dtype(), &target_dtype),
+            scalar_stat_to_df(results.get_result(aggregate), &target_dtype),
             DFPrecision::Absent
         );
         Ok(())

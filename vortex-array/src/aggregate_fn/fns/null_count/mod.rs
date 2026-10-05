@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -11,41 +13,35 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
+
+pub(crate) static NULL_COUNT: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| NullCount.bind(EmptyOptions));
 
 /// Return the number of null values in an array.
 pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-    if let Precision::Exact(null_count_scalar) = array.statistics().get(Stat::NullCount) {
+    if let Precision::Exact(null_count_scalar) = array.aggregations().get_result(&NULL_COUNT) {
         return usize::try_from(&null_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert null count stat to usize: {e}"));
     }
 
-    let mut acc = Accumulator::try_new(NullCount, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
+    let result = array.aggregations().compute_result(&NULL_COUNT, ctx)?;
 
     let count = result
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("null_count result should not be null");
     let count_usize = usize::try_from(count).vortex_expect("Cannot be more nulls than usize::MAX");
-
-    array
-        .statistics()
-        .set(Stat::NullCount, Precision::Exact(ScalarValue::from(count)));
 
     Ok(count_usize)
 }

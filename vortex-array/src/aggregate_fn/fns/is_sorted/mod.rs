@@ -10,6 +10,7 @@ mod varbin;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::LazyLock;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -29,7 +30,9 @@ use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::DynAccumulator;
 use crate::arrays::Constant;
 use crate::arrays::Null;
@@ -39,8 +42,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 
 /// Options for the `is_sorted` aggregate function.
@@ -55,6 +56,11 @@ impl Display for IsSortedOptions {
         write!(f, "strict={}", self.strict)
     }
 }
+
+pub(crate) static IS_SORTED: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| IsSorted.bind(IsSortedOptions { strict: false }));
+pub(crate) static IS_STRICT_SORTED: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| IsSorted.bind(IsSortedOptions { strict: true }));
 
 /// Compute whether an array is sorted in non-decreasing order.
 ///
@@ -73,14 +79,14 @@ pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResul
 }
 
 fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    let stat = if strict {
-        Stat::IsStrictSorted
+    let aggregate = if strict {
+        &*IS_STRICT_SORTED
     } else {
-        Stat::IsSorted
+        &*IS_SORTED
     };
 
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
+    // Short-circuit using the cached aggregate result.
+    if let Precision::Exact(value) = array.aggregations().get_result_as::<bool>(aggregate)? {
         return Ok(value);
     }
 
@@ -137,26 +143,26 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
 
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
-    // Cache the computed result as statistics.
+    // Retain the finalized flags without retaining the stream boundary values.
     cache_is_sorted(array, strict, result);
 
     Ok(result)
 }
 
 fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
-    let array_stats = array.statistics();
+    let aggregations = array.aggregations();
     if strict {
         if result {
-            array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            aggregations.insert_result(IS_SORTED.clone(), Precision::Exact(true.into()));
+            aggregations.insert_result(IS_STRICT_SORTED.clone(), Precision::Exact(true.into()));
         } else {
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+            aggregations.insert_result(IS_STRICT_SORTED.clone(), Precision::Exact(false.into()));
         }
     } else if result {
-        array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+        aggregations.insert_result(IS_SORTED.clone(), Precision::Exact(true.into()));
     } else {
-        array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
-        array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+        aggregations.insert_result(IS_SORTED.clone(), Precision::Exact(false.into()));
+        aggregations.insert_result(IS_STRICT_SORTED.clone(), Precision::Exact(false.into()));
     }
 }
 
@@ -220,9 +226,8 @@ impl IsSortedPartial {
     }
 }
 
-static NAMES: std::sync::LazyLock<FieldNames> = std::sync::LazyLock::new(|| {
-    FieldNames::from(["is_sorted", "strict", "first_value", "last_value"])
-});
+static NAMES: LazyLock<FieldNames> =
+    LazyLock::new(|| FieldNames::from(["is_sorted", "strict", "first_value", "last_value"]));
 
 pub fn make_is_sorted_partial_dtype(element_dtype: &DType) -> DType {
     DType::Struct(

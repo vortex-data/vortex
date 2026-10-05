@@ -12,6 +12,9 @@ use vortex_session::VortexSession;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFnVTableExt;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::count::Count;
 use crate::array_session;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -30,6 +33,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
+use crate::expr::stats::Precision;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
@@ -436,4 +440,25 @@ pub fn pack_nested_lists() {
         l2.execute_scalar(0, &mut ctx).unwrap(),
         canon_values.execute_scalar(1, &mut ctx).unwrap()
     );
+}
+
+#[test]
+fn builder_cursor_preserves_generic_results() -> VortexResult<()> {
+    let array = chunked_array();
+    let source = array.clone();
+    let mut ctx = SESSION.create_execution_ctx();
+    let count = Count.bind(NumericalAggregateOpts::skip_nans());
+    array.aggregations().compute_result(&count, &mut ctx)?;
+
+    let advanced = array.with_next_builder_slot(1);
+    assert_eq!(
+        advanced.aggregations().get_result_as::<u64>(&count)?,
+        Precision::Exact(9)
+    );
+    assert_eq!(
+        source.aggregations().get_result_as::<u64>(&count)?,
+        Precision::Exact(9)
+    );
+    assert_arrays_eq!(advanced, source, &mut ctx);
+    Ok(())
 }

@@ -11,6 +11,8 @@ pub mod primitive;
 mod struct_;
 mod varbin;
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -33,9 +35,15 @@ use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
+use crate::aggregate_fn::fns::nan_count::NAN_COUNT;
+use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::arrays::Constant;
 use crate::arrays::Null;
 use crate::builtins::ArrayBuiltins;
@@ -44,9 +52,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -81,17 +86,16 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     Ok(eq_result.true_count() == valid_count)
 }
 
+pub(crate) static IS_CONSTANT: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| IsConstant.bind(EmptyOptions));
+
 /// Compute whether an array has constant values.
 ///
-/// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 2. It's encoded as a [`ConstantArray`](crate::arrays::ConstantArray) or [`NullArray`](crate::arrays::NullArray)
-/// 3. Has an exact statistic attached to it, saying its constant.
-/// 4. Is all invalid.
-/// 5. Is all valid AND has minimum and maximum statistics that are equal.
+/// Empty arrays are not constant. Cached results, constant encodings, validity facts, and equal
+/// cached extrema can avoid scanning the values.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(Stat::IsConstant) {
+    // Short-circuit using the cached aggregate result.
+    if let Precision::Exact(value) = array.aggregations().get_result_as::<bool>(&IS_CONSTANT)? {
         return Ok(value);
     }
 
@@ -103,24 +107,24 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     // Array of length 1 is always constant.
     if array.len() == 1 {
         array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+            .aggregations()
+            .insert_result(IS_CONSTANT.clone(), Precision::Exact(true.into()));
         return Ok(true);
     }
 
     // Constant and null arrays are always constant.
     if array.is::<Constant>() || array.is::<Null>() {
         array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+            .aggregations()
+            .insert_result(IS_CONSTANT.clone(), Precision::Exact(true.into()));
         return Ok(true);
     }
 
     let all_invalid = array.all_invalid(ctx)?;
     if all_invalid {
         array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+            .aggregations()
+            .insert_result(IS_CONSTANT.clone(), Precision::Exact(true.into()));
         return Ok(true);
     }
 
@@ -129,24 +133,26 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     // If we have some nulls but not all nulls, array can't be constant.
     if !all_valid && !all_invalid {
         array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(false.into()));
+            .aggregations()
+            .insert_result(IS_CONSTANT.clone(), Precision::Exact(false.into()));
         return Ok(false);
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min_stat = array.statistics().get(Stat::Min);
-    let max_stat = array.statistics().get(Stat::Max);
+    let min_stat = array.aggregations().get_result(&MIN_SKIP_NANS);
+    let max_stat = array.aggregations().get_result(&MAX_SKIP_NANS);
 
     if let Precision::Exact(min) = min_stat.as_ref()
         && let Precision::Exact(max) = max_stat.as_ref()
         && min == max
-        && (Stat::NaNCount.dtype(array.dtype()).is_none()
-            || array.statistics().get_as::<u64>(Stat::NaNCount) == Precision::exact(0u64))
+        && (NanCount
+            .return_dtype(&EmptyOptions, array.dtype())
+            .is_none()
+            || array.aggregations().get_result_as::<u64>(&NAN_COUNT)? == Precision::exact(0u64))
     {
         array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+            .aggregations()
+            .insert_result(IS_CONSTANT.clone(), Precision::Exact(true.into()));
         return Ok(true);
     }
 
@@ -166,10 +172,10 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
-    // Cache the computed is_constant as a statistic.
+    // Retain the finalized result without retaining the comparison value.
     array
-        .statistics()
-        .set(Stat::IsConstant, Precision::Exact(result.into()));
+        .aggregations()
+        .insert_result(IS_CONSTANT.clone(), Precision::Exact(result.into()));
 
     Ok(result)
 }
@@ -248,8 +254,7 @@ impl IsConstantPartial {
     }
 }
 
-static NAMES: std::sync::LazyLock<FieldNames> =
-    std::sync::LazyLock::new(|| FieldNames::from(["is_constant", "value"]));
+static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["is_constant", "value"]));
 
 pub fn make_is_constant_partial_dtype(element_dtype: &DType) -> DType {
     DType::Struct(

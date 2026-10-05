@@ -165,14 +165,24 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
+    use vortex_array::aggregate_fn::AggregateFnRef;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
+    use vortex_array::aggregate_fn::fns::count::Count;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::datetime::TemporalData;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::bound::eq as bound_eq;
     use vortex_array::expr::checked_add;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
@@ -183,8 +193,20 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::ScalarFnId;
+    use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::fns::is_null::IsNull;
+    use vortex_array::scalar_fn::internal::row_count::RowCount;
+    use vortex_array::stats::AggregateResults;
     use vortex_array::stats::StatsSet;
+    use vortex_array::stats::bound::stat as bound_stat;
+    use vortex_array::stats::compat::legacy_stats_to_results;
+    use vortex_array::stats::rewrite::StatsRewriteRule;
+    use vortex_array::stats::session::StatsSessionExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -205,31 +227,33 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        vortex_array::array_session()
+        array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
     });
 
-    fn test_file_stats(min: i32, max: i32) -> FileStatistics {
+    fn test_file_stats(min: i32, max: i32) -> VortexResult<FileStatistics> {
         let mut stats = StatsSet::default();
         stats.set(Stat::Min, Precision::exact(ScalarValue::from(min)));
         stats.set(Stat::Max, Precision::exact(ScalarValue::from(max)));
-        FileStatistics::new(
-            Arc::from([stats]),
-            Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
-        )
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        Ok(FileStatistics::new(
+            Arc::from([legacy_stats_to_results(&dtype, &stats)?]),
+            Arc::from([dtype]),
+        ))
     }
 
-    fn test_file_null_count_stats(null_count: u64) -> FileStatistics {
+    fn test_file_null_count_stats(null_count: u64) -> VortexResult<FileStatistics> {
         let mut stats = StatsSet::default();
         stats.set(
             Stat::NullCount,
             Precision::exact(ScalarValue::from(null_count)),
         );
-        FileStatistics::new(
-            Arc::from([stats]),
-            Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
-        )
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        Ok(FileStatistics::new(
+            Arc::from([legacy_stats_to_results(&dtype, &stats)?]),
+            Arc::from([dtype]),
+        ))
     }
 
     #[test]
@@ -259,7 +283,7 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100)?, SESSION.clone());
 
             // col > 200 should be prunable since max is 100.
             let expr = gt(get_item("col", root()), lit(200i32)).bind(reader.dtype())?;
@@ -298,7 +322,7 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100)?, SESSION.clone());
 
             // col > 50 should NOT be prunable since max is 100 (some rows could match).
             let expr = gt(get_item("col", root()), lit(50i32)).bind(reader.dtype())?;
@@ -336,7 +360,7 @@ mod tests {
 
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100)?, SESSION.clone());
 
             let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32))
                 .bind(reader.dtype())?;
@@ -389,7 +413,10 @@ mod tests {
             // File-level stats: 1 null in deleted_at.
             let mut stats = StatsSet::default();
             stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
-            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+            let file_stats = FileStatistics::new(
+                Arc::from([legacy_stats_to_results(&ts_dtype, &stats)?]),
+                Arc::from([ts_dtype]),
+            );
 
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 
@@ -436,13 +463,102 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_null_count_stats(5)?, SESSION.clone());
 
             let expr = is_not_null(get_item("col", root())).bind(reader.dtype())?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));
 
+            Ok(())
+        })
+    }
+
+    #[derive(Debug)]
+    struct IsNullCountRewrite;
+
+    impl StatsRewriteRule for IsNullCountRewrite {
+        fn scalar_fn_id(&self) -> ScalarFnId {
+            IsNull.id()
+        }
+
+        fn falsify(
+            &self,
+            expr: &BoundExpression,
+            _session: &VortexSession,
+        ) -> VortexResult<Option<BoundExpression>> {
+            // Including NaNs makes Count the number of valid rows for this proof.
+            let count = bound_stat(
+                expr.child(0).clone(),
+                Count.bind(NumericalAggregateOpts::include_nans()),
+            );
+            let row_count = RowCount.try_new_bound_expr(EmptyOptions, [])?;
+            Ok(Some(bound_eq(count, row_count)))
+        }
+    }
+
+    #[rstest]
+    #[case::exact_count(Count.bind(NumericalAggregateOpts::include_nans()), Precision::exact(5u64), true)]
+    #[case::inexact_count(Count.bind(NumericalAggregateOpts::include_nans()), Precision::Inexact(5u64.into()), false)]
+    #[case::missing_count(Count.bind(NumericalAggregateOpts::include_nans()), Precision::Absent, false)]
+    #[case::different_options(Count.bind(NumericalAggregateOpts::skip_nans()), Precision::exact(5u64), false)]
+    #[case::declined_bool_conversion(AllNonNull.bind(AggregateEmptyOptions), Precision::exact(true), false)]
+    #[case::generic_max(Max.bind(NumericalAggregateOpts::skip_nans()), Precision::exact(Scalar::primitive(5i32, Nullability::Nullable)), true)]
+    #[case::null_max(Max.bind(NumericalAggregateOpts::skip_nans()), Precision::exact(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))), false)]
+    fn generic_footer_results_drive_reader_pruning(
+        #[case] aggregate: AggregateFnRef,
+        #[case] result: Precision<Scalar>,
+        #[case] pruned: bool,
+    ) -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = array_session()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>()
+                .with_handle(handle);
+            session.stats().register_rewrite(IsNullCountRewrite);
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = if result.as_ref().into_inner().is_some_and(Scalar::is_null) {
+                PrimitiveArray::from_option_iter([None::<i32>; 5]).into_array()
+            } else {
+                buffer![1i32, 2, 3, 4, 5].into_array()
+            };
+            let dtype = values.dtype().clone();
+            let data = StructArray::from_fields(&[("col", values)])?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    data.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let expr = if aggregate.is::<Max>() {
+                gt(get_item("col", root()), lit(10i32))
+            } else {
+                is_null(get_item("col", root()))
+            };
+            let results = AggregateResults::try_new(&dtype, [(aggregate, result)])?;
+            let file_stats = FileStatistics::new(Arc::new([results]), Arc::new([dtype]));
+            let reader = FileStatsLayoutReader::new(child, file_stats, session);
+            let expr = expr.bind(reader.dtype())?;
+            let result = reader
+                .pruning_evaluation(&(0..5), &expr, Mask::new_true(5))?
+                .await?;
+            assert_eq!(
+                result,
+                if pruned {
+                    Mask::new_false(5)
+                } else {
+                    Mask::new_true(5)
+                }
+            );
             Ok(())
         })
     }

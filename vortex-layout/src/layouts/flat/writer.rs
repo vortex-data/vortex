@@ -3,19 +3,7 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarTruncation;
-use vortex_array::scalar::lower_bound;
-use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::StatsSetRef;
-use vortex_buffer::BufferString;
-use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -63,22 +51,6 @@ impl FlatLayoutStrategy {
     }
 }
 
-fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
-    statistics: StatsSetRef<'_>,
-    stat: Stat,
-    truncation: F,
-) {
-    if let Some(sv) = statistics.get(stat).into_inner() {
-        if let Some((truncated_value, truncated)) = truncation(sv) {
-            if truncated && let Some(v) = truncated_value.into_value() {
-                statistics.set(stat, Precision::Inexact(v));
-            }
-        } else {
-            statistics.clear(stat)
-        }
-    }
-}
-
 #[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
@@ -102,52 +74,13 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
         let row_count = chunk.len() as u64;
 
-        match chunk.dtype() {
-            DType::Utf8(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
-                    lower_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
-                    upper_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-            }
-            DType::Binary(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
-                    lower_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
-                    upper_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-            }
-            _ => {}
-        }
-
         let buffers = chunk.serialize(
             ctx.array_ctx(),
             session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: self.include_padding,
+                max_variable_length_statistics_size: Some(self.max_variable_length_statistics_size),
             },
         )?;
         // there is at least the flatbuffer and the length
@@ -277,16 +210,20 @@ mod tests {
                     .into_iter(),
             );
 
+            let original = array.aggregations().snapshot_results();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
-                    array.into_array().to_array_stream().sequenced(ptr),
+                    array.clone().to_array_stream().sequenced(ptr),
                     eof,
                     &session,
                 )
                 .await
                 .unwrap();
+            for (aggregate, value) in original.iter() {
+                assert_eq!(array.aggregations().get_result(aggregate), *value);
+            }
 
             let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())

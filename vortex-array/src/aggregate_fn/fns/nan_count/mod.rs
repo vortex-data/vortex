@@ -3,6 +3,8 @@
 
 mod primitive;
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,20 +17,20 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
+
+pub(crate) static NAN_COUNT: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| NanCount.bind(EmptyOptions));
 
 /// Return the number of NaN values in an array.
 ///
@@ -36,8 +38,8 @@ use crate::scalar::ScalarValue;
 ///
 /// See [`NanCount`] for details.
 pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(nan_count_scalar) = array.statistics().get(Stat::NaNCount) {
+    // Short-circuit using the cached aggregate result.
+    if let Precision::Exact(nan_count_scalar) = array.aggregations().get_result(&NAN_COUNT) {
         return usize::try_from(&nan_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert NaN count stat to usize: {e}"));
     }
@@ -55,21 +57,13 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
         return Ok(0);
     }
 
-    // Compute using Accumulator<NanCount>.
-    let mut acc = Accumulator::try_new(NanCount, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
+    let result = array.aggregations().compute_result(&NAN_COUNT, ctx)?;
 
     let count = result
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("nan_count result should not be null");
     let count_usize = usize::try_from(count).vortex_expect("Cannot be more nans than usize::MAX");
-
-    // Cache the computed NaN count as a statistic.
-    array
-        .statistics()
-        .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(count)));
 
     Ok(count_usize)
 }

@@ -19,7 +19,10 @@ use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -35,7 +38,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::PType;
-use crate::expr::stats::Stat;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
@@ -490,11 +492,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
             return Ok(0.0);
         }
 
-        // compute_stat short-circuits on a cached exact Sum and otherwise computes
-        let sizes_sum = sizes
-            .statistics()
-            .compute_stat(Stat::Sum, ctx)?
-            .vortex_expect("sizes array has integer ptype elements")
+        let sizes_sum = sum(sizes, ctx)?
             .as_primitive()
             .as_::<u64>()
             .vortex_expect("integer ptypes can be upcast to u64");
@@ -535,8 +533,8 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
 
         let start = self
             .offsets()
-            .statistics()
-            .compute_min::<usize>(ctx)
+            .aggregations()
+            .compute_as::<usize>(&MIN_SKIP_NANS, ctx)
             .vortex_expect("offsets must report a usize min statistic");
 
         // Cast offsets and sizes to the widest integer type so that `offset + size` cannot overflow
@@ -737,7 +735,7 @@ fn validate_zctl(
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
     let mut ctx = legacy_session().create_execution_ctx();
-    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted(&mut ctx) {
+    if let Ok(is_sorted) = is_sorted(offsets_primitive.as_ref(), &mut ctx) {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {
         vortex_bail!("offsets must report is_sorted statistic");

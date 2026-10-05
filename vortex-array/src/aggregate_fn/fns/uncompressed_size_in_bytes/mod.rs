@@ -13,6 +13,7 @@ mod union;
 mod varbinview;
 
 use std::mem::size_of;
+use std::sync::LazyLock;
 
 use bool::bool_uncompressed_size_in_bytes;
 use decimal::decimal_uncompressed_size_in_bytes;
@@ -37,11 +38,11 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -54,10 +55,10 @@ use crate::dtype::DecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
+
+static UNCOMPRESSED_SIZE_IN_BYTES: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| UncompressedSizeInBytes.bind(EmptyOptions));
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -70,25 +71,21 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
 }
 
 fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
-    if let Precision::Exact(size_scalar) = array.statistics().get(Stat::UncompressedSizeInBytes) {
+    if let Precision::Exact(size_scalar) =
+        array.aggregations().get_result(&UNCOMPRESSED_SIZE_IN_BYTES)
+    {
         return u64::try_from(&size_scalar)
             .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
     }
 
-    let mut acc =
-        Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
+    let result = array
+        .aggregations()
+        .compute_result(&UNCOMPRESSED_SIZE_IN_BYTES, ctx)?;
 
     let size = result
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("uncompressed_size_in_bytes result should not be null");
-
-    array.statistics().set(
-        Stat::UncompressedSizeInBytes,
-        Precision::Exact(ScalarValue::from(size)),
-    );
 
     Ok(size)
 }

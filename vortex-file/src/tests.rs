@@ -15,6 +15,14 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -54,6 +62,8 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -1394,10 +1404,7 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
-#[should_panic(
-    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
-)]
-async fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
@@ -1405,16 +1412,17 @@ async fn write_nullable_top_level_struct() {
         vec![ages.into_array()],
         5,
         Validity::AllValid,
-    )
-    .unwrap()
+    )?
     .into_array();
 
     let mut writer = vec![];
-    SESSION
+    let result = SESSION
         .write_options()
         .write(&mut writer, array.to_array_stream())
-        .await
-        .unwrap();
+        .await;
+    assert!(result.is_err());
+    assert!(writer.is_empty());
+    Ok(())
 }
 
 async fn round_trip(
@@ -2114,15 +2122,58 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
-        .with_file_statistics(PRUNING_STATS.to_vec())
+        .with_file_statistics(
+            PRUNING_STATS
+                .iter()
+                .filter_map(|stat| stat.aggregate_fn())
+                .collect(),
+        )
         .writer(&mut buf, array.dtype().clone());
 
     writer.push(array).await?;
     let summary = writer.finish().await?;
 
-    assert!(summary.footer().statistics().is_some());
+    let file_stats = summary
+        .footer()
+        .statistics()
+        .vortex_expect("writer statistics");
+    let (results, dtype) = file_stats.get(0);
+    assert_eq!(dtype, &DType::from(PType::U32));
+    for (stat, expected) in [
+        (Stat::Min, Scalar::primitive(1u32, Nullability::Nullable)),
+        (Stat::Max, Scalar::primitive(5u32, Nullability::Nullable)),
+        (Stat::Sum, Scalar::primitive(15u64, Nullability::Nullable)),
+        (Stat::NullCount, Scalar::from(0u64)),
+    ] {
+        let aggregate = stat.aggregate_fn().vortex_expect("numeric request");
+        assert_eq!(results.get_result(&aggregate), Precision::Exact(expected));
+    }
+    assert!(
+        results
+            .get_result(&Stat::NaNCount.aggregate_fn().vortex_expect("NaN request"))
+            .is_absent()
+    );
     assert_eq!(summary.row_count(), 5);
 
+    let reopened = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let decoded = reopened
+        .footer()
+        .statistics()
+        .vortex_expect("decoded statistics");
+    assert_eq!(decoded.results().len(), 1);
+    for (aggregate, value) in results.iter() {
+        let decoded_value = decoded.results()[0].get_result(aggregate);
+        assert_eq!(decoded_value.is_exact(), value.is_exact());
+        let decoded_scalar = decoded_value.as_ref().as_exact().unwrap();
+        let native_scalar = value.as_ref().as_exact().unwrap();
+        let expected_dtype = if aggregate.is::<Min>() || aggregate.is::<Max>() {
+            dtype
+        } else {
+            native_scalar.dtype()
+        };
+        assert_eq!(decoded_scalar.dtype(), expected_dtype);
+        assert_eq!(decoded_scalar.value(), native_scalar.value());
+    }
     Ok(())
 }
 
@@ -2926,5 +2977,92 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 1);
+    Ok(())
+}
+
+#[rstest]
+#[case::options(vec![Min.bind(NumericalAggregateOpts::include_nans())])]
+#[case::function(vec![SumV2.bind(NumericalAggregateOpts::skip_nans())])]
+#[case::combined(vec![MinMax.bind(NumericalAggregateOpts::skip_nans())])]
+#[case::duplicates(vec![Sum.bind(NumericalAggregateOpts::skip_nans()), Sum.bind(NumericalAggregateOpts::skip_nans())])]
+#[tokio::test]
+async fn file_aggregate_selection_is_rejected_before_bytes(
+    #[case] aggregates: Vec<AggregateFnRef>,
+) -> VortexResult<()> {
+    let array = buffer![1i32, 2].into_array();
+    let mut buf = ByteBufferMut::empty();
+    let result = SESSION
+        .write_options()
+        .with_file_statistics(aggregates)
+        .write(&mut buf, array.to_array_stream())
+        .await;
+    assert!(result.is_err());
+    assert!(buf.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_sum_overflow_is_a_known_null_result() -> VortexResult<()> {
+    let chunks = vec![
+        buffer![i64::MAX, 1].into_array(),
+        buffer![5i64].into_array(),
+    ];
+    let dtype = chunks[0].dtype().clone();
+    let stream = ArrayStreamAdapter::new(dtype, futures::stream::iter(chunks.into_iter().map(Ok)));
+    let request = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(vec![request.clone()])
+        .write(&mut buf, stream)
+        .await?;
+    let expected = Precision::Exact(Scalar::null(DType::Primitive(
+        PType::I64,
+        Nullability::Nullable,
+    )));
+    assert_eq!(
+        summary.footer().statistics().unwrap().results()[0].get_result(&request),
+        expected
+    );
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert_eq!(
+        file.footer().statistics().unwrap().results()[0].get_result(&request),
+        expected
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::no_chunks(false, Precision::Absent)]
+#[case::observed_empty(true, Precision::Exact(Scalar::primitive(0i64, Nullability::Nullable)))]
+#[tokio::test]
+async fn file_sum_distinguishes_no_chunks_from_an_empty_chunk(
+    #[case] observed: bool,
+    #[case] expected: Precision<Scalar>,
+) -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+    let chunks = if observed {
+        vec![PrimitiveArray::from_iter(iter::empty::<i64>()).into_array()]
+    } else {
+        vec![]
+    };
+    let stream = ArrayStreamAdapter::new(dtype, futures::stream::iter(chunks.into_iter().map(Ok)));
+    let request = Sum.bind(NumericalAggregateOpts::skip_nans());
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(vec![request.clone()])
+        .write(&mut buf, stream)
+        .await?;
+    assert_eq!(summary.row_count(), 0);
+    assert_eq!(
+        summary.footer().statistics().unwrap().results()[0].get_result(&request),
+        expected
+    );
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert_eq!(
+        file.footer().statistics().unwrap().results()[0].get_result(&request),
+        expected
+    );
     Ok(())
 }

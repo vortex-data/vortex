@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+
 mod cast;
 mod compare;
 mod filter;
@@ -10,6 +18,11 @@ mod mask;
 pub(super) mod rules;
 mod slice;
 mod take;
+
+static MIN_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Min.bind(NumericalAggregateOpts::skip_nans()));
+static MAX_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Max.bind(NumericalAggregateOpts::skip_nans()));
 
 #[cfg(test)]
 mod tests {

@@ -28,6 +28,9 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VTable;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::max::MAX_SKIP_NANS;
+use crate::aggregate_fn::fns::min::MIN_SKIP_NANS;
+use crate::aggregate_fn::fns::null_count::NULL_COUNT;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
@@ -40,17 +43,15 @@ use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
+use crate::arrays::slice::inherit_slice_results;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::stats::AggregationsRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -233,19 +234,8 @@ impl ArrayRef {
             .into_array()
             .optimize()?;
 
-        // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
+            inherit_slice_results(self, &sliced);
         }
 
         Ok(sliced)
@@ -344,7 +334,10 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>(ctx).unwrap_or(false)),
+            Validity::Array(a) => Ok(a
+                .aggregations()
+                .compute_as::<bool>(&MIN_SKIP_NANS, ctx)
+                .unwrap_or(false)),
         }
     }
 
@@ -357,14 +350,18 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>(ctx).unwrap_or(true)),
+            Validity::Array(a) => Ok(!a
+                .aggregations()
+                .compute_as::<bool>(&MAX_SKIP_NANS, ctx)
+                .unwrap_or(true)),
         }
     }
 
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
-        if let Precision::Exact(invalid_count) = self.statistics().get_as::<usize>(Stat::NullCount)
+        if let Precision::Exact(invalid_count) =
+            self.aggregations().get_result_as::<usize>(&NULL_COUNT)?
         {
             return Ok(len - invalid_count);
         }
@@ -382,8 +379,10 @@ impl ArrayRef {
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
 
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(len - count));
+        self.aggregations().insert_result(
+            NULL_COUNT.clone(),
+            Precision::Exact(Scalar::from((len - count) as u64)),
+        );
 
         Ok(count)
     }

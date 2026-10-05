@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::mem::MaybeUninit;
+use std::sync::LazyLock;
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -9,10 +10,13 @@ use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -20,7 +24,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
 use crate::FL_CHUNK_SIZE;
@@ -28,13 +32,16 @@ use crate::FoR;
 use crate::FoRArray;
 use crate::FoRData;
 
+static MIN_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Min.bind(NumericalAggregateOpts::skip_nans()));
+
 impl FoRData {
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         let array_ref = array.clone().into_array();
         let min = array_ref
-            .statistics()
-            .compute_stat(Stat::Min, ctx)?
-            .ok_or_else(|| vortex_err!("Min stat not found"))?;
+            .aggregations()
+            .compute_result(&MIN_SKIP_NANS, ctx)?;
+        vortex_ensure!(!min.is_null(), "Min stat not found");
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             encode_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
@@ -254,7 +261,7 @@ fn select<T: PrimInt>(mask: T, a: T, b: T) -> T {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
@@ -263,7 +270,6 @@ mod test {
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -313,7 +319,14 @@ mod test {
     fn test_zeros() {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
-        assert_eq!(array.statistics().len(), 0);
+        assert!(
+            array
+                .aggregations()
+                .snapshot_results()
+                .iter()
+                .next()
+                .is_none()
+        );
 
         let dtype = array.dtype().clone();
         let compressed = FoRData::encode(array, &mut ctx).unwrap();
@@ -367,6 +380,21 @@ mod test {
                 );
             });
         assert_arrays_eq!(decompressed, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn encode_without_valid_values_keeps_missing_min_error() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let arrays = [
+            PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable),
+            PrimitiveArray::from_option_iter([None::<i32>, None]),
+        ];
+        for array in arrays {
+            let error =
+                FoRData::encode(array, &mut ctx).expect_err("no valid values provide a minimum");
+            assert!(error.to_string().contains("Min stat not found"));
+        }
         Ok(())
     }
 }

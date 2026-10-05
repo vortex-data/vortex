@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -15,19 +17,23 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
+use crate::aggregate_fn::fns::nan_count::NAN_COUNT;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_max;
 use crate::scalar::Scalar;
+
+pub(crate) static MAX_SKIP_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Max.bind(NumericalAggregateOpts::skip_nans()));
+pub(crate) static MAX_INCLUDE_NANS: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Max.bind(NumericalAggregateOpts::include_nans()));
 
 /// Compute the maximum non-null value of an array.
 ///
@@ -195,11 +201,11 @@ impl AggregateFnVTable for Max {
         if args.options.skip_nans || !args.dtype.is_float() {
             return Ok(false);
         }
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+        match batch.aggregations().get_result_as::<u64>(&NAN_COUNT)? {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping maximum (if any) is valid. `to_scalar`
                 // re-casts to the result dtype, so the cached scalar can merge as-is.
-                if let Some(max) = batch.statistics().get(Stat::Max).as_exact() {
+                if let Some(max) = batch.aggregations().get_result(&MAX_SKIP_NANS).as_exact() {
                     partial.merge(args, max);
                     return Ok(true);
                 }

@@ -176,10 +176,18 @@ impl AggregationsRef<'_> {
         }
     }
 
-    /// Transfer results when the caller preserves logical values, validity, and order.
+    /// Reuse finalized results after changing only the input representation.
     ///
-    /// Dtype and length checks are additional guards, rather than proof of equal logical inputs.
-    pub(crate) fn inherit_from(&self, source: AggregationsRef<'_>) {
+    /// The caller must preserve the source's logical values, validity, order, and dtype. Matching
+    /// dtype and length alone does not establish this relationship. Transferring results between
+    /// different logical inputs can produce incorrect answers. Slices, filters, and gathers need
+    /// their own propagation rules.
+    ///
+    /// Only results whose bound aggregate opts into representation reuse are transferred. Function
+    /// options and precision are preserved, and existing exact destination results take precedence.
+    /// A different dtype or length leaves the destination unchanged. Partial states are not retained
+    /// or transferred.
+    pub fn inherit_from(&self, source: AggregationsRef<'_>) {
         if std::ptr::eq(self.aggregations, source.aggregations)
             || self.array.dtype() != source.array.dtype()
             || self.array.len() != source.array.len()

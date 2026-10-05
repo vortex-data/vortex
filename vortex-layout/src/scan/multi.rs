@@ -39,7 +39,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::AggregateResults;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
@@ -317,8 +317,8 @@ impl DataSource for MultiLayoutDataSource {
         }))
     }
 
-    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
+    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<AggregateResults> {
+        Ok(AggregateResults::default())
     }
 }
 
@@ -638,6 +638,18 @@ mod tests {
     #[case::no_children(vec![], Precision::exact(0u64))]
     fn byte_size_precision(#[case] sizes: Vec<Option<u64>>, #[case] expected: Precision<u64>) {
         assert_eq!(deferred_source(sizes).byte_size(), expected);
+    }
+
+    #[test]
+    fn missing_field_statistics_do_not_open_deferred_readers() -> VortexResult<()> {
+        let source = deferred_source(vec![Some(10)]);
+        let results = source
+            .field_statistics(&FieldPath::root())
+            .now_or_never()
+            .expect("field statistics do not await I/O")?;
+
+        assert_eq!(results.iter().count(), 0);
+        Ok(())
     }
 
     #[test]

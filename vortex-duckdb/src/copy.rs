@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_fs::OpenOptions;
 use futures::SinkExt;
@@ -13,6 +14,14 @@ use object_store::registry::ObjectStoreRegistry;
 use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
 use vortex::array::ArrayRef;
+use vortex::array::aggregate_fn::AggregateFnRef;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::nan_count::NanCount;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
@@ -24,7 +33,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
@@ -35,7 +43,6 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
-use vortex::scalar::ScalarValue;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -46,6 +53,13 @@ use crate::convert::data_chunk_to_vortex;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::Value;
+
+static MIN: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Min.bind(NumericalAggregateOpts::skip_nans()));
+static MAX: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Max.bind(NumericalAggregateOpts::skip_nans()));
+static NULL_COUNT: LazyLock<AggregateFnRef> = LazyLock::new(|| NullCount.bind(EmptyOptions));
+static NAN_COUNT: LazyLock<AggregateFnRef> = LazyLock::new(|| NanCount.bind(EmptyOptions));
 
 #[derive(Clone)]
 pub struct CopyFunctionBind {
@@ -212,7 +226,7 @@ fn file_stats_from_summary(summary: &WriteSummary) -> WrittenFileStats {
     let num_columns = summary
         .footer()
         .statistics()
-        .map_or(0, |s| s.stats_sets().len());
+        .map_or(0, |s| s.results().len());
     WrittenFileStats {
         row_count: summary.row_count(),
         file_size_bytes: summary.size(),
@@ -237,22 +251,21 @@ fn column_stats_from_summary(
         .footer()
         .statistics()
         .ok_or_else(|| vortex_err!("written file has no statistics"))?;
-    let stats_sets = file_stats.stats_sets();
-    if column_index >= stats_sets.len() {
+    let results = file_stats.results();
+    if column_index >= results.len() {
         vortex_bail!(
             "column index {column_index} out of range for {} statistics sets",
-            stats_sets.len()
+            results.len()
         );
     }
-    let stats = &stats_sets[column_index];
-    let dtype = &file_stats.dtypes()[column_index];
+    let stats = &results[column_index];
 
     Ok(WrittenColumnStats {
-        min: exact_scalar_to_duckdb(stats.get(Stat::Min), dtype)?,
-        max: exact_scalar_to_duckdb(stats.get(Stat::Max), dtype)?,
-        null_count: exact_u64(stats.get(Stat::NullCount)),
+        min: exact_scalar_to_duckdb(stats.get_result(&MIN))?,
+        max: exact_scalar_to_duckdb(stats.get_result(&MAX))?,
+        null_count: exact_u64(stats.get_result(&NULL_COUNT)),
         // NaNCount is exact only for float columns, so this is emitted just for them (as in parquet).
-        has_nan: exact_u64(stats.get(Stat::NaNCount)).map(|count| count > 0),
+        has_nan: exact_u64(stats.get_result(&NAN_COUNT)).map(|count| count > 0),
         num_values: summary.row_count(),
         // On-disk compressed size; excludes bytes not attributable to a column (e.g. struct validity).
         column_size_bytes: column_sizes.get(column_index).copied(),
@@ -261,24 +274,16 @@ fn column_stats_from_summary(
 
 /// Convert an exact scalar statistic to a DuckDB value, propagating a conversion failure rather than
 /// dropping it. `Ok(None)` when the statistic is not exactly known.
-fn exact_scalar_to_duckdb(
-    stat: Precision<ScalarValue>,
-    dtype: &DType,
-) -> VortexResult<Option<Value>> {
+fn exact_scalar_to_duckdb(stat: Precision<Scalar>) -> VortexResult<Option<Value>> {
     match stat {
-        Precision::Exact(value) => Ok(Some(
-            Scalar::try_new(dtype.clone(), Some(value))?.try_to_duckdb_scalar()?,
-        )),
+        Precision::Exact(value) if !value.is_null() => Ok(Some(value.try_to_duckdb_scalar()?)),
         _ => Ok(None),
     }
 }
 
-/// Extract an exact `u64` statistic (e.g. a count), or `None` if not exactly known.
-fn exact_u64(stat: Precision<ScalarValue>) -> Option<u64> {
-    match stat {
-        Precision::Exact(value) => value.as_primitive().as_u64(),
-        _ => None,
-    }
+/// Extract an exact `u64` statistic, or `None` if it is not exactly known.
+fn exact_u64(stat: Precision<Scalar>) -> Option<u64> {
+    stat.as_exact().and_then(|value| u64::try_from(&value).ok())
 }
 
 pub fn copy_to_initialize_global(
@@ -335,6 +340,7 @@ mod tests {
     use vortex::array::stats::PRUNING_STATS;
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
+    use vortex::expr::stats::Stat;
 
     use super::*;
 
@@ -348,7 +354,12 @@ mod tests {
             let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()
-                .with_file_statistics(file_statistics)
+                .with_file_statistics(
+                    file_statistics
+                        .iter()
+                        .filter_map(|stat| stat.aggregate_fn())
+                        .collect(),
+                )
                 .writer(&mut buf, array.dtype().clone());
             writer.push(array).await.unwrap();
             writer.finish().await.unwrap()
