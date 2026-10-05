@@ -32,6 +32,7 @@ use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -186,10 +187,11 @@ impl ArrowExportVTable for MultiPoint {
         Ok(Some(field))
     }
 
-    fn execute_arrow(
+    fn execute_arrow_with_options(
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let is_multipoint = array
@@ -217,9 +219,12 @@ impl ArrowExportVTable for MultiPoint {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session
-            .arrow()
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let arrow_storage = session.arrow().execute_arrow_with_options(
+            storage,
+            Some(&storage_field),
+            options,
+            ctx,
+        )?;
 
         // Round-trip through GeoArrow's multipoint array; `into_arrow` is concrete, so wrap in `Arc`.
         let multipoints = MultiPointArray::try_from((arrow_storage.as_ref(), multipoint_meta))

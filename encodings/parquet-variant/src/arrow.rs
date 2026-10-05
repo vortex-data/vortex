@@ -22,6 +22,7 @@ use vortex_array::arrays::Variant;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -63,6 +64,7 @@ fn parquet_variant_storage_request(fields: &Fields) -> Option<(bool, bool)> {
 pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let mut arrays = Vec::with_capacity(target_fields.len());
@@ -82,9 +84,10 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
             );
         };
 
-        arrays.push(ctx.session().clone().arrow().execute_arrow(
+        arrays.push(ctx.session().clone().arrow().execute_arrow_with_options(
             child,
             Some(field.as_ref()),
+            options,
             ctx,
         )?);
     }
@@ -104,9 +107,10 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
 pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let arrow_variant = parquet_array.to_arrow(ctx)?;
+    let arrow_variant = parquet_array.to_arrow_with_options(options, ctx)?;
     let unshredded = unshred_variant(&arrow_variant)?;
     let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
         ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())?
@@ -114,7 +118,7 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
         ParquetVariant::from_arrow_variant(&unshredded, &ctx.session().arrow())?
     };
     let unshredded_parquet = unshredded_array.as_::<ParquetVariant>();
-    export_storage_to_target(&unshredded_parquet, target_fields, ctx)
+    export_storage_to_target(&unshredded_parquet, target_fields, options, ctx)
 }
 
 pub(crate) fn parquet_variant_for_export(
@@ -174,10 +178,11 @@ impl ArrowExportVTable for ParquetVariant {
         Ok(None)
     }
 
-    fn execute_arrow(
+    fn execute_arrow_with_options(
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         if target
@@ -203,6 +208,7 @@ impl ArrowExportVTable for ParquetVariant {
                 return Ok(ArrowExport::Exported(export_unshredded_storage_to_target(
                     &parquet_array,
                     fields,
+                    options,
                     ctx,
                 )?));
             }
@@ -220,11 +226,16 @@ impl ArrowExportVTable for ParquetVariant {
             return Ok(ArrowExport::Exported(export_storage_to_target(
                 &parquet_array,
                 fields,
+                options,
                 ctx,
             )?));
         }
 
-        let arrow_variant = Arc::new(parquet_array.to_arrow(ctx)?.into_inner()) as ArrowArrayRef;
+        let arrow_variant = Arc::new(
+            parquet_array
+                .to_arrow_with_options(options, ctx)?
+                .into_inner(),
+        ) as ArrowArrayRef;
 
         if arrow_variant.data_type() == target.data_type() {
             Ok(ArrowExport::Exported(arrow_variant))

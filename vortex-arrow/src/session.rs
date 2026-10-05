@@ -155,7 +155,7 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
     /// The Vortex array or extension ID this plugin maps from. Used only for inference by
     /// [`ArrowSession::to_arrow_field`] / [`ArrowSession::to_arrow_schema`]; never as a
-    /// dispatch key for [`execute_arrow`][Self::execute_arrow].
+    /// dispatch key for [`execute_arrow_with_options`][Self::execute_arrow_with_options].
     fn vortex_id(&self) -> Id;
 
     /// Build the Arrow [`Field`] this plugin produces for the given Vortex extension
@@ -170,25 +170,25 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// Convert a Vortex array into an Arrow array shaped to `target`.
     ///
     /// Returns ownership of `array` via [`ArrowExport::Unsupported`] when the plugin cannot
-    /// handle the input.
-    fn execute_arrow(
-        &self,
-        array: ArrayRef,
-        target: &Field,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowExport>;
-
-    /// Export with options. Plugins that export nested arrays should propagate `options` to
-    /// their child exports. Existing plugins retain their current behavior by default.
+    /// handle the input. Plugins that export child or storage arrays must pass `options` on to
+    /// those exports.
     fn execute_arrow_with_options(
         &self,
         array: ArrayRef,
         target: &Field,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowExport>;
+
+    /// Convert with default [`ArrowExportOptions`].
+    #[deprecated(note = "Implement and call `execute_arrow_with_options` instead")]
+    fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        target: &Field,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let _ = options;
-        self.execute_arrow(array, target, ctx)
+        self.execute_arrow_with_options(array, target, &ArrowExportOptions::default(), ctx)
     }
 }
 

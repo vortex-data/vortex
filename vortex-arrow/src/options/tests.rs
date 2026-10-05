@@ -104,15 +104,6 @@ impl ArrowExportVTable for Plugin {
         Ok(None)
     }
 
-    fn execute_arrow(
-        &self,
-        array: ArrayRef,
-        _target: &Field,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowExport> {
-        Ok(ArrowExport::Unsupported(array))
-    }
-
     fn execute_arrow_with_options(
         &self,
         array: ArrayRef,

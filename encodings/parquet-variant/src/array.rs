@@ -35,12 +35,9 @@ use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
-#[expect(
-    deprecated,
-    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
-)]
-use vortex_arrow::ArrowArrayExecutor;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -436,11 +433,18 @@ pub trait ParquetVariantArrayExt:
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
-    #[expect(
-        deprecated,
-        reason = "TODO(aduffy): figure out what to do with Parquet Variant"
-    )]
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
+        self.to_arrow_with_options(&ArrowExportOptions::default(), ctx)
+    }
+
+    /// Converts this storage array to Arrow's canonical Parquet Variant extension storage with
+    /// explicit export options.
+    fn to_arrow_with_options(
+        &self,
+        options: &ArrowExportOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowVariantArray> {
+        let session = ctx.session().clone();
         let metadata = self.metadata();
         let len = metadata.len();
         let nulls = to_arrow_null_buffer(self.parquet_variant_validity(), len, ctx)?;
@@ -448,7 +452,10 @@ pub trait ParquetVariantArrayExt:
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
 
-        let metadata_arrow = metadata.clone().execute_arrow(None, ctx)?;
+        let metadata_arrow =
+            session
+                .arrow()
+                .execute_arrow_with_options(metadata.clone(), None, options, ctx)?;
         fields.push(Arc::new(Field::new(
             "metadata",
             metadata_arrow.data_type().clone(),
@@ -457,7 +464,10 @@ pub trait ParquetVariantArrayExt:
         arrays.push(metadata_arrow);
 
         if let Some(value) = self.value() {
-            let value_arrow = value.clone().execute_arrow(None, ctx)?;
+            let value_arrow =
+                session
+                    .arrow()
+                    .execute_arrow_with_options(value.clone(), None, options, ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
                 value_arrow.data_type().clone(),
@@ -467,7 +477,12 @@ pub trait ParquetVariantArrayExt:
         }
 
         if let Some(typed_value) = self.typed_value() {
-            let tv_arrow = typed_value.clone().execute_arrow(None, ctx)?;
+            let tv_arrow = session.arrow().execute_arrow_with_options(
+                typed_value.clone(),
+                None,
+                options,
+                ctx,
+            )?;
             fields.push(Arc::new(Field::new(
                 "typed_value",
                 tv_arrow.data_type().clone(),

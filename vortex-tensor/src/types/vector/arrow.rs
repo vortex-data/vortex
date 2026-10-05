@@ -24,6 +24,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -88,10 +89,11 @@ impl ArrowExportVTable for Vector {
         Ok(Some(field))
     }
 
-    fn execute_arrow(
+    fn execute_arrow_with_options(
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         if !array
@@ -106,7 +108,10 @@ impl ArrowExportVTable for Vector {
         let storage = executed.storage_array().clone();
 
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().execute_arrow(storage, Some(target), ctx)?;
+        let arrow_storage =
+            session
+                .arrow()
+                .execute_arrow_with_options(storage, Some(target), options, ctx)?;
 
         Ok(ArrowExport::Exported(arrow_storage))
     }
@@ -356,10 +361,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter([1_i32, 2, 3]).into_array();
         let target = Field::new("ints", DataType::Int32, false);
-        let result = <Vector as ArrowExportVTable>::execute_arrow(
-            &Vector,
+        let result = Vector.execute_arrow_with_options(
             primitive.clone(),
             &target,
+            &ArrowExportOptions::default(),
             &mut ctx,
         )?;
         assert!(
