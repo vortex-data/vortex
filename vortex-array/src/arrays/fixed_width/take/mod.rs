@@ -92,7 +92,10 @@ pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
     indices: &[I],
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    if matches!(size_of::<T>(), 1 | 2)
+    let small_table_width = matches!(size_of::<T>(), 1 | 2)
+        || (cfg!(all(target_arch = "aarch64", target_endian = "little"))
+            && matches!(size_of::<T>(), 4 | 8));
+    if small_table_width
         && let Some(taken) = small_table::try_take(values, indices, allocator)
     {
         return taken;

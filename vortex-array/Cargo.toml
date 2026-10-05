@@ -262,6 +262,10 @@ name = "take_primitive"
 harness = false
 
 [[bench]]
+name = "take_small_dict"
+harness = false
+
+[[bench]]
 name = "take_chunked"
 harness = false
 
