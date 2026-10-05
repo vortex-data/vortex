@@ -52,9 +52,9 @@ use crate::hash::ArrayHash;
 
 /// The slots of an array: a collection of optional child arrays.
 ///
-/// Most encodings have 4 or fewer slots, so we use a `SmallVec` to avoid
+/// Most encodings have 5 or fewer slots, so we use a `SmallVec` to avoid
 /// heap allocation in the common case.
-pub type ArraySlots = SmallVec<[Option<ArrayRef>; 4]>;
+pub type ArraySlots = SmallVec<[Option<ArrayRef>; 5]>;
 
 /// A borrowed run of required slots, e.g. the variadic tail of a slot layout.
 ///
