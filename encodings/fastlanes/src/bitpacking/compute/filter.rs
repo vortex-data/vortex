@@ -26,7 +26,7 @@ use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
-use crate::BitWidths;
+use crate::BitWidthsView;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`](crate::BitPackedArray) and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -50,7 +50,7 @@ impl FilterKernel for BitPacked {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidths::Global(bit_width) = array.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
         let values = match mask {

@@ -134,7 +134,26 @@ where
     Ok(())
 }
 
-/// How the blocks of a [`BitPackedArray`] are packed.
+/// How the blocks of a [`BitPackedArray`] are packed, borrowing block offsets if present.
+#[derive(Clone, Copy, Debug)]
+pub enum BitWidthsView<'a> {
+    /// Every block is packed at this bit width.
+    Global(u8),
+    /// Byte boundaries of the packed blocks, from which each block's bit width is derived.
+    Blocked(&'a ArrayRef),
+}
+
+impl BitWidthsView<'_> {
+    /// Returns `true` if every block is packed at one bit width.
+    #[inline]
+    pub fn is_global(&self) -> bool {
+        matches!(self, Self::Global(_))
+    }
+}
+
+/// How the blocks of a [`BitPackedArray`] are packed, owning block offsets if present.
+///
+/// This is the owned form of [`BitWidthsView`], held by [`BitPackedDataParts`].
 #[derive(Clone, Debug)]
 pub enum BitWidths {
     /// Every block is packed at this bit width.
@@ -143,11 +162,12 @@ pub enum BitWidths {
     Blocked(ArrayRef),
 }
 
-impl BitWidths {
-    /// Returns `true` if every block is packed at one bit width.
-    #[inline]
-    pub fn is_global(&self) -> bool {
-        matches!(self, Self::Global(_))
+impl From<BitWidthsView<'_>> for BitWidths {
+    fn from(view: BitWidthsView<'_>) -> Self {
+        match view {
+            BitWidthsView::Global(bit_width) => Self::Global(bit_width),
+            BitWidthsView::Blocked(block_offsets) => Self::Blocked(block_offsets.clone()),
+        }
     }
 }
 
@@ -396,10 +416,10 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     /// How the blocks are packed: at one global bit width, or at the widths implied by the block
     /// offsets.
     #[inline]
-    fn bit_widths(&self) -> BitWidths {
+    fn bit_widths(&self) -> BitWidthsView<'_> {
         match (self.global_bit_width, self.block_offsets()) {
-            (Some(bit_width), None) => BitWidths::Global(bit_width),
-            (None, Some(block_offsets)) => BitWidths::Blocked(block_offsets.clone()),
+            (Some(bit_width), None) => BitWidthsView::Global(bit_width),
+            (None, Some(block_offsets)) => BitWidthsView::Blocked(block_offsets),
             _ => vortex_panic!(
                 "BitPacked must have exactly one of a global bit width and block offsets"
             ),

@@ -27,6 +27,7 @@ use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedDataParts;
 use vortex::encodings::fastlanes::BitWidths;
+use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -64,7 +65,7 @@ pub(crate) fn bitpacked_slice_view(
     let block_start = offset_start - bitpacked_offset;
     let block_stop = offset_stop.div_ceil(PATCH_CHUNK_SIZE) * PATCH_CHUNK_SIZE;
 
-    let BitWidths::Global(bit_width) = bp.bit_widths() else {
+    let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
         vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
     };
     let encoded_start = (block_start / 8) * bit_width as usize;

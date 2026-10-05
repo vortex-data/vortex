@@ -28,7 +28,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::bitpacking::compute::compare_fused::stream_compare_fused;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
@@ -39,7 +39,7 @@ impl CompareKernel for BitPacked {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidths::Global(bit_width) = lhs.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = lhs.bit_widths() else {
             return Ok(None);
         };
         // Only accelerate compare-against-constant.

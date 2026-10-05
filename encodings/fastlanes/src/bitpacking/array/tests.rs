@@ -36,6 +36,7 @@ use crate::BitPackedArrayExt;
 use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_bit_width;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -68,7 +69,7 @@ fn with_block_offsets(array: &BitPackedArray, offsets: ArrayRef) -> VortexResult
 #[test]
 fn global_bit_width_has_no_block_offsets() -> VortexResult<()> {
     let uniform = uniform()?;
-    assert!(matches!(uniform.bit_widths(), BitWidths::Global(7)));
+    assert!(matches!(uniform.bit_widths(), BitWidthsView::Global(7)));
     assert!(uniform.block_offsets().is_none());
     Ok(())
 }
@@ -156,7 +157,7 @@ fn block_offsets_have_no_constant_width(
     #[case] offsets: vortex_buffer::Buffer<u64>,
 ) -> VortexResult<()> {
     let array = with_block_offsets(&uniform()?, offsets.into_array())?;
-    assert!(matches!(array.bit_widths(), BitWidths::Blocked(_)));
+    assert!(matches!(array.bit_widths(), BitWidthsView::Blocked(_)));
     // Decoding per-block widths is not supported yet.
     assert!(
         array
@@ -319,16 +320,19 @@ fn construct_blocks_without_a_uniform_width() -> VortexResult<()> {
         2048,
         0,
     )?;
-    assert!(matches!(array.bit_widths(), BitWidths::Blocked(_)));
+    assert!(matches!(array.bit_widths(), BitWidthsView::Blocked(_)));
     Ok(())
 }
 
 #[test]
 fn empty_and_zero_width_arrays() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(matches!(encode(&[])?.bit_widths(), BitWidths::Global(0)));
+    assert!(matches!(
+        encode(&[])?.bit_widths(),
+        BitWidthsView::Global(0)
+    ));
     let zeros = encode(&vec![0u32; 2049])?;
-    assert!(matches!(zeros.bit_widths(), BitWidths::Global(0)));
+    assert!(matches!(zeros.bit_widths(), BitWidthsView::Global(0)));
     assert_eq!(zeros.packed().len(), 0);
     assert_arrays_eq!(zeros, PrimitiveArray::from_iter(vec![0u32; 2049]), &mut ctx);
     Ok(())

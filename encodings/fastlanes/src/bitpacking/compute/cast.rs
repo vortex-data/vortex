@@ -17,7 +17,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::bitpacking::BitPacked;
-use crate::bitpacking::BitWidths;
+use crate::bitpacking::BitWidthsView;
 use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpacking::array::bitpack_decompress::unpack_map_into_builder;
 
@@ -55,7 +55,7 @@ fn build_with_validity(
 
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let BitWidths::Global(bit_width) = array.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
         if !array.dtype().eq_ignore_nullability(dtype) {
@@ -77,7 +77,7 @@ impl CastKernel for BitPacked {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidths::Global(bit_width) = array.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
         // Nullability-only change: keep the values bit-packed, just adjust validity.

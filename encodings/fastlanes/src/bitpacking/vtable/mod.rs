@@ -41,6 +41,7 @@ use vortex_session::registry::CachedId;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
+use crate::BitWidths;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
@@ -278,7 +279,7 @@ impl BitPacked {
         let len = array.len();
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
-        let bit_widths = array.bit_widths();
+        let bit_widths: BitWidths = array.bit_widths().into();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,

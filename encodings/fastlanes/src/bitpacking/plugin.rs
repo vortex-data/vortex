@@ -38,7 +38,7 @@ use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
-use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::bitpacking::array::BitPackedSlots;
 
 #[derive(Clone, prost::Message)]
@@ -71,7 +71,7 @@ impl ArrayPlugin for BitPackedPlugin {
         let view = array.as_opt::<BitPacked>().ok_or_else(|| {
             vortex_err!("BitPacked plugin cannot serialize {}", array.encoding_id())
         })?;
-        let BitWidths::Global(bit_width) = view.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = view.bit_widths() else {
             vortex_bail!("BitPacked plugin cannot serialize per-block bit widths");
         };
         let metadata = BitPackedMetadata {
@@ -230,7 +230,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let packed = bitpacked.packed().clone();
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
-        let BitWidths::Global(bw) = bitpacked.bit_widths() else {
+        let BitWidthsView::Global(bw) = bitpacked.bit_widths() else {
             vortex_panic!("BitPacked plugin always deserializes a global bit width");
         };
         let len = bitpacked.len();

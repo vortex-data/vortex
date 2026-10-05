@@ -4,7 +4,7 @@
 use pyo3::prelude::*;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
-use vortex::encodings::fastlanes::BitWidths;
+use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::FoR;
 
@@ -26,8 +26,8 @@ impl PyFastLanesBitPackedArray {
     #[getter]
     fn bit_width(self_: PyRef<'_, Self>) -> Option<u8> {
         match self_.as_super().inner().as_::<BitPacked>().bit_widths() {
-            BitWidths::Global(bit_width) => Some(bit_width),
-            BitWidths::Blocked(_) => None,
+            BitWidthsView::Global(bit_width) => Some(bit_width),
+            BitWidthsView::Blocked(_) => None,
         }
     }
 }

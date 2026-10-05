@@ -25,7 +25,7 @@ use vortex_error::VortexResult;
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
@@ -40,7 +40,7 @@ impl TakeExecute for BitPacked {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidths::Global(bit_width) = array.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
         // If the indices are large enough, it's faster to flatten and take the primitive array.

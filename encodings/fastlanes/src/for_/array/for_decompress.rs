@@ -35,7 +35,7 @@ use vortex_error::vortex_err;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
 use crate::for_::array::FoRArrayExt;
@@ -312,7 +312,7 @@ fn unpack_chunks<
     output: &mut [MaybeUninit<T>],
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
-    let BitWidths::Global(bit_width) = bp.bit_widths() else {
+    let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
         vortex_bail!("BitPacked array has per-block bit widths");
     };
     let bit_width = bit_width as usize;

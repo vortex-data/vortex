@@ -30,7 +30,7 @@ use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
-use vortex::encodings::fastlanes::BitWidths;
+use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRArraySlotsExt;
@@ -635,7 +635,7 @@ impl FusedPlan {
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
             vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
         })?);
-        let BitWidths::Global(bit_width) = bp.bit_widths() else {
+        let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
             vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
         };
         let buf_index = self.source_buffers.len();

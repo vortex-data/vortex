@@ -22,7 +22,7 @@ use vortex_error::vortex_bail;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 use crate::unpack_iter::BitUnpackedChunks;
@@ -167,7 +167,7 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
 }
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> VortexResult<Scalar> {
-    let BitWidths::Global(bit_width) = array.bit_widths() else {
+    let BitWidthsView::Global(bit_width) = array.bit_widths() else {
         vortex_bail!("BitPacked array has per-block bit widths");
     };
     let bit_width = bit_width as usize;
