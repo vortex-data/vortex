@@ -229,11 +229,11 @@ impl ArrowExportVTable for MultiPolygon {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().with_options(options).execute_arrow(
-            storage,
-            Some(&storage_field),
-            ctx,
-        )?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         let multipolygons =
             MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta))

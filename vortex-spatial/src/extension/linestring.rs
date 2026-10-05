@@ -301,11 +301,11 @@ impl ArrowExportVTable for LineString {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().with_options(options).execute_arrow(
-            storage,
-            Some(&storage_field),
-            ctx,
-        )?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through GeoArrow's line-string array; `into_arrow` is concrete, so wrap in `Arc`.
         let linestrings = LineStringArray::try_from((arrow_storage.as_ref(), linestring_meta))

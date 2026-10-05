@@ -535,7 +535,7 @@ impl ArrowSession {
     /// With `target = None` the fallback path picks the array's preferred Arrow physical type
     /// and executes directly into that, ignoring extension types.
     ///
-    /// Uses the default [`ArrowExportOptions`]; see [`with_options`](Self::with_options) to
+    /// Uses the default [`ArrowExportOptions`]; see [`exporter`](Self::exporter) to
     /// change them.
     pub fn execute_arrow(
         &self,
@@ -543,7 +543,7 @@ impl ArrowSession {
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        self.with_options(&ArrowExportOptions::default())
+        self.exporter(&ArrowExportOptions::default())
             .execute_arrow(array, target, ctx)
     }
 
@@ -562,7 +562,7 @@ impl ArrowSession {
     /// let session = array_session();
     /// let array = VarBinViewArray::from_iter_str(["a", "b"]).into_array();
     /// let options = ArrowExportOptions::default().with(CompactBuffers(false));
-    /// let arrow = session.arrow().with_options(&options).execute_arrow(
+    /// let arrow = session.arrow().exporter(&options).execute_arrow(
     ///     array,
     ///     None,
     ///     &mut session.create_execution_ctx(),
@@ -570,7 +570,7 @@ impl ArrowSession {
     /// assert_eq!(arrow.len(), 2);
     /// # Ok::<(), vortex_error::VortexError>(())
     /// ```
-    pub fn with_options<'a>(&'a self, options: &'a ArrowExportOptions) -> ArrowExporter<'a> {
+    pub fn exporter<'a>(&'a self, options: &'a ArrowExportOptions) -> ArrowExporter<'a> {
         ArrowExporter {
             session: self,
             options,
@@ -797,7 +797,7 @@ impl SessionVar for ArrowSession {
     }
 }
 
-/// An [`ArrowSession`] bound to [`ArrowExportOptions`], created by [`ArrowSession::with_options`].
+/// An [`ArrowSession`] bound to [`ArrowExportOptions`], created by [`ArrowSession::exporter`].
 #[derive(Clone, Copy, Debug)]
 pub struct ArrowExporter<'a> {
     session: &'a ArrowSession,

@@ -208,11 +208,11 @@ impl ArrowExportVTable for Point {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().with_options(options).execute_arrow(
-            storage,
-            Some(&storage_field),
-            ctx,
-        )?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through the GeoArrow point array type: this validates that the storage is
         // the separated-coordinate struct layout expected for a `PointType` extension field.

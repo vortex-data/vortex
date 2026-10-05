@@ -231,11 +231,11 @@ impl ArrowExportVTable for MultiLineString {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().with_options(options).execute_arrow(
-            storage,
-            Some(&storage_field),
-            ctx,
-        )?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         let multilinestrings =
             MultiLineStringArray::try_from((arrow_storage.as_ref(), multilinestring_meta))

@@ -440,7 +440,7 @@ pub trait ParquetVariantArrayExt:
     ) -> VortexResult<ArrowVariantArray> {
         let session = ctx.session().clone();
         let arrow = session.arrow();
-        let exporter = arrow.with_options(options);
+        let exporter = arrow.exporter(options);
         let metadata = self.metadata();
         let len = metadata.len();
         let nulls = to_arrow_null_buffer(self.parquet_variant_validity(), len, ctx)?;

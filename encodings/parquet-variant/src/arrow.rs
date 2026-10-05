@@ -69,7 +69,7 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
 ) -> VortexResult<ArrowArrayRef> {
     let session = ctx.session().clone();
     let arrow = session.arrow();
-    let exporter = arrow.with_options(options);
+    let exporter = arrow.exporter(options);
     let mut arrays = Vec::with_capacity(target_fields.len());
 
     for field in target_fields {

@@ -189,7 +189,7 @@ fn try_fsl_to_fsb(
     let arrow_storage =
         session
             .arrow()
-            .with_options(options)
+            .exporter(options)
             .execute_arrow(storage, Some(&storage_field), ctx)?;
 
     let fsl = arrow_storage.as_fixed_size_list();

@@ -139,11 +139,10 @@ fn external_options_reach_nested_exporters() -> VortexResult<()> {
     .into_array();
     let called = Arc::new(AtomicU32::new(0));
     let options = ArrowExportOptions::default().with(PluginOption(Arc::clone(&called)));
-    let arrow =
-        session
-            .arrow()
-            .with_options(&options)
-            .execute_arrow(array, Some(&field), &mut ctx)?;
+    let arrow = session
+        .arrow()
+        .exporter(&options)
+        .execute_arrow(array, Some(&field), &mut ctx)?;
     assert_eq!(arrow.len(), 1);
     assert_eq!(called.load(Ordering::Relaxed), 42);
     Ok(())
@@ -296,7 +295,7 @@ fn compaction_option_reaches_nested_views(
     };
 
     let (array, target) = shape.wrap(view.into_array(), expected.data_type().clone(), &mut ctx)?;
-    let arrow = session.arrow().with_options(&options).execute_arrow(
+    let arrow = session.arrow().exporter(&options).execute_arrow(
         array,
         Some(&Field::new("", target, true)),
         &mut ctx,

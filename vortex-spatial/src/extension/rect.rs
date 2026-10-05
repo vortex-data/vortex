@@ -260,11 +260,11 @@ impl ArrowExportVTable for Rect {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().with_options(options).execute_arrow(
-            storage,
-            Some(&storage_field),
-            ctx,
-        )?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through GeoArrow's rect array; `into_arrow` is concrete, so wrap in `Arc`.
         let rects = RectArray::try_from((arrow_storage.as_ref(), box_meta))

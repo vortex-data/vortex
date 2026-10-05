@@ -111,7 +111,7 @@ impl ArrowExportVTable for Vector {
         let arrow_storage =
             session
                 .arrow()
-                .with_options(options)
+                .exporter(options)
                 .execute_arrow(storage, Some(target), ctx)?;
 
         Ok(ArrowExport::Exported(arrow_storage))
