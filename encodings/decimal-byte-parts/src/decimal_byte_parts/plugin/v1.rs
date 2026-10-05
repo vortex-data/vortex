@@ -14,6 +14,7 @@ use vortex_array::dtype::PType;
 use vortex_array::smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::decimal_byte_parts_v1_id;
 use crate::DecimalByteParts;
@@ -51,8 +52,9 @@ pub(super) fn serialize(
 }
 
 pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<DecimalBytePartsArray> {
-    vortex_ensure!(
-        parts.serialized_id == decimal_byte_parts_v1_id(),
+    vortex_ensure_eq!(
+        parts.serialized_id,
+        decimal_byte_parts_v1_id(),
         "expected the v1 format"
     );
     let metadata = DecimalBytePartsMetadata::decode(parts.metadata)?;
@@ -60,11 +62,12 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         parts.dtype.as_decimal_opt().is_some(),
         "expected a decimal dtype"
     );
-    vortex_ensure!(
-        metadata.lower_part_count == 0,
+    vortex_ensure_eq!(
+        metadata.lower_part_count,
+        0,
         "v1 must not carry lower parts"
     );
-    vortex_ensure!(parts.children.len() == 1, "v1 must carry exactly one child");
+    vortex_ensure_eq!(parts.children.len(), 1, "v1 must carry exactly one child");
     let ptype = PType::try_from(metadata.zeroth_child_ptype)?;
     vortex_ensure!(
         ptype.is_signed_int(),

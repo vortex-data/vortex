@@ -459,10 +459,9 @@ fn list_from_proto(
             .collect::<VortexResult<Vec<_>>>()?,
         DType::Struct(fields, _) => {
             vortex_ensure_eq!(
-                v.values.len(), fields.nfields(),
-                Serde: "expected {} struct fields in ListValue, got {}",
+                v.values.len(),
                 fields.nfields(),
-                v.values.len()
+                Serde: "ListValue has the wrong number of struct fields"
             );
 
             v.values

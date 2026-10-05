@@ -13,6 +13,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -588,9 +589,10 @@ where
         .len()
         .checked_mul(length)
         .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    vortex_ensure_eq!(
+        computed_len,
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
     let mut new_offsets = Offsets::with_capacity(out_offset_ptype, output_len + 1);
@@ -646,10 +648,10 @@ where
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { new_data.set_len(cursor) };
-    vortex_ensure!(
-        new_data.len() == output_bytes,
-        "PiecewiseSequenceArray gathered byte length {} does not match declared byte length {output_bytes}",
-        new_data.len()
+    vortex_ensure_eq!(
+        new_data.len(),
+        output_bytes,
+        "PiecewiseSequenceArray gathered byte length does not match declared byte length",
     );
 
     let offsets = new_offsets.into_array();
@@ -707,10 +709,10 @@ where
             .checked_add(byte_end - byte_start)
             .ok_or_else(|| vortex_err!("PiecewiseSequence VarBin output byte length overflow"))?;
     }
-    vortex_ensure!(
-        new_offsets.len() == output_len + 1,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        new_offsets.len() - 1
+    vortex_ensure_eq!(
+        new_offsets.len(),
+        output_len + 1,
+        "PiecewiseSequenceArray expanded offsets length does not match declared length plus one",
     );
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
@@ -732,10 +734,10 @@ where
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { new_data.set_len(cursor) };
-    vortex_ensure!(
-        new_data.len() == output_bytes,
-        "PiecewiseSequenceArray gathered byte length {} does not match declared byte length {output_bytes}",
-        new_data.len()
+    vortex_ensure_eq!(
+        new_data.len(),
+        output_bytes,
+        "PiecewiseSequenceArray gathered byte length does not match declared byte length",
     );
 
     let offsets = new_offsets.into_array();

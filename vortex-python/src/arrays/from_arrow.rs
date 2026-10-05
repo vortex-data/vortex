@@ -41,13 +41,22 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
-        let encoded_chunks = chunks
+        let arrow_chunks = chunks
             .iter()
             .map(|a| {
-                let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
+                ArrowArrayData::from_pyarrow(&a.as_borrowed())
+                    .map(make_array)
+                    .map_err(PyVortexError::from)
+            })
+            .collect::<PyVortexResult<Vec<_>>>()?;
+        // One nullability for the whole array so every chunk shares a dtype.
+        let is_nullable = arrow_chunks.iter().any(|a| a.is_nullable());
+        let encoded_chunks = arrow_chunks
+            .into_iter()
+            .map(|arrow_array| {
                 session()
                     .arrow()
-                    .from_arrow_array(arrow_array, false)
+                    .from_arrow_array(arrow_array, is_nullable)
                     .map_err(PyVortexError::from)
             })
             .collect::<PyVortexResult<Vec<_>>>()?;
@@ -56,7 +65,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))?;
         let dtype = session()
             .arrow()
-            .from_arrow_field(&Field::new("_", arrow_dtype, false))
+            .from_arrow_field(&Field::new("_", arrow_dtype, is_nullable))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),

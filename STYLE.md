@@ -52,6 +52,9 @@
   - `vortex_err!` for creating errors
   - `vortex_bail!` for returning errors
   - `vortex_panic!` for handling invariant violations
+  - `vortex_ensure!` and `vortex_ensure_eq!` for checking conditions. Prefer
+    `vortex_ensure_eq!(a, b)` with no message: the error already shows both expressions and values.
+    Add a message only for context the expressions lack, and never repeat the values in it.
 - Add context to errors using `.with_context()`
 - Include backtraces for better debugging
 - Use `VortexExpect` trait when unwrapping is appropriate with proper error context.

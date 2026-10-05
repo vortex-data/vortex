@@ -16,7 +16,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::FoR;
-use crate::r#for::array::FoRArrayExt;
+use crate::for_::array::FoRArrayExt;
 
 #[cfg(test)]
 mod tests;

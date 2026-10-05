@@ -9,6 +9,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -80,23 +81,20 @@ impl PatchedData {
         len: usize,
         slots: &PatchedSlotsView,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.inner.dtype() == dtype,
-            "PatchedArray base dtype {} does not match outer dtype {}",
+        vortex_ensure_eq!(
             slots.inner.dtype(),
-            dtype
+            dtype,
+            "PatchedArray base dtype does not match outer dtype",
         );
-        vortex_ensure!(
-            slots.inner.len() == len,
-            "PatchedArray base len {} does not match outer len {}",
+        vortex_ensure_eq!(
             slots.inner.len(),
-            len
+            len,
+            "PatchedArray base len does not match outer len",
         );
-        vortex_ensure!(
-            slots.patch_indices.len() == slots.patch_values.len(),
-            "PatchedArray patch indices len {} does not match patch values len {}",
+        vortex_ensure_eq!(
             slots.patch_indices.len(),
-            slots.patch_values.len()
+            slots.patch_values.len(),
+            "PatchedArray patch indices len does not match patch values len",
         );
         Ok(())
     }

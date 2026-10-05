@@ -17,7 +17,7 @@ use vortex_session::VortexSession;
 
 use super::for_v1_id;
 use crate::FoR;
-use crate::r#for::array::FoRArraySlotsExt;
+use crate::for_::array::FoRArraySlotsExt;
 
 pub(super) fn serialize(array: ArrayView<'_, FoR>, reference: &Scalar) -> ArraySerialization {
     // Note that we **only** serialize the optional scalar value (not including the dtype).

@@ -24,6 +24,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -154,11 +155,7 @@ impl VTable for Delta {
             "DeltaArray expects 0 buffers, got {}",
             buffers.len()
         );
-        vortex_ensure!(
-            children.len() == 2,
-            "DeltaArray expects 2 children, got {}",
-            children.len()
-        );
+        vortex_ensure_eq!(children.len(), 2, "DeltaArray expects 2 children");
         let metadata = DeltaMetadata::decode(metadata)?;
         let ptype = PType::try_from(dtype)?;
         let lanes = lane_count(ptype);
@@ -238,10 +235,7 @@ fn validate_parts(
     );
 
     let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
-    vortex_ensure!(
-        dtype == &expected_dtype,
-        "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
-    );
+    vortex_ensure_eq!(dtype, &expected_dtype, "DeltaArray dtype mismatch");
 
     let lanes = lane_count(bases.dtype().as_ptype());
 

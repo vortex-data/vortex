@@ -68,6 +68,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_array::ArrayView;
 use vortex_onpair::DictionaryView;
@@ -149,9 +150,10 @@ async fn decode_onpair(
             total,
         } = i32_offsets_from_lengths(lengths, ctx).await?;
         let row_total = u64::try_from(total)?;
-        vortex_ensure!(
-            row_total == total_size as u64,
-            "OnPair codes decode to {total_size} bytes but uncompressed_lengths records {row_total}"
+        vortex_ensure_eq!(
+            row_total,
+            total_size as u64,
+            "OnPair uncompressed_lengths total does not match the decoded codes size"
         );
         let row_offsets_view = row_offsets.cuda_view::<i32>()?;
         let bytes_view = bytes.cuda_view::<u8>()?;
@@ -180,9 +182,10 @@ async fn decode_onpair(
         .await?
         .into_primitive();
     let row_total = sum_lengths(&lengths)?;
-    vortex_ensure!(
-        row_total == total_size as u64,
-        "OnPair codes decode to {total_size} bytes but uncompressed_lengths records {row_total}"
+    vortex_ensure_eq!(
+        row_total,
+        total_size as u64,
+        "OnPair uncompressed_lengths total does not match the decoded codes size"
     );
     let host_bytes = bytes.try_to_host()?.await?;
 
@@ -232,9 +235,10 @@ pub(crate) async fn decode_onpair_varbin(
         total,
     } = i32_offsets_from_lengths(lengths, ctx).await?;
     let row_total = u64::try_from(total)?;
-    vortex_ensure!(
-        row_total == total_size as u64,
-        "OnPair codes decode to {total_size} bytes but uncompressed_lengths records {row_total}"
+    vortex_ensure_eq!(
+        row_total,
+        total_size as u64,
+        "OnPair uncompressed_lengths total does not match the decoded codes size"
     );
 
     Ok(DecodedVarBin {
@@ -634,10 +638,7 @@ async fn ensure_zero_lengths(lengths: PrimitiveArray) -> VortexResult<()> {
         .await?
         .into_primitive();
     let total = sum_lengths(&lengths)?;
-    vortex_ensure!(
-        total == 0,
-        "OnPair records {total} decoded bytes but has no codes"
-    );
+    vortex_ensure_eq!(total, 0, "OnPair records decoded bytes but has no codes");
     Ok(())
 }
 

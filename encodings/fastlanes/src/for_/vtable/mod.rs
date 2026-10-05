@@ -30,18 +30,19 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
 use crate::FoRData;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
-use crate::r#for::array::FoRSlots;
-use crate::r#for::array::FoRSlotsView;
-use crate::r#for::array::for_decompress::decompress;
-use crate::r#for::array::num_chunks;
-use crate::r#for::vtable::rules::PARENT_RULES;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::FoRSlots;
+use crate::for_::array::FoRSlotsView;
+use crate::for_::array::for_decompress::decompress;
+use crate::for_::array::num_chunks;
+use crate::for_::vtable::rules::PARENT_RULES;
 use crate::for_v2_id;
 
 mod kernels;
@@ -212,27 +213,19 @@ fn validate_parts(
     len: usize,
 ) -> VortexResult<()> {
     vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
-    vortex_ensure!(
-        encoded.dtype() == dtype,
-        "FoR encoded dtype mismatch: expected {dtype}, got {}",
-        encoded.dtype()
-    );
-    vortex_ensure!(
-        encoded.len() == len,
-        "FoR encoded length mismatch: expected {len}, got {}",
-        encoded.len()
-    );
+    vortex_ensure_eq!(encoded.dtype(), dtype, "FoR encoded dtype mismatch");
+    vortex_ensure_eq!(encoded.len(), len, "FoR encoded length mismatch");
     let references_dtype = dtype.as_nonnullable();
-    vortex_ensure!(
-        references.dtype() == &references_dtype,
-        "FoR references dtype mismatch: expected {references_dtype}, got {}",
-        references.dtype()
+    vortex_ensure_eq!(
+        references.dtype(),
+        &references_dtype,
+        "FoR references dtype mismatch"
     );
     let num_chunks = num_chunks(offset, len);
-    vortex_ensure!(
-        references.len() == num_chunks,
-        "FoR expects {num_chunks} references, got {}",
-        references.len()
+    vortex_ensure_eq!(
+        references.len(),
+        num_chunks,
+        "FoR expects one reference per chunk"
     );
     Ok(())
 }

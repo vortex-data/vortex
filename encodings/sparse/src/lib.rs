@@ -51,7 +51,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -276,12 +275,7 @@ impl VTable for Sparse {
         let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
         let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        vortex_ensure_eq!(
-            children.len(),
-            2,
-            "SparseArray expects 2 children for sparse encoding, found {}",
-            children.len()
-        );
+        vortex_ensure_eq!(children.len(), 2, "SparseArray expects 2 children");
 
         let patch_indices = children.get(
             0,
@@ -425,11 +419,10 @@ impl Sparse {
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
-        vortex_ensure!(
-            values.dtype() == &dtype,
-            "sparse values dtype {} must match fill value dtype {}",
+        vortex_ensure_eq!(
             values.dtype(),
-            dtype,
+            &dtype,
+            "sparse values dtype must match fill value dtype"
         );
         let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
@@ -476,24 +469,9 @@ impl SparseData {
         dtype: &DType,
         len: usize,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            fill_value.dtype() == dtype,
-            "fill value dtype {} does not match array dtype {}",
-            fill_value.dtype(),
-            dtype,
-        );
-        vortex_ensure!(
-            patches.array_len() == len,
-            "patches length {} does not match array length {}",
-            patches.array_len(),
-            len
-        );
-        vortex_ensure!(
-            patches.values().dtype() == dtype,
-            "patch values dtype {} does not match array dtype {}",
-            patches.values().dtype(),
-            dtype,
-        );
+        vortex_ensure_eq!(fill_value.dtype(), dtype);
+        vortex_ensure_eq!(patches.array_len(), len);
+        vortex_ensure_eq!(patches.values().dtype(), dtype);
         Ok(())
     }
 
@@ -519,12 +497,7 @@ impl SparseData {
     /// Patch values must already match the fill dtype; callers are expected to construct patches
     /// with the correct dtype rather than relying on this to normalize them.
     fn from_patches(patches: &Patches, fill_value: Scalar) -> VortexResult<Self> {
-        vortex_ensure!(
-            patches.values().dtype() == fill_value.dtype(),
-            "patch values dtype {} must match fill dtype {}",
-            patches.values().dtype(),
-            fill_value.dtype(),
-        );
+        vortex_ensure_eq!(patches.values().dtype(), fill_value.dtype());
         Ok(Self::from_patches_unchecked(patches, fill_value))
     }
 

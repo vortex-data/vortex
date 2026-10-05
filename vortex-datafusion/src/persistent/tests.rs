@@ -235,6 +235,64 @@ async fn test_octet_length_pushdown() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Lambda parameters are indexed past the projection's input columns, so splitting a projection
+/// that contains lambdas must not reshape the scan output.
+#[tokio::test]
+async fn test_lambda_projection_with_pushdown() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(true);
+    datafusion_functions_nested::register_all(&mut *ctx.session.state_ref().write())?;
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE written_lists \
+                    (id INT NOT NULL, xs INT[]) \
+                STORED AS vortex \
+                LOCATION '/lists/'",
+        )
+        .await?;
+
+    ctx.session
+        .sql(
+            "INSERT INTO written_lists VALUES \
+                (1, make_array(1, NULL, 2)), \
+                (2, make_array(0, 0))",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    ctx.session
+        .sql("SET datafusion.sql_parser.dialect = 'duckdb'")
+        .await?
+        .collect()
+        .await?;
+
+    let result = ctx
+        .session
+        .sql(
+            "SELECT id, \
+                    array_sum(array_transform(xs, lambda x: x IS NOT NULL)) AS n_valid, \
+                    array_sum(xs) AS total, \
+                    array_transform(xs, lambda x: x + 1) AS incremented \
+             FROM written_lists \
+             ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +----+---------+-------+-------------+
+        | id | n_valid | total | incremented |
+        +----+---------+-------+-------------+
+        | 1  | 2.0     | 3.0   | [2, , 3]    |
+        | 2  | 2.0     | 0.0   | [1, 1]      |
+        +----+---------+-------+-------------+
+        ");
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn create_table_ordered_by() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();

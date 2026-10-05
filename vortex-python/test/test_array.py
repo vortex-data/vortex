@@ -19,6 +19,14 @@ def test_array_with_nulls() -> None:
     assert arr.to_arrow_array() == a
 
 
+def test_chunked_array_with_nulls_round_trip() -> None:
+    a = pa.chunked_array([[1, None, 2], [3, None]])
+    arr = vortex.array(a)
+    assert isinstance(arr, vortex.ChunkedArray)
+    assert len(arr) == 5
+    assert arr.to_arrow_array().null_count == 2
+
+
 def test_varbin_array_round_trip() -> None:
     a = pa.array(["a", "b", "c"], type=pa.string_view())
     arr = vortex.array(a)

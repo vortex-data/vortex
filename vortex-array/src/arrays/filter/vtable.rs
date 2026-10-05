@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
@@ -86,23 +87,20 @@ impl VTable for Filter {
         let child = slots[FilterSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
-        vortex_ensure!(
-            child.dtype() == dtype,
-            "FilterArray dtype {} does not match outer dtype {}",
+        vortex_ensure_eq!(
             child.dtype(),
-            dtype
+            dtype,
+            "FilterArray dtype does not match outer dtype",
         );
-        vortex_ensure!(
-            data.len() == len,
-            "FilterArray length {} does not match outer length {}",
+        vortex_ensure_eq!(
             data.len(),
-            len
+            len,
+            "FilterArray length does not match outer length",
         );
-        vortex_ensure!(
-            child.len() == data.mask.len(),
-            "FilterArray child length {} does not match mask length {}",
+        vortex_ensure_eq!(
             child.len(),
-            data.mask.len()
+            data.mask.len(),
+            "FilterArray child length does not match mask length",
         );
         Ok(())
     }

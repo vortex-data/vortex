@@ -54,13 +54,7 @@ impl FixedShapeTensorMetadata {
     /// The number of names must match the number of logical dimensions.
     pub fn with_dim_names(mut self, names: Vec<String>) -> VortexResult<Self> {
         if !names.is_empty() {
-            vortex_ensure_eq!(
-                names.len(),
-                self.logical_shape.len(),
-                "dim_names length ({}) must match logical_shape length ({})",
-                names.len(),
-                self.logical_shape.len()
-            );
+            vortex_ensure_eq!(names.len(), self.logical_shape.len());
             self.dim_names = Some(names);
         }
 
@@ -74,13 +68,7 @@ impl FixedShapeTensorMetadata {
     /// number of logical dimensions.
     pub fn with_permutation(mut self, permutation: Vec<usize>) -> VortexResult<Self> {
         if !permutation.is_empty() {
-            vortex_ensure_eq!(
-                permutation.len(),
-                self.logical_shape.len(),
-                "permutation length ({}) must match logical_shape length ({})",
-                permutation.len(),
-                self.logical_shape.len()
-            );
+            vortex_ensure_eq!(permutation.len(), self.logical_shape.len());
 
             // Verify this is actually a permutation of [0..N).
             let mut seen = vec![false; permutation.len()];

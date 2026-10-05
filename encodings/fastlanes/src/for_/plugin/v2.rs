@@ -11,13 +11,14 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::for_v2_id;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
-use crate::r#for::array::num_chunks;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::num_chunks;
 
 /// Metadata for `fastlanes.for.v2`. The references are the second child.
 #[derive(Clone, prost::Message)]
@@ -45,11 +46,11 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Array
         "FoRArray expects 0 buffers, got {}",
         parts.buffers.len()
     );
-    vortex_ensure!(
-        parts.children.len() == 2,
-        "Expected 2 children for {}, found {}",
-        for_v2_id(),
-        parts.children.len()
+    vortex_ensure_eq!(
+        parts.children.len(),
+        2,
+        "Expected 2 children for {}",
+        for_v2_id()
     );
     let metadata = FoRV2Metadata::decode(parts.metadata)?;
     vortex_ensure!(

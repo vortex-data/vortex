@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -173,17 +174,17 @@ pub(super) fn validate_entries(
         "MapArray entries must use vortex.listview encoding, got {}",
         entries.encoding_id()
     );
-    vortex_ensure!(
-        entries.len() == len,
-        "MapArray entries length {} does not match outer length {len}",
-        entries.len()
+    vortex_ensure_eq!(
+        entries.len(),
+        len,
+        "MapArray entries length does not match outer length",
     );
 
     let expected_dtype = expected_entries_dtype(map_dtype, nullability);
-    vortex_ensure!(
-        entries.dtype() == &expected_dtype,
-        "MapArray entries dtype {} does not match expected {expected_dtype}",
-        entries.dtype()
+    vortex_ensure_eq!(
+        entries.dtype(),
+        &expected_dtype,
+        "MapArray entries dtype does not match expected dtype",
     );
 
     Ok(())

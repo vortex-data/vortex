@@ -9,6 +9,7 @@ use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
+use crate::Engine;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::TableSpec;
@@ -171,6 +172,15 @@ impl Benchmark for StatPopGenBenchmark {
 
     fn table_specs(&self) -> Vec<TableSpec> {
         vec![TableSpec::new("statpopgen", None)]
+    }
+
+    /// The queries use DuckDB's `lambda x: ...` syntax, which DataFusion only parses under its
+    /// DuckDB SQL dialect.
+    fn engine_init_sql(&self, engine: Engine) -> Vec<String> {
+        match engine {
+            Engine::DataFusion => vec!["SET datafusion.sql_parser.dialect = 'duckdb'".to_string()],
+            _ => Vec::new(),
+        }
     }
 
     #[expect(clippy::expect_used)]

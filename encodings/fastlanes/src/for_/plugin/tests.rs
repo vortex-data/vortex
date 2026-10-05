@@ -19,7 +19,7 @@ use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::FoRArray;
-use crate::r#for::array::FoRArraySlotsExt;
+use crate::for_::array::FoRArraySlotsExt;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();

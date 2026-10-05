@@ -13,6 +13,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -514,19 +515,17 @@ impl ArrayRef {
         let existing = slots[slot_idx]
             .as_ref()
             .vortex_expect("with_slot cannot replace an absent slot");
-        vortex_ensure!(
-            existing.dtype() == replacement.dtype(),
-            "slot {} dtype changed from {} to {} during physical rewrite",
-            slot_idx,
+        vortex_ensure_eq!(
             existing.dtype(),
-            replacement.dtype()
+            replacement.dtype(),
+            "slot {} dtype changed during physical rewrite",
+            slot_idx
         );
-        vortex_ensure!(
-            existing.len() == replacement.len(),
-            "slot {} len changed from {} to {} during physical rewrite",
-            slot_idx,
+        vortex_ensure_eq!(
             existing.len(),
-            replacement.len()
+            replacement.len(),
+            "slot {} len changed during physical rewrite",
+            slot_idx
         );
         slots[slot_idx] = Some(replacement);
         // SAFETY: upheld by the caller of this unsafe API.
@@ -605,32 +604,30 @@ impl ArrayRef {
     /// parent statistics are preserved and must remain valid.
     pub unsafe fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
-        vortex_ensure!(
-            old_slots.len() == slots.len(),
-            "slot count changed from {} to {} during physical rewrite",
+        vortex_ensure_eq!(
             old_slots.len(),
-            slots.len()
+            slots.len(),
+            "slot count changed during physical rewrite"
         );
         for (idx, (old_slot, new_slot)) in old_slots.iter().zip(slots.iter()).enumerate() {
-            vortex_ensure!(
-                old_slot.is_some() == new_slot.is_some(),
+            vortex_ensure_eq!(
+                old_slot.is_some(),
+                new_slot.is_some(),
                 "slot {} presence changed during physical rewrite",
                 idx
             );
             if let (Some(old_slot), Some(new_slot)) = (old_slot.as_ref(), new_slot.as_ref()) {
-                vortex_ensure!(
-                    old_slot.dtype() == new_slot.dtype(),
-                    "slot {} dtype changed from {} to {} during physical rewrite",
-                    idx,
+                vortex_ensure_eq!(
                     old_slot.dtype(),
-                    new_slot.dtype()
+                    new_slot.dtype(),
+                    "slot {} dtype changed during physical rewrite",
+                    idx
                 );
-                vortex_ensure!(
-                    old_slot.len() == new_slot.len(),
-                    "slot {} len changed from {} to {} during physical rewrite",
-                    idx,
+                vortex_ensure_eq!(
                     old_slot.len(),
-                    new_slot.len()
+                    new_slot.len(),
+                    "slot {} len changed during physical rewrite",
+                    idx
                 );
             }
         }
@@ -655,11 +652,10 @@ impl ArrayRef {
     ) -> VortexResult<ArrayRef> {
         let buffers = buffers.into_iter().collect::<Vec<_>>();
         let nbuffers = self.nbuffers();
-        vortex_ensure!(
-            nbuffers == buffers.len(),
-            "buffer count changed from {} to {} during physical rewrite",
+        vortex_ensure_eq!(
             nbuffers,
-            buffers.len()
+            buffers.len(),
+            "buffer count changed during physical rewrite"
         );
         for (idx, (old_buffer, new_buffer)) in self
             .buffer_handles()
@@ -667,12 +663,11 @@ impl ArrayRef {
             .zip(buffers.iter())
             .enumerate()
         {
-            vortex_ensure!(
-                old_buffer.len() == new_buffer.len(),
-                "buffer {} length changed from {} to {} during physical rewrite",
-                idx,
+            vortex_ensure_eq!(
                 old_buffer.len(),
-                new_buffer.len()
+                new_buffer.len(),
+                "buffer {} length changed during physical rewrite",
+                idx
             );
         }
         self.0.data.with_buffers(&self, buffers)

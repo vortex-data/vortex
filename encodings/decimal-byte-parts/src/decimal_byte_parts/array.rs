@@ -34,6 +34,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -96,11 +97,8 @@ impl DecimalBytePartsData {
         }
 
         let expected_dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "expected dtype {expected_dtype}, got {dtype}"
-        );
-        vortex_ensure!(msp.len() == len, "expected len {len}, got {}", msp.len());
+        vortex_ensure_eq!(dtype, &expected_dtype);
+        vortex_ensure_eq!(msp.len(), len);
 
         let lower_part_count = lower_parts.len();
 
@@ -114,11 +112,7 @@ impl DecimalBytePartsData {
                 "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
                 part.dtype()
             );
-            vortex_ensure!(
-                part.len() == len,
-                "lower part {idx} has len {}, expected {len}",
-                part.len()
-            );
+            vortex_ensure_eq!(part.len(), len, "lower part {idx} length mismatch");
         }
         Ok(())
     }

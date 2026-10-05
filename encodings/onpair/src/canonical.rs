@@ -25,6 +25,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
@@ -137,10 +138,10 @@ impl<'a> OnPairDecodePlan<'a> {
             }
         };
 
-        vortex_ensure!(
-            written == self.total_size,
-            "OnPair codes decoded to {written} bytes but uncompressed_lengths records {}",
-            self.total_size
+        vortex_ensure_eq!(
+            written,
+            self.total_size,
+            "OnPair codes decoded length must match uncompressed_lengths"
         );
         Ok(written)
     }

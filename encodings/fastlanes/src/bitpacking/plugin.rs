@@ -29,7 +29,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
@@ -89,10 +89,10 @@ impl ArrayPlugin for BitPackedPlugin {
         parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            parts.serialized_id == self.id(),
-            "BitPacked plugin does not recognize serialized ID {}",
-            parts.serialized_id
+        vortex_ensure_eq!(
+            parts.serialized_id,
+            self.id(),
+            "BitPacked plugin does not recognize serialized ID"
         );
         let ArrayDeserialization {
             dtype,
@@ -203,10 +203,10 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            parts.serialized_id == self.id(),
-            "BitPacked plugin does not recognize serialized ID {}",
+        vortex_ensure_eq!(
             parts.serialized_id,
+            self.id(),
+            "BitPacked plugin does not recognize serialized ID"
         );
         let bitpacked: BitPackedArray = BitPackedPlugin
             .deserialize(parts, session)?

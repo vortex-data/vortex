@@ -241,19 +241,32 @@ impl ScalarFnVTable for Binary {
         // Other null cases either fall out of the identity/annihilator rules
         // above (`null AND true`, `null OR false`) or cannot be simplified under
         // Kleene semantics (`null AND x`, `null OR x` for non-literal `x`).
+        // Simplification must keep the result nullability binding inferred: the annihilator
+        // literal and the identity child can both be less nullable than `lhs OP rhs`.
+        let result_nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+        let nullability = Nullability::from(result_nullable);
+        let bool_lit = |value: bool| bound::lit(Scalar::bool(value, nullability));
+        let widen = |child: &BoundExpression| {
+            if child.dtype().is_nullable() == result_nullable {
+                child.clone()
+            } else {
+                bound::cast(child.clone(), DType::Bool(nullability))
+            }
+        };
+
         Ok(match operator {
             Operator::And => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(bound::lit(false)),
-                (Some(Some(true)), _) => Some(rhs.clone()),
-                (_, Some(Some(true))) => Some(lhs.clone()),
-                (Some(None), Some(None)) => Some(lhs.clone()),
+                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(bool_lit(false)),
+                (Some(Some(true)), _) => Some(widen(rhs)),
+                (_, Some(Some(true))) => Some(widen(lhs)),
+                (Some(None), Some(None)) => Some(widen(lhs)),
                 _ => None,
             },
             Operator::Or => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(bound::lit(true)),
-                (Some(Some(false)), _) => Some(rhs.clone()),
-                (_, Some(Some(false))) => Some(lhs.clone()),
-                (Some(None), Some(None)) => Some(lhs.clone()),
+                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(bool_lit(true)),
+                (Some(Some(false)), _) => Some(widen(rhs)),
+                (_, Some(Some(false))) => Some(widen(lhs)),
+                (Some(None), Some(None)) => Some(widen(lhs)),
                 _ => None,
             },
             _ => None,

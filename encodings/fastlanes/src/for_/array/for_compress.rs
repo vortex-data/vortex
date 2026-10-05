@@ -271,9 +271,9 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::r#for::array::FoRArrayExt;
-    use crate::r#for::array::FoRArraySlotsExt;
-    use crate::r#for::array::for_decompress::decompress;
+    use crate::for_::array::FoRArrayExt;
+    use crate::for_::array::FoRArraySlotsExt;
+    use crate::for_::array::for_decompress::decompress;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = array_session();
