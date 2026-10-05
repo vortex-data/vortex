@@ -79,31 +79,6 @@ macro_rules! impl_fixed_width_take_value {
 
 impl_fixed_width_take_value!(u16, u32, u64, i16, i32, i64, f16, f32, f64,);
 
-// SAFETY: u8 has no padding or uninitialized bytes.
-unsafe impl FixedWidthTakeValue for u8 {
-    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
-        small_table::take(values, indices)
-    }
-}
-
-// SAFETY: i8 has no padding or uninitialized bytes.
-unsafe impl FixedWidthTakeValue for i8 {
-    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
-        small_table::take(values, indices)
-    }
-}
-
-// SAFETY: Byte arrays have no padding and every byte is initialized.
-unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {
-    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
-        if N == 1 {
-            small_table::take(values, indices)
-        } else {
-            take_values_fallback(values, indices)
-        }
-    }
-}
-
 pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],

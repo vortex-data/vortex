@@ -15,20 +15,42 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 
 use super::super::FixedWidthTakeValue;
+use super::super::take_values_fallback;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 
-pub(super) fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
+// SAFETY: u8 has no padding or uninitialized bytes.
+unsafe impl FixedWidthTakeValue for u8 {
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        take(values, indices)
+    }
+}
+
+// SAFETY: i8 has no padding or uninitialized bytes.
+unsafe impl FixedWidthTakeValue for i8 {
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        take(values, indices)
+    }
+}
+
+// SAFETY: Byte arrays have no padding and every byte is initialized.
+unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        take(values, indices)
+    }
+}
+
+fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
-) -> Option<Buffer<T>> {
+) -> Buffer<T> {
     if I::PTYPE != PType::U8
         || values.is_empty()
         || values.len() > 16
         || size_of::<T>() != 1
         || indices.len() < 64
     {
-        return None;
+        return take_values_fallback(values, indices);
     }
 
     // SAFETY: the sealed index type is u8, as checked above.
@@ -61,7 +83,7 @@ pub(super) fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     );
     // SAFETY: the vector loop and scalar remainder initialized every output value.
     unsafe { output.set_len(indices.len()) };
-    Some(output.freeze())
+    output.freeze()
 }
 
 unsafe fn take_vectors<T: FixedWidthTakeValue>(

@@ -3,23 +3,21 @@
 
 //! Small byte-table take with a fallback for unsupported targets and inputs.
 
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-mod neon;
+cfg_if::cfg_if! {
+    if #[cfg(all(target_arch = "aarch64", target_endian = "little"))] {
+        mod neon;
+    } else {
+        mod fallback {
+            use super::super::FixedWidthTakeValue;
 
-use vortex_buffer::Buffer;
+            // SAFETY: u8 has no padding or uninitialized bytes.
+            unsafe impl FixedWidthTakeValue for u8 {}
 
-use super::FixedWidthTakeValue;
-use super::take_values_fallback;
-use crate::dtype::UnsignedPType;
+            // SAFETY: i8 has no padding or uninitialized bytes.
+            unsafe impl FixedWidthTakeValue for i8 {}
 
-pub(crate) fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
-    values: &[T],
-    indices: &[I],
-) -> Buffer<T> {
-    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-    if let Some(taken) = neon::take(values, indices) {
-        return taken;
+            // SAFETY: Byte arrays have no padding and every byte is initialized.
+            unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {}
+        }
     }
-
-    take_values_fallback(values, indices)
 }
