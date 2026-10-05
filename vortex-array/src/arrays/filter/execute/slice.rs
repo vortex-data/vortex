@@ -8,6 +8,7 @@
 
 use std::ptr;
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -17,14 +18,20 @@ use vortex_mask::MaskValues;
 /// the mask bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-pub(super) fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
-    let bits = mask.bit_buffer();
+pub(super) fn for_each_mask_word(mask: &MaskValues, f: impl FnMut(u64, usize, usize)) {
+    for_each_bit_word(mask.bit_buffer(), f);
+}
+
+/// [`for_each_mask_word`] over the bits of a [`BitBuffer`], e.g. one chunk of a mask's rows.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+pub(super) fn for_each_bit_word(bits: &BitBuffer, mut f: impl FnMut(u64, usize, usize)) {
     let unaligned = bits.unaligned_chunks();
     let lead = unaligned.lead_padding();
     let mut base = 0;
 
     if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
+        let len = (64 - lead).min(bits.len());
         f(prefix >> lead, base, len);
         base += len;
     }
@@ -35,12 +42,57 @@ pub(super) fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize
     }
 
     if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - base;
+        let len = bits.len() - base;
         f(suffix, base, len);
         base += len;
     }
 
-    debug_assert_eq!(base, mask.len());
+    debug_assert_eq!(base, bits.len());
+}
+
+/// Mask bits that the bitmap kernels walk a word at a time: a whole mask, or the bits covering
+/// one chunk of its rows.
+pub(crate) trait MaskWords {
+    /// The number of rows the bits cover.
+    fn row_count(&self) -> usize;
+
+    /// The number of selected rows.
+    fn selected_count(&self) -> usize;
+
+    /// Invoke `f` with each `(word, word_start, word_len)`, as [`for_each_mask_word`] does.
+    fn for_each_word(&self, f: impl FnMut(u64, usize, usize));
+}
+
+impl MaskWords for MaskValues {
+    fn row_count(&self) -> usize {
+        self.len()
+    }
+
+    fn selected_count(&self) -> usize {
+        self.true_count()
+    }
+
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn for_each_word(&self, f: impl FnMut(u64, usize, usize)) {
+        for_each_mask_word(self, f);
+    }
+}
+
+impl MaskWords for BitBuffer {
+    fn row_count(&self) -> usize {
+        self.len()
+    }
+
+    fn selected_count(&self) -> usize {
+        self.true_count()
+    }
+
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn for_each_word(&self, f: impl FnMut(u64, usize, usize)) {
+        for_each_bit_word(self, f);
+    }
 }
 
 /// A `u64` with the low `len` bits set.
@@ -138,17 +190,20 @@ pub(super) fn filter_slice_by_slices<T: Copy>(
 }
 
 /// Filter a mutable slice in-place from the mask bitmap, returning the new valid length.
-pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskValues) -> usize {
+pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
+    slice: &mut [T],
+    mask: &(impl MaskWords + ?Sized),
+) -> usize {
     assert_eq!(
         slice.len(),
-        mask.len(),
+        mask.row_count(),
         "Mask length must equal the slice length"
     );
 
     let ptr = slice.as_mut_ptr();
     let mut write_pos = 0;
 
-    for_each_mask_word(mask, |word, word_start, word_len| {
+    mask.for_each_word(|word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {
@@ -173,7 +228,7 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
         }
     });
 
-    debug_assert_eq!(write_pos, mask.true_count());
+    debug_assert_eq!(write_pos, mask.selected_count());
     write_pos
 }
 

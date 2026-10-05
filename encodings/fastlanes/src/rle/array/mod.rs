@@ -11,6 +11,7 @@ use vortex_array::array_slots;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+pub(crate) mod chunked_decompress;
 pub mod rle_compress;
 pub mod rle_decompress;
 

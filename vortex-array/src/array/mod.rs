@@ -222,6 +222,18 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult>;
 
+    /// Returns the type of the values this encoding (recursively) streams via chunked
+    /// decompression, or `None` if it cannot stream them.
+    fn decompress_chunks_type(&self, this: &ArrayRef) -> Option<crate::chunk_iter::ValueType>;
+
+    /// Stream the array's decompressed values through `sink` in cache-resident chunks.
+    fn decompress_chunks(
+        &self,
+        this: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn crate::chunk_iter::ChunkSink,
+    ) -> VortexResult<()>;
+
     /// Read the scalar at `index`, including its nullness, retaining nothing.
     ///
     /// Caller must guarantee `index < len`.
@@ -521,6 +533,23 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             .map_err(|_| vortex_err!("Failed to downcast array for execute"))
             .vortex_expect("Failed to downcast array for execute");
         V::execute(typed, ctx)
+    }
+
+    fn decompress_chunks_type(&self, this: &ArrayRef) -> Option<crate::chunk_iter::ValueType> {
+        // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::decompress_chunks_type(view)
+    }
+
+    fn decompress_chunks(
+        &self,
+        this: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn crate::chunk_iter::ChunkSink,
+    ) -> VortexResult<()> {
+        // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::decompress_chunks(view, ctx, sink)
     }
 
     fn probe_scalar_once(

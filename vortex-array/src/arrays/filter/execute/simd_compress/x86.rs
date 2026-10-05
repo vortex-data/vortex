@@ -39,9 +39,7 @@ use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
 
-use vortex_mask::MaskValues;
-
-use super::super::slice::for_each_mask_word;
+use super::super::slice::MaskWords;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
@@ -52,21 +50,23 @@ use super::compress_tail;
 ///
 /// Sparse masks stay on the scalar set-bit walk. See `benches/filter_fixed_width.rs` when
 /// changing these thresholds.
-pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
+pub(super) fn select_kernel<T, const IN_PLACE: bool, W: MaskWords>(
+    density: f64,
+) -> Option<Kernel<W>> {
     let (kernel, min_density) = match size_of::<T>() {
-        1 if avx512_vbmi2() => (compress_avx512_epi8::<IN_PLACE> as Kernel, 0.0),
-        2 if avx512_vbmi2() => (compress_avx512_epi16::<IN_PLACE> as Kernel, 0.15),
-        4 if avx512f() => (compress_avx512_epi32::<IN_PLACE> as Kernel, 0.25),
-        8 if avx512f() => (compress_avx512_epi64::<IN_PLACE> as Kernel, 0.30),
+        1 if avx512_vbmi2() => (compress_avx512_epi8::<IN_PLACE, W> as Kernel<W>, 0.0),
+        2 if avx512_vbmi2() => (compress_avx512_epi16::<IN_PLACE, W> as Kernel<W>, 0.15),
+        4 if avx512f() => (compress_avx512_epi32::<IN_PLACE, W> as Kernel<W>, 0.25),
+        8 if avx512f() => (compress_avx512_epi64::<IN_PLACE, W> as Kernel<W>, 0.30),
         // AVX-512F without VBMI2 (e.g. Skylake-X) falls through to these too.
-        1 if avx2() => (compress_pshufb_epi8::<IN_PLACE> as Kernel, 0.15),
-        2 if avx2() => (compress_pshufb_epi16::<IN_PLACE> as Kernel, 0.25),
-        4 if avx2() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
-        8 if avx2() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
+        1 if avx2() => (compress_pshufb_epi8::<IN_PLACE, W> as Kernel<W>, 0.15),
+        2 if avx2() => (compress_pshufb_epi16::<IN_PLACE, W> as Kernel<W>, 0.25),
+        4 if avx2() => (compress_avx2_epi32::<IN_PLACE, W> as Kernel<W>, 0.25),
+        8 if avx2() => (compress_avx2_epi64::<IN_PLACE, W> as Kernel<W>, 0.45),
         _ => return None,
     };
 
-    (mask.density() >= min_density).then_some(kernel)
+    (density >= min_density).then_some(kernel)
 }
 
 fn avx512f() -> bool {
@@ -173,13 +173,13 @@ macro_rules! avx512_compress_kernel {
         /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
         /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
         #[target_feature(enable = $features)]
-        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
+        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool, W: MaskWords>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            mask: &W,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            mask.for_each_word(|word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
@@ -415,13 +415,13 @@ macro_rules! avx2_compress_kernel {
         /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
         /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
         #[target_feature(enable = "avx2")]
-        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
+        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool, W: MaskWords>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            mask: &W,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            mask.for_each_word(|word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
@@ -542,13 +542,13 @@ macro_rules! pshufb_compress_kernel {
         /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
         /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
         #[target_feature(enable = "avx2")]
-        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
+        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool, W: MaskWords>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            mask: &W,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            mask.for_each_word(|word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)

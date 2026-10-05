@@ -26,10 +26,13 @@
 
 use std::ptr;
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
+
+use super::slice::MaskWords;
 
 #[cfg(all(target_arch = "aarch64", not(miri)))]
 mod neon;
@@ -42,8 +45,9 @@ const MIN_LEN: usize = 64;
 
 const SLACK_BYTES: usize = 64;
 
-/// `dst == src` for in-place kernels.
-type Kernel = unsafe fn(*const u8, *mut u8, &MaskValues) -> usize;
+/// `dst == src` for in-place kernels. `W` holds the mask bits the kernel walks: a whole mask, or
+/// the bits covering one chunk of rows for filters that compact chunk by chunk.
+pub(crate) type Kernel<W = MaskValues> = unsafe fn(*const u8, *mut u8, &W) -> usize;
 
 /// Filter a slice with a SIMD compress kernel, if one applies.
 ///
@@ -101,18 +105,33 @@ fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
     if mask.len() < MIN_LEN {
         return None;
     }
+    select_kernel_for_density::<T, IN_PLACE, MaskValues>(mask.density())
+}
 
+/// Choose the in-place kernel that [`filter_slice_mut_by_bitmap`] would pick for `T` and a mask of
+/// `density`, to compact one chunk of rows at a time against the bits covering it.
+pub(crate) fn select_chunk_kernel<T>(density: f64) -> Option<Kernel<BitBuffer>> {
+    select_kernel_for_density::<T, true, BitBuffer>(density)
+}
+
+/// Chunks of fewer rows compact faster with the scalar bitmap walk than with a kernel from
+/// [`select_chunk_kernel`], as whole masks do.
+pub(crate) const MIN_CHUNK_LEN: usize = MIN_LEN;
+
+fn select_kernel_for_density<T, const IN_PLACE: bool, W: MaskWords>(
+    density: f64,
+) -> Option<Kernel<W>> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
-        x86::select_kernel::<T, IN_PLACE>(mask)
+        x86::select_kernel::<T, IN_PLACE, W>(density)
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        neon::select_kernel::<T, IN_PLACE>(mask)
+        neon::select_kernel::<T, IN_PLACE, W>(density)
     }
     #[cfg(any(not(any(target_arch = "x86_64", target_arch = "aarch64")), miri))]
     {
-        let _ = mask;
+        let _ = density;
         None
     }
 }

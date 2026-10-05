@@ -17,6 +17,9 @@ use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
+use crate::chunk_iter::stream_slice_chunks;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
@@ -179,6 +182,22 @@ impl VTable for Primitive {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        ValueType::primitive(array.dtype())
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        // Already decompressed: chunks are handed out mutably, so the shared buffer is copied
+        // through one L1-resident scratch chunk rather than exposed directly.
+        match_each_native_ptype!(array.ptype(), |P| {
+            stream_slice_chunks(array.as_slice::<P>(), sink)
+        })
     }
 
     fn append_to_builder(

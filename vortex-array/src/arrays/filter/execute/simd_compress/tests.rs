@@ -152,26 +152,26 @@ fn avx2_kernels_match_scalar() {
                 let u32_values: Vec<u32> = (0..len as u32).collect();
                 let u64_values: Vec<u64> = (0..len as u64).collect();
                 check_kernel(
-                    x86::compress_pshufb_epi8::<false>,
-                    x86::compress_pshufb_epi8::<true>,
+                    x86::compress_pshufb_epi8::<false, MaskValues>,
+                    x86::compress_pshufb_epi8::<true, MaskValues>,
                     &u8_values,
                     mask,
                 );
                 check_kernel(
-                    x86::compress_pshufb_epi16::<false>,
-                    x86::compress_pshufb_epi16::<true>,
+                    x86::compress_pshufb_epi16::<false, MaskValues>,
+                    x86::compress_pshufb_epi16::<true, MaskValues>,
                     &u16_values,
                     mask,
                 );
                 check_kernel(
-                    x86::compress_avx2_epi32::<false>,
-                    x86::compress_avx2_epi32::<true>,
+                    x86::compress_avx2_epi32::<false, MaskValues>,
+                    x86::compress_avx2_epi32::<true, MaskValues>,
                     &u32_values,
                     mask,
                 );
                 check_kernel(
-                    x86::compress_avx2_epi64::<false>,
-                    x86::compress_avx2_epi64::<true>,
+                    x86::compress_avx2_epi64::<false, MaskValues>,
+                    x86::compress_avx2_epi64::<true, MaskValues>,
                     &u64_values,
                     mask,
                 );

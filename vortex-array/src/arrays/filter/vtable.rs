@@ -31,12 +31,15 @@ use crate::array::with_empty_buffers;
 use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::FilterSlots;
+use crate::arrays::filter::chunked_decompress;
 use crate::arrays::filter::execute::contiguous_filter_range;
 use crate::arrays::filter::execute::execute_all_null_filter_fast_path;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -185,6 +188,18 @@ impl VTable for Filter {
         Ok(ExecutionResult::done(
             execute_filter(child, &mask_values, ctx.allocator()).into_array(),
         ))
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 
     fn reduce_parent(

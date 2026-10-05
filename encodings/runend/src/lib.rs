@@ -9,6 +9,7 @@ pub use array::*;
 pub use iter::trimmed_ends_iter;
 
 mod array;
+mod chunked_decompress;
 pub mod compress;
 mod compute;
 pub mod decompress_bool;

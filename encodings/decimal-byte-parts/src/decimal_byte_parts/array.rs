@@ -20,6 +20,8 @@ use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::scalar::DecimalValue;
@@ -40,6 +42,7 @@ use vortex_session::VortexSession;
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
+use super::chunked_decompress;
 use super::decimal_byte_parts_v2_id;
 use super::rules::PARENT_RULES;
 
@@ -288,6 +291,18 @@ impl VTable for DecimalByteParts {
         let assembled = assemble_decimal(array.msp(), &lower_parts, array.decimal_dtype(), ctx)?;
 
         Ok(ExecutionResult::done(assembled))
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        chunked_decompress::decompress_chunks_type(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        chunked_decompress::decompress_chunks(array, ctx, sink)
     }
 }
 

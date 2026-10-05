@@ -20,6 +20,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::chunk_iter::ChunkSink;
+use vortex_array::chunk_iter::ValueType;
 use vortex_array::dtype::DType;
 use vortex_array::require_child;
 use vortex_array::scalar::Scalar;
@@ -39,6 +41,7 @@ use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 use crate::for_::array::FoRSlots;
 use crate::for_::array::FoRSlotsView;
+use crate::for_::array::for_decompress;
 use crate::for_::array::for_decompress::decompress;
 use crate::for_::array::num_chunks;
 use crate::for_::vtable::rules::PARENT_RULES;
@@ -158,6 +161,18 @@ impl VTable for FoR {
             require_child!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
         };
         Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        for_decompress::decompress_chunks_type(array)
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        for_decompress::decompress_chunks(array, ctx, sink)
     }
 }
 

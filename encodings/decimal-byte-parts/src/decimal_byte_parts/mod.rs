@@ -21,6 +21,7 @@ use vortex_array::dtype::PType;
 
 mod array;
 mod assemble;
+mod chunked_decompress;
 pub(crate) mod compute;
 mod plugin;
 #[cfg(test)]

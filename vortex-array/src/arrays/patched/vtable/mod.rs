@@ -11,10 +11,12 @@ mod slice;
 
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Range;
 
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -45,6 +47,10 @@ use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
+use crate::chunk_iter::ChunkMut;
+use crate::chunk_iter::ChunkPatches;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ValueType;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -308,6 +314,112 @@ impl VTable for Patched {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        ValueType::primitive(array.dtype()).filter(|_| array.inner().supports_decompress_chunks())
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        if array.as_ref().is_empty() {
+            return Ok(());
+        }
+
+        let len = array.as_ref().len();
+        let offset = array.offset();
+        let n_lanes = array.n_lanes();
+
+        // The patch children are tiny relative to the array; materialize them once up front and
+        // flatten the lane-transposed layout into row-sorted (row, value) pairs so the per-chunk
+        // wrapper below only advances a cursor.
+        let lane_offsets = array
+            .lane_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+
+        match_each_native_ptype!(values.ptype(), |V| {
+            let mut adapter = PatchChunkSink {
+                patches: ChunkPatches::new(build_row_sorted_patches::<V>(
+                    lane_offsets.as_slice::<u32>(),
+                    indices.as_slice::<u16>(),
+                    values.as_slice::<V>(),
+                    offset,
+                    len,
+                    n_lanes,
+                )),
+                inner: sink,
+            };
+            array.inner().decompress_child_chunks(ctx, &mut adapter)
+        })
+    }
+}
+
+/// Flatten the lane-transposed patch layout into row-sorted (row, value) pairs so the streaming
+/// chunk wrapper only advances a cursor.
+fn build_row_sorted_patches<V: NativePType>(
+    lane_offsets: &[u32],
+    indices: &[u16],
+    values: &[V],
+    offset: usize,
+    len: usize,
+    n_lanes: usize,
+) -> Vec<(usize, V)> {
+    let mut patch_list: Vec<(usize, V)> = Vec::with_capacity(values.len());
+    let n_chunks = (offset + len).div_ceil(1024);
+    for chunk in 0..n_chunks {
+        let start = lane_offsets[chunk * n_lanes] as usize;
+        let stop = lane_offsets[chunk * n_lanes + n_lanes] as usize;
+        for idx in start..stop {
+            // The indices slice is measured as an offset into the 1024-value chunk.
+            let index = chunk * 1024 + indices[idx] as usize;
+            if index < offset || index >= offset + len {
+                continue;
+            }
+            patch_list.push((index - offset, values[idx]));
+        }
+    }
+    // Patches are sorted by (chunk, lane), not by row; the stable sort preserves the original
+    // application order for any duplicate rows.
+    patch_list.sort_by_key(|&(row, _)| row);
+    patch_list
+}
+
+/// Sink adapter that overwrites patched rows in each streamed chunk before forwarding it.
+struct PatchChunkSink<'a, V> {
+    patches: ChunkPatches<V>,
+    inner: &'a mut dyn ChunkSink,
+}
+
+impl<V: NativePType> ChunkSink for PatchChunkSink<'_, V> {
+    #[inline]
+    fn accept(&mut self, mut chunk: ChunkMut<'_>, rows: Range<usize>) -> VortexResult<()> {
+        self.patches.apply(chunk.as_slice_mut::<V>(), rows.start);
+        self.inner.accept(chunk, rows)
+    }
+
+    fn destination(&mut self, rows: Range<usize>) -> Option<ChunkMut<'_>> {
+        self.inner.destination(rows)
+    }
+
+    fn accept_written(&mut self, rows: Range<usize>) -> VortexResult<()> {
+        let mut chunk = self
+            .inner
+            .destination(rows.clone())
+            .ok_or_else(|| vortex_err!("Patched's destination for rows {rows:?} is gone"))?;
+        self.patches.apply(chunk.as_slice_mut::<V>(), rows.start);
+        self.inner.accept_written(rows)
     }
 }
 

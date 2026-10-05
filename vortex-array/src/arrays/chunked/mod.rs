@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod chunked_decompress;
 pub use array::ChunkedArrayExt;
 pub use array::ChunkedData;
 pub use array::ChunkedSlots;

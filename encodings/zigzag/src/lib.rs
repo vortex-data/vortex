@@ -7,6 +7,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 mod array;
+mod chunked_decompress;
 mod compress;
 mod compute;
 mod kernel;

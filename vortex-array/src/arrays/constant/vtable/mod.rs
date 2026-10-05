@@ -41,9 +41,15 @@ use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::canonical::Canonical;
+use crate::chunk_iter::ChunkSink;
+use crate::chunk_iter::ChunkValue;
+use crate::chunk_iter::ValueType;
+use crate::chunk_iter::stream_from_fn;
 use crate::dtype::DType;
+use crate::dtype::DecimalType;
 use crate::dtype::OffsetBuilderPType;
 use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
 use crate::match_each_listview_builder;
 use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
@@ -183,6 +189,55 @@ impl VTable for Constant {
             array.as_view(),
             ctx,
         )?))
+    }
+
+    fn decompress_chunks_type(array: ArrayView<'_, Self>) -> Option<ValueType> {
+        match array.dtype() {
+            // As canonicalizing stores it: in the scalar's own type, or the smallest type for the
+            // precision when null.
+            DType::Decimal(decimal_dtype, _) => Some(
+                array
+                    .scalar()
+                    .as_decimal()
+                    .decimal_value()
+                    .map_or_else(
+                        || DecimalType::smallest_decimal_value_type(decimal_dtype),
+                        |value| value.decimal_type(),
+                    )
+                    .into(),
+            ),
+            dtype => ValueType::primitive(dtype),
+        }
+    }
+
+    fn decompress_chunks(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+        sink: &mut dyn ChunkSink,
+    ) -> VortexResult<()> {
+        // A null constant streams unspecified (but initialized) values, matching the
+        // not-streamed-validity contract.
+        if let DType::Decimal(decimal_dtype, _) = array.dtype() {
+            return match array.scalar().as_decimal().decimal_value() {
+                Some(value) => match_each_decimal_value!(value, |value| {
+                    stream_constant(array.len(), value, sink)
+                }),
+                None => {
+                    let values_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
+                    match_each_decimal_value_type!(values_type, |D| {
+                        stream_constant(array.len(), D::default(), sink)
+                    })
+                }
+            };
+        }
+        match_each_native_ptype!(array.dtype().as_ptype(), |T| {
+            let value: T = array
+                .scalar()
+                .as_primitive()
+                .typed_value::<T>()
+                .unwrap_or_default();
+            stream_constant(array.len(), value, sink)
+        })
     }
 
     fn append_to_builder(
@@ -410,6 +465,20 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
     } else {
         fill(b);
     }
+}
+
+/// Stream `len` copies of `value`.
+fn stream_constant<T: ChunkValue>(
+    len: usize,
+    value: T,
+    sink: &mut dyn ChunkSink,
+) -> VortexResult<()> {
+    // Sinks may mutate the chunk in place (e.g. Patched patching over it), so the scratch is
+    // refilled before every emission.
+    stream_from_fn(len, sink, |chunk: &mut [T], _| {
+        chunk.fill(value);
+        Ok(())
+    })
 }
 
 #[cfg(test)]

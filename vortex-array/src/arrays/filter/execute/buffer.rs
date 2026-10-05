@@ -17,8 +17,10 @@
 //! eligibility is summarized in [`simd_compress`]. All-true, all-false, and contiguous masks are
 //! handled before buffer dispatch.
 
+use std::marker::PhantomData;
 use std::mem::size_of;
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_mask::MaskValues;
@@ -99,6 +101,43 @@ fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize 
     }
 
     slice::filter_slice_mut_by_bitmap(values, mask)
+}
+
+/// In-place compaction of one chunk of rows at a time against the bits of a mask covering it, for
+/// filters that stream their child in chunks.
+///
+/// It picks the SIMD kernel that [`filter_slice_in_place`] would for the whole mask, once, and
+/// falls back to the bitmap walk where none applies. Unlike the whole-buffer ladder, it never
+/// builds the mask's indices or runs, which would cost a pass over the whole mask up front.
+pub(crate) struct ChunkCompactor<T> {
+    kernel: Option<simd_compress::Kernel<BitBuffer>>,
+    _values: PhantomData<T>,
+}
+
+impl<T: Copy> ChunkCompactor<T> {
+    /// A compactor for chunks of a mask with `density`.
+    pub(crate) fn new(density: f64) -> Self {
+        Self {
+            kernel: simd_compress::select_chunk_kernel::<T>(density),
+            _values: PhantomData,
+        }
+    }
+
+    /// Compact `values` to the rows that `bits` selects, returning how many it kept.
+    #[inline]
+    pub(crate) fn compact(&self, values: &mut [T], bits: &BitBuffer) -> usize {
+        assert_eq!(values.len(), bits.len(), "one mask bit per value");
+        match self.kernel {
+            Some(kernel) if values.len() >= simd_compress::MIN_CHUNK_LEN => {
+                let ptr = values.as_mut_ptr().cast::<u8>();
+                // SAFETY: `select_chunk_kernel::<T>` probed the kernel's target features for
+                // values of `T`, and in place it only reads and writes within `values`, which
+                // holds one value per bit of `bits`.
+                unsafe { kernel(ptr.cast_const(), ptr, bits) }
+            }
+            _ => slice::filter_slice_mut_by_bitmap(values, bits),
+        }
+    }
 }
 
 fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
