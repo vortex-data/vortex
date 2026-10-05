@@ -44,7 +44,8 @@ use crate::bitpack_decompress;
 ///
 /// # Errors
 ///
-/// Returns an error if `array` is not an integer array or contains negative values.
+/// Returns an error if `array` is not an integer array, contains negative values, or is nonempty
+/// and every block chooses the array's native bit width.
 pub fn bitpack_to_best_bit_widths(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -66,6 +67,7 @@ pub fn bitpack_to_best_bit_widths(
 ///
 /// Returns an error if `array` is not an integer array or contains negative values, or if
 /// `bit_widths` does not hold one width per block of at most the array's bit width.
+/// Nonempty arrays must have at least one block narrower than the array's native bit width.
 pub fn bitpack_encode_blocked(
     array: &PrimitiveArray,
     bit_widths: &[u8],
@@ -79,14 +81,7 @@ pub fn bitpack_encode_blocked(
         InvalidArgument: "Expected {num_blocks} bit widths, got {}",
         bit_widths.len()
     );
-    let max_bit_width = array.ptype().bit_width();
-    vortex_ensure!(
-        bit_widths
-            .iter()
-            .all(|&bit_width| usize::from(bit_width) <= max_bit_width),
-        InvalidArgument: "Bit widths must be at most {max_bit_width} for {}",
-        array.ptype()
-    );
+    validate_bit_widths(bit_widths, array.ptype())?;
 
     // SAFETY: we check that array only contains non-negative values.
     let packed = unsafe { bitpack_blocked_unchecked(array, bit_widths) };
@@ -113,6 +108,24 @@ pub fn bitpack_encode_blocked(
     )?;
     bitpacked.statistics().inherit_from(array.statistics());
     Ok(bitpacked)
+}
+
+fn validate_bit_widths(bit_widths: &[u8], ptype: PType) -> VortexResult<()> {
+    let max_bit_width = ptype.bit_width();
+    let mut has_packed_block = false;
+    for &bit_width in bit_widths {
+        let bit_width = usize::from(bit_width);
+        vortex_ensure!(
+            bit_width <= max_bit_width,
+            InvalidArgument: "Bit widths must be at most {max_bit_width} for {ptype}"
+        );
+        has_packed_block |= bit_width < max_bit_width;
+    }
+    vortex_ensure!(
+        bit_widths.is_empty() || has_packed_block,
+        InvalidArgument: "Cannot pack: all blocks use the native bit width {max_bit_width}"
+    );
+    Ok(())
 }
 
 /// Bitpack each 1024-value block of `array` at its width in `bit_widths`.
@@ -545,16 +558,19 @@ mod tests {
     #[test]
     fn encode_blocked_accepts_native_bit_width() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let values: Vec<u32> = (0..1024).map(|i| u32::MAX - i).collect();
+        let values: Vec<u32> = (0..1024)
+            .map(|i| u32::MAX - i)
+            .chain((0..1024).map(|i| i % 8))
+            .collect();
         let array = bitpack_encode_blocked(
             &PrimitiveArray::from_iter(values.iter().copied()),
-            &[32],
+            &[32, 3],
             Some(0),
             &mut ctx,
         )?;
         assert_eq!(
             array.packed_slice::<u32>(),
-            pack_blocks(&values, &[32]).as_slice()
+            pack_blocks(&values, &[32, 3]).as_slice()
         );
         assert!(array.patches().is_none());
         Ok(())

@@ -416,7 +416,8 @@ impl BitPackedData {
     ///
     /// If the provided array is not a primitive integer array or contains negative values, or if
     /// `bit_widths` does not hold one width per block of at most the array's bit width, an error
-    /// will be returned.
+    /// will be returned. Nonempty arrays must have at least one block narrower than the array's
+    /// native bit width.
     pub fn encode_blocked(
         array: &ArrayRef,
         bit_widths: &[u8],
