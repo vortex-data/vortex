@@ -93,10 +93,8 @@ fn global_bit_width_and_block_offsets_are_exclusive(
         .collect();
     let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
     assert!(
-        Array::<BitPacked>::try_from_parts(
-            ArrayParts::new(BitPacked, dtype, 1024, data, slots)
-        )
-        .is_err()
+        Array::<BitPacked>::try_from_parts(ArrayParts::new(BitPacked, dtype, 1024, data, slots))
+            .is_err()
     );
     Ok(())
 }
