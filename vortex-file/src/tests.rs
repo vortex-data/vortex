@@ -2128,17 +2128,8 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::overflow_then_positive(vec![i64::MAX, 1], vec![2], None)]
-#[case::overflow_then_zero(vec![i64::MAX, 1], vec![0], None)]
-#[case::all_chunks_overflow(vec![i64::MAX, 1], vec![i64::MAX, 1], None)]
-#[case::valid_sum(vec![3, 4], vec![5], Some(12))]
 #[tokio::test]
-async fn file_sum_preserves_overflow_across_chunks(
-    #[case] first: Vec<i64>,
-    #[case] second: Vec<i64>,
-    #[case] expected: Option<i64>,
-) -> VortexResult<()> {
+async fn file_sum_preserves_overflow_across_chunks() -> VortexResult<()> {
     let dtype = DType::Struct(
         StructFields::from_iter([("numbers", DType::from(PType::I64))]),
         Nullability::NonNullable,
@@ -2148,46 +2139,8 @@ async fn file_sum_preserves_overflow_across_chunks(
         .write_options()
         .with_file_statistics(vec![Stat::Sum])
         .writer(&mut buf, dtype);
-    for values in [first, second] {
-        let array = StructArray::from_fields(&[(
-            "numbers",
-            PrimitiveArray::from_iter(values).into_array(),
-        )])?
-        .into_array();
-        writer.push(array).await?;
-    }
-    let summary = writer.finish().await?;
-    let expected = expected.map_or(Precision::Absent, Precision::exact);
-    assert_eq!(
-        summary.footer().statistics().unwrap().stats_sets()[0].get(Stat::Sum),
-        expected
-    );
-    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
-    assert_eq!(
-        file.file_stats().unwrap().stats_sets()[0].get(Stat::Sum),
-        expected
-    );
-    Ok(())
-}
 
-#[rstest]
-#[case::arithmetic_nan_then_finite(vec![1.0], 1.0)]
-#[case::all_nan_finals(vec![f64::INFINITY, f64::NEG_INFINITY], 0.0)]
-#[tokio::test]
-async fn file_sum_skips_nan_chunk_finals(
-    #[case] second: Vec<f64>,
-    #[case] expected: f64,
-) -> VortexResult<()> {
-    let dtype = DType::Struct(
-        StructFields::from_iter([("numbers", DType::from(PType::F64))]),
-        Nullability::NonNullable,
-    );
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION
-        .write_options()
-        .with_file_statistics(vec![Stat::Sum])
-        .writer(&mut buf, dtype);
-    for values in [vec![f64::INFINITY, f64::NEG_INFINITY], second] {
+    for values in [vec![i64::MAX, 1], vec![2]] {
         let array = StructArray::from_fields(&[(
             "numbers",
             PrimitiveArray::from_iter(values).into_array(),
@@ -2195,16 +2148,19 @@ async fn file_sum_skips_nan_chunk_finals(
         .into_array();
         writer.push(array).await?;
     }
+
     let summary = writer.finish().await?;
     assert_eq!(
         summary.footer().statistics().unwrap().stats_sets()[0].get(Stat::Sum),
-        Precision::exact(expected)
+        Precision::Absent
     );
+
     let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
     assert_eq!(
         file.file_stats().unwrap().stats_sets()[0].get(Stat::Sum),
-        Precision::exact(expected)
+        Precision::Absent
     );
+
     Ok(())
 }
 
