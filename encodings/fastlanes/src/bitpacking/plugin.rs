@@ -176,9 +176,13 @@ impl ArrayPlugin for BitPackedPlugin {
                 )
             })?,
         )?;
-        Ok(Array::<BitPacked>::try_from_parts(
-            ArrayParts::new(BitPacked, dtype.clone(), len, data, slots),
-        )?
+        Ok(Array::<BitPacked>::try_from_parts(ArrayParts::new(
+            BitPacked,
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))?
         .into_array())
     }
 }
