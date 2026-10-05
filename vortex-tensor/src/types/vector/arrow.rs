@@ -89,7 +89,7 @@ impl ArrowExportVTable for Vector {
         Ok(Some(field))
     }
 
-    fn execute_arrow_with_options(
+    fn execute_arrow(
         &self,
         array: ArrayRef,
         target: &Field,
@@ -361,7 +361,8 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter([1_i32, 2, 3]).into_array();
         let target = Field::new("ints", DataType::Int32, false);
-        let result = Vector.execute_arrow_with_options(
+        let result = <Vector as ArrowExportVTable>::execute_arrow(
+            &Vector,
             primitive.clone(),
             &target,
             &ArrowExportOptions::default(),

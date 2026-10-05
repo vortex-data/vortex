@@ -155,7 +155,7 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
     /// The Vortex array or extension ID this plugin maps from. Used only for inference by
     /// [`ArrowSession::to_arrow_field`] / [`ArrowSession::to_arrow_schema`]; never as a
-    /// dispatch key for [`execute_arrow_with_options`][Self::execute_arrow_with_options].
+    /// dispatch key for [`execute_arrow`][Self::execute_arrow].
     fn vortex_id(&self) -> Id;
 
     /// Build the Arrow [`Field`] this plugin produces for the given Vortex extension
@@ -172,24 +172,13 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// Returns ownership of `array` via [`ArrowExport::Unsupported`] when the plugin cannot
     /// handle the input. Plugins that export child or storage arrays must pass `options` on to
     /// those exports.
-    fn execute_arrow_with_options(
+    fn execute_arrow(
         &self,
         array: ArrayRef,
         target: &Field,
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport>;
-
-    /// Convert with default [`ArrowExportOptions`].
-    #[deprecated(note = "Implement and call `execute_arrow_with_options` instead")]
-    fn execute_arrow(
-        &self,
-        array: ArrayRef,
-        target: &Field,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowExport> {
-        self.execute_arrow_with_options(array, target, &ArrowExportOptions::default(), ctx)
-    }
 }
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
@@ -594,7 +583,7 @@ impl ArrowSession {
                     "probing plugin for converting Arrow array"
                 );
 
-                match plugin.execute_arrow_with_options(current, target_field, options, ctx)? {
+                match plugin.execute_arrow(current, target_field, options, ctx)? {
                     ArrowExport::Exported(arrow) => {
                         vortex_ensure!(
                             arrow.len() == len,

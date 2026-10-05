@@ -178,7 +178,7 @@ impl ArrowExportVTable for ParquetVariant {
         Ok(None)
     }
 
-    fn execute_arrow_with_options(
+    fn execute_arrow(
         &self,
         array: ArrayRef,
         target: &Field,

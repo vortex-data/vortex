@@ -83,7 +83,7 @@ impl ArrowExportVTable for Uuid {
         Ok(Some(field))
     }
 
-    fn execute_arrow_with_options(
+    fn execute_arrow(
         &self,
         array: ArrayRef,
         _target: &Field,

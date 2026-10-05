@@ -199,7 +199,7 @@ impl ArrowExportVTable for MultiLineString {
         Ok(Some(field))
     }
 
-    fn execute_arrow_with_options(
+    fn execute_arrow(
         &self,
         array: ArrayRef,
         target: &Field,
