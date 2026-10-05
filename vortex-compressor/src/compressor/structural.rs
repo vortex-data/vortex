@@ -26,6 +26,8 @@ use crate::scheme::CompressorContext;
 
 /// Child indices for the compressor's list/listview compression.
 pub(super) mod root_list_children {
+    /// List/ListView elements child. Elements are compressed as a structural child.
+    pub const ELEMENTS: usize = 0;
     /// List/ListView offsets child.
     pub const OFFSETS: usize = 1;
     /// ListView sizes child.
@@ -42,7 +44,12 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
-        let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
+        let compressed_elems = self.compress_structural_child(
+            list_array.elements(),
+            &compress_ctx,
+            root_list_children::ELEMENTS,
+            exec_ctx,
+        )?;
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx =
@@ -72,7 +79,12 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compressed_elems = self.compress(list_view.elements(), exec_ctx)?;
+        let compressed_elems = self.compress_structural_child(
+            list_view.elements(),
+            &compress_ctx,
+            root_list_children::ELEMENTS,
+            exec_ctx,
+        )?;
 
         let offset_ctx = compress_ctx
             .clone()
@@ -130,14 +142,16 @@ impl CascadingCompressor {
     pub(super) fn compress_physical_slots(
         &self,
         array: &ArrayRef,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let slots = array
             .slots()
             .iter()
-            .map(|slot| {
+            .enumerate()
+            .map(|(idx, slot)| {
                 slot.as_ref()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .map(|child| self.compress_structural_child(child, compress_ctx, idx, exec_ctx))
                     .transpose()
             })
             .collect::<VortexResult<ArraySlots>>()?;

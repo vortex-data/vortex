@@ -30,9 +30,18 @@ use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
+use std::sync::Arc;
+
 use super::CascadingCompressor;
 use super::constant;
+use crate::CompressionPlan;
+use crate::plan::PlanDecision;
+use crate::plan::PlanState;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
+use crate::scheme::DeferredEstimate;
+use crate::scheme::EstimateScore;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -53,17 +62,69 @@ impl CascadingCompressor {
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_root(array, CompressorContext::new(), exec_ctx)
+    }
+
+    /// Compresses an array like [`compress`](Self::compress), replaying the scheme decisions of
+    /// `hint` where they still apply, and returns the [`CompressionPlan`] of this compression.
+    ///
+    /// Pass the returned plan as the `hint` for the next similar array (e.g. the next chunk of the
+    /// same column) to skip scheme selection. A hinted scheme is reused only if it still applies
+    /// to the data and achieves at least 80% of the compression ratio it achieved when it was
+    /// recorded. Otherwise that site falls back to a full search.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
+    pub fn compress_with_plan(
+        &self,
+        array: &ArrayRef,
+        hint: Option<Arc<CompressionPlan>>,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<(ArrayRef, CompressionPlan)> {
+        let plan = Arc::new(PlanState::new(hint));
+        let compressed =
+            self.compress_root(array, CompressorContext::with_plan(Arc::clone(&plan)), exec_ctx)?;
+        Ok((compressed, plan.finish()))
+    }
+
+    /// Canonicalizes, compacts and compresses a root array in the given context.
+    fn compress_root(
+        &self,
+        array: &ArrayRef,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let before_nbytes = array.nbytes();
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = self.compress_canonical(compact, compress_ctx, exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
         Ok(compressed)
+    }
+
+    /// Compresses a structural child (struct field, list elements, ...) of the array compressed
+    /// in `parent_ctx`.
+    ///
+    /// The child starts a fresh cascade, exactly like a root array, but keeps its place in the
+    /// compression plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
+    pub(super) fn compress_structural_child(
+        &self,
+        child: &ArrayRef,
+        parent_ctx: &CompressorContext,
+        child_index: usize,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_root(child, parent_ctx.descend_structural(child_index), exec_ctx)
     }
 
     /// Compresses a child array produced by a cascading scheme.
@@ -122,7 +183,10 @@ impl CascadingCompressor {
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
-                    .map(|field| self.compress(field, exec_ctx))
+                    .enumerate()
+                    .map(|(idx, field)| {
+                        self.compress_structural_child(field, &compress_ctx, idx, exec_ctx)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
@@ -134,10 +198,18 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Union(union_array) => {
-                let type_ids = self.compress(union_array.type_ids(), exec_ctx)?;
+                let type_ids = self.compress_structural_child(
+                    union_array.type_ids(),
+                    &compress_ctx,
+                    0,
+                    exec_ctx,
+                )?;
                 let children = union_array
                     .iter_children()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .enumerate()
+                    .map(|(idx, child)| {
+                        self.compress_structural_child(child, &compress_ctx, idx + 1, exec_ctx)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(
@@ -155,7 +227,12 @@ impl CascadingCompressor {
             }
             Canonical::Map(map_array) => self.compress_map_array(map_array, compress_ctx, exec_ctx),
             Canonical::FixedSizeList(fsl_array) => {
-                let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
+                let compressed_elems = self.compress_structural_child(
+                    fsl_array.elements(),
+                    &compress_ctx,
+                    0,
+                    exec_ctx,
+                )?;
 
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
@@ -172,7 +249,7 @@ impl CascadingCompressor {
                 // Try scheme-based compression first.
                 let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
-                    compress_ctx,
+                    compress_ctx.clone(),
                     exec_ctx,
                 )?;
 
@@ -189,7 +266,12 @@ impl CascadingCompressor {
 
                 // Also compress the underlying storage array. Some extension schemes can beat the
                 // extension storage but still lose to ordinary storage compression.
-                let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
+                let compressed_storage = self.compress_structural_child(
+                    ext_array.storage_array(),
+                    &compress_ctx,
+                    0,
+                    exec_ctx,
+                )?;
                 let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
@@ -201,16 +283,23 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                let core_storage =
-                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                let core_storage = self.compress_physical_slots(
+                    variant_array.core_storage(),
+                    &compress_ctx.descend_structural(0),
+                    exec_ctx,
+                )?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {
                         // Avoid stack-overflow for variant shredded values
                         if arr.is::<Variant>() {
-                            self.compress_physical_slots(arr, exec_ctx)
+                            self.compress_physical_slots(
+                                arr,
+                                &compress_ctx.descend_structural(1),
+                                exec_ctx,
+                            )
                         } else {
-                            self.compress(arr, exec_ctx)
+                            self.compress_structural_child(arr, &compress_ctx, 1, exec_ctx)
                         }
                     })
                     .transpose()?;
@@ -295,15 +384,30 @@ impl CascadingCompressor {
             return Ok(data.into_array());
         }
 
+        if let Some(decision) = compress_ctx.plan_hint()
+            && let Some(compressed) = self.replay_plan_decision(
+                decision,
+                &eligible_schemes,
+                &data,
+                &compress_ctx,
+                exec_ctx,
+            )?
+        {
+            return Ok(compressed);
+        }
+
         let Some((winner, winner_estimate)) =
             self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
+            compress_ctx.record_plan_decision(PlanDecision::Uncompressed);
             return Ok(data.into_array());
         };
 
         // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
         // scheme name and cascade history before propagating.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
+        let plan_ctx = compress_ctx.clone();
+        let checkpoint = plan_ctx.plan_checkpoint();
         let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
         let compressed = winner
             .compress(self, &data, compress_ctx, exec_ctx)
@@ -327,9 +431,109 @@ impl CascadingCompressor {
         );
 
         if accepted {
+            plan_ctx.record_plan_decision(PlanDecision::Scheme {
+                id: winner.id(),
+                ratio: actual_ratio.unwrap_or(f64::INFINITY),
+            });
             Ok(compressed)
         } else {
+            plan_ctx.plan_rollback(checkpoint);
+            plan_ctx.record_plan_decision(PlanDecision::Uncompressed);
             Ok(data.into_array())
         }
+    }
+
+    /// Replays a hinted plan decision for a single leaf array, skipping scheme selection.
+    ///
+    /// Returns `None` if the decision no longer applies, in which case the caller performs a full
+    /// scheme search. A hinted scheme no longer applies if it is not eligible, if its estimate
+    /// rejects the data, or if it compresses to less than [`PLAN_REPLAY_MIN_RATIO_FRACTION`] of
+    /// the ratio it achieved when the plan was recorded. Sampling estimates are not run, and
+    /// decisions recorded while compressing with a rejected scheme are discarded.
+    fn replay_plan_decision(
+        &self,
+        decision: PlanDecision,
+        eligible_schemes: &[&'static dyn Scheme],
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let (id, recorded_ratio) = match decision {
+            PlanDecision::Uncompressed => {
+                compress_ctx.record_plan_decision(PlanDecision::Uncompressed);
+                return Ok(Some(data.array().clone()));
+            }
+            PlanDecision::Scheme { id, ratio } => (id, ratio),
+        };
+
+        let Some(scheme) = eligible_schemes.iter().copied().find(|s| s.id() == id) else {
+            return Ok(None);
+        };
+
+        // Schemes reject data they cannot encode from their estimate, so it must still run. Only
+        // sampling is skipped, and callbacks run without a threshold to compete against.
+        let applies = match scheme.expected_compression_ratio(data, compress_ctx.clone(), exec_ctx)
+        {
+            CompressionEstimate::Verdict(verdict) => verdict_applies(&verdict),
+            CompressionEstimate::Deferred(DeferredEstimate::Sample) => true,
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => {
+                verdict_applies(&callback(self, data, None, compress_ctx.clone(), exec_ctx)?)
+            }
+        };
+        if !applies {
+            return Ok(None);
+        }
+
+        let checkpoint = compress_ctx.plan_checkpoint();
+
+        let before_nbytes = data.array().nbytes();
+        let error_ctx = trace::enabled_error_context(compress_ctx);
+        let _winner_span = trace::winner_compress_span(id, before_nbytes).entered();
+        let compressed = scheme
+            .compress(self, data, compress_ctx.clone(), exec_ctx)
+            .inspect_err(|err| {
+                trace::scheme_compress_failed(id, before_nbytes, error_ctx.as_ref(), err);
+            })?;
+
+        let after_nbytes = compressed.nbytes();
+        let actual_ratio = if after_nbytes == 0 {
+            f64::INFINITY
+        } else {
+            before_nbytes as f64 / after_nbytes as f64
+        };
+        let accepted = after_nbytes < before_nbytes
+            && actual_ratio >= recorded_ratio * PLAN_REPLAY_MIN_RATIO_FRACTION;
+
+        trace::record_winner_compress_result(
+            after_nbytes,
+            Some(recorded_ratio),
+            actual_ratio.is_finite().then_some(actual_ratio),
+            accepted,
+        );
+
+        if !accepted {
+            compress_ctx.plan_rollback(checkpoint);
+            return Ok(None);
+        }
+
+        compress_ctx.record_plan_decision(PlanDecision::Scheme {
+            id,
+            ratio: actual_ratio,
+        });
+        Ok(Some(compressed))
+    }
+}
+
+/// The fraction of a plan decision's recorded compression ratio that replaying it must achieve.
+///
+/// Below this, the data has drifted enough that a full scheme search is worth its cost.
+const PLAN_REPLAY_MIN_RATIO_FRACTION: f64 = 0.8;
+
+/// Returns `true` if a scheme's estimate verdict allows replaying it on the data.
+fn verdict_applies(verdict: &EstimateVerdict) -> bool {
+    match verdict {
+        EstimateVerdict::Skip => false,
+        EstimateVerdict::AlwaysUse => true,
+        EstimateVerdict::Ratio(ratio) => EstimateScore::FiniteCompression(*ratio).is_valid(),
     }
 }

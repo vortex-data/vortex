@@ -69,4 +69,7 @@ pub mod stats;
 mod compressor;
 pub use compressor::CascadingCompressor;
 
+mod plan;
+pub use plan::CompressionPlan;
+
 mod trace;

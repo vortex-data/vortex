@@ -4,10 +4,15 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 
 use crate::compressor::ROOT_SCHEME_ID;
+use crate::compressor::STRUCTURAL_SCHEME_ID;
+use crate::plan::PlanDecision;
+use crate::plan::PlanPath;
+use crate::plan::PlanState;
 use crate::scheme::SchemeId;
 use crate::stats::GenerateStatsOptions;
 
@@ -38,6 +43,15 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+
+    /// The full path from the root array to this compression site, including structural steps
+    /// (struct fields, list elements, ...) that reset [`cascade_history`](Self::cascade_history).
+    /// Used to key [`CompressionPlan`](crate::CompressionPlan) decisions.
+    plan_path: PlanPath,
+
+    /// Plan replay and recording state, if this compression is planned. Never set while
+    /// compressing samples.
+    plan: Option<Arc<PlanState>>,
 }
 
 impl CompressorContext {
@@ -50,6 +64,16 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            plan_path: Vec::new(),
+            plan: None,
+        }
+    }
+
+    /// Creates a new `CompressorContext` that replays and records a compression plan.
+    pub(crate) fn with_plan(plan: Arc<PlanState>) -> Self {
+        Self {
+            plan: Some(plan),
+            ..Self::new()
         }
     }
 }
@@ -110,6 +134,7 @@ impl CompressorContext {
     /// Returns a context marked as sample compression.
     pub(crate) fn with_sampling(mut self) -> Self {
         self.is_sample = true;
+        self.plan = None;
         self
     }
 
@@ -124,7 +149,48 @@ impl CompressorContext {
             .checked_sub(1)
             .vortex_expect("cannot descend: cascade depth exhausted");
         self.cascade_history.push((id, child_index));
+        self.plan_path.push((id, child_index));
         self
+    }
+
+    /// Returns the context for a structural child (struct field, list elements, ...) of the array
+    /// compressed in this context.
+    ///
+    /// Structural children start a fresh cascade with the full cascade budget, but keep their
+    /// position in the plan path so that their plan decisions do not collide with their parent's.
+    pub(crate) fn descend_structural(&self, child_index: usize) -> Self {
+        let mut plan_path = self.plan_path.clone();
+        plan_path.push((STRUCTURAL_SCHEME_ID, child_index));
+        Self {
+            plan_path,
+            plan: self.plan.clone(),
+            ..Self::new()
+        }
+    }
+
+    /// Returns the plan decision hinted for this compression site, if any.
+    pub(crate) fn plan_hint(&self) -> Option<PlanDecision> {
+        self.plan.as_ref()?.hint(&self.plan_path)
+    }
+
+    /// Records the plan decision made at this compression site.
+    pub(crate) fn record_plan_decision(&self, decision: PlanDecision) {
+        if let Some(plan) = &self.plan {
+            plan.record(&self.plan_path, decision);
+        }
+    }
+
+    /// Returns a marker that [`plan_rollback`](Self::plan_rollback) can rewind the recorded plan
+    /// decisions to.
+    pub(crate) fn plan_checkpoint(&self) -> usize {
+        self.plan.as_ref().map_or(0, |plan| plan.checkpoint())
+    }
+
+    /// Discards every plan decision recorded after `checkpoint`.
+    pub(crate) fn plan_rollback(&self, checkpoint: usize) {
+        if let Some(plan) = &self.plan {
+            plan.rollback(checkpoint);
+        }
     }
 }
 

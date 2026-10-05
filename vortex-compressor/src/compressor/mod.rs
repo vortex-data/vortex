@@ -21,6 +21,12 @@ pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
     name: "vortex.compressor.root",
 };
 
+/// Synthetic scheme ID marking structural children (struct fields, list elements, ...) in a
+/// [`CompressionPlan`](crate::CompressionPlan) path. It never appears in a cascade history.
+pub(crate) const STRUCTURAL_SCHEME_ID: SchemeId = SchemeId {
+    name: "vortex.compressor.structural",
+};
+
 /// The main compressor type implementing cascading adaptive compression.
 ///
 /// This compressor applies adaptive compression [`Scheme`]s to arrays based on their data types and
