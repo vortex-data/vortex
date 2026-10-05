@@ -5,10 +5,10 @@ use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 
-use super::HAS_AVX2;
-use super::HAS_AVX512_VBMI;
-use super::avx512;
-use super::take_avx2;
+use super::super::HAS_AVX2;
+use super::avx2::take_avx2;
+use super::avx512::HAS_AVX512_VBMI;
+use super::avx512::take_avx512;
 
 fn lookup(values: &[u8], codes: &[u8], vbmi: bool) -> Option<Buffer<u8>> {
     let allocator = BufferAllocatorRef::statically_allocated();
@@ -17,7 +17,7 @@ fn lookup(values: &[u8], codes: &[u8], vbmi: bool) -> Option<Buffer<u8>> {
             return None;
         }
         // SAFETY: Features are detected above; tests provide 1..=32 one-byte values.
-        Some(unsafe { avx512::take(values, codes, &allocator) })
+        Some(unsafe { take_avx512(values, codes, &allocator) })
     } else {
         if !*HAS_AVX2 {
             return None;

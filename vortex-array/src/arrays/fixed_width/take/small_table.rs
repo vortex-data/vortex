@@ -8,6 +8,9 @@ cfg_if::cfg_if! {
         mod neon;
     } else if #[cfg(any(target_arch = "x86_64", target_arch = "x86"))] {
         mod avx2;
+        mod avx512;
+        #[cfg(test)]
+        mod tests;
     } else {
         mod fallback {
             use super::super::FixedWidthTakeValue;

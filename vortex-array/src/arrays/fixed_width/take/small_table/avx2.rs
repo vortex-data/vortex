@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Register-table take for `u8` codes and at most 32 one-byte values.
-
-use std::sync::LazyLock;
+//! AVX2 byte-table take for `u8` codes and at most 32 one-byte values.
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "x86")] {
@@ -34,21 +32,10 @@ use vortex_error::VortexExpect;
 use super::super::FixedWidthTakeValue;
 use super::super::HAS_AVX2;
 use super::super::take_values_fallback;
+use super::avx512::HAS_AVX512_VBMI;
+use super::avx512::take_avx512;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-
-#[path = "avx512.rs"]
-mod avx512;
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
-
-static HAS_AVX512_VBMI: LazyLock<bool> = LazyLock::new(|| {
-    is_x86_feature_detected!("avx512f")
-        && is_x86_feature_detected!("avx512bw")
-        && is_x86_feature_detected!("avx512vbmi")
-});
 
 // SAFETY: u8 has no padding or uninitialized bytes.
 unsafe impl FixedWidthTakeValue for u8 {
@@ -106,7 +93,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     if values.len() > 16 && *HAS_AVX512_VBMI {
         // SAFETY: All required features were detected. T is one byte with initialized bytes,
         // and the table contains between 1 and 32 values.
-        return unsafe { avx512::take(values, indices, allocator) };
+        return unsafe { take_avx512(values, indices, allocator) };
     }
     // SAFETY: AVX2 was detected above. Values are one byte with no uninitialized bytes,
     // and the table contains between 1 and 32 values. Specializing the table count keeps the
@@ -118,8 +105,14 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     }
 }
 
+/// Takes one-byte values using one or two AVX2 lookup tables.
+///
+/// # Safety
+///
+/// Requires AVX2, one-byte T, and between 1 and 32 values. When `TWO_TABLES` is false,
+/// the dictionary must contain at most 16 values.
 #[target_feature(enable = "avx2")]
-unsafe fn take_avx2<T: FixedWidthTakeValue, const TWO_TABLES: bool>(
+pub(super) unsafe fn take_avx2<T: FixedWidthTakeValue, const TWO_TABLES: bool>(
     values: &[T],
     indices: &[u8],
     allocator: &BufferAllocatorRef,
