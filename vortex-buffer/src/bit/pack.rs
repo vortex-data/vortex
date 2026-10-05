@@ -3,27 +3,15 @@
 
 //! Kernels for packing boolean values into bitmap words.
 //!
-//! `collect_bool` materializes each full 64-bit chunk as a `[bool; 64]` (a loop the
-//! auto-vectorizer turns into vector stores for simple predicates) and then packs the 64 bytes
-//! into a single `u64` with a byte→bit kernel:
+//! `collect_bool` materializes each full word as `[bool; 64]` and uses Fearless SIMD
+//! comparison masks to pack those bytes into a `u64`. Partial words keep the scalar loop.
 //!
-//! - x86-64 AVX-512BW: one `vptestmb` produces the full 64-bit mask.
-//! - x86-64 AVX2: two `vpmovmskb` halves.
-//! - x86-64 SSE2 (baseline): four `pmovmskb` quarters.
-//! - aarch64 NEON (baseline): per-lane `ushl` by the bit position, then an `addp` reduction tree.
-//! - elsewhere (and under Miri): a branch-free SWAR multiply.
-//!
-//! There are two tiers. The default ([`collect_bool_words_inline`]) compiles the loop once
-//! with the widest *statically-enabled* kernel (SSE2 / NEON / SWAR on stock targets) and
-//! inlines fully into the caller — safe for arbitrary predicates. The opt-in tier
-//! ([`collect_bool_words_multiversioned`]) compiles the loop — with `f` inside — once per CPU
-//! feature level and selects a clone by runtime detection; only for predicates small and
-//! simple enough that the per-level duplication and its `#[target_feature]` call boundary pay
-//! off.
-//!
-//! The bit-at-a-time loop lives on as [`collect_bool_word_scalar`], the reference implementation
-//! for tests and benchmarks. The word loop packs its tail chunk with [`collect_bool_word_tail`],
-//! its own copy of that loop.
+//! The default path uses the baseline SIMD level so it can inline with arbitrary predicates.
+//! Cheap predicates may opt into runtime multiversioning. Explicit architecture kernels
+//! remain available for direct benchmark comparisons, and Miri uses the SWAR implementation.
+
+#[cfg(not(miri))]
+use fearless_simd::prelude::*;
 
 /// Packs up to 64 boolean values into a little-endian `u64` word one bit at a time.
 ///
@@ -44,106 +32,84 @@ where
     packed
 }
 
-/// Body of [`collect_bool_words`](crate::bit::collect_bool_words) (and, via a one-word slice,
-/// of [`collect_bool_word`](crate::bit::collect_bool_word)): the word loop with the widest
-/// pack kernel enabled *at compile time* — SSE2 on stock x86-64 (AVX2/AVX-512BW when built
-/// with e.g. `-C target-cpu=native`), NEON on aarch64, SWAR elsewhere and under Miri.
-///
-/// Statically-enabled kernels are part of every function's feature set, so this loop
-/// (predicate, the `[bool; 64]` materialization, and the pack) inlines fully into the caller
-/// with no `#[target_feature]` boundary. That boundary is why *runtime*-detected wider kernels
-/// are not used here: hiding an expensive, non-vectorizable predicate (e.g. FSST's per-string
-/// DFA scan) behind a non-inlinable AVX-512 loop copy costs far more (~30% end to end) than
-/// the wider pack saves — and an indirect call per word is worse still (~4x on cheap
-/// predicates), since an opaque call target blocks fill/pack fusion regardless of how cheap
-/// the kernel *selection* is. For provably cheap predicates, use [`collect_bool_words_multiversioned`].
+/// Scalar packing used when interpreting code under Miri.
+#[cfg(miri)]
 #[allow(clippy::inline_always)]
 #[inline(always)]
-pub(crate) fn collect_bool_words_inline<F>(words: &mut [u64], len: usize, f: F)
-where
-    F: FnMut(usize) -> bool,
-{
-    #[cfg(all(
-        target_arch = "x86_64",
-        target_feature = "avx512f",
-        target_feature = "avx512bw",
-        not(miri)
-    ))]
-    {
-        // SAFETY: AVX-512F/BW are statically enabled for this build (e.g. -C
-        // target-cpu=native), so they are in every function's feature set and the kernel
-        // inlines here like any other function.
-        collect_bool_words_with(words, len, f, |bools| unsafe {
-            pack_bool_word_avx512(bools)
-        })
-    }
-    #[cfg(all(
-        target_arch = "x86_64",
-        target_feature = "avx2",
-        not(all(target_feature = "avx512f", target_feature = "avx512bw")),
-        not(miri)
-    ))]
-    {
-        // SAFETY: AVX2 is statically enabled for this build.
-        collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_avx2(bools) })
-    }
-    #[cfg(all(target_arch = "x86_64", not(target_feature = "avx2"), not(miri)))]
-    {
-        // SAFETY: SSE2 is part of the x86-64 baseline instruction set.
-        collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_sse2(bools) })
-    }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        // SAFETY: NEON is part of the aarch64 baseline instruction set.
-        collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_neon(bools) })
-    }
-    #[cfg(any(not(any(target_arch = "x86_64", target_arch = "aarch64")), miri))]
+pub(crate) fn collect_bool_words_inline<F: FnMut(usize) -> bool>(
+    words: &mut [u64],
+    len: usize,
+    f: F,
+) {
     collect_bool_words_with(words, len, f, pack_bool_word_swar)
 }
 
-/// Word loop with the *widest* pack kernel the CPU offers (AVX-512BW, then AVX2, then the
-/// baseline), for predicates known to be cheap.
+/// Keep arbitrary predicates inline with the statically available SIMD backend.
 ///
-/// The wide loop copies live behind a `#[target_feature]` function boundary that cannot inline
-/// into the caller, which deoptimizes expensive predicates (see the module docs and
-/// `collect_bool_words_inline`). Only route a predicate here when its evaluation is trivial
-/// — e.g. the bounds-check-free slice gathers in the `From<&[bool]>` / `From<&[u8]>`
-/// conversions, or unchecked slice comparisons like the `between` kernels — where the fused
-/// AVX-512 loop is worth another ~2x over the baseline kernel.
+/// Runtime multiversioning creates a target-feature call boundary that can prevent
+/// expensive predicates from inlining; only the cheap-predicate entry point uses it.
+#[cfg(not(miri))]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+pub(crate) fn collect_bool_words_inline<F: FnMut(usize) -> bool>(
+    words: &mut [u64],
+    len: usize,
+    f: F,
+) {
+    collect_bool_words_fearless(fearless_simd::Level::baseline(), words, len, f)
+}
+
+/// Pack cheap predicates using the best available Fearless SIMD backend.
 ///
 /// `words` must hold at least `len.div_ceil(64)` entries and `f` is invoked with `0..len`,
-/// exactly once per index in ascending order.
-///
-/// Panics if `words` is too short.
+/// exactly once per index in ascending order. Panics if `words` is too short.
+#[cfg(not(miri))]
 #[inline]
-pub fn collect_bool_words_multiversioned<F>(words: &mut [u64], len: usize, f: F)
-where
-    F: FnMut(usize) -> bool,
-{
-    let num_words = len.div_ceil(64);
-    assert!(
-        words.len() >= num_words,
-        "words slice has {} entries, need at least {num_words}",
-        words.len(),
-    );
-
-    // Without a full 64-bit word only the scalar tail would run; skip feature detection and
-    // the `#[target_feature]` call boundary entirely.
+pub fn collect_bool_words_multiversioned<F: FnMut(usize) -> bool>(
+    words: &mut [u64],
+    len: usize,
+    f: F,
+) {
     if len < 64 {
         return collect_bool_words_inline(words, len, f);
     }
+    collect_bool_words_fearless(fearless_simd::Level::new(), words, len, f)
+}
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
-    {
-        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
-            // SAFETY: runtime detection guarantees the required target features.
-            return unsafe { collect_bool_words_avx512(words, len, f) };
-        }
-        if is_x86_feature_detected!("avx2") {
-            // SAFETY: runtime detection guarantees the required target features.
-            return unsafe { collect_bool_words_avx2(words, len, f) };
-        }
-    }
+#[cfg(not(miri))]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn collect_bool_words_fearless<F: FnMut(usize) -> bool>(
+    level: fearless_simd::Level,
+    words: &mut [u64],
+    len: usize,
+    f: F,
+) {
+    assert!(words.len() >= len.div_ceil(64));
+    fearless_simd::dispatch!(level, simd => {
+        collect_bool_words_with(words, len, f, |bools| pack_bool_word_fearless(simd, bools))
+    });
+}
+
+#[cfg(not(miri))]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn pack_bool_word_fearless<S: Simd>(simd: S, bools: &[bool; 64]) -> u64 {
+    let bytes = bools.map(u8::from);
+    fearless_simd::u8x64::from_slice(simd, &bytes)
+        .simd_gt(0)
+        .to_bitmask()
+}
+
+/// Scalar packing used when interpreting code under Miri.
+#[cfg(miri)]
+#[inline]
+pub fn collect_bool_words_multiversioned<F: FnMut(usize) -> bool>(
+    words: &mut [u64],
+    len: usize,
+    f: F,
+) {
+    assert!(words.len() >= len.div_ceil(64));
     collect_bool_words_inline(words, len, f)
 }
 
