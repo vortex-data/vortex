@@ -50,7 +50,7 @@ use crate::sequence::SequentialStreamExt;
 /// Accumulates file statistics over `stream` as it passes through.
 ///
 /// `stats` are the aggregates to record for every field, or `None` for each field's default (see
-/// [`default_pruning_aggregate_fns`]). Only aggregates `ctx` allows are recorded in the nested
+/// `default_pruning_aggregate_fns`). Only aggregates `ctx` allows are recorded in the nested
 /// statistics: an explicitly requested aggregate it forbids fails, like it does for zone maps,
 /// while forbidden defaults are left out.
 ///
@@ -330,7 +330,7 @@ fn default_pruning_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
 /// Each leaf field (including opaque `List`/`FixedSizeList` columns, which are not recursed into)
 /// gets one entry. Each **nullable** struct additionally gets a trailing entry, keyed by its own
 /// path and dtype, inserted immediately after its children's entries — this carries the struct's
-/// own null count. Dtypes that don't support file stats (see [`supports_file_stats`]), such as
+/// own null count. Dtypes that don't support file stats (see `supports_file_stats`), such as
 /// [`DType::Variant`], are skipped entirely: no entry is emitted for them or anything beneath
 /// them.
 ///
@@ -360,7 +360,7 @@ fn postorder_stats_layout_into(dtype: &DType, path: FieldPath, out: &mut Vec<(Fi
 
 /// A node in the tree of accumulators mirroring [`postorder_stats_layout`]'s walk of a `DType`.
 enum StatsNode {
-    /// An opaque leaf: a dtype with no addressable children. Curently includes List/FixedSizedList and Map.
+    /// An opaque leaf: a dtype with no addressable children. Currently includes List/FixedSizeList and Map.
     Leaf(StatsAccumulator),
     /// A dtype that does not support file stats (e.g. [`DType::Variant`]); contributes no entries.
     Skipped,
@@ -423,7 +423,7 @@ impl StatsNode {
     /// accumulators from the same execution) avoid doing so a second time.
     ///
     /// `Container` is only ever built for `DType::Struct` today, so every child is addressed by
-    /// [`Field::Name`] and extracted via [`StructArray::iter_unmasked_fields`]. A future `List`/
+    /// [`Field::Name`] and extracted via [`StructArrayExt::iter_unmasked_fields`]. A future `List`/
     /// `Map` container would need a different extraction here (e.g. flattened elements, or
     /// derived per-row shape arrays), dispatched per child's [`Field`] kind.
     ///
