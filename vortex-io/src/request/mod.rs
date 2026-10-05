@@ -8,9 +8,18 @@
 //! Nothing else is a request: anything a stage needs that is not bytes at a range is
 //! construction-time data for that stage.
 
+use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
+
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+
+mod source;
+
+pub use source::ReadAtIoSource;
 
 /// Consumer-chosen label for one request, unique within the issuing object.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -18,7 +27,7 @@ pub struct IoRequestId(pub u32);
 
 /// What to fetch from the source: its length, or bytes at a range. This enum is closed; see the
 /// module documentation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IoTarget {
     /// Total length of the source in bytes.
     Size,
@@ -28,7 +37,20 @@ pub enum IoTarget {
         offset: u64,
         /// Number of bytes to read.
         len: usize,
+        /// The alignment the delivered bytes have at least.
+        alignment: Alignment,
     },
+}
+
+impl IoTarget {
+    /// A byte range whose bytes need no particular alignment.
+    pub fn range(offset: u64, len: usize) -> Self {
+        Self::Range {
+            offset,
+            len,
+            alignment: Alignment::none(),
+        }
+    }
 }
 
 /// A stage's reason for registering bytes. Optional hints may be declined by the service.
@@ -43,7 +65,7 @@ pub enum IoIntent {
 }
 
 /// One request: a consumer-chosen id and the target it names.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequest {
     /// Required delivery, background prefetch, or coalescing-only interest.
     pub intent: IoIntent,
@@ -53,7 +75,7 @@ pub struct IoRequest {
     pub target: IoTarget,
 }
 
-/// The whole currently known set of outstanding requests for one object.
+/// Requests an object publishes together, each exactly once.
 pub type IoBatch = Vec<IoRequest>;
 
 /// Result for one request. The variant matches the target: `Size` for `Size`, `Bytes` for
@@ -98,17 +120,21 @@ pub struct Completion {
     pub result: VortexResult<IoResult>,
 }
 
-/// IO registration and dispatch. A source belongs to one registration scope at a time.
-/// Services may decline optional hints. Accepted optional work belongs to the service,
-/// not to the publishing stage.
+/// IO registration and dispatch for one registration scope, such as the work descended from one
+/// root planner. Services may decline optional hints. Accepted optional work belongs to the
+/// source, not to the publishing stage, and lives until the source is cleared or dropped.
 pub trait IoSource: Send + Sync {
     /// Registers a whole batch before any of its reads become eligible for dispatch.
-    /// Registration does not perform IO. Repeated identities must name the same target.
+    /// Registration does not perform IO and never blocks.
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()>;
 
     /// Advances eligible IO without blocking and returns a required completion if ready.
-    /// Optional successes stay in the service; any read failure fails the run.
+    /// Optional successes stay in the source; any read failure fails the run.
     fn poll(&self) -> VortexResult<Option<Completion>>;
+
+    /// Like [`poll`](Self::poll), registering `cx` to be woken when a required completion is
+    /// ready. Fails when no fetch is in flight, since nothing would ever wake the caller.
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>>;
 
     /// Blocks until a required completion is available or a read fails.
     fn wait(&self) -> VortexResult<Completion>;
@@ -116,17 +142,25 @@ pub trait IoSource: Send + Sync {
     /// Releases a retired object's fetch subscriptions, preserving optional announcements.
     fn release(&self, owner: IoOwnerId);
 
-    /// Cancels the run's registrations and drops retained bytes and pending completions.
+    /// Cancels the scope's registrations and drops retained bytes and pending completions.
     fn clear(&self);
+}
+
+/// A byte source's IO service, shared by everything that reads the source.
+///
+/// Each registration scope reads through its own [`IoSource`], and the service is free to share
+/// and coalesce the reads of all of them.
+pub trait IoService: Send + Sync {
+    /// A fresh source for one registration scope.
+    fn session(&self) -> Arc<dyn IoSource>;
 }
 
 /// Receives fulfilled requests. Implementations only store; they never compute here.
 pub trait IoConsumer {
     /// Stores the result for `request`.
     ///
-    /// The driver only delivers ids the consumer listed and results that match their targets,
-    /// so anything else is a driver bug and the consumer may panic. After delivery the id must
-    /// not reappear in `state()`.
+    /// The driver only delivers fetches the consumer published and results that match their
+    /// targets, so anything else is a driver bug and the consumer may panic.
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult);
 }
 
@@ -154,13 +188,13 @@ impl IoSlot {
             target,
         };
         self.next_id += 1;
-        self.request = Some(request.clone());
+        self.request = Some(request);
         vec![request]
     }
 
-    /// The in-flight request as a batch, while it is undelivered.
-    pub fn batch(&self) -> Option<IoBatch> {
-        self.request.as_ref().map(|request| vec![request.clone()])
+    /// Whether the issued request is still undelivered.
+    pub fn is_waiting(&self) -> bool {
+        self.request.is_some()
     }
 
     /// Stores the result for the in-flight request. Panics on an unknown id or a result that
