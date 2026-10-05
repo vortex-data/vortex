@@ -18,7 +18,6 @@ use crate::ArrayPlugin;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
-use crate::TEST_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFnVTableExt;
@@ -32,6 +31,7 @@ use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
@@ -92,7 +92,7 @@ fn rejects_wrong_logical_child_dtype() {
 #[case::i128_to_i64(DecimalArray::from_iter([i128::MAX], DecimalDType::new(10, 0)))]
 #[case::i256_to_i128(DecimalArray::from_iter([i256::from_parts(0, 1)], DecimalDType::new(38, 0)))]
 fn wider_native_input_cast_checks_overflow(#[case] array: DecimalArray) {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let err = array.materialize_values(&mut ctx).unwrap_err();
     assert!(
         err.to_string().contains("Integer does not fit"),
@@ -102,7 +102,7 @@ fn wider_native_input_cast_checks_overflow(#[case] array: DecimalArray) {
 
 #[test]
 fn wider_native_input_materializes_at_logical_width() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let array = DecimalArray::from_iter([0i128, 1, -2], dtype).materialize_values(&mut ctx)?;
     assert_eq!(array.values_type(), DecimalType::I64);
@@ -121,7 +121,7 @@ fn wider_native_input_materializes_at_logical_width() -> VortexResult<()> {
 #[case::wide(DecimalArray::from_iter([-1i128, 1], DecimalDType::new(38, 0)))]
 #[case::narrow_wide(DecimalArray::from_option_iter([Some(-1i128), None], DecimalDType::new(76, 0)))]
 fn materialization_reuses_native_children(#[case] array: DecimalArray) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let materialized = array.materialize_values(&mut ctx)?;
     assert!(ArrayRef::ptr_eq(array.as_ref(), materialized.as_ref()));
 
@@ -130,7 +130,7 @@ fn materialization_reuses_native_children(#[case] array: DecimalArray) -> Vortex
 
 #[test]
 fn canonicalization_preserves_encoded_child() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(76, 2);
     let dictionary = DictArray::try_new(
         buffer![0u8, 1, 0, 1].into_array(),
@@ -178,7 +178,7 @@ fn canonicalization_preserves_encoded_child() -> VortexResult<()> {
 
 #[test]
 fn wide_patch_widens_storage() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(39, 0);
     let value = 1i128 << 100;
     let patches = Patches::new(
@@ -207,7 +207,7 @@ fn wide_patch_widens_storage() -> VortexResult<()> {
 #[case::nonnullable(Nullability::NonNullable)]
 #[case::nullable(Nullability::Nullable)]
 fn fill_null_accepts_a_wider_logical_value(#[case] nullability: Nullability) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(39, 0);
     let value = 1i128 << 100;
     let array = DecimalArray::from_option_iter([Some(1i8), None, Some(-2)], dtype);
@@ -241,7 +241,7 @@ fn nonnullable_cast_checks_encoded_child_validity(
     #[case] precision: u8,
     #[values(true, false)] second_valid: bool,
 ) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let source = DecimalDType::new(39, 2);
     let target = DecimalDType::new(precision, 2);
     let dictionary = DictArray::try_new(
@@ -282,7 +282,7 @@ fn precision_widening_cast_preserves_encoded_child(
     #[case] precision: u8,
     #[case] width: DecimalType,
 ) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dictionary = DictArray::try_new(
         buffer![0u8, 1, 0].into_array(),
         buffer![1i32, -2].into_array(),
@@ -319,7 +319,7 @@ fn precision_widening_cast_preserves_encoded_child(
 
 #[test]
 fn aggregates_and_comparisons_keep_decimal_semantics() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(39, 2);
     let array = DecimalArray::from_iter([-128i8, -1, 0, 127], dtype).into_array();
     let bounds = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
@@ -354,7 +354,7 @@ fn between_outside_storage_range_preserves_nulls(
     #[case] lower: i128,
     #[case] upper: i128,
 ) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(39, 0);
     let array = DecimalArray::from_option_iter([Some(-1i8), None, Some(1)], dtype);
     let bound = |value| {
@@ -384,7 +384,8 @@ fn between_outside_storage_range_preserves_nulls(
 
 #[test]
 fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let session = array_session();
+    let mut ctx = session.create_execution_ctx();
     let dtype = DecimalDType::new(76, 2);
     let input_dtype = DType::Decimal(dtype, Nullability::Nullable);
     for aggregate in [
@@ -393,7 +394,7 @@ fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
         IsConstant.bind(EmptyOptions),
     ] {
         assert!(
-            TEST_SESSION
+            session
                 .aggregate_fns()
                 .find_aggregate_kernel(VTable::id(&Decimal), aggregate.id())
                 .is_some()
@@ -421,11 +422,12 @@ fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
 
 #[test]
 fn sum_uses_the_decimal_kernel() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let session = array_session();
+    let mut ctx = session.create_execution_ctx();
     let dtype = DecimalDType::new(39, 2);
     let array = DecimalArray::from_iter([10i8, 20], dtype).into_array();
     let aggregate = Sum.bind(NumericalAggregateOpts::default());
-    let kernel = TEST_SESSION
+    let kernel = session
         .aggregate_fns()
         .find_aggregate_kernel(VTable::id(&Decimal), aggregate.id())
         .vortex_expect("Decimal registers a fallback aggregate kernel");
@@ -447,7 +449,7 @@ fn sum_uses_the_decimal_kernel() -> VortexResult<()> {
 
 #[test]
 fn legacy_wire_keeps_narrow_storage() -> VortexResult<()> {
-    let session = &TEST_SESSION;
+    let session = &array_session();
     let array =
         DecimalArray::from_option_iter([Some(10i32), None, Some(-20)], DecimalDType::new(76, 2))
             .into_array();

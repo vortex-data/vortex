@@ -34,8 +34,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::TEST_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::arrays::decimal::DecimalArrayExt;
@@ -59,7 +59,7 @@ mod tests {
 
         let decimal = sliced
             .as_::<Decimal>()
-            .materialize_values(&mut TEST_SESSION.create_execution_ctx())
+            .materialize_values(&mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(decimal.buffer::<i16>(), buffer![200i16, 300i16]);
     }
@@ -87,7 +87,7 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut TEST_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),
