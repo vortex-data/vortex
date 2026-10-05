@@ -3,7 +3,6 @@
 
 mod bool;
 mod decimal;
-mod extension;
 mod primitive;
 mod varbin;
 
@@ -14,11 +13,11 @@ use std::fmt::Formatter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
-use self::extension::check_extension_sorted;
 use self::primitive::check_primitive_sorted;
 use self::varbin::check_varbinview_sorted;
 use crate::ArrayRef;
@@ -31,6 +30,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::arrays::Constant;
 use crate::arrays::Null;
 use crate::builtins::ArrayBuiltins;
@@ -105,6 +105,17 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     if IsSorted
         .return_dtype(&IsSortedOptions { strict }, array.dtype())
         .is_none()
+    {
+        return Ok(false);
+    }
+
+    // An extension type is only ordered if its session defines how to sort it.
+    if let DType::Extension(ext_dtype) = array.dtype()
+        && ctx
+            .session()
+            .aggregate_fns()
+            .find_extension_aggregate_kernel(ext_dtype.id(), IsSorted.id())
+            .is_none()
     {
         return Ok(false);
     }
@@ -184,8 +195,8 @@ impl IsSorted {
         if batch.is_empty() {
             return Ok(Scalar::null(partial_dtype));
         }
-        let first_value = batch.execute_scalar(0, ctx)?.into_nullable();
-        let last_value = batch.execute_scalar(batch.len() - 1, ctx)?.into_nullable();
+        let first_value = boundary_value(batch.execute_scalar(0, ctx)?);
+        let last_value = boundary_value(batch.execute_scalar(batch.len() - 1, ctx)?);
         // SAFETY: We constructed partial_dtype and the children match its field dtypes exactly.
         Ok(unsafe {
             Scalar::struct_unchecked(
@@ -224,7 +235,11 @@ static NAMES: std::sync::LazyLock<FieldNames> = std::sync::LazyLock::new(|| {
     FieldNames::from(["is_sorted", "strict", "first_value", "last_value"])
 });
 
+/// The dtype of the partial state for input of `element_dtype`.
+///
+/// The boundary values of an extension type are its storage values.
 pub fn make_is_sorted_partial_dtype(element_dtype: &DType) -> DType {
+    let element_dtype = boundary_dtype(element_dtype);
     DType::Struct(
         StructFields::new(
             NAMES.clone(),
@@ -237,6 +252,49 @@ pub fn make_is_sorted_partial_dtype(element_dtype: &DType) -> DType {
         ),
         Nullability::Nullable,
     )
+}
+
+/// Whether `is_sorted` can order values of `dtype`.
+///
+/// The dtype of the boundary values kept in the partial state: the storage dtype of an extension
+/// type, since its order is defined over its storage values.
+fn boundary_dtype(dtype: &DType) -> &DType {
+    match dtype {
+        DType::Extension(ext_dtype) => ext_dtype.storage_dtype(),
+        _ => dtype,
+    }
+}
+
+/// A boundary value of the partial state, as the storage value for an extension type.
+fn boundary_value(value: Scalar) -> Scalar {
+    match value.dtype() {
+        DType::Extension(_) => value.as_extension().to_storage_scalar(),
+        _ => value,
+    }
+    .into_nullable()
+}
+
+/// Whether `is_sorted` has a partial state for values of `dtype`.
+///
+/// An extension type is ordered only when its session registers an `IsSorted` kernel for it with
+/// [`register_extension_aggregate_kernel`](crate::aggregate_fn::session::AggregateFnSession::register_extension_aggregate_kernel),
+/// which runs the aggregate on its storage, so its partial state is that of its storage type.
+fn is_sorted_supported_dtype(dtype: &DType) -> bool {
+    match dtype {
+        DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => true,
+        DType::Extension(ext_dtype) => is_sorted_supported_dtype(ext_dtype.storage_dtype()),
+        DType::Null
+        | DType::List(..)
+        | DType::FixedSizeList(..)
+        | DType::Map(..)
+        | DType::Struct(..)
+        | DType::Union(..)
+        | DType::Variant(..) => false,
+    }
 }
 
 impl AggregateFnVTable for IsSorted {
@@ -253,39 +311,11 @@ impl AggregateFnVTable for IsSorted {
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Map(..)
-            | DType::Struct(..)
-            | DType::Union(..)
-            | DType::Variant(..)
-            | DType::Extension(_) => None,
-            DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
-        }
+        is_sorted_supported_dtype(input_dtype).then_some(DType::Bool(Nullability::NonNullable))
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Map(..)
-            | DType::Struct(..)
-            | DType::Union(..)
-            | DType::Variant(..)
-            | DType::Extension(_) => None,
-            DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
-        }
+        is_sorted_supported_dtype(input_dtype).then(|| make_is_sorted_partial_dtype(input_dtype))
     }
 
     fn empty_partial(
@@ -389,7 +419,7 @@ impl AggregateFnVTable for IsSorted {
         let first_value = partial
             .first_value
             .clone()
-            .unwrap_or_else(|| Scalar::null(args.dtype.as_nullable()));
+            .unwrap_or_else(|| Scalar::null(boundary_dtype(args.dtype).as_nullable()));
         // A partial that saw a single value carries it as both boundaries.
         let last_value = partial
             .last_value
@@ -425,6 +455,12 @@ impl AggregateFnVTable for IsSorted {
         if !partial.is_sorted {
             return Ok(());
         }
+        vortex_ensure!(
+            !matches!(batch.dtype(), DType::Extension(_)),
+            "is_sorted is not defined for extension type {}: register an extension aggregate \
+             kernel for it",
+            batch.dtype()
+        );
 
         match batch {
             Columnar::Constant(c) => {
@@ -510,9 +546,9 @@ impl AggregateFnVTable for IsSorted {
                         check_varbinview_sorted(v, args.options.strict, ctx)?
                     }
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
-                    Canonical::Extension(e) => check_extension_sorted(e, args.options.strict, ctx)?,
                     Canonical::Null(_) => !args.options.strict,
-                    // Struct, List, FixedSizeList should have been filtered out by return_dtype
+                    // Extension is rejected above, and Struct, List, FixedSizeList are filtered
+                    // out by return_dtype
                     _ => unreachable!(),
                 };
 
@@ -584,6 +620,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -597,10 +634,16 @@ mod tests {
     use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::TemporalArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -799,6 +842,86 @@ mod tests {
             IsSorted.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)
         );
+        Ok(())
+    }
+
+    fn timestamp(values: PrimitiveArray) -> ArrayRef {
+        TemporalArray::new_timestamp(values.into_array(), TimeUnit::Microseconds, None).into_array()
+    }
+
+    #[rstest]
+    #[case::timestamp_sorted(timestamp(PrimitiveArray::from_iter([1i64, 2, 2, 4])), true, false)]
+    #[case::timestamp_strict(timestamp(PrimitiveArray::from_iter([1i64, 2, 3, 4])), true, true)]
+    #[case::timestamp_unsorted(timestamp(PrimitiveArray::from_iter([1i64, 3, 2, 4])), false, false)]
+    #[case::timestamp_leading_null(
+        timestamp(PrimitiveArray::from_option_iter([None, Some(1i64), Some(2)])),
+        true,
+        true
+    )]
+    #[case::timestamp_trailing_null(
+        timestamp(PrimitiveArray::from_option_iter([Some(1i64), Some(2), None])),
+        false,
+        false
+    )]
+    #[case::date(
+        TemporalArray::new_date(PrimitiveArray::from_iter([1i32, 5, 9]).into_array(), TimeUnit::Days)
+            .into_array(),
+        true,
+        true
+    )]
+    #[case::time(
+        TemporalArray::new_time(PrimitiveArray::from_iter([3i32, 1]).into_array(), TimeUnit::Seconds)
+            .into_array(),
+        false,
+        false
+    )]
+    fn test_temporal_is_sorted(
+        #[case] array: ArrayRef,
+        #[case] sorted: bool,
+        #[case] strict_sorted: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        assert_eq!(is_sorted(&array, &mut ctx)?, sorted);
+        assert_eq!(is_strict_sorted(&array, &mut ctx)?, strict_sorted);
+        Ok(())
+    }
+
+    /// Sortedness of an extension array is cached on the array's own statistics.
+    #[test]
+    fn test_temporal_is_sorted_caches_stat() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = timestamp(PrimitiveArray::from_iter([1i64, 2, 3]));
+        assert!(is_strict_sorted(&array, &mut ctx)?);
+        assert_eq!(
+            array.statistics().get_as::<bool>(Stat::IsSorted),
+            Precision::Exact(true)
+        );
+        assert_eq!(
+            array.statistics().get_as::<bool>(Stat::IsStrictSorted),
+            Precision::Exact(true)
+        );
+        Ok(())
+    }
+
+    /// The partial carries the storage boundary values of each chunk, so chunk boundaries are
+    /// checked.
+    #[rstest]
+    #[case::sorted_boundary([1i64, 2], [2i64, 3], true, false)]
+    #[case::strict_boundary([1i64, 2], [3i64, 4], true, true)]
+    #[case::unsorted_boundary([1i64, 3], [2i64, 4], false, false)]
+    fn test_chunked_temporal_is_sorted(
+        #[case] lhs: [i64; 2],
+        #[case] rhs: [i64; 2],
+        #[case] sorted: bool,
+        #[case] strict_sorted: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let lhs = timestamp(PrimitiveArray::from_iter(lhs));
+        let rhs = timestamp(PrimitiveArray::from_iter(rhs));
+        let dtype = lhs.dtype().clone();
+        let chunked = ChunkedArray::try_new([lhs, rhs], dtype)?.into_array();
+        assert_eq!(is_sorted(&chunked, &mut ctx)?, sorted);
+        assert_eq!(is_strict_sorted(&chunked, &mut ctx)?, strict_sorted);
         Ok(())
     }
 }
