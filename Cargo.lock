@@ -7624,7 +7624,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009a43e88f0f7b3b3c2c9de5384a0ac2cef8f33996b16f9e6738e24661618775"
 dependencies = [
  "async-trait",
- "asyncband 0.7.2",
+ "asyncband 0.7.3",
  "bytes",
  "chrono",
  "futures",
@@ -7726,7 +7726,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddff5c648dcb3922c2bec71e0d26e881ddf9c367cb7c9a59ed7f2d39a4f38218"
 dependencies = [
  "anyhow",
- "asyncband 0.7.2",
+ "asyncband 0.7.3",
  "base64 0.23.1",
  "bytes",
  "futures",
@@ -7765,7 +7765,7 @@ version = "0.59.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b454e68e5f6b331bd079a2ee02ebe05078fc0ddaae6822767ef54ab3c2ac0aa8"
 dependencies = [
- "asyncband 0.7.2",
+ "asyncband 0.7.3",
  "futures",
  "http",
  "opendal-core 0.59.3",
