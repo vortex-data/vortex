@@ -253,7 +253,7 @@ mod tests {
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedArrayExt;
-    use crate::BitWidths;
+    use crate::BitWidthsView;
     use crate::FL_CHUNK_SIZE;
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode_blocked;
@@ -416,7 +416,7 @@ mod tests {
             PrimitiveArray::new(buffer![999u32; 6], Validity::AllValid).into_array(),
             None,
         )?;
-        let BitWidths::Blocked(block_offsets) = array.bit_widths() else {
+        let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
             vortex_bail!("expected block offsets");
         };
         let array = BitPacked::try_new_with_block_offsets(
@@ -424,7 +424,7 @@ mod tests {
             PType::U32,
             expected.validity()?,
             Some(patches),
-            block_offsets,
+            block_offsets.clone(),
             array.len(),
             array.offset(),
         )?;
@@ -558,7 +558,7 @@ mod tests {
             }
         });
         let encoded = bitpack_to_best_bit_widths(&array, &mut ctx)?;
-        assert!(matches!(encoded.bit_widths(), BitWidths::Blocked(_)));
+        assert!(matches!(encoded.bit_widths(), BitWidthsView::Blocked(_)));
         assert_arrays_eq!(encoded, array, &mut ctx);
         for index in [0, len / 2, len - 1] {
             assert_eq!(

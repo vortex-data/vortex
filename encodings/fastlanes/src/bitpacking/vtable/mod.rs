@@ -42,6 +42,7 @@ use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_array_blocked;
@@ -194,9 +195,9 @@ impl VTable for BitPacked {
                 .as_any_mut()
                 .downcast_mut()
                 .vortex_expect("bit packed array must canonicalize into a primitive array");
-            match &bit_widths {
-                BitWidths::Global(_) => unpack_into_primitive_builder::<T>(array, builder, ctx),
-                BitWidths::Blocked(offsets) => {
+            match bit_widths {
+                BitWidthsView::Global(_) => unpack_into_primitive_builder::<T>(array, builder, ctx),
+                BitWidthsView::Blocked(offsets) => {
                     unpack_into_primitive_builder_blocked::<T>(array, offsets, builder, ctx)
                 }
             }
@@ -217,8 +218,8 @@ impl VTable for BitPacked {
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
 
         let decoded = match array.bit_widths() {
-            BitWidths::Global(_) => unpack_array(array.as_view(), ctx)?,
-            BitWidths::Blocked(offsets) => unpack_array_blocked(array.as_view(), &offsets, ctx)?,
+            BitWidthsView::Global(_) => unpack_array(array.as_view(), ctx)?,
+            BitWidthsView::Blocked(offsets) => unpack_array_blocked(array.as_view(), offsets, ctx)?,
         };
         Ok(ExecutionResult::done(decoded.into_array()))
     }
