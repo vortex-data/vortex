@@ -42,7 +42,7 @@ use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
-use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::bitpack_compress::bitpack_encode_blocked;
 use crate::bitpack_compress::bitpack_to_best_bit_widths;
 
@@ -270,7 +270,7 @@ fn v2_roundtrip(
         Some(bit_widths) => bitpack_encode_blocked(&values, &bit_widths, None, &mut ctx)?,
         None => bitpack_to_best_bit_widths(&values, &mut ctx)?,
     };
-    let BitWidths::Blocked(block_offsets) = array.bit_widths() else {
+    let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
         vortex_bail!("expected block offsets");
     };
     let serialization = PLUGIN_SESSION
@@ -297,7 +297,7 @@ fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     let values = drifting();
     let encoded = bitpack_to_best_bit_widths(&values, &mut ctx)?;
-    let BitWidths::Blocked(block_offsets) = encoded.bit_widths() else {
+    let BitWidthsView::Blocked(block_offsets) = encoded.bit_widths() else {
         vortex_bail!("expected block offsets");
     };
     let block_offsets = block_offsets
@@ -335,7 +335,7 @@ fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
     let array =
         bitpack_to_best_bit_widths(&drifting(), &mut PLUGIN_SESSION.create_execution_ctx())?;
-    let BitWidths::Blocked(block_offsets) = array.bit_widths() else {
+    let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
         vortex_bail!("expected block offsets");
     };
     let metadata = BitPackedV2Metadata {
@@ -358,14 +358,14 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
         )
     };
 
-    assert!(deserialize(&metadata, std::slice::from_ref(&block_offsets)).is_ok());
+    assert!(deserialize(&metadata, std::slice::from_ref(block_offsets)).is_ok());
     assert!(deserialize(&metadata, &[]).is_err());
     let offset_past_block = BitPackedV2Metadata {
         offset: 1024,
         block_offsets_ptype: metadata.block_offsets_ptype,
         patches: None,
     };
-    assert!(deserialize(&offset_past_block, std::slice::from_ref(&block_offsets)).is_err());
+    assert!(deserialize(&offset_past_block, std::slice::from_ref(block_offsets)).is_err());
     let signed = BitPackedV2Metadata {
         offset: 0,
         block_offsets_ptype: PType::I32 as i32,

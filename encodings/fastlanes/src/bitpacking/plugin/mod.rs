@@ -28,7 +28,7 @@ use vortex_session::registry::CachedId;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
+use crate::BitWidthsView;
 
 #[cfg(test)]
 mod tests;
@@ -77,8 +77,8 @@ impl ArrayPlugin for BitPackedPlugin {
             vortex_err!("BitPacked plugin cannot serialize {}", array.encoding_id())
         })?;
         let serialization = match view.bit_widths() {
-            BitWidths::Global(bit_width) => v1::serialize(array, view, bit_width)?,
-            BitWidths::Blocked(block_offsets) => v2::serialize(array, view, &block_offsets)?,
+            BitWidthsView::Global(bit_width) => v1::serialize(array, view, bit_width)?,
+            BitWidthsView::Blocked(block_offsets) => v2::serialize(array, view, block_offsets)?,
         };
         Ok(Some(serialization))
     }
@@ -156,15 +156,15 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let offset = bitpacked.offset();
 
         let bitpacked_without_patches = match bitpacked.bit_widths() {
-            BitWidths::Global(bw) => {
+            BitWidthsView::Global(bw) => {
                 BitPacked::try_new(packed, ptype, validity, None, bw, len, offset)?
             }
-            BitWidths::Blocked(block_offsets) => BitPacked::try_new_with_block_offsets(
+            BitWidthsView::Blocked(block_offsets) => BitPacked::try_new_with_block_offsets(
                 packed,
                 ptype,
                 validity,
                 None,
-                block_offsets,
+                block_offsets.clone(),
                 len,
                 offset,
             )?,
