@@ -38,10 +38,14 @@ fn take_eight_byte_values() {
     assert_eq!(taken.as_slice(), &[20, 30, 10]);
 }
 
-#[test]
-fn take_small_byte_table() {
+#[rstest]
+#[case(64)]
+#[case(65)]
+#[case(79)]
+#[case(128)]
+fn take_small_byte_table(#[case] len: usize) {
     let values = [10u8, 20, 30, 40];
-    let indices = (0..128).map(|index| index % 4).collect::<Vec<u8>>();
+    let indices = (0u8..4).cycle().take(len).collect::<Vec<_>>();
     let expected = indices
         .iter()
         .map(|index| values[usize::from(*index)])
@@ -55,11 +59,13 @@ fn take_small_byte_table() {
 // The bounds-check message is specific to the NEON table path; other targets reach a different
 // fallback with its own message.
 #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-#[test]
+#[rstest]
+#[case::vector(64)]
+#[case::tail(128)]
 #[should_panic(expected = "take index")]
-fn take_small_byte_table_rejects_out_of_bounds_index() {
-    let mut indices = vec![0u8; 128];
-    indices[64] = 4;
+fn take_small_byte_table_rejects_out_of_bounds_index(#[case] offset: usize) {
+    let mut indices = vec![0u8; 129];
+    indices[offset] = 4;
     drop(take_values(&[10u8, 20, 30, 40], &indices));
 }
 

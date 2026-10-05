@@ -6,7 +6,6 @@ mod avx2;
 mod records;
 mod scalar;
 mod slices;
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
 mod small_table;
 #[cfg(test)]
 mod tests;
@@ -38,8 +37,6 @@ use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::dtype::half::f16;
 use crate::match_each_unsigned_integer_ptype;
@@ -64,7 +61,12 @@ impl<V: FixedWidthArray> TakeExecute for V {
 ///
 /// Implementors must have no uninitialized bytes. The shared AVX2 gather reads the complete
 /// representation through a same-width integer lane before writing those bytes back unchanged.
-pub(crate) unsafe trait FixedWidthTakeValue: Copy {}
+pub(crate) unsafe trait FixedWidthTakeValue: Copy {
+    /// Takes values using the kernel appropriate for this value type.
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        take_values_fallback(values, indices)
+    }
+}
 
 macro_rules! impl_fixed_width_take_value {
     ($($ty:ty),+ $(,)?) => {
@@ -75,25 +77,44 @@ macro_rules! impl_fixed_width_take_value {
     };
 }
 
-impl_fixed_width_take_value!(u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64,);
+impl_fixed_width_take_value!(u16, u32, u64, i16, i32, i64, f16, f32, f64,);
+
+// SAFETY: u8 has no padding or uninitialized bytes.
+unsafe impl FixedWidthTakeValue for u8 {
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        small_table::take(values, indices)
+    }
+}
+
+// SAFETY: i8 has no padding or uninitialized bytes.
+unsafe impl FixedWidthTakeValue for i8 {
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        small_table::take(values, indices)
+    }
+}
 
 // SAFETY: Byte arrays have no padding and every byte is initialized.
-unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {}
+unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {
+    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
+        if N == 1 {
+            small_table::take(values, indices)
+        } else {
+            take_values_fallback(values, indices)
+        }
+    }
+}
 
 pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
 ) -> Buffer<T> {
-    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-    if I::PTYPE == PType::U8 {
-        // SAFETY: the ptype dispatcher guarantees that `I::PTYPE == U8` is the concrete `u8`
-        // implementation, so these slices have identical layouts.
-        let indices = unsafe { std::slice::from_raw_parts(indices.as_ptr().cast(), indices.len()) };
-        if let Some(taken) = small_table::take(values, indices) {
-            return taken;
-        }
-    }
+    T::take(values, indices)
+}
 
+fn take_values_fallback<T: FixedWidthTakeValue, I: UnsignedPType>(
+    values: &[T],
+    indices: &[I],
+) -> Buffer<T> {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     if *HAS_AVX2 {
         // SAFETY: AVX2 was detected above and `FixedWidthTakeValue` guarantees an initialized byte
