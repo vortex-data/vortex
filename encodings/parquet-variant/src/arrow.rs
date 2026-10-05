@@ -67,6 +67,9 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    let session = ctx.session().clone();
+    let arrow = session.arrow();
+    let exporter = arrow.with_options(options);
     let mut arrays = Vec::with_capacity(target_fields.len());
 
     for field in target_fields {
@@ -84,13 +87,7 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
             );
         };
 
-        arrays.push(
-            ctx.session()
-                .clone()
-                .arrow()
-                .with_options(options)
-                .execute_arrow(child, Some(field.as_ref()), ctx)?,
-        );
+        arrays.push(exporter.execute_arrow(child, Some(field.as_ref()), ctx)?);
     }
 
     let nulls = to_arrow_null_buffer(

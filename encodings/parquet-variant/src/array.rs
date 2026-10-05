@@ -439,6 +439,8 @@ pub trait ParquetVariantArrayExt:
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowVariantArray> {
         let session = ctx.session().clone();
+        let arrow = session.arrow();
+        let exporter = arrow.with_options(options);
         let metadata = self.metadata();
         let len = metadata.len();
         let nulls = to_arrow_null_buffer(self.parquet_variant_validity(), len, ctx)?;
@@ -446,11 +448,7 @@ pub trait ParquetVariantArrayExt:
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
 
-        let metadata_arrow =
-            session
-                .arrow()
-                .with_options(options)
-                .execute_arrow(metadata.clone(), None, ctx)?;
+        let metadata_arrow = exporter.execute_arrow(metadata.clone(), None, ctx)?;
         fields.push(Arc::new(Field::new(
             "metadata",
             metadata_arrow.data_type().clone(),
@@ -459,11 +457,7 @@ pub trait ParquetVariantArrayExt:
         arrays.push(metadata_arrow);
 
         if let Some(value) = self.value() {
-            let value_arrow =
-                session
-                    .arrow()
-                    .with_options(options)
-                    .execute_arrow(value.clone(), None, ctx)?;
+            let value_arrow = exporter.execute_arrow(value.clone(), None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
                 value_arrow.data_type().clone(),
@@ -473,11 +467,7 @@ pub trait ParquetVariantArrayExt:
         }
 
         if let Some(typed_value) = self.typed_value() {
-            let tv_arrow = session.arrow().with_options(options).execute_arrow(
-                typed_value.clone(),
-                None,
-                ctx,
-            )?;
+            let tv_arrow = exporter.execute_arrow(typed_value.clone(), None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "typed_value",
                 tv_arrow.data_type().clone(),
