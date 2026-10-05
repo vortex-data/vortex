@@ -3,6 +3,7 @@
 
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
@@ -127,7 +128,7 @@ use crate::validity::Validity;
 ///
 /// # For Developers
 ///
-/// If you add another variant to this enum, make sure to update `dyn Array::is_canonical`,
+/// If you add another variant to this enum, make sure to update `canonical_kinds!`,
 /// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
 #[derive(Debug, Clone)]
 pub enum Canonical {
@@ -1231,61 +1232,72 @@ impl CanonicalView<'_> {
     }
 }
 
+// Keep classification and checked conversion together so they use the same concrete types.
+macro_rules! canonical_kinds {
+    ($($kind:ident => $vtable:ty),+ $(,)?) => {
+        /// Canonical encoding classification derived from the concrete array vtable.
+        #[derive(Clone, Copy)]
+        pub(crate) enum CanonicalKind {
+            $($kind),+
+        }
+
+        impl CanonicalKind {
+            /// Classify a concrete vtable; monomorphization folds these type comparisons.
+            #[inline]
+            pub(crate) fn of<V: VTable>() -> Option<Self> {
+                $(if TypeId::of::<V>() == TypeId::of::<$vtable>() {
+                    return Some(Self::$kind);
+                })+
+                None
+            }
+
+            #[inline]
+            fn try_match(self, array: &ArrayRef) -> Option<CanonicalView<'_>> {
+                match self {
+                    $(Self::$kind => array.as_opt::<$vtable>().map(CanonicalView::$kind)),+
+                }
+            }
+        }
+    };
+}
+
+canonical_kinds! {
+    Null => Null,
+    Bool => Bool,
+    Primitive => Primitive,
+    Decimal => Decimal,
+    Struct => Struct,
+    Union => Union,
+    List => ListView,
+    Map => Map,
+    FixedSizeList => FixedSizeList,
+    VarBinView => VarBinView,
+    Variant => Variant,
+    Extension => Extension,
+}
+
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
-    /// Each logical [`DType`] has exactly one canonical encoding, so one comparison decides the
-    /// match instead of trying all twelve canonical encodings in turn. The comparison is on the
-    /// interned encoding id stored inline in the array, which avoids the virtual `as_any` and
-    /// `type_id` calls a downcast makes; an encoding id identifies its vtable type.
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        let id = array.encoding_id();
-        match array.dtype() {
-            DType::Null => id == Null.id(),
-            DType::Bool(_) => id == Bool.id(),
-            DType::Primitive(..) => id == Primitive.id(),
-            DType::Decimal(..) => id == Decimal.id(),
-            DType::Utf8(_) | DType::Binary(_) => id == VarBinView.id(),
-            DType::List(..) => id == ListView.id(),
-            DType::FixedSizeList(..) => id == FixedSizeList.id(),
-            DType::Map(..) => id == Map.id(),
-            DType::Struct(..) => id == Struct.id(),
-            DType::Union(..) => id == Union.id(),
-            DType::Variant(_) => id == Variant.id(),
-            DType::Extension(_) => id == Extension.id(),
-        }
+        array.dyn_array().canonical_kind().is_some()
     }
 
     #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        match array.dtype() {
-            DType::Null => array.as_opt::<Null>().map(CanonicalView::Null),
-            DType::Bool(_) => array.as_opt::<Bool>().map(CanonicalView::Bool),
-            DType::Primitive(..) => array.as_opt::<Primitive>().map(CanonicalView::Primitive),
-            DType::Decimal(..) => array.as_opt::<Decimal>().map(CanonicalView::Decimal),
-            DType::Utf8(_) | DType::Binary(_) => {
-                array.as_opt::<VarBinView>().map(CanonicalView::VarBinView)
-            }
-            DType::List(..) => array.as_opt::<ListView>().map(CanonicalView::List),
-            DType::FixedSizeList(..) => array
-                .as_opt::<FixedSizeList>()
-                .map(CanonicalView::FixedSizeList),
-            DType::Map(..) => array.as_opt::<Map>().map(CanonicalView::Map),
-            DType::Struct(..) => array.as_opt::<Struct>().map(CanonicalView::Struct),
-            DType::Union(..) => array.as_opt::<Union>().map(CanonicalView::Union),
-            DType::Variant(_) => array.as_opt::<Variant>().map(CanonicalView::Variant),
-            DType::Extension(_) => array.as_opt::<Extension>().map(CanonicalView::Extension),
-        }
+        array.dyn_array().canonical_kind()?.try_match(array)
     }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -1295,17 +1307,27 @@ mod test {
     use crate::CanonicalValidity;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::new_foreign_array;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Primitive;
     use crate::arrays::Struct;
+    use crate::arrays::VarBinArray;
     use crate::arrays::Variant;
     use crate::arrays::VariantArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::variant::VariantArraySlotsExt;
     use crate::canonical::AnyCanonical;
     use crate::canonical::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::MapDType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
 
     /// A shared session for these canonical tests, used to create execution contexts.
@@ -1319,62 +1341,91 @@ mod test {
         .into_array()
     }
 
-    /// The exhaustive form of [`AnyCanonical::matches`] that the dtype-directed version replaced.
-    fn matches_any_canonical_exhaustively(array: &ArrayRef) -> bool {
-        array.is::<crate::arrays::Null>()
-            || array.is::<crate::arrays::Bool>()
-            || array.is::<Primitive>()
-            || array.is::<crate::arrays::Decimal>()
-            || array.is::<Struct>()
-            || array.is::<crate::arrays::Union>()
-            || array.is::<crate::arrays::ListView>()
-            || array.is::<crate::arrays::Map>()
-            || array.is::<crate::arrays::FixedSizeList>()
-            || array.is::<crate::arrays::VarBinView>()
-            || array.is::<Variant>()
-            || array.is::<crate::arrays::Extension>()
-    }
-
-    #[test]
-    fn any_canonical_matches_by_dtype() -> VortexResult<()> {
-        use std::sync::Arc;
-
-        use crate::dtype::DType;
-        use crate::dtype::PType;
-        use crate::dtype::StructFields;
-
-        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let canonical_dtypes = [
+    fn canonical_arrays(nullability: Nullability) -> VortexResult<Vec<ArrayRef>> {
+        let i32_dtype = DType::Primitive(PType::I32, nullability);
+        let dtypes = [
             DType::Null,
-            DType::Bool(Nullability::Nullable),
+            DType::Bool(nullability),
             i32_dtype.clone(),
-            DType::Utf8(Nullability::NonNullable),
-            DType::Binary(Nullability::Nullable),
-            DType::List(Arc::new(i32_dtype.clone()), Nullability::NonNullable),
-            DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, Nullability::NonNullable),
-            DType::Struct(
-                StructFields::from_iter([("a", i32_dtype)]),
-                Nullability::NonNullable,
+            DType::Decimal(DecimalDType::try_new(10, 2)?, nullability),
+            DType::Utf8(nullability),
+            DType::Binary(nullability),
+            DType::List(Arc::new(i32_dtype.clone()), nullability),
+            DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, nullability),
+            DType::Map(
+                MapDType::try_new(
+                    DType::Utf8(Nullability::NonNullable),
+                    i32_dtype.clone(),
+                    false,
+                )?,
+                nullability,
             ),
+            DType::Struct(
+                StructFields::from_iter([("a", i32_dtype.clone())]),
+                nullability,
+            ),
+            DType::Union(
+                UnionVariants::new(["a"].into(), vec![i32_dtype])?,
+                nullability,
+            ),
+            DType::Extension(Timestamp::new(TimeUnit::Microseconds, nullability).erased()),
         ];
-        let mut arrays: Vec<ArrayRef> = canonical_dtypes
+        let mut arrays: Vec<_> = dtypes
             .iter()
             .map(|dtype| Canonical::empty(dtype).into_array())
             .collect();
-        arrays.push(ConstantArray::new(1i32, 4).into_array());
-        arrays.push(VariantArray::try_new(variant_core_storage(2), None)?.into_array());
+        let value = Scalar::variant(Scalar::primitive(1i32, nullability))
+            .cast(&DType::Variant(nullability))?;
+        arrays.push(
+            VariantArray::try_new(ConstantArray::new(value, 2).into_array(), None)?.into_array(),
+        );
+        Ok(arrays)
+    }
 
-        for array in &arrays {
-            assert_eq!(
-                array.is::<AnyCanonical>(),
-                matches_any_canonical_exhaustively(array),
-                "{array}"
-            );
-            assert_eq!(
-                array.as_opt::<AnyCanonical>().is_some(),
-                matches_any_canonical_exhaustively(array),
-                "{array}"
-            );
+    #[rstest]
+    fn any_canonical_matches_all_encodings(
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        for array in canonical_arrays(nullability)? {
+            assert!(array.is::<AnyCanonical>(), "{array}");
+            let canonical = Canonical::from(array.as_::<AnyCanonical>()).into_array();
+            assert!(ArrayRef::ptr_eq(&array, &canonical));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn any_canonical_rejects_noncanonical_encodings() {
+        let arrays = [
+            ConstantArray::new(1i32, 4).into_array(),
+            ConstantArray::new(true, 4).into_array(),
+            ConstantArray::new("value", 4).into_array(),
+            VarBinArray::from_iter([Some("value")], DType::Utf8(Nullability::Nullable))
+                .into_array(),
+        ];
+        for array in arrays {
+            assert!(!array.is::<AnyCanonical>(), "{array}");
+            assert!(array.as_opt::<AnyCanonical>().is_none(), "{array}");
+        }
+    }
+
+    #[rstest]
+    fn any_canonical_rejects_foreign_arrays_with_canonical_ids(
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for canonical in canonical_arrays(nullability)? {
+            let foreign = new_foreign_array(
+                canonical.encoding_id(),
+                canonical.dtype().clone(),
+                canonical.len(),
+                vec![],
+                vec![],
+                Default::default(),
+            )?;
+            assert!(!foreign.is::<AnyCanonical>(), "{foreign}");
+            assert!(foreign.as_opt::<AnyCanonical>().is_none(), "{foreign}");
+            assert!(foreign.execute::<Canonical>(&mut ctx).is_err());
         }
         Ok(())
     }

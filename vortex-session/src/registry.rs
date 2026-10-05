@@ -138,7 +138,6 @@ impl Deref for CachedId {
         clippy::disallowed_methods,
         reason = "CachedId interns its static id once here"
     )]
-    #[inline]
     fn deref(&self) -> &Id {
         self.cached.get_or_init(|| Id::new_static(self.s))
     }

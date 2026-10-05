@@ -317,3 +317,7 @@ harness = false
 [[bench]]
 name = "probe"
 harness = false
+
+[[bench]]
+name = "canonical_match"
+harness = false

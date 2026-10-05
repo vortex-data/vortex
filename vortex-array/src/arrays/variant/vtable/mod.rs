@@ -60,7 +60,6 @@ impl VTable for Variant {
 
     type ValidityVTable = Self;
 
-    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.variant");
         *ID

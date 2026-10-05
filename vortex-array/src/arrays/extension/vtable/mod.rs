@@ -88,7 +88,6 @@ impl VTable for Extension {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.ext");
         *ID
