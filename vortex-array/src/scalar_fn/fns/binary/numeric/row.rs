@@ -63,6 +63,10 @@ impl RowFn for NumericBinary {
         ScalarFnVTable::id(&Binary)
     }
 
+    #[allow(
+        clippy::cognitive_complexity,
+        reason = "the primitive-type macro repeats the same operator dispatch for each type"
+    )]
     fn dispatch<V: RowVisitor>(
         &self,
         op: &Self::Options,
@@ -74,11 +78,20 @@ impl RowFn for NumericBinary {
                 .ok_or_else(|| vortex_err!("a numeric operator takes two operands, got none"))?,
         )?;
 
+        // Keep this choice inside the type macro. An outer operator/type match loses ARM i64/u64
+        // vectorization by changing CGU placement. See the settings at `visit_checked_chunked`.
         match_each_native_ptype!(ptype, |T| {
             match op {
                 NumericOperator::Add => visit_checked::<T, CheckedAdd, V>(visitor),
                 NumericOperator::Sub => visit_checked::<T, CheckedSub, V>(visitor),
-                NumericOperator::Mul => visit_checked::<T, CheckedMul, V>(visitor),
+                NumericOperator::Mul => {
+                    // Chunking improves these signed widths across the measured x86 and ARM targets.
+                    if matches!(T::PTYPE, PType::I16 | PType::I32) {
+                        visit_checked_chunked::<T, CheckedMul, V>(visitor)
+                    } else {
+                        visit_checked::<T, CheckedMul, V>(visitor)
+                    }
+                }
                 NumericOperator::Div => visit_div::<T, V>(visitor),
             }
         })
@@ -91,20 +104,37 @@ where
     Op: CheckedPrimitiveOp<T>,
     V: RowVisitor,
 {
-    let apply = |(lhs, rhs)| Op::apply(lhs, rhs);
-    let finish_failure = |failure| {
-        if failure != <Op::Fail as Default>::default() {
-            return Err(numeric_error(Op::ERROR));
-        }
+    visitor.visit_deferred::<(T, T), T, Op::Fail>(
+        |(lhs, rhs)| Op::apply(lhs, rhs),
+        |failure| {
+            if failure != <Op::Fail as Default>::default() {
+                return Err(numeric_error(Op::ERROR));
+            }
 
-        Ok(())
-    };
+            Ok(())
+        },
+    )
+}
 
-    if Op::use_chunked_loop() {
-        visitor.visit_deferred_chunked::<(T, T), T, Op::Fail>(apply, finish_failure)
-    } else {
-        visitor.visit_deferred::<(T, T), T, Op::Fail>(apply, finish_failure)
-    }
+// Keep the visit bodies separate. With rustc 1.98.0, LLVM 22.1.8, 16 CGUs, LTO off, and +neon,
+// sharing callback construction and dispatch here loses the two-lane dense i64/u64 loops.
+// Recheck binary_ops multiplication IR and timings before combining these helpers.
+fn visit_checked_chunked<T, Op, V>(visitor: V) -> VortexResult<V::VisitResult>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+    V: RowVisitor,
+{
+    visitor.visit_deferred_chunked::<(T, T), T, Op::Fail>(
+        |(lhs, rhs)| Op::apply(lhs, rhs),
+        |failure| {
+            if failure != <Op::Fail as Default>::default() {
+                return Err(numeric_error(Op::ERROR));
+            }
+
+            Ok(())
+        },
+    )
 }
 
 fn visit_div<T, V>(visitor: V) -> VortexResult<V::VisitResult>

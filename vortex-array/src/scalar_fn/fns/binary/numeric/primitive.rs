@@ -6,7 +6,6 @@
 use std::ops::BitOrAssign;
 
 use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::dtype::half::f16;
 
 /// Checked addition, failing on integer overflow.
@@ -38,11 +37,6 @@ pub(super) trait CheckedPrimitiveOp<T: NativePType>: 'static + Sized {
     /// How this operation reports a failing row. See [`Failure`].
     type Fail: Failure;
 
-    /// Select the dense reduction loop for this operation and primitive type.
-    fn use_chunked_loop() -> bool {
-        false
-    }
-
     /// The result of this operation, paired with evidence of whether the row failed.
     fn apply(lhs: T, rhs: T) -> (T, Self::Fail);
 }
@@ -73,13 +67,6 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedMul {
     const ERROR: &'static str = "integer overflow in checked mul";
 
     type Fail = T::MulFailure;
-
-    #[inline]
-    fn use_chunked_loop() -> bool {
-        // Fixed-size reductions help LLVM combine signed i16/i32 overflow checks. Other widths
-        // and unsigned operations can lose efficient instruction selection with the same loop.
-        matches!(T::PTYPE, PType::I16 | PType::I32)
-    }
 
     #[inline]
     fn apply(lhs: T, rhs: T) -> (T, T::MulFailure) {
