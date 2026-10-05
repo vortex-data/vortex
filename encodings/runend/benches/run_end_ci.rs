@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Paired native comparison of the original loop, PR #10296, and a wide-value rollback.
+//! Paired native comparison of the original loop, PR #10296, and forced kernels.
+//!
+//! On AArch64, pass `--cardinality` to compare u32 dictionaries of 4, 8, 16 and 32 values.
 
 #![allow(dead_code, clippy::cast_possible_truncation, clippy::print_stdout)]
 
@@ -20,6 +22,8 @@ use vortex_buffer::BufferMut;
 
 #[path = "../src/fill.rs"]
 mod candidate;
+#[cfg(target_arch = "aarch64")]
+mod ci_cardinality;
 // Written from the pinned PR commit by the CI workflow before compilation.
 #[path = "ci_support/forced_exact.rs"]
 #[allow(unused_variables)]
@@ -261,6 +265,11 @@ fn run<T: Copy + PartialEq + Debug>(name: &str, make: impl Fn(usize) -> T) {
 }
 
 fn main() {
+    #[cfg(target_arch = "aarch64")]
+    if std::env::args().any(|arg| arg == "--cardinality") {
+        ci_cardinality::run();
+        return;
+    }
     println!("type,length,pattern,variant,round,ns");
     eprintln!(
         "type,length,pattern,segment,runs,rows,mean,min,max,singletons,tails,head_excess_bytes,selected"
