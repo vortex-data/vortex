@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! AVX2 byte-table take for `u8` codes and at most 16 one-byte values.
+//! Register-table take for `u8` codes and at most 32 one-byte values.
+
+use std::sync::LazyLock;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "x86")] {
@@ -13,7 +15,9 @@ cfg_if::cfg_if! {
 
 use arch::__m256i;
 use arch::_mm_loadu_si128;
+use arch::_mm256_blendv_epi8;
 use arch::_mm256_broadcastsi128_si256;
+use arch::_mm256_cmpgt_epi8;
 use arch::_mm256_loadu_si256;
 use arch::_mm256_or_si256;
 use arch::_mm256_set1_epi8;
@@ -32,6 +36,19 @@ use super::super::HAS_AVX2;
 use super::super::take_values_fallback;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
+
+#[path = "avx512.rs"]
+mod avx512;
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;
+
+static HAS_AVX512_VBMI: LazyLock<bool> = LazyLock::new(|| {
+    is_x86_feature_detected!("avx512f")
+        && is_x86_feature_detected!("avx512bw")
+        && is_x86_feature_detected!("avx512vbmi")
+});
 
 // SAFETY: u8 has no padding or uninitialized bytes.
 unsafe impl FixedWidthTakeValue for u8 {
@@ -73,7 +90,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
 ) -> Buffer<T> {
     if I::PTYPE != PType::U8
         || values.is_empty()
-        || values.len() > 16
+        || values.len() > 32
         || size_of::<T>() != 1
         || indices.len() < 64
         || !*HAS_AVX2
@@ -84,24 +101,37 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     // SAFETY: the sealed index type is u8, as checked above.
     let indices: &[u8] =
         unsafe { std::slice::from_raw_parts(indices.as_ptr().cast(), indices.len()) };
+    // The existing single-table AVX2 path is already competitive for 1..=16 values.
+    // Use VBMI where it also avoids the second table shuffle and blend.
+    if values.len() > 16 && *HAS_AVX512_VBMI {
+        // SAFETY: All required features were detected. T is one byte with initialized bytes,
+        // and the table contains between 1 and 32 values.
+        return unsafe { avx512::take(values, indices, allocator) };
+    }
     // SAFETY: AVX2 was detected above. Values are one byte with no uninitialized bytes,
-    // and the table contains between 1 and 16 values.
-    unsafe { take_avx2(values, indices, allocator) }
+    // and the table contains between 1 and 32 values. Specializing the table count keeps the
+    // existing single-table loop free of a per-vector branch or second shuffle.
+    if values.len() <= 16 {
+        unsafe { take_avx2::<T, false>(values, indices, allocator) }
+    } else {
+        unsafe { take_avx2::<T, true>(values, indices, allocator) }
+    }
 }
 
 #[target_feature(enable = "avx2")]
-unsafe fn take_avx2<T: FixedWidthTakeValue>(
+unsafe fn take_avx2<T: FixedWidthTakeValue, const TWO_TABLES: bool>(
     values: &[T],
     indices: &[u8],
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    let mut table = [values[0]; 16];
+    let mut table = [values[0]; 32];
     table[..values.len()].copy_from_slice(values);
-    // SAFETY: the table contains 16 initialized one-byte values.
-    let table = unsafe { _mm_loadu_si128(table.as_ptr().cast()) };
-    let table = _mm256_broadcastsi128_si256(table);
+    // SAFETY: Each half contains 16 initialized one-byte values.
+    let low = _mm256_broadcastsi128_si256(unsafe { _mm_loadu_si128(table.as_ptr().cast()) });
+    let high =
+        _mm256_broadcastsi128_si256(unsafe { _mm_loadu_si128(table.as_ptr().add(16).cast()) });
     let limit = _mm256_set1_epi8(
-        i8::try_from(values.len() - 1).vortex_expect("table contains at most 16 values"),
+        i8::try_from(values.len() - 1).vortex_expect("table contains at most 32 values"),
     );
     let mut invalid = _mm256_setzero_si256();
     let mut output = BufferMut::<T>::with_capacity_in(indices.len(), allocator.clone());
@@ -113,13 +143,20 @@ unsafe fn take_avx2<T: FixedWidthTakeValue>(
         // SAFETY: the loop condition guarantees a complete 32-byte vector is in bounds.
         let codes = unsafe { _mm256_loadu_si256(indices.as_ptr().add(offset).cast()) };
         invalid = _mm256_or_si256(invalid, _mm256_subs_epu8(codes, limit));
-        // SAFETY: the output has capacity for every index and T is one byte wide.
-        unsafe {
-            _mm256_storeu_si256(
-                output_ptr.add(offset).cast::<__m256i>(),
-                _mm256_shuffle_epi8(table, codes),
+        let taken = _mm256_shuffle_epi8(low, codes);
+        let taken = if TWO_TABLES {
+            // VPSHUFB uses the low four bits within each 128-bit lane. Bit four selects
+            // which broadcast table supplies the result; the bounds check rejects other codes.
+            _mm256_blendv_epi8(
+                taken,
+                _mm256_shuffle_epi8(high, codes),
+                _mm256_cmpgt_epi8(codes, _mm256_set1_epi8(15)),
             )
+        } else {
+            taken
         };
+        // SAFETY: the output has capacity for every index and T is one byte wide.
+        unsafe { _mm256_storeu_si256(output_ptr.add(offset).cast::<__m256i>(), taken) };
         offset += 32;
     }
     assert_eq!(
