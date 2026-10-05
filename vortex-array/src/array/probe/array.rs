@@ -14,9 +14,10 @@ use crate::array::VTable;
 use crate::array::probe::RepeatedArrayProbe;
 use crate::array::probe::RepeatedState;
 use crate::array::probe::repeated::child_probe;
+use crate::array::probe::repeated::is_valid_scalar;
 use crate::arrays::Primitive;
-use crate::arrays::ScalarFn;
 use crate::scalar::Scalar;
+use crate::validity::Validity;
 use crate::vtable::OperationsVTable;
 
 /// A borrowed row accessor.
@@ -83,14 +84,7 @@ fn execute_scalar_once(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
-    // For some scalar functions executing validity is equal to executing the
-    // function itself. Thus execute_is_valid_once + probe_scalar_once do
-    // two evaluations instead of one. probe_scalar_once for such functions
-    // already gives you the nullable scalar, so skip the first check
-    // TODO(myrrc) this should be removed once we no longer probe validity here
-    if !array.is::<ScalarFn>() && !execute_is_valid_once(array, index, ctx)? {
-        return Ok(Scalar::null(array.dtype().clone()));
-    }
+    check_bounds(array, index)?;
     check_dtype(
         array,
         array.dyn_array().probe_scalar_once(array, index, ctx),
@@ -105,11 +99,19 @@ fn execute_is_valid_once(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     check_bounds(array, index)?;
+    is_valid_once(array, index, ctx)
+}
+
+#[inline]
+fn is_valid_once(array: &ArrayRef, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     if !array.dtype().is_nullable() {
         return Ok(true);
     }
-    // Matching the validity directly keeps this path free of any retained temporary.
-    array.validity()?.execute_is_valid(index, ctx)
+    match array.validity()? {
+        Validity::NonNullable | Validity::AllValid => Ok(true),
+        Validity::AllInvalid => Ok(false),
+        Validity::Array(validity) => is_valid_scalar(validity.execute_scalar(index, ctx)?, index),
+    }
 }
 
 /// Pass an encoding's result through, checking its dtype in debug builds.
@@ -188,6 +190,17 @@ impl<'a, V: VTable> ProbeState<'a, V> {
     #[inline]
     pub fn array(&self) -> ArrayView<'a, V> {
         self.array
+    }
+
+    /// Whether the row at `index` of the array being read is valid.
+    /// Will use the cached state to resolve the query.
+    #[inline]
+    pub fn is_valid(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        let array = self.array.array();
+        match &mut self.retained {
+            None => is_valid_once(array, index, ctx),
+            Some(retained) => retained.is_valid(array, index, ctx),
+        }
     }
 
     /// The encoding's retained state, or `None` for a one-off read.
@@ -274,6 +287,8 @@ mod tests {
     use super::*;
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
@@ -298,6 +313,98 @@ mod tests {
         let mut ctx = crate::array_session().create_execution_ctx();
         let array = nullable_ints();
         check_reads(array.probe(), &mut ctx)
+    }
+
+    /// Bool has no `probe_scalar` of its own, so this reads through the default that checks
+    /// validity before `scalar_at`.
+    #[test]
+    fn default_probe_scalar_resolves_nulls() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let array = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+        check_bool_reads(array.probe(), &mut ctx)?;
+        check_bool_reads(array.repeated_probe().as_probe(), &mut ctx)
+    }
+
+    fn check_bool_reads(mut probe: ArrayProbe<'_>, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        assert_eq!(probe.execute_scalar(0, ctx)?, Scalar::from(Some(true)));
+        assert!(probe.execute_scalar(1, ctx)?.is_null());
+        assert_eq!(probe.execute_scalar(2, ctx)?, Scalar::from(Some(false)));
+        Ok(())
+    }
+
+    /// A null reached through a child comes back from the wrapper as a null of the wrapper's
+    /// dtype, on both the one-off and the retained path.
+    #[test]
+    fn wrapper_passes_child_nulls_through() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u32, 1, 0, 2]).into_array();
+        let values = PrimitiveArray::from_option_iter([Some(7i64), None, Some(9)]).into_array();
+        let array = DictArray::try_new(codes, values)?.into_array();
+        let expected = [Some(7i64), None, Some(7), Some(9)];
+        let mut once = array.probe();
+        let mut repeated = array.repeated_probe();
+        for (index, value) in expected.into_iter().enumerate() {
+            assert_eq!(once.execute_scalar(index, &mut ctx)?, Scalar::from(value));
+            assert_eq!(
+                repeated.execute_scalar(index, &mut ctx)?,
+                Scalar::from(value)
+            );
+        }
+        Ok(())
+    }
+
+    /// Nullable codes and nullable values each produce nulls, and one retained probe answers
+    /// validity and scalar reads on both, sliced or not.
+    #[test]
+    fn dict_with_nullable_codes_and_values() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let codes = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), Some(2), None])
+            .into_array();
+        let values = PrimitiveArray::from_option_iter([Some(7i64), None, Some(9)]).into_array();
+        let array = DictArray::try_new(codes, values)?.into_array();
+        let expected = [Some(7i64), None, None, Some(9), None];
+        for (array, expected) in [
+            (array.clone(), &expected[..]),
+            (array.slice(1..4)?, &expected[1..4]),
+        ] {
+            let mut once = array.probe();
+            let mut repeated = array.repeated_probe();
+            for (index, value) in expected.iter().enumerate().rev() {
+                assert_eq!(once.execute_is_valid(index, &mut ctx)?, value.is_some());
+                assert_eq!(repeated.execute_is_valid(index, &mut ctx)?, value.is_some());
+                assert_eq!(once.execute_scalar(index, &mut ctx)?, Scalar::from(*value));
+                assert_eq!(
+                    repeated.execute_scalar(index, &mut ctx)?,
+                    Scalar::from(*value)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn state_validity_follows_read_policy() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let array = nullable_ints();
+        let typed = array
+            .as_opt::<Primitive>()
+            .ok_or_else(|| vortex_err!("expected a primitive"))?;
+
+        let mut once = ProbeState::once(typed);
+        assert!(once.is_valid(0, &mut ctx)?);
+        assert!(!once.is_valid(1, &mut ctx)?);
+
+        let mut repeated = RepeatedState::<()>::default();
+        let mut state = ProbeState::repeated(typed, &mut repeated);
+        assert!(!state.is_valid(1, &mut ctx)?);
+        assert!(state.is_valid(2, &mut ctx)?);
+
+        let all_valid = PrimitiveArray::from_option_iter([Some(1i32)]).into_array();
+        let typed = all_valid
+            .as_opt::<Primitive>()
+            .ok_or_else(|| vortex_err!("expected a primitive"))?;
+        assert!(ProbeState::once(typed).is_valid(0, &mut ctx)?);
+        Ok(())
     }
 
     #[test]

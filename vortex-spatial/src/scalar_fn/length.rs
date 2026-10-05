@@ -31,6 +31,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -45,10 +46,10 @@ use crate::scalar_fn::execute::dispatch_unary;
 
 /// Validate the native lineal operand accepted by `ST_Length`.
 fn validate_length_operands(dtypes: &[DType]) -> VortexResult<()> {
-    vortex_ensure!(
-        dtypes.len() == 1,
-        "spatial: length requires exactly one lineal operand, got {}",
-        dtypes.len()
+    vortex_ensure_eq!(
+        dtypes.len(),
+        1,
+        "spatial: length requires exactly one lineal operand"
     );
     vortex_ensure!(
         dtypes[0].as_extension_opt().is_some_and(|extension| {

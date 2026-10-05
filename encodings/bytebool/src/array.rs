@@ -35,7 +35,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -101,16 +101,15 @@ impl VTable for ByteBool {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
         let data = ByteBoolData::new(buffers[0].clone());
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -151,7 +150,13 @@ impl VTable for ByteBool {
 
         let data = ByteBoolData::new(buffer);
         let slots = ByteBoolData::make_slots(&validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -223,11 +228,7 @@ impl ByteBool {
         let slots = ByteBoolData::make_slots(&validity, buffer.len());
         let data = ByteBoolData::new(buffer);
         let len = data.len();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data, slots)) }
     }
 
     /// Construct a [`ByteBoolArray`] from a `Vec<bool>` and validity.
@@ -260,17 +261,10 @@ impl ByteBoolData {
         len: usize,
     ) -> VortexResult<()> {
         let expected_dtype = DType::Bool(validity.nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "expected dtype {expected_dtype}, got {dtype}"
-        );
-        vortex_ensure!(
-            buffer.len() == len,
-            "expected len {len}, got {}",
-            buffer.len()
-        );
+        vortex_ensure_eq!(dtype, &expected_dtype);
+        vortex_ensure_eq!(buffer.len(), len);
         if let Some(vlen) = validity.maybe_len() {
-            vortex_ensure!(vlen == len, "expected validity len {len}, got {vlen}");
+            vortex_ensure_eq!(vlen, len);
         }
         Ok(())
     }

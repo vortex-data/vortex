@@ -418,7 +418,7 @@ macro_rules! vortex_bail {
 #[macro_export]
 macro_rules! vortex_ensure {
     ($cond:expr) => {
-        vortex_ensure!($cond, AssertionFailed: "{}", stringify!($cond));
+        $crate::vortex_ensure!($cond, AssertionFailed: "{}", stringify!($cond));
     };
     ($cond:expr, $($tt:tt)*) => {
         if !$cond {
@@ -427,17 +427,74 @@ macro_rules! vortex_ensure {
     };
 }
 
-/// A macro that mirrors `assert_eq!` but instead of panicking when left != right,
-/// it will immediately return an erroneous `VortexResult` to the calling context.
+/// A macro that mirrors `assert_eq!` but instead of panicking when `left != right`, it will
+/// immediately return an erroneous `VortexResult` to the calling context.
+///
+/// Both values must implement [`PartialEq`] and [`Display`], and each is
+/// evaluated exactly once. Use [`vortex_ensure!`] for values that do not implement `Display`.
+///
+/// By default this returns an [`AssertionFailed`](VortexError::AssertionFailed) error that
+/// shows both expressions and their values, so most callers do not need a message:
+///
+/// ```
+/// # use vortex_error::{VortexResult, vortex_ensure_eq};
+/// fn check(len: usize) -> VortexResult<()> {
+///     vortex_ensure_eq!(len, 2);
+///     Ok(())
+/// }
+///
+/// let err = check(3).unwrap_err().to_string();
+/// assert!(err.starts_with("Assertion failed error: `len == 2`\n  left: 3\n right: 2"));
+/// ```
+///
+/// A custom message, optionally prefixed with an error variant, replaces the expressions. The
+/// values are still appended, so the message does not need to repeat them:
+///
+/// ```
+/// # use vortex_error::{VortexResult, vortex_ensure_eq};
+/// fn check(len: usize) -> VortexResult<()> {
+///     vortex_ensure_eq!(len, 2, InvalidArgument: "map entries must have {} fields", 2);
+///     Ok(())
+/// }
+///
+/// let err = check(3).unwrap_err().to_string();
+/// assert!(err.starts_with(
+///     "Invalid argument error: map entries must have 2 fields\n  left: 3\n right: 2"
+/// ));
+/// ```
 #[macro_export]
 macro_rules! vortex_ensure_eq {
-    ($left:expr, $right:expr) => {
-        $crate::vortex_ensure_eq!($left, $right, AssertionFailed: "{} != {}: {:?} != {:?}", stringify!($left), stringify!($right), $left, $right);
-    };
-    ($left:expr, $right:expr, $($tt:tt)*) => {
-        if $left != $right {
-            $crate::vortex_bail!($($tt)*);
+    ($left:expr, $right:expr $(,)?) => {
+        match (&$left, &$right) {
+            (left_val, right_val) => {
+                if *left_val != *right_val {
+                    $crate::vortex_bail!(
+                        AssertionFailed: "`{} == {}`\n  left: {}\n right: {}",
+                        stringify!($left),
+                        stringify!($right),
+                        left_val,
+                        right_val
+                    );
+                }
+            }
         }
+    };
+    ($left:expr, $right:expr, $variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
+        match (&$left, &$right) {
+            (left_val, right_val) => {
+                if *left_val != *right_val {
+                    $crate::vortex_bail!(
+                        $variant: "{}\n  left: {}\n right: {}",
+                        format_args!($fmt $(, $arg)*),
+                        left_val,
+                        right_val
+                    );
+                }
+            }
+        }
+    };
+    ($left:expr, $right:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {
+        $crate::vortex_ensure_eq!($left, $right, Other: $fmt $(, $arg)*)
     };
 }
 

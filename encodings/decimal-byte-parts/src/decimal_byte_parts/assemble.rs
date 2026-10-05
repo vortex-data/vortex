@@ -23,6 +23,7 @@ use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::LOWER_PART_BITS;
 use super::LOWER_PART_DTYPE;
@@ -72,11 +73,7 @@ pub fn assemble_decimal(
             "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
             part.dtype()
         );
-        vortex_ensure!(
-            part.len() == len,
-            "lower part {idx} has len {}, expected {len}",
-            part.len()
-        );
+        vortex_ensure_eq!(part.len(), len, "lower part {idx} length mismatch");
     }
 
     assemble_wide_decimal_from_arrays(msp, lower_parts, validity, decimal_dtype, exec_ctx)

@@ -3,6 +3,8 @@
 
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_session::VortexSession;
@@ -15,5 +17,10 @@ pub(crate) fn initialize(session: &VortexSession) {
         Binary.id(),
         DecimalByteParts,
         CompareExecuteAdaptor(DecimalByteParts),
+    );
+    kernels.register_execute_parent_kernel(
+        Between.id(),
+        DecimalByteParts,
+        BetweenExecuteAdaptor(DecimalByteParts),
     );
 }

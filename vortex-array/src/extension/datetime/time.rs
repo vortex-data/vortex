@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
@@ -100,11 +101,11 @@ impl ExtVTable for Time {
         let ptype = time_ptype(metadata)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 
-        vortex_ensure!(
-            ext_dtype.storage_dtype().as_ptype() == ptype,
-            "Time storage dtype for {} must be {}",
-            metadata,
-            ptype
+        vortex_ensure_eq!(
+            ext_dtype.storage_dtype().as_ptype(),
+            ptype,
+            "Time storage dtype for {} has the wrong ptype",
+            metadata
         );
 
         Ok(())

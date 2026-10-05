@@ -4,11 +4,13 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -52,7 +54,7 @@ impl VTable for Null {
         _len: usize,
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
+        vortex_ensure_eq!(*dtype, DType::Null, "NullArray dtype must be DType::Null");
         Ok(())
     }
 
@@ -107,6 +109,7 @@ impl VTable for Null {
             dtype.clone(),
             len,
             EmptyArrayData,
+            ArraySlots::new(),
         ))
     }
 
@@ -169,7 +172,13 @@ pub struct Null;
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Null, DType::Null, len, EmptyArrayData))
+            Array::from_parts_unchecked(ArrayParts::new(
+                Null,
+                DType::Null,
+                len,
+                EmptyArrayData,
+                ArraySlots::new(),
+            ))
         }
     }
 }

@@ -30,6 +30,7 @@ use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
+use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRArraySlotsExt;
@@ -89,7 +90,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return matches!(arr.dtype().as_ptype(), PType::F32 | PType::F64);
     }
     if id == BitPacked.id() {
-        return true;
+        return is_bitpacked_with_global_bit_width(array);
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
@@ -156,11 +157,16 @@ fn is_dyn_dispatch_cast_compatible(array: &ArrayRef) -> bool {
 /// Returns `true` if a registered standalone kernel can decode the entire
 /// `array` tree in a single launch without recursing into `execute_cuda`
 /// for child encodings.
+///
+/// `FoR` requires a constant reference, and `BitPacked` requires a constant bit
+/// width.
 pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
 
-    // Leaf encodings: no children to recurse into.
-    if id == BitPacked.id() || id == Sequence.id() {
+    if id == BitPacked.id() {
+        return is_bitpacked_with_global_bit_width(array);
+    }
+    if id == Sequence.id() {
         return true;
     }
 
@@ -172,15 +178,21 @@ pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
         }
         let child = for_arr.encoded();
         if child.encoding_id() == BitPacked.id() {
-            return true;
+            return is_bitpacked_with_global_bit_width(child);
         }
         if let Some(slice) = child.as_opt::<Slice>() {
-            return slice.child().encoding_id() == BitPacked.id();
+            return is_bitpacked_with_global_bit_width(slice.child());
         }
         return false;
     }
 
     false
+}
+
+fn is_bitpacked_with_global_bit_width(array: &ArrayRef) -> bool {
+    array
+        .as_opt::<BitPacked>()
+        .is_some_and(|array| array.bit_widths().is_global())
 }
 
 /// Patch payload attached to the op that consumes it.
@@ -562,7 +574,8 @@ impl FusedPlan {
             let bp = child.as_::<BitPacked>();
             let offset = slice_arr.data().slice_range().start;
             let len = array.len();
-            let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+            let (packed, bit_width, bitpacked_offset, patch_range) =
+                bitpacked_slice_view(bp, offset, len)?;
 
             let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
                 vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
@@ -570,7 +583,7 @@ impl FusedPlan {
             let buf_index = self.source_buffers.len();
             self.source_buffers.push(Some(packed));
             return Ok(Stage::new(
-                SourceOp::bitunpack(bp.bit_width(), bitpacked_offset),
+                SourceOp::bitunpack(bit_width, bitpacked_offset),
                 Some(buf_index),
                 source_ptype,
             )
@@ -622,10 +635,13 @@ impl FusedPlan {
         let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
             vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
         })?);
+        let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
+            vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+        };
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
         Ok(Stage::new(
-            SourceOp::bitunpack(bp.bit_width(), bp.offset()),
+            SourceOp::bitunpack(bit_width, bp.offset()),
             Some(buf_index),
             source_ptype,
         )
@@ -903,13 +919,49 @@ impl FusedPlan {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::SliceArray;
     use vortex::array::builtins::ArrayBuiltins;
+    use vortex::buffer::Buffer;
+    use vortex::buffer::ByteBuffer;
+    use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
 
     use super::*;
+
+    #[rstest]
+    #[case::equal_steps(buffer![0u64, 512, 1024])]
+    #[case::different_widths(buffer![0u64, 384, 1024])]
+    fn materialized_bitpacked_offsets_have_no_standalone_kernel(
+        #[case] offsets: Buffer<u64>,
+    ) -> VortexResult<()> {
+        let bitpacked = BitPacked::try_new_with_block_offsets(
+            BufferHandle::new_host(ByteBuffer::zeroed(1024)),
+            PType::U32,
+            Validity::NonNullable,
+            None,
+            offsets.into_array(),
+            2048,
+            0,
+        )?
+        .into_array();
+        assert!(!has_standalone_kernel(&bitpacked));
+        assert!(matches!(
+            DispatchPlan::new(&bitpacked, CudaDispatchMode::Auto)?,
+            DispatchPlan::Unfused
+        ));
+
+        let for_bitpacked = FoR::try_new(bitpacked.clone(), 100u32.into())?.into_array();
+        assert!(!has_standalone_kernel(&for_bitpacked));
+
+        let sliced = SliceArray::new(bitpacked, 100..1500).into_array();
+        let for_sliced = FoR::try_new(sliced, 100u32.into())?.into_array();
+        assert!(!has_standalone_kernel(&for_sliced));
+        Ok(())
+    }
 
     #[test]
     fn cast_to_non_primitive_target_is_not_dyn_dispatch_compatible() -> VortexResult<()> {

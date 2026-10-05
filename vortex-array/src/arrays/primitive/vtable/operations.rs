@@ -17,9 +17,12 @@ impl OperationsVTable<Primitive> for Primitive {
     fn probe_scalar(
         state: &mut ProbeState<'_, Primitive>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
         Ok(match_each_native_ptype!(array.ptype(), |T| {
             Scalar::primitive(array.as_slice::<T>()[index], array.dtype().nullability())
         }))

@@ -132,6 +132,7 @@ impl BoundExpression {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
 
@@ -139,6 +140,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
+    use crate::expr::and;
     use crate::expr::cast;
     use crate::expr::eq;
     use crate::expr::get_item;
@@ -146,6 +149,7 @@ mod tests {
     use crate::expr::lt_eq;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::zip_expr;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
 
@@ -196,6 +200,35 @@ mod tests {
             .as_opt::<Literal>()
             .ok_or_else(|| vortex_err!("expected a bare literal RHS, got {optimized}"))?;
         assert_eq!(rhs, &Scalar::primitive(3.0f64, Nullability::NonNullable));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::and_annihilator(and(root(), lit(false)), DType::Bool(Nullability::Nullable))]
+    #[case::or_annihilator(or(root(), lit(true)), DType::Bool(Nullability::Nullable))]
+    #[case::and_nullable_identity(
+        and(root(), lit(Scalar::from(Some(true)))),
+        DType::Bool(Nullability::NonNullable)
+    )]
+    #[case::or_nullable_identity(
+        or(root(), lit(Scalar::from(Some(false)))),
+        DType::Bool(Nullability::NonNullable)
+    )]
+    #[case::zip_true(
+        zip_expr(lit(true), lit(1i32), root()),
+        DType::Primitive(PType::I32, Nullability::Nullable)
+    )]
+    #[case::zip_false(
+        zip_expr(lit(false), root(), lit(1i32)),
+        DType::Primitive(PType::I32, Nullability::Nullable)
+    )]
+    fn literal_simplification_preserves_result_dtype(
+        #[case] expr: Expression,
+        #[case] scope: DType,
+    ) -> VortexResult<()> {
+        let original = expr.bind(&scope)?;
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        assert_eq!(optimized.dtype(), original.dtype());
         Ok(())
     }
 }

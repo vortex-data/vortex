@@ -14,6 +14,7 @@ use datafusion_common::ScalarValue;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -21,6 +22,7 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -261,6 +263,9 @@ impl FileOpener for VortexOpener {
                 .transpose()?;
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
+
+            // TODO: support lambda pushdown.
+            let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
 
             let ProcessedProjection {
                 scan_projection,
@@ -528,6 +533,19 @@ impl NaturalSplits {
             assignment_bytes,
         }
     }
+}
+
+/// Whether any expression in `projection` contains a lambda.
+fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
+    for projection_expr in projection.iter() {
+        if projection_expr
+            .expr
+            .exists(|node| Ok(node.downcast_ref::<LambdaExpr>().is_some()))?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.

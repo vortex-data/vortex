@@ -341,32 +341,6 @@ impl<T> Buffer<T> {
         BufferMut::from_trusted_len_iter(iter).freeze()
     }
 
-    /// Map each element of the buffer with a closure.
-    pub fn map_each_in_place<R, F>(self, mut f: F) -> BufferMut<R>
-    where
-        T: Copy,
-        F: FnMut(T) -> R,
-    {
-        match self.try_into_mut() {
-            Ok(mut_buf) => mut_buf.map_each_in_place(f),
-            Err(buf) => {
-                let len = buf.len();
-                let allocator = buf.allocator().clone();
-                let mut out_buf = BufferMut::with_capacity_in(len, allocator);
-                out_buf
-                    .spare_capacity_mut()
-                    .iter_mut()
-                    .zip(buf)
-                    .for_each(|(out, in_)| {
-                        out.write(f(in_));
-                    });
-                // Safety: just assigned to each value
-                unsafe { out_buf.set_len(len) }
-                out_buf
-            }
-        }
-    }
-
     /// Clear the buffer, preserving existing capacity.
     pub fn clear(&mut self) {
         self.length = 0;

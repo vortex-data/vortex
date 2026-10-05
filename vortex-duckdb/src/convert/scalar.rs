@@ -32,7 +32,7 @@ use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::Date;
@@ -307,7 +307,7 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     Scalar::binary(b, Nullable),
                 )),
                 DType::Extension(ext) if ext.is::<Uuid>() => {
-                    vortex_ensure!(b.len() == 16, "UUID blob must be 16 bytes, got {}", b.len());
+                    vortex_ensure_eq!(b.len(), 16, "UUID blob must be 16 bytes");
                     let children = b
                         .iter()
                         .map(|&byte| Scalar::primitive(byte, NonNullable))

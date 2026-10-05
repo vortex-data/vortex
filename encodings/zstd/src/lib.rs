@@ -27,13 +27,14 @@ use vortex_array::session::ArraySessionExt;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 pub use zstd_buffers::*;
 
 mod array;
 mod compute;
+mod decompressor;
 pub mod editions;
 mod rules;
 mod slice;
@@ -68,9 +69,10 @@ pub(crate) fn validate_frame_content_size(
     let frame_content_size = zstd::zstd_safe::get_frame_content_size(frame)
         .map_err(|error| vortex_err!("Invalid zstd frame {index}: {error}"))?
         .ok_or_else(|| vortex_err!("Zstd frame {index} does not declare a content size"))?;
-    vortex_ensure!(
-        metadata_size == frame_content_size,
-        "Zstd frame {index} metadata declares {metadata_size} uncompressed bytes, but its header declares {frame_content_size}"
+    vortex_ensure_eq!(
+        metadata_size,
+        frame_content_size,
+        "Zstd frame {index} metadata declares a different uncompressed size than its header"
     );
     Ok(())
 }

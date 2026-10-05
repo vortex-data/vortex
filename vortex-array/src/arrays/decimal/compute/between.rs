@@ -10,7 +10,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
@@ -83,8 +82,9 @@ fn between_unpack<T: NativeDecimalType>(
         Some(v) => Some(v),
         None => {
             if lower_dv.as_i256() >= i256::ZERO {
+                let validity = arr.validity()?.union_nullability(nullability);
                 return Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                    BoolArray::new(BitBuffer::new_unset(arr.len()), validity).into_array(),
                 ));
             }
             None
@@ -95,8 +95,9 @@ fn between_unpack<T: NativeDecimalType>(
         Some(v) => Some(v),
         None => {
             if upper_dv.as_i256() < i256::ZERO {
+                let validity = arr.validity()?.union_nullability(nullability);
                 return Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                    BoolArray::new(BitBuffer::new_unset(arr.len()), validity).into_array(),
                 ));
             }
             None

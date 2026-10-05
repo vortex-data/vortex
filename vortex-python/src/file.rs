@@ -10,7 +10,6 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
@@ -168,21 +167,16 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
-        let vxf = slf.get().vxf.clone();
+        let vxf = &slf.get().vxf;
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
-        let indices = indices.map(|i| i.into_inner());
+        let indices = row_indices(slf.py(), indices)?;
 
-        slf.py().detach(move || {
-            let session = session();
-            let mut ctx = session.create_execution_ctx();
-            let builder =
-                scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?;
-            let runtime = current_runtime();
-            Ok(PyArrayIterator::new(Box::new(
-                builder.into_array_iter(&runtime)?,
-            )))
-        })
+        // Building the scan is lazy and cheap, so it runs without releasing the GIL.
+        let builder = scan_builder(vxf, projection, expr, limit, indices, batch_size)?;
+        Ok(PyArrayIterator::new(Box::new(
+            builder.into_array_iter(&current_runtime())?,
+        )))
     }
 
     #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
@@ -194,16 +188,12 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
-        let vxf = slf.get().vxf.clone();
+        let vxf = &slf.get().vxf;
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
-        let indices = indices.map(|i| i.into_inner());
+        let indices = row_indices(slf.py(), indices)?;
 
-        let scan = slf.py().detach(move || {
-            let session = session();
-            let mut ctx = session.create_execution_ctx();
-            scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?.prepare()
-        })?;
+        let scan = scan_builder(vxf, projection, expr, limit, indices, batch_size)?.prepare()?;
 
         Ok(PyRepeatedScan {
             scan: Arc::new(scan),
@@ -220,41 +210,40 @@ impl PyVortexFile {
         batch_size: Option<usize>,
         schema: Option<&Bound<PyAny>>,
     ) -> PyVortexResult<Py<PyAny>> {
-        let vxf = slf.get().vxf.clone();
+        let vxf = &slf.get().vxf;
         let schema = schema
             .map(|schema| Schema::from_pyarrow(&schema.as_borrowed()))
             .transpose()?
             .map(Arc::new);
 
-        let runtime = current_runtime();
-        let reader = slf.py().detach(|| {
-            let filter = expr
-                .map(|e| e.into_inner().bind(vxf.dtype())?.optimize_recursive())
-                .transpose()?;
-            let projection = projection
-                .map(|p| p.0)
-                .unwrap_or_else(root)
-                .bind(vxf.dtype())?
-                .optimize_recursive()?;
-            let mut builder = vxf
-                .scan()?
-                .with_some_filter(filter)
-                .with_projection(projection);
+        // Building the reader is lazy and cheap, so it runs without releasing the GIL. The scan
+        // runs as pyarrow pulls batches, and pyarrow releases the GIL while it does.
+        let filter = expr
+            .map(|e| e.into_inner().bind(vxf.dtype())?.optimize_recursive())
+            .transpose()?;
+        let projection = projection
+            .map(|p| p.0)
+            .unwrap_or_else(root)
+            .bind(vxf.dtype())?
+            .optimize_recursive()?;
+        let mut builder = vxf
+            .scan()?
+            .with_some_filter(filter)
+            .with_projection(projection);
 
-            if let Some(limit) = limit {
-                builder = builder.with_limit(limit);
-            }
+        if let Some(limit) = limit {
+            builder = builder.with_limit(limit);
+        }
 
-            if let Some(batch_size) = batch_size {
-                builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-            }
+        if let Some(batch_size) = batch_size {
+            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+        }
 
-            let schema = match schema {
-                Some(schema) => schema,
-                None => Arc::new(session().arrow().to_arrow_schema(&builder.dtype()?)?),
-            };
-            builder.into_record_batch_reader(schema, &runtime)
-        })?;
+        let schema = match schema {
+            Some(schema) => schema,
+            None => Arc::new(session().arrow().to_arrow_schema(&builder.dtype()?)?),
+        };
+        let reader = builder.into_record_batch_reader(schema, &current_runtime())?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
         Ok(rbr.into_pyarrow(slf.py())?)
@@ -275,14 +264,31 @@ impl PyVortexFile {
     }
 }
 
+/// Decode row indices into a sorted `u64` buffer, releasing the GIL since this is O(n).
+fn row_indices(
+    py: Python,
+    indices: Option<PyArrayRef>,
+) -> VortexResult<Option<StrictSortedBuffer<u64>>> {
+    let Some(indices) = indices else {
+        return Ok(None);
+    };
+    let indices = indices.into_inner();
+    py.detach(move || {
+        let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
+        let indices = casted
+            .execute::<PrimitiveArray>(&mut session().create_execution_ctx())?
+            .into_buffer::<u64>();
+        Ok(Some(StrictSortedBuffer::try_new(indices)?))
+    })
+}
+
 fn scan_builder(
     vxf: &VortexFile,
     projection: Option<Expression>,
     expr: Option<Expression>,
     limit: Option<u64>,
-    indices: Option<ArrayRef>,
+    indices: Option<StrictSortedBuffer<u64>>,
     batch_size: Option<usize>,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
     let projection = projection
         .unwrap_or_else(root)
@@ -301,9 +307,7 @@ fn scan_builder(
     }
 
     if let Some(indices) = indices {
-        let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
-        let indices = casted.execute::<PrimitiveArray>(ctx)?.into_buffer::<u64>();
-        builder = builder.with_row_indices(StrictSortedBuffer::try_new(indices)?);
+        builder = builder.with_row_indices(indices);
     }
 
     if let Some(batch_size) = batch_size {

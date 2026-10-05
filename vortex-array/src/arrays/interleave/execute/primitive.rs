@@ -10,6 +10,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -110,11 +111,10 @@ where
     R: AsPrimitive<usize>,
 {
     // `zip` truncates to the shorter input.
-    vortex_ensure!(
-        rows.len() == branches.len(),
-        "interleave selectors differ in length: array_indices {}, row_indices {}",
+    vortex_ensure_eq!(
+        rows.len(),
         branches.len(),
-        rows.len()
+        "interleave row_indices length does not match array_indices length",
     );
 
     let mut output = BufferMut::with_capacity_in(branches.len(), allocator.clone());

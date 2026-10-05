@@ -774,6 +774,7 @@ mod tests {
 
     use vortex_buffer::ByteBufferMut;
     use vortex_error::vortex_ensure;
+    use vortex_error::vortex_ensure_eq;
     use vortex_session::registry::CachedId;
 
     use super::*;
@@ -814,10 +815,10 @@ mod tests {
             array: &ArrayRef,
             _session: &VortexSession,
         ) -> VortexResult<Option<ArraySerialization>> {
-            vortex_ensure!(
-                array.encoding_id() == self.id(),
-                "versioned primitive serializer received {}",
+            vortex_ensure_eq!(
                 array.encoding_id(),
+                self.id(),
+                "versioned primitive serializer received a different encoding",
             );
 
             let serialized_id = if array.len() <= 4 {

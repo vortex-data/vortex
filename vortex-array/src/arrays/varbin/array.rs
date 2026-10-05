@@ -11,6 +11,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -31,6 +32,12 @@ use crate::dtype::OffsetBuilderPType;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
+
+/// Returns `true` if `index` is the end of `bytes` or the start of a UTF-8 char in it.
+fn is_char_boundary_at(bytes: &[u8], index: usize) -> bool {
+    // Continuation bytes have the form `0b10xx_xxxx`.
+    index == bytes.len() || bytes[index] & 0b1100_0000 != 0b1000_0000
+}
 
 #[array_slots(VarBin)]
 pub struct VarBinSlots {
@@ -217,11 +224,10 @@ impl VarBinData {
 
         // Check validity length
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len() - 1,
-                "Validity length {} doesn't match array length {}",
+            vortex_ensure_eq!(
                 validity_len,
-                offsets.len() - 1
+                offsets.len() - 1,
+                "Validity length doesn't match array length",
             );
         }
 
@@ -241,7 +247,12 @@ impl VarBinData {
     #[allow(clippy::disallowed_methods)]
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
-            let string_bytes = &bytes[start..end];
+            let string_bytes = bytes.get(start..end).ok_or_else(|| {
+                vortex_err!(
+                    InvalidArgument: "offsets {start}..{end} at index {i} are out of order or out of bounds for bytes of length {}",
+                    bytes.len()
+                )
+            })?;
             simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
                 #[expect(clippy::unwrap_used)]
                 // run validation using `compat` package to get more detailed error message
@@ -276,6 +287,21 @@ impl VarBinData {
                 last_offset,
                 bytes.len()
             );
+
+            // When the offsets never decrease, the strings tile `bytes[first..last]`. If that range
+            // is valid UTF-8 as a whole, every string is valid UTF-8 if and only if every offset
+            // falls on a char boundary. Otherwise, for example for invalid bytes at a null, check
+            // the strings one by one.
+            let first_offset: usize = offsets_slice[0].as_();
+            if offsets_slice.windows(2).all(|o| o[0] <= o[1])
+                && first_offset <= last_offset
+                && simdutf8::basic::from_utf8(&bytes[first_offset..last_offset]).is_ok()
+                && offsets_slice
+                    .iter()
+                    .all(|&o| is_char_boundary_at(bytes, o.as_()))
+            {
+                return Ok(());
+            }
 
             for (i, (start, end)) in offsets_slice
                 .windows(2)
@@ -475,9 +501,7 @@ impl Array<VarBin> {
             dtype.clone(),
             validity,
         );
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
     /// Creates a new `VarBinArray` without validation.
@@ -494,9 +518,7 @@ impl Array<VarBin> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = unsafe { VarBinData::new_unchecked(bytes) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
     /// Creates a new `VarBinArray` without validation from a [`BufferHandle`].
@@ -513,9 +535,7 @@ impl Array<VarBin> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `VarBinArray`.
@@ -531,9 +551,11 @@ impl Array<VarBin> {
         let slots = VarBinData::make_slots(offsets, &validity, len);
         // SAFETY: validate ensures all invariants are met.
         let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        })
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots))
+            },
+        )
     }
 }
 

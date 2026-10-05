@@ -26,6 +26,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
@@ -36,6 +37,8 @@ use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::require_child;
+use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -47,6 +50,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -396,9 +400,7 @@ impl OnPair {
             validity: validity_to_child(&validity, len),
         }
         .into_slots();
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data, slots)) }
     }
 }
 
@@ -490,21 +492,20 @@ impl VTable for OnPair {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
         let mut data = array.data().clone();
         data.dict_bytes = buffers[0].clone();
         // The replacement blob may differ from the one the memoized dictionary
         // was validated against, so drop the (shared) cell rather than
         // carry a claim we can no longer prove.
         data.dictionary = Arc::new(OnceLock::new());
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -596,7 +597,13 @@ impl VTable for OnPair {
             validity: validity_to_child(&validity, len),
         }
         .into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -604,6 +611,29 @@ impl VTable for OnPair {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(
+            array,
+            array.uncompressed_lengths(),
+            OnPairSlots::UNCOMPRESSED_LENGTHS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.codes_offsets(),
+            OnPairSlots::CODES_OFFSETS => Primitive
+        );
+        let array = require_child!(array, array.codes(), OnPairSlots::CODES => Primitive);
+        // The dictionary is built from its offsets once and memoised, so its child is only
+        // required while that has not happened.
+        let array = if array.data().dictionary.get().is_some() {
+            array
+        } else {
+            require_child!(
+                array,
+                array.dict_offsets(),
+                OnPairSlots::DICT_OFFSETS => Primitive
+            )
+        };
+        require_validity!(array, OnPairSlots::VALIDITY);
         canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 

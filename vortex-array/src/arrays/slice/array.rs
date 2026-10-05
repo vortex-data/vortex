@@ -79,10 +79,13 @@ impl Array<Slice> {
         let dtype = child.dtype().clone();
         let data = SliceData::try_new(child.len(), range)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data)
-                    .with_slots(SliceSlots { child }.into_slots()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Slice,
+                dtype,
+                len,
+                data,
+                SliceSlots { child }.into_slots(),
+            ))
         })
     }
 
@@ -92,10 +95,13 @@ impl Array<Slice> {
         let dtype = child.dtype().clone();
         let data = SliceData::new(range);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data)
-                    .with_slots(SliceSlots { child }.into_slots()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Slice,
+                dtype,
+                len,
+                data,
+                SliceSlots { child }.into_slots(),
+            ))
         }
     }
 }

@@ -27,17 +27,12 @@ pub struct StringStats {
 /// Estimate the number of distinct values in the var bin view array.
 fn estimate_distinct_count(varbinview: &VarBinViewArray) -> VortexResult<u32> {
     let views = varbinview.views();
-    // Iterate the views. Two values which are equal must have the same first 8-bytes.
+    // Equal values have equal heads, so distinct heads under-count distinct values.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
-    views.iter().for_each(|&view| {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "approximate uniqueness with view prefix"
-        )]
-        let len_and_prefix = view.as_u128() as u64;
-        distinct.insert(len_and_prefix);
+    views.iter().for_each(|view| {
+        distinct.insert(view.head());
     });
 
     Ok(u32::try_from(distinct.len())?)

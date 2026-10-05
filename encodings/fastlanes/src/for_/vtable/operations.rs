@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::Scalar;
+use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+
+use super::FoR;
+use crate::FL_CHUNK_SIZE;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRSlots;
+impl OperationsVTable<FoR> for FoR {
+    type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, FoR>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let array = state.array();
+        let encoded_pvalue = state
+            .slot(FoRSlots::ENCODED)?
+            .ok_or_else(|| vortex_err!("FoR encoded slot is missing"))?
+            .execute_scalar(index, ctx)?;
+        let encoded_pvalue = encoded_pvalue.as_primitive();
+        let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
+        let reference = state
+            .slot(FoRSlots::REFERENCES)?
+            .ok_or_else(|| vortex_err!("FoR references slot is missing"))?
+            .execute_scalar(chunk, ctx)?;
+        let reference = reference.as_primitive();
+
+        Ok(match_each_integer_ptype!(array.ptype(), |P| {
+            encoded_pvalue
+                .typed_value::<P>()
+                .map(|v| {
+                    v.wrapping_add(
+                        reference
+                            .typed_value::<P>()
+                            .vortex_expect("FoRArray Reference value cannot be null"),
+                    )
+                })
+                .map(|v| Scalar::primitive::<P>(v, array.dtype().nullability()))
+                .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
+        }))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, FoR>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::LazyLock;
+
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_session::VortexSession;
+
+    use crate::FoRData;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
+    #[test]
+    fn for_scalar_at() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let for_arr = FoRData::encode(
+            PrimitiveArray::from_iter([-100, 1100, 1500, 1900]),
+            &mut ctx,
+        )
+        .unwrap();
+        let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
+        assert_arrays_eq!(for_arr, expected, &mut ctx);
+    }
+}

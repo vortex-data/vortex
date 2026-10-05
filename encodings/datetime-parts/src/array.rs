@@ -34,7 +34,7 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -179,7 +179,13 @@ impl VTable for DateTimeParts {
 
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -280,9 +286,7 @@ impl DateTimeParts {
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data, slots))
         })
     }
 
@@ -309,7 +313,7 @@ impl DateTimePartsData {
         subseconds: &ArrayRef,
         len: usize,
     ) -> VortexResult<()> {
-        vortex_ensure!(days.len() == len, "expected len {len}, got {}", days.len());
+        vortex_ensure_eq!(days.len(), len);
 
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
             vortex_bail!(

@@ -847,7 +847,7 @@ fn test_offset_exceeding_elements_length() {
 }
 
 #[test]
-#[should_panic(expected = "validity with size 2 does not match array size 4")]
+#[should_panic(expected = "validity length does not match array size")]
 fn test_validity_length_mismatch() {
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 4, 5, 5].into_array();

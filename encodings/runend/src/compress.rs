@@ -190,11 +190,16 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<ArrayRef> {
     let validity_mask = values
         .as_ref()
         .validity()?
         .execute_mask(values.as_ref().len(), ctx)?;
+    if matches!(validity_mask, Mask::AllFalse(_)) {
+        return Ok(
+            ConstantArray::new(Scalar::null(values.dtype().as_nullable()), length).into_array(),
+        );
+    }
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
@@ -204,6 +209,7 @@ pub fn runend_decode_primitive(
                 values.dtype().nullability(),
                 length,
             )
+            .into_array()
         })
     }))
 }
@@ -294,11 +300,16 @@ pub fn runend_decode_decimal(
     offset: usize,
     length: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<DecimalArray> {
+) -> VortexResult<ArrayRef> {
     let validity_mask = values
         .as_ref()
         .validity()?
         .execute_mask(values.as_ref().len(), ctx)?;
+    if matches!(validity_mask, Mask::AllFalse(_)) {
+        return Ok(
+            ConstantArray::new(Scalar::null(values.dtype().as_nullable()), length).into_array(),
+        );
+    }
 
     Ok(match_each_decimal_value_type!(values.values_type(), |D| {
         let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
@@ -310,7 +321,7 @@ pub fn runend_decode_decimal(
                 length,
             )
         });
-        DecimalArray::new(decoded, values.decimal_dtype(), validity)
+        DecimalArray::new(decoded, values.decimal_dtype(), validity).into_array()
     }))
 }
 
@@ -321,11 +332,16 @@ pub fn runend_decode_varbinview(
     offset: usize,
     length: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<VarBinViewArray> {
+) -> VortexResult<ArrayRef> {
     let validity_mask = values
         .as_ref()
         .validity()?
         .execute_mask(values.as_ref().len(), ctx)?;
+    if matches!(validity_mask, Mask::AllFalse(_)) {
+        return Ok(
+            ConstantArray::new(Scalar::null(values.dtype().as_nullable()), length).into_array(),
+        );
+    }
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
@@ -345,7 +361,8 @@ pub fn runend_decode_varbinview(
     // buffers, so all buffer indices and offsets remain valid.
     Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(view_handle, parts.buffers, parts.dtype, validity)
-    })
+    }
+    .into_array())
 }
 
 #[cfg(test)]

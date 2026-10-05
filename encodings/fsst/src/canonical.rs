@@ -20,6 +20,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::FSST;
@@ -117,11 +118,7 @@ impl FsstDecodePlan {
         out: &mut [MaybeUninit<u8>],
     ) -> VortexResult<usize> {
         let len = decompressor.decompress_into(self.codes.as_slice(), out);
-        vortex_ensure!(
-            len == self.total_size,
-            "FSST decoded {len} bytes, expected {}",
-            self.total_size
-        );
+        vortex_ensure_eq!(len, self.total_size, "FSST decoded length mismatch");
         Ok(len)
     }
 }

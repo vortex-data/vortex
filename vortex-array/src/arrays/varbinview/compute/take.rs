@@ -9,7 +9,7 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -168,9 +168,10 @@ where
         .len()
         .checked_mul(length)
         .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    vortex_ensure_eq!(
+        computed_len,
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
@@ -184,10 +185,10 @@ where
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { views.set_len(cursor) };
-    vortex_ensure!(
-        views.len() == output_len,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        views.len()
+    vortex_ensure_eq!(
+        views.len(),
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
     Ok(views.freeze())
 }
@@ -214,10 +215,10 @@ where
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { views.set_len(cursor) };
-    vortex_ensure!(
-        views.len() == output_len,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        views.len()
+    vortex_ensure_eq!(
+        views.len(),
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
     Ok(views.freeze())
 }

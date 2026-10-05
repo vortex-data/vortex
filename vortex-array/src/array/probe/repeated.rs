@@ -16,14 +16,11 @@ use crate::array::probe::array::child_of;
 use crate::arrays::BoolArray;
 use crate::arrays::ScalarFn;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ArrayReduceNode;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeValidity;
 use crate::validity::Validity;
 
 /// A row accessor that owns its array and keeps preparation between reads.
 ///
-/// The encoding's state, the validity probe and the probes over child slots are created on
+/// The encoding's state, its validity probe and the probes over child slots are created on
 /// first use and reused by every following read. Dropping the probe drops all of them. Array
 /// handles share their buffers, so the probe can outlive the handle it was built from. Probes
 /// are local to a thread.
@@ -31,21 +28,12 @@ pub struct RepeatedArrayProbe {
     array: ArrayRef,
     /// The encoding's [`RepeatedState`], type-erased, created on the first read.
     state: Option<Box<dyn Any>>,
-    /// Resolved on the first read of a nullable array: `Some(valid)` for uniform validity,
-    /// otherwise `validity` holds a probe over the validity array, boxed because it is a probe.
-    uniform_validity: Option<bool>,
-    validity: Option<Box<RepeatedArrayProbe>>,
 }
 
 impl RepeatedArrayProbe {
     /// Own an array for repeated reads.
     pub fn new(array: ArrayRef) -> Self {
-        Self {
-            array,
-            state: None,
-            uniform_validity: None,
-            validity: None,
-        }
+        Self { array, state: None }
     }
 
     /// The array this probe reads from.
@@ -61,31 +49,12 @@ impl RepeatedArrayProbe {
 
     /// Read the scalar at `index`, including its nullness, reusing retained preparation.
     pub fn execute_scalar(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-        // For some scalar functions executing validity is equal to executing the
-        // function itself. Thus execute_is_valid + probe_scalar_retained do
-        // two evaluations instead of one. probe_scalar_once for such functions
-        // already gives you the nullable scalar, so skip the first check
-        // TODO(myrrc) this should be removed once we no longer probe validity here
-        if !self.irreducible_validity()? && !self.execute_is_valid(index, ctx)? {
-            return Ok(Scalar::null(self.array.dtype().clone()));
-        }
+        check_bounds(&self.array, index)?;
         let result =
             self.array
                 .dyn_array()
                 .probe_scalar_retained(&self.array, index, &mut self.state, ctx);
         check_dtype(&self.array, result)
-    }
-
-    fn irreducible_validity(&self) -> VortexResult<bool> {
-        if self.uniform_validity.is_some() || self.validity.is_some() {
-            return Ok(false);
-        }
-        Ok(self.array.dtype().is_nullable()
-            && self.array.is::<ScalarFn>()
-            && matches!(
-                ArrayReduceNode::new(&self.array).validity()?,
-                ReduceNodeValidity::Irreducible
-            ))
     }
 
     /// Whether the row at `index` is valid, through the retained validity.
@@ -94,40 +63,9 @@ impl RepeatedArrayProbe {
         if !self.array.dtype().is_nullable() {
             return Ok(true);
         }
-        if let Some(valid) = self.uniform_validity {
-            return Ok(valid);
-        }
-        if self.validity.is_none() {
-            match self.array.validity()? {
-                Validity::NonNullable | Validity::AllValid => {
-                    self.uniform_validity = Some(true);
-                    return Ok(true);
-                }
-                Validity::AllInvalid => {
-                    self.uniform_validity = Some(false);
-                    return Ok(false);
-                }
-                Validity::Array(array) => {
-                    // ScalarFn's validity mask is lazy but we don't want to
-                    // reevaluate it for every new probe request
-                    // TODO(myrrc) remove this once probing api allows us
-                    // to specify validity
-                    let array = if self.array.is::<ScalarFn>() {
-                        array.execute::<BoolArray>(ctx)?.into_array()
-                    } else {
-                        array
-                    };
-                    self.validity = Some(Box::new(RepeatedArrayProbe::new(array)));
-                }
-            }
-        }
-        self.validity
-            .as_mut()
-            .ok_or_else(|| vortex_err!("validity probe was just initialized"))?
-            .execute_scalar(index, ctx)?
-            .as_bool()
-            .value()
-            .ok_or_else(|| vortex_err!("validity value at index {index} is null"))
+        self.array
+            .dyn_array()
+            .probe_is_valid_retained(&self.array, index, &mut self.state, ctx)
     }
 
     /// Whether the row at `index` is null.
@@ -138,6 +76,53 @@ impl RepeatedArrayProbe {
     ) -> VortexResult<bool> {
         Ok(!self.execute_is_valid(index, ctx)?)
     }
+}
+
+/// The validity of a [`RepeatedState`], resolved on first use and kept between reads.
+enum ResolvedValidity {
+    Uniform(bool),
+    Array(RepeatedArrayProbe),
+}
+
+impl ResolvedValidity {
+    /// Whether row `index` is valid.
+    #[inline]
+    fn is_valid(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        match self {
+            Self::Uniform(valid) => Ok(*valid),
+            Self::Array(probe) => is_valid_scalar(probe.execute_scalar(index, ctx)?, index),
+        }
+    }
+
+    /// The resolved validity of `array`.
+    fn resolve(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        if !array.dtype().is_nullable() {
+            return Ok(Self::Uniform(true));
+        }
+        Ok(match array.validity()? {
+            Validity::NonNullable | Validity::AllValid => Self::Uniform(true),
+            Validity::AllInvalid => Self::Uniform(false),
+            Validity::Array(validity) => {
+                // ScalarFn validity is lazy; materialize it once instead of once per row.
+                // TODO(myrrc): remove this once the probing API can specify validity.
+                let validity = if array.is::<ScalarFn>() {
+                    validity.execute::<BoolArray>(ctx)?.into_array()
+                } else {
+                    validity
+                };
+                Self::Array(RepeatedArrayProbe::new(validity))
+            }
+        })
+    }
+}
+
+/// The validity bit read out of a validity array's scalar.
+#[inline]
+pub(super) fn is_valid_scalar(scalar: Scalar, index: usize) -> VortexResult<bool> {
+    scalar
+        .as_bool()
+        .value()
+        .ok_or_else(|| vortex_err!("validity value at index {index} is null"))
 }
 
 /// Get or create the [`RepeatedState`] for encoding state `S` in a probe's erased slot.
@@ -155,6 +140,8 @@ pub(crate) struct RepeatedState<S> {
     /// Probes over the source's child slots, allocated on first use. Slots that are never
     /// requested stay empty.
     slots: Vec<Option<RepeatedArrayProbe>>,
+    /// The source's validity, resolved on first use.
+    validity: Option<ResolvedValidity>,
 }
 
 impl<S: Default> Default for RepeatedState<S> {
@@ -162,6 +149,7 @@ impl<S: Default> Default for RepeatedState<S> {
         Self {
             state: S::default(),
             slots: Vec::new(),
+            validity: None,
         }
     }
 }
@@ -176,6 +164,21 @@ impl<S> RepeatedState<S> {
     #[inline]
     pub(super) fn split_mut(&mut self) -> (&mut S, &mut Vec<Option<RepeatedArrayProbe>>) {
         (&mut self.state, &mut self.slots)
+    }
+
+    /// Whether row `index` of `array` is valid, through the kept validity.
+    #[inline]
+    pub(crate) fn is_valid(
+        &mut self,
+        array: &ArrayRef,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let validity = match &mut self.validity {
+            Some(validity) => validity,
+            slot @ None => slot.insert(ResolvedValidity::resolve(array, ctx)?),
+        };
+        validity.is_valid(index, ctx)
     }
 }
 
@@ -231,13 +234,11 @@ mod tests {
         let mut probe = RepeatedArrayProbe::new(array.clone());
         drop(array);
         assert!(probe.state.is_none());
-        assert!(probe.validity.is_none());
 
         check_reads(probe.as_probe(), &mut ctx)?;
 
-        assert!(probe.state.is_some());
-        assert!(probe.validity.is_some());
-        assert!(probe.uniform_validity.is_none());
+        let state = repeated_state::<()>(&mut probe.state)?;
+        assert!(matches!(state.validity, Some(ResolvedValidity::Array(_))));
         Ok(())
     }
 
@@ -247,8 +248,42 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array();
         let mut probe = array.repeated_probe();
         assert!(probe.execute_is_valid(1, &mut ctx)?);
-        assert_eq!(probe.uniform_validity, Some(true));
-        assert!(probe.validity.is_none());
+        let state = repeated_state::<()>(&mut probe.state)?;
+        assert!(matches!(
+            state.validity,
+            Some(ResolvedValidity::Uniform(true))
+        ));
+        assert_eq!(probe.execute_scalar(1, &mut ctx)?, Scalar::from(Some(2i32)));
+        Ok(())
+    }
+
+    #[test]
+    fn validity_and_scalar_reads_share_the_validity_slot() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut probe = nullable_ints().repeated_probe();
+        assert!(!probe.execute_is_valid(1, &mut ctx)?);
+        let Some(ResolvedValidity::Array(validity)) =
+            &repeated_state::<()>(&mut probe.state)?.validity
+        else {
+            return Err(vortex_err!("validity slot should hold a probe"));
+        };
+        assert!(validity.state.is_some());
+        assert!(probe.execute_scalar(1, &mut ctx)?.is_null());
+        assert_eq!(
+            probe.execute_scalar(2, &mut ctx)?,
+            Scalar::from(Some(30i32))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn repeated_probe_reads_null_rows_through_encoding() -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let array = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
+        let mut probe = array.repeated_probe();
+        assert!(probe.execute_scalar(1, &mut ctx)?.is_null());
+        assert_eq!(probe.execute_scalar(0, &mut ctx)?, Scalar::from(Some(1i32)));
+        assert!(!probe.execute_is_valid(1, &mut ctx)?);
         Ok(())
     }
 

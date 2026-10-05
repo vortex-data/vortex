@@ -156,7 +156,7 @@ fn ensure_arity<F: RowFn>(function: &F, actual: usize) -> VortexResult<()> {
     vortex_ensure_eq!(
         actual,
         expected,
-        "row function {} requires arity {expected}, got {actual}",
+        "row function {} has the wrong arity",
         RowFn::id(function),
     );
 
@@ -421,7 +421,9 @@ mod tests {
         };
 
         assert!(
-            error.to_string().contains("expected a u64 column"),
+            error
+                .to_string()
+                .contains("row input column has the wrong ptype"),
             "unexpected error: {error}",
         );
         Ok(())
@@ -430,7 +432,7 @@ mod tests {
     #[track_caller]
     fn assert_arity_error(error: VortexError) {
         assert!(
-            error.to_string().contains("requires arity 1, got 0"),
+            error.to_string().contains("has the wrong arity"),
             "unexpected error: {error}",
         );
     }

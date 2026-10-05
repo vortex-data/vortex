@@ -86,9 +86,13 @@ impl ParquetVariant {
             typed_value,
         }
         .into_slots();
-        Array::try_from_parts(
-            ArrayParts::new(ParquetVariant, dtype, len, EmptyArrayData).with_slots(slots),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            ParquetVariant,
+            dtype,
+            len,
+            EmptyArrayData,
+            slots,
+        ))
     }
 
     /// Converts an Arrow `parquet_variant_compute::VariantArray` into Parquet Variant storage,

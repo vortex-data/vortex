@@ -33,7 +33,7 @@ use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -41,11 +41,14 @@ use vortex_session::registry::CachedId;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
+use crate::BitWidths;
+use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
+use crate::bitpacking::array::validate_block_offsets;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
@@ -62,7 +65,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
-        self.bit_width.hash(state);
+        self.global_bit_width.hash(state);
         self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
@@ -71,7 +74,7 @@ impl ArrayHash for BitPackedData {
 impl ArrayEq for BitPackedData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
-            && self.bit_width == other.bit_width
+            && self.global_bit_width == other.global_bit_width
             && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
@@ -95,7 +98,20 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
+        vortex_ensure_eq!(slots.len(), BitPackedSlots::COUNT);
         let bp_slots = BitPackedSlotsView::from_slots(slots);
+        match (data.global_bit_width, bp_slots.block_offsets) {
+            (Some(_), None) => {}
+            (None, Some(block_offsets)) => validate_block_offsets(
+                block_offsets,
+                dtype.as_ptype(),
+                (len + data.offset as usize).div_ceil(FL_CHUNK_SIZE),
+                data.packed.len(),
+            )?,
+            _ => {
+                vortex_bail!("BitPacked needs exactly one of a global bit width and block offsets")
+            }
+        }
 
         let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
         let patches =
@@ -105,7 +121,7 @@ impl VTable for BitPacked {
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.bit_width,
+            data.global_bit_width,
             len,
             data.offset,
         )
@@ -134,17 +150,16 @@ impl VTable for BitPacked {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
         let mut data = array.data().clone();
         data.packed = buffers[0].clone();
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -214,6 +229,7 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
+    /// Construct a bit-packed array whose blocks all use `bit_width`.
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,
@@ -225,23 +241,52 @@ impl BitPacked {
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
-            let mut s = ArraySlots::with_capacity(4);
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
+            s.push(None);
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
     }
 
+    /// Construct a bit-packed array from packed data and explicit block byte boundaries.
+    ///
+    /// `block_offsets` must be non-nullable unsigned integers with one boundary per block and a
+    /// trailing end boundary. Each block's bit width is derived from the distance between its
+    /// boundaries.
+    pub fn try_new_with_block_offsets(
+        packed: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+        patches: Option<Patches>,
+        block_offsets: ArrayRef,
+        len: usize,
+        offset: u16,
+    ) -> VortexResult<BitPackedArray> {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        let slots = {
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
+            PatchesData::push_slots(&mut s, patches.as_ref());
+            s.push(validity_to_child(&validity, len));
+            s.push(Some(block_offsets));
+            s
+        };
+        let data = BitPackedData::try_new_blocked(packed, patches, offset)?;
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
+    }
+
+    /// Split the array into its parts.
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {
         let len = array.len();
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
+        let bit_widths: BitWidths = array.bit_widths().into();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
-            bit_width: data.bit_width,
+            bit_widths,
             len,
             packed: data.packed,
             patches,

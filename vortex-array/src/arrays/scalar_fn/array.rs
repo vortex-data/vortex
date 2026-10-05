@@ -99,10 +99,13 @@ impl Array<ScalarFn> {
         let vtable = ScalarFn { id: scalar_fn.id() };
 
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(vtable, dtype, len, data)
-                    .with_slots(children.into_iter().map(Some).collect::<ArraySlots>()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                vtable,
+                dtype,
+                len,
+                data,
+                children.into_iter().map(Some).collect::<ArraySlots>(),
+            ))
         })
     }
 

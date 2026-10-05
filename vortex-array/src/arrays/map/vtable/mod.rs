@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -66,12 +67,7 @@ impl VTable for Map {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == MapSlots::COUNT,
-            "MapArray expected {} slot, found {}",
-            MapSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), MapSlots::COUNT);
 
         let DType::Map(map_dtype, nullability) = dtype else {
             vortex_bail!("Expected map dtype, got {dtype}");
@@ -127,12 +123,7 @@ impl VTable for Map {
         let DType::Map(map_dtype, nullability) = dtype else {
             vortex_bail!("Expected map dtype, got {dtype}");
         };
-        vortex_ensure!(
-            children.len() == MapSlots::COUNT,
-            "MapArray expected {} child, found {}",
-            MapSlots::COUNT,
-            children.len()
-        );
+        vortex_ensure_eq!(children.len(), MapSlots::COUNT);
 
         let expected_entries_dtype =
             DType::List(std::sync::Arc::new(map_dtype.entries_dtype()), *nullability);
@@ -144,7 +135,13 @@ impl VTable for Map {
         );
 
         let slots = MapData::make_slots(entries);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, MapData).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            MapData,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -34,6 +34,7 @@ use crate::arrow::FromPyArrow;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
 use crate::current_runtime;
+use crate::dataset::ProjectionColumn;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -125,7 +126,7 @@ pub fn read_url<'py>(
     py: Python<'py>,
     url: &str,
     store: Option<Bound<'py, PyAny>>,
-    projection: Option<Vec<Bound<'py, PyAny>>>,
+    projection: Option<Vec<ProjectionColumn>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
