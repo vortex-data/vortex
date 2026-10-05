@@ -153,12 +153,7 @@ pub(super) fn compare_bytes(
             compare_views_constant(&values.resolved_views(), value, op, ctx.allocator())
         }
         (BytesOperand::Constant { value, .. }, BytesOperand::Array { values, .. }) => {
-            compare_views_constant(
-                &values.resolved_views(),
-                value,
-                op.swap(),
-                ctx.allocator(),
-            )
+            compare_views_constant(&values.resolved_views(), value, op.swap(), ctx.allocator())
         }
         (BytesOperand::Constant { value: l, .. }, BytesOperand::Constant { value: r, .. }) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
