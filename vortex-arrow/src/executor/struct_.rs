@@ -26,7 +26,6 @@ use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrowArrayExecutor;
 use crate::ArrowExportOptions;
 use crate::executor::infer_nearest_arrow_field;
 use crate::executor::validity::to_arrow_null_buffer;
@@ -190,9 +189,12 @@ fn create_from_fields(
             let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
             for (name, vx_field) in names.iter().zip_eq(vortex_fields.iter()) {
                 let inferred = infer_nearest_arrow_field(vx_field, name.as_ref(), ctx)?;
-                let arrow_array = vx_field
-                    .clone()
-                    .execute_arrow_with_options(None, options, ctx)?;
+                let arrow_array = ctx.session().clone().arrow().execute_arrow_with_options(
+                    vx_field.clone(),
+                    None,
+                    options,
+                    ctx,
+                )?;
                 // The executed array is authoritative for the physical type; only the metadata is
                 // taken from the inferred field.
                 arrow_fields.push(Arc::new(

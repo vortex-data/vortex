@@ -76,17 +76,6 @@ pub trait ArrowArrayExecutor: Sized {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef>;
 
-    /// Execute this array into Arrow with explicit export options.
-    fn execute_arrow_with_options(
-        self,
-        data_type: Option<&DataType>,
-        options: &ArrowExportOptions,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowArrayRef> {
-        let _ = options;
-        self.execute_arrow(data_type, ctx)
-    }
-
     /// Execute the array to produce an Arrow `RecordBatch` with the given schema.
     #[deprecated(note = "Use an `ArrowSession` to perform conversions to/from Arrow arrays")]
     fn execute_record_batch(
@@ -117,19 +106,6 @@ impl ArrowArrayExecutor for ArrayRef {
         let target = data_type.map(|dt| Field::new("", dt.clone(), self.dtype().is_nullable()));
         let session = ctx.session().clone();
         session.arrow().execute_arrow(self, target.as_ref(), ctx)
-    }
-
-    fn execute_arrow_with_options(
-        self,
-        data_type: Option<&DataType>,
-        options: &ArrowExportOptions,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowArrayRef> {
-        let target = data_type.map(|dt| Field::new("", dt.clone(), self.dtype().is_nullable()));
-        let session = ctx.session().clone();
-        session
-            .arrow()
-            .execute_arrow_with_options(self, target.as_ref(), options, ctx)
     }
 
     fn execute_record_batches(

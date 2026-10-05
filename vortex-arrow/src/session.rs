@@ -559,8 +559,7 @@ impl ArrowSession {
 
     /// Execute a Vortex array into Arrow with explicit export options.
     ///
-    /// Options are propagated to nested arrays. Disabling buffer compaction preserves the
-    /// values and Arrow type, but may retain unused backing string or binary data.
+    /// Options are propagated to nested arrays and to registered export plugins.
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn execute_arrow_with_options(
         &self,

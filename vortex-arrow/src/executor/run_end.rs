@@ -26,8 +26,8 @@ use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayExt;
 use vortex_runend::RunEndArraySlotsExt;
 
-use crate::ArrowArrayExecutor;
 use crate::ArrowExportOptions;
+use crate::executor::execute_arrow_naive;
 use crate::session::ArrowSessionExt;
 
 /// Matches the encodings [`to_arrow_run_end`] requires for export.
@@ -94,11 +94,7 @@ fn run_end_to_arrow(
     let length = array.len();
     let offset = array.offset();
 
-    let arrow_ends =
-        array
-            .ends()
-            .clone()
-            .execute_arrow_with_options(Some(ends_type), options, ctx)?;
+    let arrow_ends = execute_arrow_naive(array.ends().clone(), Some(ends_type), options, ctx)?;
     let arrow_values = export_values(array.values().clone(), values_type, options, ctx)?;
 
     match ends_type {
