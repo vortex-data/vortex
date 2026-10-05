@@ -18,7 +18,6 @@ use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EmptyArrayData;
 use crate::IntoArray;
-use crate::TEST_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFnVTableExt;
@@ -33,6 +32,7 @@ use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
@@ -50,8 +50,9 @@ use crate::serde::SerializedArray;
 use crate::validity::Validity;
 
 fn roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
+    let session = array_session();
     let array_ctx = ArrayContext::empty();
-    let buffers = array.serialize(&array_ctx, &TEST_SESSION, &SerializeOptions::default())?;
+    let buffers = array.serialize(&array_ctx, &session, &SerializeOptions::default())?;
     let mut bytes = ByteBufferMut::empty();
     for buffer in buffers {
         bytes.extend_from_slice(buffer.as_ref());
@@ -61,7 +62,7 @@ fn roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
         array.dtype(),
         array.len(),
         &ReadContext::new(array_ctx.to_ids()),
-        &TEST_SESSION,
+        &session,
     )
 }
 
@@ -75,7 +76,7 @@ fn roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
 #[case::i64_upper(vec![0i64, i64::from(i32::MAX) + 1], PType::I64)]
 #[case::positive_signed(vec![0i64, 255], PType::I16)]
 fn test_signed_encoding(#[case] values: Vec<i64>, #[case] storage: PType) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let input = PrimitiveArray::from_iter(values);
     let encoded = NarrowArray::encode(input.clone(), &mut ctx)?;
     let stored_ptype = encoded.as_opt::<Narrow>().map_or_else(
@@ -96,7 +97,7 @@ fn test_signed_encoding(#[case] values: Vec<i64>, #[case] storage: PType) -> Vor
 #[case::u32(vec![65536u64, u64::from(u32::MAX)], PType::U32)]
 #[case::u64(vec![u64::from(u32::MAX) + 1, u64::MAX], PType::U64)]
 fn test_unsigned_encoding(#[case] values: Vec<u64>, #[case] storage: PType) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let input = PrimitiveArray::from_iter(values);
     let encoded = NarrowArray::encode(input.clone(), &mut ctx)?;
     let stored_ptype = encoded.as_opt::<Narrow>().map_or_else(
@@ -119,7 +120,7 @@ fn test_unsigned_encoding(#[case] values: Vec<u64>, #[case] storage: PType) -> V
     Validity::from_iter([false, true, false]),
 ))]
 fn test_null_payloads_and_empty(#[case] input: PrimitiveArray) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let encoded = NarrowArray::encode(input.clone(), &mut ctx)?;
 
     assert_eq!(
@@ -175,7 +176,7 @@ fn test_validate_slots() {
 
 #[test]
 fn test_flatten_and_scalar_dtype() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let child = PrimitiveArray::from_option_iter([Some(-128i8), None, Some(127)]).into_array();
     let inner = NarrowArray::try_new(child, DType::Primitive(PType::I16, Nullability::Nullable))?;
     let outer = NarrowArray::try_new(
@@ -198,7 +199,7 @@ fn test_flatten_and_scalar_dtype() -> VortexResult<()> {
 
 #[test]
 fn test_selection_and_fill_null() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let child =
         PrimitiveArray::from_option_iter([Some(-12i8), None, Some(34), Some(56)]).into_array();
     let array = NarrowArray::try_new(child, DType::Primitive(PType::I64, Nullability::Nullable))?
@@ -247,7 +248,7 @@ fn test_selection_and_fill_null() -> VortexResult<()> {
 
 #[test]
 fn test_cast_preserves_checked_nullability() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let child = PrimitiveArray::from_option_iter([Some(1i8), None]).into_array();
     let array = NarrowArray::try_new(child, DType::Primitive(PType::I32, Nullability::Nullable))?
         .into_array();
@@ -272,7 +273,7 @@ fn test_cast_preserves_checked_nullability() -> VortexResult<()> {
 #[case::nonnullable(Nullability::NonNullable)]
 #[case::nullable(Nullability::Nullable)]
 fn test_fill_null_preserves_result_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let child = PrimitiveArray::from_option_iter([Some(1i8), None]).into_array();
     let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
     let array = NarrowArray::try_new(child, dtype)?.into_array();
@@ -298,7 +299,7 @@ fn test_fill_null_preserves_result_dtype(#[case] nullability: Nullability) -> Vo
 #[case::gt(Operator::Gt)]
 #[case::ge(Operator::Gte)]
 fn test_comparison(#[case] operator: Operator) -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let input =
         PrimitiveArray::from_option_iter([Some(-128i64), None, Some(0), Some(127)]).into_array();
     let array = NarrowArray::encode(input.clone().execute::<PrimitiveArray>(&mut ctx)?, &mut ctx)?;
@@ -336,7 +337,8 @@ fn test_comparison(#[case] operator: Operator) -> VortexResult<()> {
 
 #[test]
 fn test_aggregate_partial_states() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let session = array_session();
+    let mut ctx = session.create_execution_ctx();
     let batches = [
         vec![Some(-128i64), None, Some(42)],
         vec![Some(127i64), None],
@@ -351,7 +353,7 @@ fn test_aggregate_partial_states() -> VortexResult<()> {
     ];
     for aggregate in fns {
         assert!(
-            TEST_SESSION
+            session
                 .aggregate_fns()
                 .find_aggregate_kernel(Narrow.id(), aggregate.id())
                 .is_some()
@@ -375,11 +377,12 @@ fn test_aggregate_partial_states() -> VortexResult<()> {
 
 #[test]
 fn test_unsupported_aggregate_keeps_logical_width() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let session = array_session();
+    let mut ctx = session.create_execution_ctx();
     let array =
         NarrowArray::try_new(buffer![-1i8, 0, 1].into_array(), PType::I64.into())?.into_array();
     let aggregate = UncompressedSizeInBytes.bind(EmptyOptions);
-    let kernel = TEST_SESSION
+    let kernel = session
         .aggregate_fns()
         .find_aggregate_kernel(Narrow.id(), aggregate.id())
         .vortex_expect("Narrow registers a fallback aggregate kernel");
@@ -394,7 +397,7 @@ fn test_unsupported_aggregate_keeps_logical_width() -> VortexResult<()> {
 
 #[test]
 fn test_encoded_child_serde() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let values = DictArray::try_new(
         buffer![2u8, 0, 1, 2].into_array(),
         buffer![-1i8, 0, 1].into_array(),
@@ -420,7 +423,7 @@ fn test_encoded_child_serde() -> VortexResult<()> {
 
 #[test]
 fn test_arithmetic_uses_logical_width() -> VortexResult<()> {
-    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let array =
         NarrowArray::try_new(buffer![120i8, -120].into_array(), PType::I64.into())?.into_array();
     let rhs = ConstantArray::new(Scalar::from(20i64), 2).into_array();
@@ -442,17 +445,11 @@ fn test_arithmetic_uses_logical_width() -> VortexResult<()> {
 #[case::unsigned(vec![PType::U8 as u8])]
 #[case::equal_width(vec![PType::I64 as u8])]
 fn test_reject_malformed_metadata(#[case] metadata: Vec<u8>) {
+    let session = array_session();
     let values = [buffer![1i8].into_array()];
     assert!(
         Narrow
-            .deserialize(
-                &PType::I64.into(),
-                1,
-                &metadata,
-                &[],
-                &values,
-                &TEST_SESSION
-            )
+            .deserialize(&PType::I64.into(), 1, &metadata, &[], &values, &session)
             .is_err()
     );
 }
