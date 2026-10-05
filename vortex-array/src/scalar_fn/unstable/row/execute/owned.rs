@@ -300,3 +300,41 @@ where
     // SAFETY: normal completion of `map_checked_into` initializes every output slot.
     Ok(unsafe { values.finish(row_count, ctx.allocator()) })
 }
+
+/// Decode every input column, then reduce failure evidence within fixed-size chunks.
+///
+/// This stays separate from [`execute_owned`] to preserve the default loop's codegen context.
+pub(crate) fn execute_owned_chunked<Args, Out, Prepared, Fail>(
+    args: &dyn ExecutionArgs,
+    ctx: &mut ExecutionCtx,
+    prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+    apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
+    finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+    Out: OutputElement,
+    Fail: FailureEvidence,
+{
+    // Errors and unwinds abandon partially initialized slots. The assertion ensures that no
+    // initialized value requires a destructor to run.
+    const { assert_owned_output_needs_no_drop::<Out>() };
+
+    let columns = Args::decode(args, ctx)?;
+    let prepared = prepare(Args::const_values(&columns));
+
+    let row_count = args.row_count();
+    let mut values = Out::with_capacity(row_count, ctx.allocator());
+    let output = &mut values.slots()[..row_count];
+
+    let Some(source) = decoded_source::<Args>(&columns, row_count) else {
+        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+    };
+    let failure = source.map_checked_chunked_into(output, |elements| apply(&prepared, elements));
+
+    // Defer rich error construction until after the row loop.
+    finish_failure(failure)?;
+
+    // SAFETY: normal completion of `map_checked_chunked_into` initializes every output slot.
+    Ok(unsafe { values.finish(row_count, ctx.allocator()) })
+}

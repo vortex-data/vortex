@@ -313,6 +313,29 @@ pub trait RowVisitor: private::Sealed + Sized {
         )
     }
 
+    /// Request chunked failure reduction for dense owned execution.
+    ///
+    /// This has the requirements and error handling of [`visit_deferred`](Self::visit_deferred).
+    /// Failure reduction must be associative, with [`Default`] as its identity. Dense execution
+    /// can reduce evidence within fixed-size chunks, while valid-row retries use their usual loops.
+    /// Choose this variant only with benchmark evidence for the dispatched computation.
+    fn visit_deferred_chunked<Args, Out, Fail>(
+        self,
+        apply: impl Fn(Args::Elems<'_>) -> (Out, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Out: OutputElement,
+        Fail: FailureEvidence,
+    {
+        self.visit_prepared_deferred_chunked::<Args, Out, (), Fail>(
+            |_| (),
+            move |&(), args| apply(args),
+            finish_failure,
+        )
+    }
+
     /// Visit a deferred row computation whose Boolean output is packed during evaluation.
     ///
     /// This has the same requirements and failure handling as
@@ -383,6 +406,24 @@ pub trait RowVisitor: private::Sealed + Sized {
         Args: IndexedElementTuple,
         Out: OutputElement,
         Fail: FailureEvidence;
+
+    /// The prepared form of [`visit_deferred_chunked`](Self::visit_deferred_chunked).
+    ///
+    /// Planning and valid-row execution can use the ordinary deferred visit. Dense owned
+    /// execution overrides this method to select the chunked kernel.
+    fn visit_prepared_deferred_chunked<Args, Out, Prepared, Fail>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Out: OutputElement,
+        Fail: FailureEvidence,
+    {
+        self.visit_prepared_deferred::<Args, Out, Prepared, Fail>(prepare, apply, finish_failure)
+    }
 
     /// The prepared form of [`visit_deferred_bool`](Self::visit_deferred_bool).
     fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(

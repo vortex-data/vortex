@@ -91,16 +91,20 @@ where
     Op: CheckedPrimitiveOp<T>,
     V: RowVisitor,
 {
-    visitor.visit_deferred::<(T, T), T, Op::Fail>(
-        |(lhs, rhs)| Op::apply(lhs, rhs),
-        |failure| {
-            if failure != <Op::Fail as Default>::default() {
-                return Err(numeric_error(Op::ERROR));
-            }
+    let apply = |(lhs, rhs)| Op::apply(lhs, rhs);
+    let finish_failure = |failure| {
+        if failure != <Op::Fail as Default>::default() {
+            return Err(numeric_error(Op::ERROR));
+        }
 
-            Ok(())
-        },
-    )
+        Ok(())
+    };
+
+    if Op::use_chunked_loop() {
+        visitor.visit_deferred_chunked::<(T, T), T, Op::Fail>(apply, finish_failure)
+    } else {
+        visitor.visit_deferred::<(T, T), T, Op::Fail>(apply, finish_failure)
+    }
 }
 
 fn visit_div<T, V>(visitor: V) -> VortexResult<V::VisitResult>

@@ -8,6 +8,7 @@
 
 mod owned;
 pub(super) use owned::execute_owned;
+pub(super) use owned::execute_owned_chunked;
 pub(super) use owned::execute_owned_filtered;
 pub(super) use owned::execute_owned_infallible;
 pub(super) use owned::execute_owned_infallible_filtered;
@@ -22,6 +23,7 @@ pub(super) use packed_bool::execute_owned_infallible_bool;
 mod retry;
 pub(super) use retry::DenseAttempt;
 pub(super) use retry::execute_owned_dense_attempt;
+pub(super) use retry::execute_owned_dense_attempt_chunked;
 
 mod sink;
 pub(super) use sink::execute_sink;

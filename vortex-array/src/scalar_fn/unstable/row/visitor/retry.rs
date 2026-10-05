@@ -33,6 +33,7 @@ use crate::scalar_fn::unstable::row::batch::BorrowedRowFnArgs;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 use crate::scalar_fn::unstable::row::execute::execute_bool_dense_attempt;
 use crate::scalar_fn::unstable::row::execute::execute_owned_dense_attempt;
+use crate::scalar_fn::unstable::row::execute::execute_owned_dense_attempt_chunked;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
 
@@ -146,6 +147,34 @@ impl<F: RowFn> RowVisitor for ExecuteDenseWithRetry<'_, '_, '_, F> {
         self.args.plan().ensure_reproduced_by(&visited)?;
 
         execute_owned_dense_attempt::<Args, Out, Prepared, Fail>(
+            self.args,
+            self.ctx,
+            prepare,
+            apply,
+            finish_failure,
+        )
+    }
+
+    fn visit_prepared_deferred_chunked<Args, Out, Prepared, Fail>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Out: OutputElement,
+        Fail: FailureEvidence,
+    {
+        const { assert_deferred_visit_contract::<F, Args, Out, Fail>() };
+        let visited = BatchPlan::new(
+            validate_owned_visit::<Args, Out>(self.args.dtypes())?,
+            self.output_dtype,
+            RowPolicy::for_deferred_output::<Args>(),
+        )?;
+        self.args.plan().ensure_reproduced_by(&visited)?;
+
+        execute_owned_dense_attempt_chunked::<Args, Out, Prepared, Fail>(
             self.args,
             self.ctx,
             prepare,

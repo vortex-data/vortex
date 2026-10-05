@@ -296,30 +296,54 @@ fn test_multiply_overflow_on_null_lane_ignored<T: NativePType>(
     Ok(())
 }
 
-/// An overflow late in the batch must still be reported, unless its row is null.
+/// Failures at a chunk boundary or in the remainder must survive reduction unless the row is null.
 #[rstest]
-#[case::reported(true)]
-#[case::suppressed_by_null(false)]
-fn test_multiply_overflow_survives_batch_reduction(
-    #[case] lane_is_valid: bool,
+#[case::unsigned_32(u32::MAX, 3, 9)]
+#[case::signed_16(i16::MAX, 3, 9)]
+#[case::signed_32(i32::MAX, 3, 9)]
+fn test_multiply_overflow_survives_batch_reduction<T: NativePType + Into<Scalar>>(
+    #[case] overflowing: T,
+    #[case] rhs: T,
+    #[case] product: T,
+    #[values(false, true)] lane_is_valid: bool,
+    #[values(63, 64, 128)] overflow_at: usize,
+    #[values(false, true)] constant_rhs: bool,
 ) -> VortexResult<()> {
-    const LEN: u32 = 1000;
-    const OVERFLOW_AT: u32 = 700;
+    const LEN: usize = 129;
 
     let mut ctx = array_session().create_execution_ctx();
-    let mut lhs: Vec<u32> = (0..LEN).map(|i| i % 100 + 1).collect();
-    lhs[OVERFLOW_AT as usize] = u32::MAX;
-
-    let validity = Validity::from_iter((0..LEN).map(|i| i != OVERFLOW_AT || lane_is_valid));
+    let mut lhs = vec![rhs; LEN];
+    lhs[overflow_at] = overflowing;
+    let validity = if lane_is_valid {
+        Validity::NonNullable
+    } else {
+        Validity::from_iter((0..LEN).map(|index| index != overflow_at))
+    };
+    let rhs = if constant_rhs {
+        ConstantArray::new(rhs, LEN).into_array()
+    } else {
+        PrimitiveArray::from_iter(vec![rhs; LEN]).into_array()
+    };
     let result = PrimitiveArray::new(Buffer::copy_from(&lhs), validity)
         .into_array()
-        .binary(
-            PrimitiveArray::from_iter(vec![3u32; LEN as usize]).into_array(),
-            Operator::Mul,
-        )?
+        .binary(rhs, Operator::Mul)?
         .execute::<RecursiveCanonical>(&mut ctx);
 
-    assert_eq!(result.is_err(), lane_is_valid);
+    if lane_is_valid {
+        assert!(
+            result.is_err(),
+            "overflow at row {overflow_at} must be reported"
+        );
+        return Ok(());
+    }
+
+    assert_arrays_eq!(
+        result?.0.into_array(),
+        PrimitiveArray::from_option_iter(
+            (0..LEN).map(|index| (index != overflow_at).then_some(product)),
+        ),
+        &mut ctx
+    );
 
     Ok(())
 }

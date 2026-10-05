@@ -355,6 +355,75 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         failed
     }
 
+    /// Write every lane and reduce failure evidence within fixed-size chunks.
+    ///
+    /// This has the value, validity, and output-length requirements of
+    /// [`map_checked_into`](Self::map_checked_into). Failure reduction must be associative, with
+    /// [`Default`] as its identity, because each chunk starts with fresh failure evidence.
+    ///
+    /// Fixed trip counts let LLVM combine checks across rows, but can also prevent efficient
+    /// instruction selection. Use this variant only when benchmarks favor it for the callback.
+    #[inline]
+    fn map_checked_chunked_into<R, Fail, Apply>(
+        self,
+        out: &mut [MaybeUninit<R>],
+        apply: Apply,
+    ) -> Fail
+    where
+        Fail: Copy + Default + BitOrAssign,
+        Apply: Fn(Self::Item) -> (R, Fail),
+    {
+        const {
+            assert!(
+                size_of::<Fail>() <= size_of::<R>(),
+                "failure evidence must be no wider than the value, or it bounds the vector width"
+            )
+        };
+
+        #[allow(clippy::inline_always)]
+        #[inline(always)]
+        fn chunk<S, R, Fail, Apply>(
+            values: &S,
+            out: &mut [MaybeUninit<R>],
+            apply: &Apply,
+            base: usize,
+            count: usize,
+        ) -> Fail
+        where
+            S: IndexedSource,
+            Fail: Copy + Default + BitOrAssign,
+            Apply: Fn(S::Item) -> (R, Fail),
+        {
+            let mut failed = Fail::default();
+            for offset in 0..count {
+                let idx = base + offset;
+                // SAFETY: the caller proves base + count <= values.len() == out.len().
+                let value = unsafe { values.get_unchecked(idx) };
+                let (result, failure) = apply(value);
+                failed |= failure;
+                // SAFETY: the same chunk bounds prove idx < out.len().
+                unsafe { out.get_unchecked_mut(idx).write(result) };
+            }
+            failed
+        }
+
+        let values = self;
+        let len = values.len();
+        assert_eq!(out.len(), len, "out must have the same length as values");
+
+        // Fixed trip counts let LLVM unroll checked loops independently of the surrounding code.
+        let chunks_count = len / CHUNK_LEN;
+        let remainder = len % CHUNK_LEN;
+        let mut failed = Fail::default();
+        for chunk_idx in 0..chunks_count {
+            failed |= chunk(&values, out, &apply, chunk_idx * CHUNK_LEN, CHUNK_LEN);
+        }
+        if remainder != 0 {
+            failed |= chunk(&values, out, &apply, chunks_count * CHUNK_LEN, remainder);
+        }
+        failed
+    }
+
     /// Fallible map with **no validity awareness at all** — every `None` returned
     /// by the closure is treated as a failure, even at null lanes.
     ///
@@ -750,6 +819,37 @@ mod tests {
         assert!(failed);
         // Failing lanes still write their (wrapped) value.
         assert_eq!(write_t(out)[76], 76);
+    }
+
+    #[test]
+    fn map_checked_chunked_into_reduces_all_chunks_and_initializes_every_lane() {
+        for len in [0usize, 1, 63, 64, 65, 127, 128, 129] {
+            let values: Vec<u32> = (0..len as u32).collect();
+            let mut out = vec![MaybeUninit::<u32>::uninit(); len];
+            let failed = values
+                .as_slice()
+                .map_checked_chunked_into(&mut out, |value| {
+                    let failure = if value % 64 == 0 {
+                        1u32 << (value / 64)
+                    } else {
+                        0
+                    };
+                    (value + 1, failure)
+                });
+
+            assert_eq!(failed, (1u32 << len.div_ceil(64)) - 1, "length {len}");
+            assert_eq!(write_t(out), (1..=len as u32).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "out must have the same length as values")]
+    fn map_checked_chunked_into_rejects_different_output_length() {
+        let values = [1u32; 64];
+        let mut out = [MaybeUninit::<u32>::uninit(); 63];
+        values
+            .as_slice()
+            .map_checked_chunked_into(&mut out, |value| (value, false));
     }
 
     #[test]
