@@ -50,7 +50,6 @@ use crate::cpp::duckdb_timestamp_ms;
 use crate::cpp::duckdb_timestamp_ns;
 use crate::cpp::duckdb_timestamp_s;
 use crate::duckdb::DataChunkRef;
-use crate::duckdb::ValidityRef;
 use crate::duckdb::VectorRef;
 use crate::exporter::precision_to_duckdb_storage_size;
 
@@ -94,22 +93,13 @@ fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = 
 
 /// Convert a duckdb i16 decimal which can be a Vortex i8 decimal, fill NULL
 /// values to 0
-fn i16_to_i8(values: &[i16], validity: &ValidityRef<'_>) -> Buffer<i8> {
+fn i16_to_i8(values: &[i16], validity: &Mask) -> Buffer<i8> {
     let mut buffer: BufferMut<i8> =
         BufferMut::from_trusted_len_iter(values.iter().map(|&v| v.as_()));
-    let Some(entries) = validity.entries() else {
-        return buffer.freeze();
-    };
-    for (entry_idx, &entry) in entries.iter().enumerate() {
-        let mut invalid = !entry;
-        while invalid != 0 {
-            let idx = entry_idx * 64 + invalid.trailing_zeros() as usize;
-            if idx >= buffer.len() {
-                break;
-            }
-            buffer[idx] = 0;
-            invalid &= invalid - 1;
-        }
+    match validity {
+        Mask::AllTrue(_) => {}
+        Mask::AllFalse(_) => buffer.fill(0),
+        Mask::Values(mask) => (!mask.bit_buffer()).for_each_set_index(|idx| buffer[idx] = 0),
     }
     buffer.freeze()
 }
@@ -327,20 +317,15 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let logical_type = vector.logical_type();
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
-            let validity_ref = vector.validity_ref(len);
-            let validity = validity_ref.to_validity();
+            let mask = vector.validity_ref(len).execute_mask();
+            let validity = Validity::from_mask(mask.clone(), Nullability::Nullable);
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
             match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8
-                    {
-                        DecimalArray::try_new(
-                            i16_to_i8(data, &validity_ref),
-                            decimal_dtype,
-                            validity,
-                        )
+                    if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8 {
+                        DecimalArray::try_new(i16_to_i8(data, &mask), decimal_dtype, validity)
                     } else {
                         DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                     }
