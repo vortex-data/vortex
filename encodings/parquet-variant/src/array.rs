@@ -455,7 +455,8 @@ pub trait ParquetVariantArrayExt:
         let metadata_arrow =
             session
                 .arrow()
-                .execute_arrow_with_options(metadata.clone(), None, options, ctx)?;
+                .with_options(options)
+                .execute_arrow(metadata.clone(), None, ctx)?;
         fields.push(Arc::new(Field::new(
             "metadata",
             metadata_arrow.data_type().clone(),
@@ -467,7 +468,8 @@ pub trait ParquetVariantArrayExt:
             let value_arrow =
                 session
                     .arrow()
-                    .execute_arrow_with_options(value.clone(), None, options, ctx)?;
+                    .with_options(options)
+                    .execute_arrow(value.clone(), None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
                 value_arrow.data_type().clone(),
@@ -477,10 +479,9 @@ pub trait ParquetVariantArrayExt:
         }
 
         if let Some(typed_value) = self.typed_value() {
-            let tv_arrow = session.arrow().execute_arrow_with_options(
+            let tv_arrow = session.arrow().with_options(options).execute_arrow(
                 typed_value.clone(),
                 None,
-                options,
                 ctx,
             )?;
             fields.push(Arc::new(Field::new(

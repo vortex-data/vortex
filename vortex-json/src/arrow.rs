@@ -95,10 +95,9 @@ impl ArrowExportVTable for Json {
         );
         let session = ctx.session().clone();
 
-        let storage = session.arrow().execute_arrow_with_options(
+        let storage = session.arrow().with_options(options).execute_arrow(
             storage,
             Some(&storage_field),
-            options,
             ctx,
         )?;
 
@@ -264,10 +263,9 @@ mod tests {
         let retains_backing = |options: &ArrowExportOptions,
                                ctx: &mut vortex_array::ExecutionCtx|
          -> VortexResult<bool> {
-            let exported = session.arrow().execute_arrow_with_options(
+            let exported = session.arrow().with_options(options).execute_arrow(
                 array.clone(),
                 Some(&field),
-                options,
                 ctx,
             )?;
             Ok(exported

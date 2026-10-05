@@ -84,12 +84,13 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
             );
         };
 
-        arrays.push(ctx.session().clone().arrow().execute_arrow_with_options(
-            child,
-            Some(field.as_ref()),
-            options,
-            ctx,
-        )?);
+        arrays.push(
+            ctx.session()
+                .clone()
+                .arrow()
+                .with_options(options)
+                .execute_arrow(child, Some(field.as_ref()), ctx)?,
+        );
     }
 
     let nulls = to_arrow_null_buffer(

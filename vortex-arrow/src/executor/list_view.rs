@@ -86,12 +86,12 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     } = array.into_data_parts();
 
     let n_elements = elements.len();
-    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
-        elements,
-        Some(elements_field.as_ref()),
-        options,
-        ctx,
-    )?;
+    let elements = ctx
+        .session()
+        .clone()
+        .arrow()
+        .with_options(options)
+        .execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"

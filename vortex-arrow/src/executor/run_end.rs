@@ -76,12 +76,11 @@ fn export_values(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    ctx.session().clone().arrow().execute_arrow_with_options(
-        values,
-        Some(values_type),
-        options,
-        ctx,
-    )
+    ctx.session()
+        .clone()
+        .arrow()
+        .with_options(options)
+        .execute_arrow(values, Some(values_type), ctx)
 }
 
 fn run_end_to_arrow(

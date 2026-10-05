@@ -543,69 +543,38 @@ impl ArrowSession {
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow_with_options(array, target, &ArrowExportOptions::default(), ctx)
+        self.with_options(&ArrowExportOptions::default())
+            .execute_arrow(array, target, ctx)
     }
 
-    /// Execute a Vortex array into Arrow with explicit export options.
+    /// Return an exporter that applies `options` to its exports.
     ///
-    /// Options are propagated to nested arrays and to registered export plugins.
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
-    pub fn execute_arrow_with_options(
-        &self,
-        array: ArrayRef,
-        target: Option<&Field>,
-        options: &ArrowExportOptions,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowArrayRef> {
-        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
-        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
-        //  can be expensive to copy.
-        let arrow_field;
-        let target_field = match target {
-            Some(field) => field,
-            None => {
-                let session = ctx.session().clone();
-                arrow_field = session.arrow().to_arrow_field("", array.dtype())?;
-                &arrow_field
-            }
-        };
-
-        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
-            // There can be multiple plugins that report support for a particular extension type.
-            // We try them in order until one of them reports a successful conversion.
-            let len = array.len();
-            let mut current = array;
-
-            for plugin in self.exporters(&Id::new(arrow_ext_name)).iter() {
-                trace!(
-                    plugin = ?plugin,
-                    extension_name = arrow_ext_name,
-                    "probing plugin for converting Arrow array"
-                );
-
-                match plugin.execute_arrow(current, target_field, options, ctx)? {
-                    ArrowExport::Exported(arrow) => {
-                        vortex_ensure!(
-                            arrow.len() == len,
-                            "Arrow array length does not match Vortex array length after conversion to {:?}",
-                            arrow
-                        );
-                        return Ok(arrow);
-                    }
-                    ArrowExport::Unsupported(array) => current = array,
-                }
-            }
-
-            debug!(
-                extension_id = arrow_ext_name,
-                data_type = ?target_field.data_type(),
-                "unsupported Arrow extension type encountered, falling back to naive execution"
-            );
-
-            return execute_arrow_naive(current, Some(target_field.data_type()), options, ctx);
+    /// ```
+    /// use arrow_array::Array;
+    /// use vortex_array::IntoArray;
+    /// use vortex_array::VortexSessionExecute;
+    /// use vortex_array::array_session;
+    /// use vortex_array::arrays::VarBinViewArray;
+    /// use vortex_arrow::ArrowExportOptions;
+    /// use vortex_arrow::ArrowSessionExt;
+    /// use vortex_arrow::CompactBuffers;
+    ///
+    /// let session = array_session();
+    /// let array = VarBinViewArray::from_iter_str(["a", "b"]).into_array();
+    /// let options = ArrowExportOptions::default().with(CompactBuffers(false));
+    /// let arrow = session.arrow().with_options(&options).execute_arrow(
+    ///     array,
+    ///     None,
+    ///     &mut session.create_execution_ctx(),
+    /// )?;
+    /// assert_eq!(arrow.len(), 2);
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    pub fn with_options<'a>(&'a self, options: &'a ArrowExportOptions) -> ArrowExporter<'a> {
+        ArrowExporter {
+            session: self,
+            options,
         }
-
-        execute_arrow_naive(array, target.map(|field| field.data_type()), options, ctx)
     }
 
     /// Decode an Arrow array into a Vortex array.
@@ -825,6 +794,81 @@ impl SessionVar for ArrowSession {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+/// An [`ArrowSession`] bound to [`ArrowExportOptions`], created by [`ArrowSession::with_options`].
+pub struct ArrowExporter<'a> {
+    session: &'a ArrowSession,
+    options: &'a ArrowExportOptions,
+}
+
+impl ArrowExporter<'_> {
+    /// Execute a Vortex array into an Arrow array with the bound options.
+    ///
+    /// Behaves like [`ArrowSession::execute_arrow`]. The options are propagated to nested arrays
+    /// and to registered export plugins.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    pub fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        target: Option<&Field>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
+        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
+        //  can be expensive to copy.
+        let arrow_field;
+        let target_field = match target {
+            Some(field) => field,
+            None => {
+                let session = ctx.session().clone();
+                arrow_field = session.arrow().to_arrow_field("", array.dtype())?;
+                &arrow_field
+            }
+        };
+
+        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
+            // There can be multiple plugins that report support for a particular extension type.
+            // We try them in order until one of them reports a successful conversion.
+            let len = array.len();
+            let mut current = array;
+
+            for plugin in self.session.exporters(&Id::new(arrow_ext_name)).iter() {
+                trace!(
+                    plugin = ?plugin,
+                    extension_name = arrow_ext_name,
+                    "probing plugin for converting Arrow array"
+                );
+
+                match plugin.execute_arrow(current, target_field, self.options, ctx)? {
+                    ArrowExport::Exported(arrow) => {
+                        vortex_ensure!(
+                            arrow.len() == len,
+                            "Arrow array length does not match Vortex array length after conversion to {:?}",
+                            arrow
+                        );
+                        return Ok(arrow);
+                    }
+                    ArrowExport::Unsupported(array) => current = array,
+                }
+            }
+
+            debug!(
+                extension_id = arrow_ext_name,
+                data_type = ?target_field.data_type(),
+                "unsupported Arrow extension type encountered, falling back to naive execution"
+            );
+
+            return execute_arrow_naive(current, Some(target_field.data_type()), self.options, ctx);
+        }
+
+        execute_arrow_naive(
+            array,
+            target.map(|field| field.data_type()),
+            self.options,
+            ctx,
+        )
     }
 }
 

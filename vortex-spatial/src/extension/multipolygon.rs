@@ -229,10 +229,9 @@ impl ArrowExportVTable for MultiPolygon {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session.arrow().execute_arrow_with_options(
+        let arrow_storage = session.arrow().with_options(options).execute_arrow(
             storage,
             Some(&storage_field),
-            options,
             ctx,
         )?;
 

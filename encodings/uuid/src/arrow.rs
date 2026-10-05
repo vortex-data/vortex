@@ -189,7 +189,8 @@ fn try_fsl_to_fsb(
     let arrow_storage =
         session
             .arrow()
-            .execute_arrow_with_options(storage, Some(&storage_field), options, ctx)?;
+            .with_options(options)
+            .execute_arrow(storage, Some(&storage_field), ctx)?;
 
     let fsl = arrow_storage.as_fixed_size_list();
     let bytes = fsl

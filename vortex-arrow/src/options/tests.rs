@@ -142,7 +142,8 @@ fn external_options_reach_nested_exporters() -> VortexResult<()> {
     let arrow =
         session
             .arrow()
-            .execute_arrow_with_options(array, Some(&field), &options, &mut ctx)?;
+            .with_options(&options)
+            .execute_arrow(array, Some(&field), &mut ctx)?;
     assert_eq!(arrow.len(), 1);
     assert_eq!(called.load(Ordering::Relaxed), 42);
     Ok(())
@@ -295,10 +296,9 @@ fn compaction_option_reaches_nested_views(
     };
 
     let (array, target) = shape.wrap(view.into_array(), expected.data_type().clone(), &mut ctx)?;
-    let arrow = session.arrow().execute_arrow_with_options(
+    let arrow = session.arrow().with_options(&options).execute_arrow(
         array,
         Some(&Field::new("", target, true)),
-        &options,
         &mut ctx,
     )?;
 

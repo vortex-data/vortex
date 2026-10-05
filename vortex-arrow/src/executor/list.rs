@@ -117,12 +117,12 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .to_buffer::<O>()
         .into_arrow_offset_buffer();
 
-    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
-        array.elements().clone(),
-        Some(elements_field.as_ref()),
-        options,
-        ctx,
-    )?;
+    let elements = ctx
+        .session()
+        .clone()
+        .arrow()
+        .with_options(options)
+        .execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -148,12 +148,12 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     assert!(array.is_zero_copy_to_list());
 
     if array.is_empty() {
-        let elements = ctx.session().clone().arrow().execute_arrow_with_options(
-            array.elements().clone(),
-            Some(elements_field.as_ref()),
-            options,
-            ctx,
-        )?;
+        let elements = ctx
+            .session()
+            .clone()
+            .arrow()
+            .with_options(options)
+            .execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
         return Ok(Arc::new(GenericListArray::<O>::new(
             Arc::clone(elements_field),
             OffsetBuffer::new_empty(),
@@ -202,12 +202,12 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     });
 
     // Extract the elements array.
-    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
-        elements,
-        Some(elements_field.as_ref()),
-        options,
-        ctx,
-    )?;
+    let elements = ctx
+        .session()
+        .clone()
+        .arrow()
+        .with_options(options)
+        .execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"

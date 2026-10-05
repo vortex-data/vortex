@@ -158,12 +158,12 @@ fn create_from_fields(
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
                 // Route through the session with the full Field (not just data_type) so any
                 // ARROW:extension:name metadata reaches the export-plugin dispatcher.
-                let arrow_field = ctx.session().clone().arrow().execute_arrow_with_options(
-                    vx_field.clone(),
-                    Some(field.as_ref()),
-                    options,
-                    ctx,
-                )?;
+                let arrow_field = ctx
+                    .session()
+                    .clone()
+                    .arrow()
+                    .with_options(options)
+                    .execute_arrow(vx_field.clone(), Some(field.as_ref()), ctx)?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
                     "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
@@ -189,12 +189,12 @@ fn create_from_fields(
             let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
             for (name, vx_field) in names.iter().zip_eq(vortex_fields.iter()) {
                 let inferred = infer_nearest_arrow_field(vx_field, name.as_ref(), ctx)?;
-                let arrow_array = ctx.session().clone().arrow().execute_arrow_with_options(
-                    vx_field.clone(),
-                    None,
-                    options,
-                    ctx,
-                )?;
+                let arrow_array = ctx
+                    .session()
+                    .clone()
+                    .arrow()
+                    .with_options(options)
+                    .execute_arrow(vx_field.clone(), None, ctx)?;
                 // The executed array is authoritative for the physical type; only the metadata is
                 // taken from the inferred field.
                 arrow_fields.push(Arc::new(

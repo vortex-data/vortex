@@ -55,12 +55,12 @@ fn list_to_list(
         list_size
     );
 
-    let elements = ctx.session().clone().arrow().execute_arrow_with_options(
-        array.elements().clone(),
-        Some(elements_field.as_ref()),
-        options,
-        ctx,
-    )?;
+    let elements = ctx
+        .session()
+        .clone()
+        .arrow()
+        .with_options(options)
+        .execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
