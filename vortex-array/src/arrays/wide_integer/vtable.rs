@@ -11,6 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -75,35 +76,23 @@ impl VTable for WideIntegerEncoding {
             data.values.is_aligned_to(alignment),
             "Integer storage is not aligned to {alignment:?}"
         );
-        vortex_ensure!(
-            slots.len() == 1,
-            "Expected one validity slot, got {}",
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), 1);
         let expected_dtype = integer_dtype(data.values_type, dtype.nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "Expected {expected_dtype}, got {dtype}"
-        );
+        vortex_ensure_eq!(dtype, &expected_dtype);
         vortex_ensure!(
             data.values
                 .len()
-                .is_multiple_of(data.values_type.byte_width())
-                && data.values.len() / data.values_type.byte_width() == len,
-            "Expected {len} integers, got {} bytes",
-            data.values.len()
+                .is_multiple_of(data.values_type.byte_width()),
+            "Integer buffer must contain whole values"
         );
+        vortex_ensure_eq!(data.values.len() / data.values_type.byte_width(), len);
         if let Some(validity) = &slots[0] {
             vortex_ensure!(
                 dtype.is_nullable(),
                 "Expected nullable dtype with a validity child, got {dtype}"
             );
-            vortex_ensure!(
-                validity.dtype() == &Validity::DTYPE && validity.len() == len,
-                "Expected {len} boolean validity values, got {} of dtype {}",
-                validity.len(),
-                validity.dtype()
-            );
+            vortex_ensure_eq!(validity.dtype(), &Validity::DTYPE);
+            vortex_ensure_eq!(validity.len(), len);
         }
 
         Ok(())
@@ -156,10 +145,7 @@ impl VTable for WideIntegerEncoding {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "Expected empty integer metadata, got {metadata:?}"
-        );
+        vortex_ensure_eq!(metadata.len(), 0);
         let values_type = signed_integer_type(dtype)
             .ok_or_else(|| vortex_err!("Expected a wide integer dtype, got {dtype}"))?;
         let array = WideIntegerArray::try_new_handle(
@@ -167,10 +153,7 @@ impl VTable for WideIntegerEncoding {
             values_type,
             fixed_width::deserialize_validity(dtype.nullability(), len, children)?,
         )?;
-        vortex_ensure!(
-            array.len() == len,
-            "Integer buffer length does not match declared length {len}"
-        );
+        vortex_ensure_eq!(array.len(), len);
         Ok(ArrayParts::new(
             Self,
             array.dtype().clone(),

@@ -14,6 +14,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::EmptyArrayData;
@@ -281,10 +282,7 @@ impl Array<Decimal> {
         })?;
         let len = values.len() / values_type.byte_width();
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                InvalidArgument: "Decimal validity must have {len} entries, got {validity_len}"
-            );
+            vortex_ensure_eq!(validity_len, len, InvalidArgument: "Decimal validity length mismatch");
         }
         let values = integer::from_buffer(IntegerBuffer {
             values,
@@ -376,10 +374,7 @@ impl Array<Decimal> {
             .clone()
             .execute::<DecimalArray>(ctx)?
             .materialize_values(ctx)?;
-        vortex_ensure!(
-            array.decimal_dtype() == patch_values.decimal_dtype(),
-            "Decimal patch dtype does not match the array"
-        );
+        vortex_ensure_eq!(array.decimal_dtype(), patch_values.decimal_dtype());
         let target = array.values_type().max(patch_values.values_type());
         let values = integer::cast_array(
             array.values(),

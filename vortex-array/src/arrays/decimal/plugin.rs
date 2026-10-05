@@ -9,6 +9,7 @@
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use super::Decimal;
@@ -67,11 +68,7 @@ impl ArrayPlugin for DecimalPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            parts.serialized_id == self.id(),
-            "Unknown decimal ID {}",
-            parts.serialized_id
-        );
+        vortex_ensure_eq!(parts.serialized_id, self.id());
         Ok(DecimalArray::try_from_parts(VTable::deserialize(
             &Decimal,
             parts.dtype,

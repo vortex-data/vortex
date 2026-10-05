@@ -13,7 +13,7 @@ mod validity;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -81,7 +81,7 @@ impl VTable for Decimal {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(buffers.is_empty(), "Decimal has no buffers");
+        vortex_ensure_eq!(buffers.len(), 0);
         Ok(
             ArrayParts::new(Self, array.dtype().clone(), array.len(), EmptyArrayData)
                 .with_slots(array.slots().iter().cloned().collect()),
@@ -106,7 +106,7 @@ impl VTable for Decimal {
         let DType::Decimal(decimal_dtype, nullability) = dtype else {
             vortex_bail!("Expected a decimal dtype, got {dtype}");
         };
-        vortex_ensure!(slots.len() == 1, "Decimal requires one integer child");
+        vortex_ensure_eq!(slots.len(), 1);
         let Some(values) = &slots[DecimalSlots::VALUES] else {
             vortex_bail!("Decimal requires an integer child");
         };
@@ -114,16 +114,8 @@ impl VTable for Decimal {
             DecimalType::smallest_decimal_value_type(decimal_dtype),
             *nullability,
         );
-        vortex_ensure!(
-            values.dtype() == &values_dtype,
-            "Decimal {dtype} requires integer child {values_dtype}, got {}",
-            values.dtype()
-        );
-        vortex_ensure!(
-            values.len() == len,
-            "Decimal length {len} does not match child length {}",
-            values.len()
-        );
+        vortex_ensure_eq!(values.dtype(), &values_dtype);
+        vortex_ensure_eq!(values.len(), len);
         Ok(())
     }
 
@@ -145,11 +137,7 @@ impl VTable for Decimal {
         let values = fixed_width::single_buffer(buffers)?;
         let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
         let array = DecimalArray::try_new_handle(values, values_type, *decimal_dtype, validity)?;
-        vortex_ensure!(
-            array.len() == len,
-            "Decimal buffer length {} does not match declared length {len}",
-            array.len()
-        );
+        vortex_ensure_eq!(array.len(), len);
         Ok(ArrayParts::new(Self, dtype.clone(), len, EmptyArrayData)
             .with_slots(array.slots().iter().cloned().collect()))
     }

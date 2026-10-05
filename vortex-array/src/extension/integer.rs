@@ -13,7 +13,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
@@ -95,11 +95,7 @@ impl WideInteger {
             vortex_bail!("Expected fixed-size integer bytes, got {storage_value:?}");
         };
         let width = width.byte_width();
-        vortex_ensure!(
-            values.len() == width,
-            "Expected {width} integer bytes, got {}",
-            values.len()
-        );
+        vortex_ensure_eq!(values.len(), width);
         let mut bytes = [0u8; 32];
         for (out, value) in bytes.iter_mut().zip(values) {
             let Some(ScalarValue::Primitive(PValue::U8(value))) = value else {
@@ -147,11 +143,7 @@ impl ExtVTable for WideInteger {
                 .vortex_expect("IntegerWidth is at most 32 bytes"),
             dtype.storage_dtype().nullability(),
         );
-        vortex_ensure!(
-            dtype.storage_dtype() == &expected,
-            "Expected integer storage {expected}, got {}",
-            dtype.storage_dtype()
-        );
+        vortex_ensure_eq!(dtype.storage_dtype(), &expected);
 
         Ok(())
     }
