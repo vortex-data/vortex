@@ -360,9 +360,14 @@ fn bench_dict_bp_codes_alp_for_bp_values_dynanmic_dispatch(c: &mut Criterion) {
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_tree = ALP::new(
-            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
-                .vortex_expect("for_new")
-                .into_array(),
+            FoR::try_new(
+                bp.into_array(),
+                for_arr
+                    .constant_reference()
+                    .vortex_expect("constant reference"),
+            )
+            .vortex_expect("for_new")
+            .into_array(),
             exponents,
             None,
         );
@@ -663,13 +668,16 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_bp = bp;
-        let values_reference: i32 = for_arr
-            .reference_scalar()
+        let values_reference: i32 = (&for_arr
+            .constant_reference()
+            .vortex_expect("constant reference"))
             .try_into()
             .vortex_expect("values reference");
         let values_for = FoR::try_new(
             values_bp.clone().into_array(),
-            for_arr.reference_scalar().clone(),
+            for_arr
+                .constant_reference()
+                .vortex_expect("constant reference"),
         )
         .vortex_expect("for_new")
         .into_array();
@@ -765,9 +773,14 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
             assert!(bp.patches().is_none(), "expected only ALP patches");
 
             let tree = ALP::new(
-                FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
-                    .vortex_expect("for_new")
-                    .into_array(),
+                FoR::try_new(
+                    bp.into_array(),
+                    for_arr
+                        .constant_reference()
+                        .vortex_expect("constant reference"),
+                )
+                .vortex_expect("for_new")
+                .into_array(),
                 alp_exponents,
                 patches,
             );
@@ -885,9 +898,14 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
             .vortex_expect("bitpack encode");
 
         let tree = ALP::new(
-            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
-                .vortex_expect("for_new")
-                .into_array(),
+            FoR::try_new(
+                bp.into_array(),
+                for_arr
+                    .constant_reference()
+                    .vortex_expect("constant reference"),
+            )
+            .vortex_expect("for_new")
+            .into_array(),
             exponents,
             None,
         );

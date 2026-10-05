@@ -1,0 +1,1436 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT s_store_name,
+       sum(ss_net_profit)
+FROM store_sales,
+     date_dim,
+     store,
+  (SELECT ca_zip
+   FROM
+     (SELECT SUBSTRING(ca_zip, 1, 5) ca_zip
+      FROM customer_address
+      WHERE SUBSTRING(ca_zip, 1, 5) IN ('24128',
+                                     '76232',
+                                     '65084',
+                                     '87816',
+                                     '83926',
+                                     '77556',
+                                     '20548',
+                                     '26231',
+                                     '43848',
+                                     '15126',
+                                     '91137',
+                                     '61265',
+                                     '98294',
+                                     '25782',
+                                     '17920',
+                                     '18426',
+                                     '98235',
+                                     '40081',
+                                     '84093',
+                                     '28577',
+                                     '55565',
+                                     '17183',
+                                     '54601',
+                                     '67897',
+                                     '22752',
+                                     '86284',
+                                     '18376',
+                                     '38607',
+                                     '45200',
+                                     '21756',
+                                     '29741',
+                                     '96765',
+                                     '23932',
+                                     '89360',
+                                     '29839',
+                                     '25989',
+                                     '28898',
+                                     '91068',
+                                     '72550',
+                                     '10390',
+                                     '18845',
+                                     '47770',
+                                     '82636',
+                                     '41367',
+                                     '76638',
+                                     '86198',
+                                     '81312',
+                                     '37126',
+                                     '39192',
+                                     '88424',
+                                     '72175',
+                                     '81426',
+                                     '53672',
+                                     '10445',
+                                     '42666',
+                                     '66864',
+                                     '66708',
+                                     '41248',
+                                     '48583',
+                                     '82276',
+                                     '18842',
+                                     '78890',
+                                     '49448',
+                                     '14089',
+                                     '38122',
+                                     '34425',
+                                     '79077',
+                                     '19849',
+                                     '43285',
+                                     '39861',
+                                     '66162',
+                                     '77610',
+                                     '13695',
+                                     '99543',
+                                     '83444',
+                                     '83041',
+                                     '12305',
+                                     '57665',
+                                     '68341',
+                                     '25003',
+                                     '57834',
+                                     '62878',
+                                     '49130',
+                                     '81096',
+                                     '18840',
+                                     '27700',
+                                     '23470',
+                                     '50412',
+                                     '21195',
+                                     '16021',
+                                     '76107',
+                                     '71954',
+                                     '68309',
+                                     '18119',
+                                     '98359',
+                                     '64544',
+                                     '10336',
+                                     '86379',
+                                     '27068',
+                                     '39736',
+                                     '98569',
+                                     '28915',
+                                     '24206',
+                                     '56529',
+                                     '57647',
+                                     '54917',
+                                     '42961',
+                                     '91110',
+                                     '63981',
+                                     '14922',
+                                     '36420',
+                                     '23006',
+                                     '67467',
+                                     '32754',
+                                     '30903',
+                                     '20260',
+                                     '31671',
+                                     '51798',
+                                     '72325',
+                                     '85816',
+                                     '68621',
+                                     '13955',
+                                     '36446',
+                                     '41766',
+                                     '68806',
+                                     '16725',
+                                     '15146',
+                                     '22744',
+                                     '35850',
+                                     '88086',
+                                     '51649',
+                                     '18270',
+                                     '52867',
+                                     '39972',
+                                     '96976',
+                                     '63792',
+                                     '11376',
+                                     '94898',
+                                     '13595',
+                                     '10516',
+                                     '90225',
+                                     '58943',
+                                     '39371',
+                                     '94945',
+                                     '28587',
+                                     '96576',
+                                     '57855',
+                                     '28488',
+                                     '26105',
+                                     '83933',
+                                     '25858',
+                                     '34322',
+                                     '44438',
+                                     '73171',
+                                     '30122',
+                                     '34102',
+                                     '22685',
+                                     '71256',
+                                     '78451',
+                                     '54364',
+                                     '13354',
+                                     '45375',
+                                     '40558',
+                                     '56458',
+                                     '28286',
+                                     '45266',
+                                     '47305',
+                                     '69399',
+                                     '83921',
+                                     '26233',
+                                     '11101',
+                                     '15371',
+                                     '69913',
+                                     '35942',
+                                     '15882',
+                                     '25631',
+                                     '24610',
+                                     '44165',
+                                     '99076',
+                                     '33786',
+                                     '70738',
+                                     '26653',
+                                     '14328',
+                                     '72305',
+                                     '62496',
+                                     '22152',
+                                     '10144',
+                                     '64147',
+                                     '48425',
+                                     '14663',
+                                     '21076',
+                                     '18799',
+                                     '30450',
+                                     '63089',
+                                     '81019',
+                                     '68893',
+                                     '24996',
+                                     '51200',
+                                     '51211',
+                                     '45692',
+                                     '92712',
+                                     '70466',
+                                     '79994',
+                                     '22437',
+                                     '25280',
+                                     '38935',
+                                     '71791',
+                                     '73134',
+                                     '56571',
+                                     '14060',
+                                     '19505',
+                                     '72425',
+                                     '56575',
+                                     '74351',
+                                     '68786',
+                                     '51650',
+                                     '20004',
+                                     '18383',
+                                     '76614',
+                                     '11634',
+                                     '18906',
+                                     '15765',
+                                     '41368',
+                                     '73241',
+                                     '76698',
+                                     '78567',
+                                     '97189',
+                                     '28545',
+                                     '76231',
+                                     '75691',
+                                     '22246',
+                                     '51061',
+                                     '90578',
+                                     '56691',
+                                     '68014',
+                                     '51103',
+                                     '94167',
+                                     '57047',
+                                     '14867',
+                                     '73520',
+                                     '15734',
+                                     '63435',
+                                     '25733',
+                                     '35474',
+                                     '24676',
+                                     '94627',
+                                     '53535',
+                                     '17879',
+                                     '15559',
+                                     '53268',
+                                     '59166',
+                                     '11928',
+                                     '59402',
+                                     '33282',
+                                     '45721',
+                                     '43933',
+                                     '68101',
+                                     '33515',
+                                     '36634',
+                                     '71286',
+                                     '19736',
+                                     '58058',
+                                     '55253',
+                                     '67473',
+                                     '41918',
+                                     '19515',
+                                     '36495',
+                                     '19430',
+                                     '22351',
+                                     '77191',
+                                     '91393',
+                                     '49156',
+                                     '50298',
+                                     '87501',
+                                     '18652',
+                                     '53179',
+                                     '18767',
+                                     '63193',
+                                     '23968',
+                                     '65164',
+                                     '68880',
+                                     '21286',
+                                     '72823',
+                                     '58470',
+                                     '67301',
+                                     '13394',
+                                     '31016',
+                                     '70372',
+                                     '67030',
+                                     '40604',
+                                     '24317',
+                                     '45748',
+                                     '39127',
+                                     '26065',
+                                     '77721',
+                                     '31029',
+                                     '31880',
+                                     '60576',
+                                     '24671',
+                                     '45549',
+                                     '13376',
+                                     '50016',
+                                     '33123',
+                                     '19769',
+                                     '22927',
+                                     '97789',
+                                     '46081',
+                                     '72151',
+                                     '15723',
+                                     '46136',
+                                     '51949',
+                                     '68100',
+                                     '96888',
+                                     '64528',
+                                     '14171',
+                                     '79777',
+                                     '28709',
+                                     '11489',
+                                     '25103',
+                                     '32213',
+                                     '78668',
+                                     '22245',
+                                     '15798',
+                                     '27156',
+                                     '37930',
+                                     '62971',
+                                     '21337',
+                                     '51622',
+                                     '67853',
+                                     '10567',
+                                     '38415',
+                                     '15455',
+                                     '58263',
+                                     '42029',
+                                     '60279',
+                                     '37125',
+                                     '56240',
+                                     '88190',
+                                     '50308',
+                                     '26859',
+                                     '64457',
+                                     '89091',
+                                     '82136',
+                                     '62377',
+                                     '36233',
+                                     '63837',
+                                     '58078',
+                                     '17043',
+                                     '30010',
+                                     '60099',
+                                     '28810',
+                                     '98025',
+                                     '29178',
+                                     '87343',
+                                     '73273',
+                                     '30469',
+                                     '64034',
+                                     '39516',
+                                     '86057',
+                                     '21309',
+                                     '90257',
+                                     '67875',
+                                     '40162',
+                                     '11356',
+                                     '73650',
+                                     '61810',
+                                     '72013',
+                                     '30431',
+                                     '22461',
+                                     '19512',
+                                     '13375',
+                                     '55307',
+                                     '30625',
+                                     '83849',
+                                     '68908',
+                                     '26689',
+                                     '96451',
+                                     '38193',
+                                     '46820',
+                                     '88885',
+                                     '84935',
+                                     '69035',
+                                     '83144',
+                                     '47537',
+                                     '56616',
+                                     '94983',
+                                     '48033',
+                                     '69952',
+                                     '25486',
+                                     '61547',
+                                     '27385',
+                                     '61860',
+                                     '58048',
+                                     '56910',
+                                     '16807',
+                                     '17871',
+                                     '35258',
+                                     '31387',
+                                     '35458',
+                                     '35576') INTERSECT
+        SELECT ca_zip
+        FROM
+          (SELECT SUBSTRING(ca_zip, 1, 5) ca_zip,
+                  count(*) cnt
+           FROM customer_address,
+                customer
+           WHERE ca_address_sk = c_current_addr_sk
+             AND c_preferred_cust_flag='Y'
+           GROUP BY ca_zip
+           HAVING count(*) > 10)A1)A2) V1
+WHERE ss_store_sk = s_store_sk
+  AND ss_sold_date_sk = d_date_sk
+  AND d_qoy = 2
+  AND d_year = 1998
+  AND (SUBSTRING(s_zip, 1, 2) = SUBSTRING(V1.ca_zip, 1, 2))
+GROUP BY s_store_name
+ORDER BY s_store_name
+LIMIT 100;
+----
+logical_plan [
+    {
+        "name": "LIMIT",
+        "children": [
+            {
+                "name": "ORDER_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "FILTER",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "CROSS_PRODUCT",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": "",
+                                                                                    "Function": "Vortex Scan"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "ss_sold_date_sk",
+                                                                                "ss_sold_time_sk",
+                                                                                "ss_item_sk",
+                                                                                "ss_customer_sk",
+                                                                                "ss_cdemo_sk",
+                                                                                "ss_hdemo_sk",
+                                                                                "ss_addr_sk",
+                                                                                "ss_store_sk",
+                                                                                "ss_promo_sk",
+                                                                                "ss_ticket_number",
+                                                                                "ss_quantity",
+                                                                                "ss_wholesale_cost",
+                                                                                "ss_list_price",
+                                                                                "ss_sales_price",
+                                                                                "ss_ext_discount_amt",
+                                                                                "ss_ext_sales_price",
+                                                                                "ss_ext_wholesale_cost",
+                                                                                "ss_ext_list_price",
+                                                                                "ss_ext_tax",
+                                                                                "ss_coupon_amt",
+                                                                                "ss_net_paid",
+                                                                                "ss_net_paid_inc_tax",
+                                                                                "ss_net_profit"
+                                                                            ]
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": "",
+                                                                                    "Function": "Vortex Scan"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "d_date_sk",
+                                                                                "d_date_id",
+                                                                                "d_date",
+                                                                                "d_month_seq",
+                                                                                "d_week_seq",
+                                                                                "d_quarter_seq",
+                                                                                "d_year",
+                                                                                "d_dow",
+                                                                                "d_moy",
+                                                                                "d_dom",
+                                                                                "d_qoy",
+                                                                                "d_fy_year",
+                                                                                "d_fy_quarter_seq",
+                                                                                "d_fy_week_seq",
+                                                                                "d_day_name",
+                                                                                "d_quarter_name",
+                                                                                "d_holiday",
+                                                                                "d_weekend",
+                                                                                "d_following_holiday",
+                                                                                "d_first_dom",
+                                                                                "d_last_dom",
+                                                                                "d_same_day_ly",
+                                                                                "d_same_day_lq",
+                                                                                "d_current_day",
+                                                                                "d_current_week",
+                                                                                "d_current_month",
+                                                                                "d_current_quarter",
+                                                                                "d_current_year"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": ""
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "s_store_sk",
+                                                                        "s_store_id",
+                                                                        "s_rec_start_date",
+                                                                        "s_rec_end_date",
+                                                                        "s_closed_date_sk",
+                                                                        "s_store_name",
+                                                                        "s_number_employees",
+                                                                        "s_floor_space",
+                                                                        "s_hours",
+                                                                        "s_manager",
+                                                                        "s_market_id",
+                                                                        "s_geography_class",
+                                                                        "s_market_desc",
+                                                                        "s_market_manager",
+                                                                        "s_division_id",
+                                                                        "s_division_name",
+                                                                        "s_company_id",
+                                                                        "s_company_name",
+                                                                        "s_street_number",
+                                                                        "s_street_name",
+                                                                        "s_street_type",
+                                                                        "s_suite_number",
+                                                                        "s_city",
+                                                                        "s_county",
+                                                                        "s_state",
+                                                                        "s_zip",
+                                                                        "s_country",
+                                                                        "s_gmt_offset",
+                                                                        "s_tax_percentage"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "DISTINCT",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "INTERSECT",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "FILTER",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": "",
+                                                                                                            "Function": "Vortex Scan"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "ca_address_sk",
+                                                                                                        "ca_address_id",
+                                                                                                        "ca_street_number",
+                                                                                                        "ca_street_name",
+                                                                                                        "ca_street_type",
+                                                                                                        "ca_suite_number",
+                                                                                                        "ca_city",
+                                                                                                        "ca_county",
+                                                                                                        "ca_state",
+                                                                                                        "ca_zip",
+                                                                                                        "ca_country",
+                                                                                                        "ca_gmt_offset",
+                                                                                                        "ca_location_type"
+                                                                                                    ]
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": "(\"substring\"(ca_zip, CAST(1 AS BIGINT), CAST(5 AS BIGINT)) IN (CAST('24128' AS VARCHAR), CAST('76232' AS VARCHAR), CAST('65084' AS VARCHAR), CAST('87816' AS VARCHAR), CAST('83926' AS VARCHAR), CAST('77556' AS VARCHAR), CAST('20548' AS VARCHAR), CAST('26231' AS VARCHAR), CAST('43848' AS VARCHAR), CAST('15126' AS VARCHAR), CAST('91137' AS VARCHAR), CAST('61265' AS VARCHAR), CAST('98294' AS VARCHAR), CAST('25782' AS VARCHAR), CAST('17920' AS VARCHAR), CAST('18426' AS VARCHAR), CAST('98235' AS VARCHAR), CAST('40081' AS VARCHAR), CAST('84093' AS VARCHAR), CAST('28577' AS VARCHAR), CAST('55565' AS VARCHAR), CAST('17183' AS VARCHAR), CAST('54601' AS VARCHAR), CAST('67897' AS VARCHAR), CAST('22752' AS VARCHAR), CAST('86284' AS VARCHAR), CAST('18376' AS VARCHAR), CAST('38607' AS VARCHAR), CAST('45200' AS VARCHAR), CAST('21756' AS VARCHAR), CAST('29741' AS VARCHAR), CAST('96765' AS VARCHAR), CAST('23932' AS VARCHAR), CAST('89360' AS VARCHAR), CAST('29839' AS VARCHAR), CAST('25989' AS VARCHAR), CAST('28898' AS VARCHAR), CAST('91068' AS VARCHAR), CAST('72550' AS VARCHAR), CAST('10390' AS VARCHAR), CAST('18845' AS VARCHAR), CAST('47770' AS VARCHAR), CAST('82636' AS VARCHAR), CAST('41367' AS VARCHAR), CAST('76638' AS VARCHAR), CAST('86198' AS VARCHAR), CAST('81312' AS VARCHAR), CAST('37126' AS VARCHAR), CAST('39192' AS VARCHAR), CAST('88424' AS VARCHAR), CAST('72175' AS VARCHAR), CAST('81426' AS VARCHAR), CAST('53672' AS VARCHAR), CAST('10445' AS VARCHAR), CAST('42666' AS VARCHAR), CAST('66864' AS VARCHAR), CAST('66708' AS VARCHAR), CAST('41248' AS VARCHAR), CAST('48583' AS VARCHAR), CAST('82276' AS VARCHAR), CAST('18842' AS VARCHAR), CAST('78890' AS VARCHAR), CAST('49448' AS VARCHAR), CAST('14089' AS VARCHAR), CAST('38122' AS VARCHAR), CAST('34425' AS VARCHAR), CAST('79077' AS VARCHAR), CAST('19849' AS VARCHAR), CAST('43285' AS VARCHAR), CAST('39861' AS VARCHAR), CAST('66162' AS VARCHAR), CAST('77610' AS VARCHAR), CAST('13695' AS VARCHAR), CAST('99543' AS VARCHAR), CAST('83444' AS VARCHAR), CAST('83041' AS VARCHAR), CAST('12305' AS VARCHAR), CAST('57665' AS VARCHAR), CAST('68341' AS VARCHAR), CAST('25003' AS VARCHAR), CAST('57834' AS VARCHAR), CAST('62878' AS VARCHAR), CAST('49130' AS VARCHAR), CAST('81096' AS VARCHAR), CAST('18840' AS VARCHAR), CAST('27700' AS VARCHAR), CAST('23470' AS VARCHAR), CAST('50412' AS VARCHAR), CAST('21195' AS VARCHAR), CAST('16021' AS VARCHAR), CAST('76107' AS VARCHAR), CAST('71954' AS VARCHAR), CAST('68309' AS VARCHAR), CAST('18119' AS VARCHAR), CAST('98359' AS VARCHAR), CAST('64544' AS VARCHAR), CAST('10336' AS VARCHAR), CAST('86379' AS VARCHAR), CAST('27068' AS VARCHAR), CAST('39736' AS VARCHAR), CAST('98569' AS VARCHAR), CAST('28915' AS VARCHAR), CAST('24206' AS VARCHAR), CAST('56529' AS VARCHAR), CAST('57647' AS VARCHAR), CAST('54917' AS VARCHAR), CAST('42961' AS VARCHAR), CAST('91110' AS VARCHAR), CAST('63981' AS VARCHAR), CAST('14922' AS VARCHAR), CAST('36420' AS VARCHAR), CAST('23006' AS VARCHAR), CAST('67467' AS VARCHAR), CAST('32754' AS VARCHAR), CAST('30903' AS VARCHAR), CAST('20260' AS VARCHAR), CAST('31671' AS VARCHAR), CAST('51798' AS VARCHAR), CAST('72325' AS VARCHAR), CAST('85816' AS VARCHAR), CAST('68621' AS VARCHAR), CAST('13955' AS VARCHAR), CAST('36446' AS VARCHAR), CAST('41766' AS VARCHAR), CAST('68806' AS VARCHAR), CAST('16725' AS VARCHAR), CAST('15146' AS VARCHAR), CAST('22744' AS VARCHAR), CAST('35850' AS VARCHAR), CAST('88086' AS VARCHAR), CAST('51649' AS VARCHAR), CAST('18270' AS VARCHAR), CAST('52867' AS VARCHAR), CAST('39972' AS VARCHAR), CAST('96976' AS VARCHAR), CAST('63792' AS VARCHAR), CAST('11376' AS VARCHAR), CAST('94898' AS VARCHAR), CAST('13595' AS VARCHAR), CAST('10516' AS VARCHAR), CAST('90225' AS VARCHAR), CAST('58943' AS VARCHAR), CAST('39371' AS VARCHAR), CAST('94945' AS VARCHAR), CAST('28587' AS VARCHAR), CAST('96576' AS VARCHAR), CAST('57855' AS VARCHAR), CAST('28488' AS VARCHAR), CAST('26105' AS VARCHAR), CAST('83933' AS VARCHAR), CAST('25858' AS VARCHAR), CAST('34322' AS VARCHAR), CAST('44438' AS VARCHAR), CAST('73171' AS VARCHAR), CAST('30122' AS VARCHAR), CAST('34102' AS VARCHAR), CAST('22685' AS VARCHAR), CAST('71256' AS VARCHAR), CAST('78451' AS VARCHAR), CAST('54364' AS VARCHAR), CAST('13354' AS VARCHAR), CAST('45375' AS VARCHAR), CAST('40558' AS VARCHAR), CAST('56458' AS VARCHAR), CAST('28286' AS VARCHAR), CAST('45266' AS VARCHAR), CAST('47305' AS VARCHAR), CAST('69399' AS VARCHAR), CAST('83921' AS VARCHAR), CAST('26233' AS VARCHAR), CAST('11101' AS VARCHAR), CAST('15371' AS VARCHAR), CAST('69913' AS VARCHAR), CAST('35942' AS VARCHAR), CAST('15882' AS VARCHAR), CAST('25631' AS VARCHAR), CAST('24610' AS VARCHAR), CAST('44165' AS VARCHAR), CAST('99076' AS VARCHAR), CAST('33786' AS VARCHAR), CAST('70738' AS VARCHAR), CAST('26653' AS VARCHAR), CAST('14328' AS VARCHAR), CAST('72305' AS VARCHAR), CAST('62496' AS VARCHAR), CAST('22152' AS VARCHAR), CAST('10144' AS VARCHAR), CAST('64147' AS VARCHAR), CAST('48425' AS VARCHAR), CAST('14663' AS VARCHAR), CAST('21076' AS VARCHAR), CAST('18799' AS VARCHAR), CAST('30450' AS VARCHAR), CAST('63089' AS VARCHAR), CAST('81019' AS VARCHAR), CAST('68893' AS VARCHAR), CAST('24996' AS VARCHAR), CAST('51200' AS VARCHAR), CAST('51211' AS VARCHAR), CAST('45692' AS VARCHAR), CAST('92712' AS VARCHAR), CAST('70466' AS VARCHAR), CAST('79994' AS VARCHAR), CAST('22437' AS VARCHAR), CAST('25280' AS VARCHAR), CAST('38935' AS VARCHAR), CAST('71791' AS VARCHAR), CAST('73134' AS VARCHAR), CAST('56571' AS VARCHAR), CAST('14060' AS VARCHAR), CAST('19505' AS VARCHAR), CAST('72425' AS VARCHAR), CAST('56575' AS VARCHAR), CAST('74351' AS VARCHAR), CAST('68786' AS VARCHAR), CAST('51650' AS VARCHAR), CAST('20004' AS VARCHAR), CAST('18383' AS VARCHAR), CAST('76614' AS VARCHAR), CAST('11634' AS VARCHAR), CAST('18906' AS VARCHAR), CAST('15765' AS VARCHAR), CAST('41368' AS VARCHAR), CAST('73241' AS VARCHAR), CAST('76698' AS VARCHAR), CAST('78567' AS VARCHAR), CAST('97189' AS VARCHAR), CAST('28545' AS VARCHAR), CAST('76231' AS VARCHAR), CAST('75691' AS VARCHAR), CAST('22246' AS VARCHAR), CAST('51061' AS VARCHAR), CAST('90578' AS VARCHAR), CAST('56691' AS VARCHAR), CAST('68014' AS VARCHAR), CAST('51103' AS VARCHAR), CAST('94167' AS VARCHAR), CAST('57047' AS VARCHAR), CAST('14867' AS VARCHAR), CAST('73520' AS VARCHAR), CAST('15734' AS VARCHAR), CAST('63435' AS VARCHAR), CAST('25733' AS VARCHAR), CAST('35474' AS VARCHAR), CAST('24676' AS VARCHAR), CAST('94627' AS VARCHAR), CAST('53535' AS VARCHAR), CAST('17879' AS VARCHAR), CAST('15559' AS VARCHAR), CAST('53268' AS VARCHAR), CAST('59166' AS VARCHAR), CAST('11928' AS VARCHAR), CAST('59402' AS VARCHAR), CAST('33282' AS VARCHAR), CAST('45721' AS VARCHAR), CAST('43933' AS VARCHAR), CAST('68101' AS VARCHAR), CAST('33515' AS VARCHAR), CAST('36634' AS VARCHAR), CAST('71286' AS VARCHAR), CAST('19736' AS VARCHAR), CAST('58058' AS VARCHAR), CAST('55253' AS VARCHAR), CAST('67473' AS VARCHAR), CAST('41918' AS VARCHAR), CAST('19515' AS VARCHAR), CAST('36495' AS VARCHAR), CAST('19430' AS VARCHAR), CAST('22351' AS VARCHAR), CAST('77191' AS VARCHAR), CAST('91393' AS VARCHAR), CAST('49156' AS VARCHAR), CAST('50298' AS VARCHAR), CAST('87501' AS VARCHAR), CAST('18652' AS VARCHAR), CAST('53179' AS VARCHAR), CAST('18767' AS VARCHAR), CAST('63193' AS VARCHAR), CAST('23968' AS VARCHAR), CAST('65164' AS VARCHAR), CAST('68880' AS VARCHAR), CAST('21286' AS VARCHAR), CAST('72823' AS VARCHAR), CAST('58470' AS VARCHAR), CAST('67301' AS VARCHAR), CAST('13394' AS VARCHAR), CAST('31016' AS VARCHAR), CAST('70372' AS VARCHAR), CAST('67030' AS VARCHAR), CAST('40604' AS VARCHAR), CAST('24317' AS VARCHAR), CAST('45748' AS VARCHAR), CAST('39127' AS VARCHAR), CAST('26065' AS VARCHAR), CAST('77721' AS VARCHAR), CAST('31029' AS VARCHAR), CAST('31880' AS VARCHAR), CAST('60576' AS VARCHAR), CAST('24671' AS VARCHAR), CAST('45549' AS VARCHAR), CAST('13376' AS VARCHAR), CAST('50016' AS VARCHAR), CAST('33123' AS VARCHAR), CAST('19769' AS VARCHAR), CAST('22927' AS VARCHAR), CAST('97789' AS VARCHAR), CAST('46081' AS VARCHAR), CAST('72151' AS VARCHAR), CAST('15723' AS VARCHAR), CAST('46136' AS VARCHAR), CAST('51949' AS VARCHAR), CAST('68100' AS VARCHAR), CAST('96888' AS VARCHAR), CAST('64528' AS VARCHAR), CAST('14171' AS VARCHAR), CAST('79777' AS VARCHAR), CAST('28709' AS VARCHAR), CAST('11489' AS VARCHAR), CAST('25103' AS VARCHAR), CAST('32213' AS VARCHAR), CAST('78668' AS VARCHAR), CAST('22245' AS VARCHAR), CAST('15798' AS VARCHAR), CAST('27156' AS VARCHAR), CAST('37930' AS VARCHAR), CAST('62971' AS VARCHAR), CAST('21337' AS VARCHAR), CAST('51622' AS VARCHAR), CAST('67853' AS VARCHAR), CAST('10567' AS VARCHAR), CAST('38415' AS VARCHAR), CAST('15455' AS VARCHAR), CAST('58263' AS VARCHAR), CAST('42029' AS VARCHAR), CAST('60279' AS VARCHAR), CAST('37125' AS VARCHAR), CAST('56240' AS VARCHAR), CAST('88190' AS VARCHAR), CAST('50308' AS VARCHAR), CAST('26859' AS VARCHAR), CAST('64457' AS VARCHAR), CAST('89091' AS VARCHAR), CAST('82136' AS VARCHAR), CAST('62377' AS VARCHAR), CAST('36233' AS VARCHAR), CAST('63837' AS VARCHAR), CAST('58078' AS VARCHAR), CAST('17043' AS VARCHAR), CAST('30010' AS VARCHAR), CAST('60099' AS VARCHAR), CAST('28810' AS VARCHAR), CAST('98025' AS VARCHAR), CAST('29178' AS VARCHAR), CAST('87343' AS VARCHAR), CAST('73273' AS VARCHAR), CAST('30469' AS VARCHAR), CAST('64034' AS VARCHAR), CAST('39516' AS VARCHAR), CAST('86057' AS VARCHAR), CAST('21309' AS VARCHAR), CAST('90257' AS VARCHAR), CAST('67875' AS VARCHAR), CAST('40162' AS VARCHAR), CAST('11356' AS VARCHAR), CAST('73650' AS VARCHAR), CAST('61810' AS VARCHAR), CAST('72013' AS VARCHAR), CAST('30431' AS VARCHAR), CAST('22461' AS VARCHAR), CAST('19512' AS VARCHAR), CAST('13375' AS VARCHAR), CAST('55307' AS VARCHAR), CAST('30625' AS VARCHAR), CAST('83849' AS VARCHAR), CAST('68908' AS VARCHAR), CAST('26689' AS VARCHAR), CAST('96451' AS VARCHAR), CAST('38193' AS VARCHAR), CAST('46820' AS VARCHAR), CAST('88885' AS VARCHAR), CAST('84935' AS VARCHAR), CAST('69035' AS VARCHAR), CAST('83144' AS VARCHAR), CAST('47537' AS VARCHAR), CAST('56616' AS VARCHAR), CAST('94983' AS VARCHAR), CAST('48033' AS VARCHAR), CAST('69952' AS VARCHAR), CAST('25486' AS VARCHAR), CAST('61547' AS VARCHAR), CAST('27385' AS VARCHAR), CAST('61860' AS VARCHAR), CAST('58048' AS VARCHAR), CAST('56910' AS VARCHAR), CAST('16807' AS VARCHAR), CAST('17871' AS VARCHAR), CAST('35258' AS VARCHAR), CAST('31387' AS VARCHAR), CAST('35458' AS VARCHAR), CAST('35576' AS VARCHAR)))"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "ca_zip"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "FILTER",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "FILTER",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "CROSS_PRODUCT",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Filters": "",
+                                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "ca_address_sk",
+                                                                                                                                        "ca_address_id",
+                                                                                                                                        "ca_street_number",
+                                                                                                                                        "ca_street_name",
+                                                                                                                                        "ca_street_type",
+                                                                                                                                        "ca_suite_number",
+                                                                                                                                        "ca_city",
+                                                                                                                                        "ca_county",
+                                                                                                                                        "ca_state",
+                                                                                                                                        "ca_zip",
+                                                                                                                                        "ca_country",
+                                                                                                                                        "ca_gmt_offset",
+                                                                                                                                        "ca_location_type"
+                                                                                                                                    ]
+                                                                                                                                }
+                                                                                                                            },
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Filters": "",
+                                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "c_customer_sk",
+                                                                                                                                        "c_customer_id",
+                                                                                                                                        "c_current_cdemo_sk",
+                                                                                                                                        "c_current_hdemo_sk",
+                                                                                                                                        "c_current_addr_sk",
+                                                                                                                                        "c_first_shipto_date_sk",
+                                                                                                                                        "c_first_sales_date_sk",
+                                                                                                                                        "c_salutation",
+                                                                                                                                        "c_first_name",
+                                                                                                                                        "c_last_name",
+                                                                                                                                        "c_preferred_cust_flag",
+                                                                                                                                        "c_birth_day",
+                                                                                                                                        "c_birth_month",
+                                                                                                                                        "c_birth_year",
+                                                                                                                                        "c_birth_country",
+                                                                                                                                        "c_login",
+                                                                                                                                        "c_email_address",
+                                                                                                                                        "c_last_review_date_sk"
+                                                                                                                                    ]
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Expressions": ""
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": [
+                                                                                                                        "(ca_address_sk = c_current_addr_sk)",
+                                                                                                                        "(c_preferred_cust_flag = CAST('Y' AS VARCHAR))"
+                                                                                                                    ]
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Groups": "ca_zip",
+                                                                                                            "Expressions": "count_star()"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": "(count_star() > CAST(10 AS BIGINT))"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "ca_zip",
+                                                                                                "cnt"
+                                                                                            ]
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "ca_zip"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": ""
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "",
+                                                                    "Distinct Targets": "ca_zip"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "ca_zip"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "(ss_store_sk = s_store_sk)",
+                                                "(ss_sold_date_sk = d_date_sk)",
+                                                "(d_qoy = CAST(2 AS BIGINT))",
+                                                "(d_year = CAST(1998 AS BIGINT))",
+                                                "(\"substring\"(s_zip, CAST(1 AS BIGINT), CAST(2 AS BIGINT)) = \"substring\"(ca_zip, CAST(1 AS BIGINT), CAST(2 AS BIGINT)))"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Groups": "s_store_name",
+                                    "Expressions": "sum(ss_net_profit)"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "s_store_name",
+                                "sum(ss_net_profit)"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Order By": "memory.main.store.s_store_name"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": ""
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "AGGREGATE",
+                        "children": [
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "288464"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "ss_sold_date_sk",
+                                                        "ss_store_sk",
+                                                        "ss_net_profit"
+                                                    ],
+                                                    "Estimated Cardinality": "288464"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "($.d_qoy = 2i64)",
+                                                                "($.d_year = 1998i64)",
+                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "2921"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "d_date_sk",
+                                                    "Estimated Cardinality": "2921"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(ss_sold_date_sk = d_date_sk)",
+                                            "Estimated Cardinality": "57677"
+                                        }
+                                    },
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "DISTINCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "INTERSECT",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "FILTER",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": "",
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Estimated Cardinality": "5000"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "CHUNK_GET",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": "",
+                                                                                                            "Estimated Cardinality": "0"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "MARK",
+                                                                                                    "Conditions": "(\"substring\"(ca_zip, 1, 5) = #0)",
+                                                                                                    "Estimated Cardinality": "5000"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": "IN (...)",
+                                                                                            "Estimated Cardinality": "1000"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "ca_zip",
+                                                                                    "Estimated Cardinality": "1000"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "ca_zip",
+                                                                            "Estimated Cardinality": "1000"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "FILTER",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "COMPARISON_JOIN",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Filters": "",
+                                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                                            "Estimated Cardinality": "5000"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "ca_address_sk",
+                                                                                                                                        "ca_zip"
+                                                                                                                                    ],
+                                                                                                                                    "Estimated Cardinality": "5000"
+                                                                                                                                }
+                                                                                                                            },
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Filters": "($.c_preferred_cust_flag = \"Y\")",
+                                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                                            "Estimated Cardinality": "400"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": "c_current_addr_sk",
+                                                                                                                                    "Estimated Cardinality": "400"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Join Type": "INNER",
+                                                                                                                            "Conditions": "(ca_address_sk = c_current_addr_sk)",
+                                                                                                                            "Estimated Cardinality": "1000"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": [
+                                                                                                                        "#0",
+                                                                                                                        "__internal_compress_integral_usmallint(#1, 1)"
+                                                                                                                    ],
+                                                                                                                    "Estimated Cardinality": "1000"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Groups": "ca_zip",
+                                                                                                            "Expressions": "count_star()",
+                                                                                                            "Estimated Cardinality": "906"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "#0",
+                                                                                                        "#1"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "906"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": "(count_star() > 10)",
+                                                                                            "Estimated Cardinality": "181"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "ca_zip",
+                                                                                    "Estimated Cardinality": "181"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "ca_zip",
+                                                                            "Estimated Cardinality": "181"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "",
+                                                                    "Estimated Cardinality": "181"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "",
+                                                            "Estimated Cardinality": "181",
+                                                            "Distinct Targets": "ca_zip"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "ca_zip",
+                                                    "Estimated Cardinality": "181"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "1"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "s_store_sk",
+                                                        "s_store_name",
+                                                        "s_zip"
+                                                    ],
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(\"substring\"(ca_zip, 1, 2) = \"substring\"(s_zip, 1, 2))",
+                                            "Estimated Cardinality": "181"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(ss_store_sk = s_store_sk)",
+                                    "Estimated Cardinality": "10439537"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Groups": "s_store_name",
+                            "Expressions": "sum(ss_net_profit)",
+                            "Estimated Cardinality": "288463"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "s_store_name",
+                        "sum(ss_net_profit)"
+                    ],
+                    "Estimated Cardinality": "288463"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": "",
+            "Estimated Cardinality": "100"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "HASH_GROUP_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "HASH_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Projections": [
+                                                        "ss_sold_date_sk",
+                                                        "ss_store_sk",
+                                                        "ss_net_profit"
+                                                    ],
+                                                    "Estimated Cardinality": "288464"
+                                                }
+                                            },
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": [
+                                                        "d_year=1998",
+                                                        "d_qoy=2"
+                                                    ],
+                                                    "Projections": "d_date_sk",
+                                                    "Estimated Cardinality": "2921"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "ss_sold_date_sk = d_date_sk",
+                                            "Estimated Cardinality": "57677"
+                                        }
+                                    },
+                                    {
+                                        "name": "HASH_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "HASH_GROUP_BY",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "HASH_GROUP_BY",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "HASH_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "FILTER",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "HASH_JOIN",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Function": "Vortex Scan",
+                                                                                                                    "Projections": "ca_zip",
+                                                                                                                    "Estimated Cardinality": "5000"
+                                                                                                                }
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "name": "COLUMN_DATA_SCAN",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Estimated Cardinality": "0"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Join Type": "MARK",
+                                                                                                            "Conditions": "\"substring\"(ca_zip, 1, 5) = #0",
+                                                                                                            "Estimated Cardinality": "5000"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expression": "IN (...)",
+                                                                                                    "Estimated Cardinality": "1000"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Projections": "#0",
+                                                                                            "Estimated Cardinality": "1000"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Projections": "ca_zip",
+                                                                                    "Estimated Cardinality": "1000"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "FILTER",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "HASH_GROUP_BY",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "PROJECTION",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "HASH_JOIN",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                                            "Projections": [
+                                                                                                                                                "ca_address_sk",
+                                                                                                                                                "ca_zip"
+                                                                                                                                            ],
+                                                                                                                                            "Estimated Cardinality": "5000"
+                                                                                                                                        }
+                                                                                                                                    },
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                                            "Filters": "c_preferred_cust_flag='Y'",
+                                                                                                                                            "Projections": "c_current_addr_sk",
+                                                                                                                                            "Estimated Cardinality": "400"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Join Type": "INNER",
+                                                                                                                                    "Conditions": "ca_address_sk = c_current_addr_sk",
+                                                                                                                                    "Estimated Cardinality": "1000"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Projections": [
+                                                                                                                                "#0",
+                                                                                                                                "__internal_compress_integral_usmallint(#1, 1)"
+                                                                                                                            ],
+                                                                                                                            "Estimated Cardinality": "1000"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Projections": "ca_zip",
+                                                                                                                    "Estimated Cardinality": "1000"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Groups": "#0",
+                                                                                                            "Aggregates": "count_star()",
+                                                                                                            "Estimated Cardinality": "906"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expression": "(count_star() > 10)",
+                                                                                                    "Estimated Cardinality": "181"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Projections": "#0",
+                                                                                            "Estimated Cardinality": "181"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Projections": "ca_zip",
+                                                                                    "Estimated Cardinality": "181"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "SEMI",
+                                                                            "Conditions": "#0 IS NOT DISTINCT FROM #0",
+                                                                            "Estimated Cardinality": "181"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Groups": "#0",
+                                                                    "Aggregates": "",
+                                                                    "Estimated Cardinality": "181"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Projections": "ca_zip",
+                                                            "Estimated Cardinality": "181"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": "#0",
+                                                    "Aggregates": "",
+                                                    "Estimated Cardinality": "181"
+                                                }
+                                            },
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Projections": [
+                                                        "s_store_sk",
+                                                        "s_store_name",
+                                                        "s_zip"
+                                                    ],
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "\"substring\"(ca_zip, 1, 2) = \"substring\"(s_zip, 1, 2)",
+                                            "Estimated Cardinality": "181"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "ss_store_sk = s_store_sk",
+                                    "Estimated Cardinality": "10439537"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Projections": [
+                                "s_store_name",
+                                "ss_net_profit"
+                            ],
+                            "Estimated Cardinality": "10439537"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "#0",
+                    "Aggregates": "sum(#1)",
+                    "Estimated Cardinality": "288463"
+                }
+            }
+        ],
+        "extra_info": {
+            "Top": "100",
+            "Order By": "memory.main.store.s_store_name ASC"
+        }
+    }
+]

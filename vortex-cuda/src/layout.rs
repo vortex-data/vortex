@@ -7,6 +7,7 @@ use std::any::Any;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Once;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -28,12 +29,20 @@ use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
+use vortex::editions::Edition;
+use vortex::editions::EditionDeclaration;
+use vortex::editions::EditionFamily;
+use vortex::editions::EditionId;
+use vortex::editions::EditionMember;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_panic;
+use vortex::file::WriteStrategyBuilder;
 use vortex::layout::Layout;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutDeserializeArgs;
@@ -55,11 +64,14 @@ use vortex::layout::segments::SegmentSinkRef;
 use vortex::layout::segments::SegmentSource;
 use vortex::layout::sequence::SendableSequentialStream;
 use vortex::layout::sequence::SequencePointer;
+use vortex::layout::session::LayoutSessionExt;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
 use vortex::scalar::lower_bound;
 use vortex::scalar::upper_bound;
+use vortex::session::SessionExt;
+use vortex::session::SessionVar;
 use vortex::session::VortexSession;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::ReadContext;
@@ -534,12 +546,304 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
-/// Register the [`CudaFlatLayoutEncoding`] in the session's layout registry.
+/// Build a CUDA-flat writer using only CUDA-compatible, session-enabled array encodings.
 ///
-/// Call this alongside [`crate::initialize_cuda`] when setting up a CUDA-enabled session.
+/// Requires [`register_cuda_layout`]. Zero `block_rows` uses default sizing and dictionary policy;
+/// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
+/// dictionary compression.
+pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
+    let builder = BtrBlocksCompressorBuilder::from_session(session).only_cuda_compatible();
+    let strategy = WriteStrategyBuilder::from_session(session)
+        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
+    if block_rows == 0 {
+        strategy.with_btrblocks_builder(builder).build()
+    } else {
+        // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
+        strategy
+            .with_compressor(builder.build())
+            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
+            .with_row_block_size(block_rows)
+            .with_data_block_target_bytes(None)
+            .build()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CudaLayoutRegistration(Arc<Once>);
+
+impl Default for CudaLayoutRegistration {
+    fn default() -> Self {
+        Self(Arc::new(Once::new()))
+    }
+}
+
+impl SessionVar for CudaLayoutRegistration {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+const CUDA_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "cuda",
+    origin: "vortex-cuda",
+    doc: "CUDA-readable layouts, enabled only when CUDA layout support is registered.",
+};
+const CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 9, 0);
+static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: CUDA_EDITION,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.cuda_flat")],
+};
+
+/// Register [`CudaFlat`] and its draft `cuda` edition once per session.
+///
+/// Enables a newly registered edition only if no `cuda` edition is selected; otherwise preserves
+/// writer policy, including on repeated calls. The draft has no cross-version compatibility
+/// guarantee. Readers must also register the layout.
+///
+/// Call alongside [`crate::initialize_cuda`]; registration itself needs no GPU.
 pub fn register_cuda_layout(session: &VortexSession) {
-    use vortex::layout::session::LayoutSessionExt;
-    session
-        .layouts()
-        .register(LayoutEncodingRef::new_ref(&CudaFlat));
+    // Editions are published before their members; concurrent callers must wait for both.
+    session.get::<CudaLayoutRegistration>().0.call_once(|| {
+        session
+            .layouts()
+            .register(LayoutEncodingRef::new_ref(&CudaFlat));
+        if session.editions().find(&CUDA_EDITION).is_some() {
+            return;
+        }
+        if session.editions().find_family("cuda").is_none() {
+            session
+                .editions()
+                .declare_family(&CUDA_EDITION_FAMILY)
+                .vortex_expect("CUDA edition family is valid");
+        }
+        session
+            .register_edition(&CUDA_EDITION_DECLARATION)
+            .vortex_expect("CUDA edition declaration is valid");
+        if !session
+            .enabled_editions()
+            .editions()
+            .iter()
+            .any(|edition| edition.family == CUDA_EDITION.family)
+        {
+            session
+                .enable_edition(CUDA_EDITION)
+                .vortex_expect("CUDA edition is registered");
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::TryStreamExt;
+    use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::Dict;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::struct_::StructArrayExt;
+    use vortex::array::assert_arrays_eq;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::editions::CORE_2025_05_0;
+    use vortex::editions::ComponentKind;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::VortexFile;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::io::runtime::BlockingRuntime;
+    use vortex::io::runtime::current::CurrentThreadRuntime;
+    use vortex::io::session::RuntimeSessionExt;
+    use vortex::layout::scan::split_by::SplitBy;
+
+    use super::*;
+
+    fn repeated_ids(unique: i64, rows: usize) -> VortexResult<ArrayRef> {
+        // Wide, shuffled values favor dictionaries over bitpacking and FoR.
+        let ids = PrimitiveArray::from_iter(
+            (0..unique)
+                .cycle()
+                .take(rows)
+                .map(|id| (id * 7_919 % unique).wrapping_mul(0x5851_f42d_4c95_7f2d)),
+        );
+        Ok(StructArray::from_fields(&[("ids", ids.into_array())])?.into_array())
+    }
+
+    async fn write_file(
+        session: &VortexSession,
+        array: ArrayRef,
+        block_rows: usize,
+    ) -> VortexResult<VortexFile> {
+        let mut buffer = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(cuda_write_strategy(session, block_rows))
+            .write(&mut buffer, array.to_array_stream())
+            .await?;
+        session.open_options().open_buffer(buffer.freeze())
+    }
+
+    fn data_block_rows(layout: &LayoutRef) -> VortexResult<Vec<u64>> {
+        let mut rows = Vec::new();
+        if layout.is::<CudaFlat>() {
+            rows.push(layout.row_count());
+        }
+        for (kind, child) in layout.child_types().zip(layout.children()?) {
+            // Exclude zone maps and dictionary values from data row counts.
+            if !matches!(kind, LayoutChildType::Auxiliary(_)) {
+                rows.extend(data_block_rows(&child)?);
+            }
+        }
+        Ok(rows)
+    }
+
+    #[test]
+    fn test_cuda_write_strategy_preserves_integer_dictionary_compression() -> VortexResult<()> {
+        let block_rows = 1024;
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            let input = repeated_ids(8, 2 * block_rows + 137)?;
+            let file = write_file(&session, input.clone(), block_rows).await?;
+
+            let batches: Vec<_> = file
+                .scan()?
+                .with_split_by(SplitBy::Layout)
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            assert_eq!(
+                batches.iter().map(|batch| batch.len()).collect::<Vec<_>>(),
+                [block_rows, block_rows, 137]
+            );
+            let mut ctx = session.create_execution_ctx();
+            let mut offset = 0;
+            for batch in batches {
+                // Keep the child encoded to detect loss of IntDict compression.
+                let batch = batch.execute::<StructArray>(&mut ctx)?;
+                assert!(batch.unmasked_field(0).is::<Dict>());
+                let end = offset + batch.len();
+                assert_arrays_eq!(batch.into_array(), input.slice(offset..end)?, &mut ctx);
+                offset = end;
+            }
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_cuda_write_strategy_preserves_high_cardinality_row_blocks() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            // Exceed u16 cardinality while remaining eligible for outer dictionaries.
+            let block_rows = 70_000 * 8;
+            let input = repeated_ids(70_000, block_rows)?;
+            let file = write_file(&session, input, block_rows).await?;
+            assert_eq!(
+                data_block_rows(file.footer().layout())?,
+                [block_rows as u64]
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_concurrent_cuda_registration_preserves_edition_policy() -> VortexResult<()> {
+        let session = VortexSession::default();
+        session.enable_edition(CORE_2025_05_0)?;
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.push(CUDA_EDITION);
+        expected_editions.sort_unstable();
+        let expected_arrays = session.enabled_component_ids(ComponentKind::Array);
+        let barrier = std::sync::Barrier::new(4);
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let session = session.clone();
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    register_cuda_layout(&session);
+                    assert!(
+                        session
+                            .enabled_component_ids(ComponentKind::Layout)
+                            .contains(&CudaFlat.id())
+                    );
+                });
+            }
+        });
+
+        let mut enabled_editions = session.enabled_editions().editions();
+        enabled_editions.sort_unstable();
+        assert_eq!(enabled_editions, expected_editions);
+        assert_eq!(
+            session.enabled_component_ids(ComponentKind::Array),
+            expected_arrays
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_cuda_registration_preserves_selected_cuda_edition(
+        #[values(false, true)] register_first: bool,
+    ) -> VortexResult<()> {
+        const OTHER_CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 8, 0);
+        let session = VortexSession::default();
+        if register_first {
+            register_cuda_layout(&session);
+        } else {
+            session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
+        }
+        session.register_edition(&EditionDeclaration {
+            edition: Edition {
+                id: OTHER_CUDA_EDITION,
+                min_library_version: None,
+            },
+            added: &[],
+        })?;
+        session.enable_edition(OTHER_CUDA_EDITION)?;
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.sort_unstable();
+        let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
+
+        register_cuda_layout(&session);
+
+        let mut enabled_editions = session.enabled_editions().editions();
+        enabled_editions.sort_unstable();
+        assert_eq!(enabled_editions, expected_editions);
+        assert_eq!(
+            session.enabled_component_ids(ComponentKind::Layout),
+            expected_layouts
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_cuda_registration_preserves_disabled_pre_registered_edition() -> VortexResult<()> {
+        let session = VortexSession::default();
+        session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
+        session.register_edition(&CUDA_EDITION_DECLARATION)?;
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.sort_unstable();
+        let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
+
+        register_cuda_layout(&session);
+
+        let mut enabled_editions = session.enabled_editions().editions();
+        enabled_editions.sort_unstable();
+        assert_eq!(enabled_editions, expected_editions);
+        assert_eq!(
+            session.enabled_component_ids(ComponentKind::Layout),
+            expected_layouts
+        );
+        Ok(())
+    }
 }

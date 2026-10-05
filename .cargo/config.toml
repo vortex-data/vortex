@@ -4,8 +4,8 @@ rustflags = [
 ]
 
 [alias]
-xtask = "run -p xtask --"
 vx = "run -p vortex-tui --"
+xtask = "run -p xtask --"
 
 [publish]
 # NOTE(aduffy): we run into frequent issues auto-releasing our workspace

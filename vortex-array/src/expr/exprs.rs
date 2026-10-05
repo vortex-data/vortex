@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
@@ -34,11 +33,13 @@ use crate::scalar_fn::fns::dynamic::Rhs;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_nan::IsNan;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::literal::Literal;
@@ -597,22 +598,6 @@ where
     iter.into_iter().reduce_balanced(bound_and)
 }
 
-/// The conjunction of an expression's child validities — i.e. the validity of a scalar function
-/// whose result is null exactly when any operand is null.
-///
-/// This is the `ScalarFnVTable::validity` for kernels that propagate nulls and never produce a
-/// null from non-null inputs (comparisons, arithmetic, most spatial and tensor operations). Returning it lets
-/// the planner derive the output's null mask without executing the kernel. Yields `None` when the
-/// expression has no children.
-pub fn union_child_validities(expression: &Expression) -> VortexResult<Option<Expression>> {
-    let child_validities = expression
-        .children()
-        .iter()
-        .map(Expression::validity)
-        .collect::<VortexResult<Vec<_>>>()?;
-    Ok(and_collect(child_validities))
-}
-
 /// Create a new [`Binary`] using the [`Add`](Operator::Add) operator.
 ///
 /// ## Example usage
@@ -853,6 +838,28 @@ pub fn bound_is_null(child: BoundExpression) -> BoundExpression {
     IsNull
         .try_new_bound_expr(EmptyOptions, [child])
         .vortex_expect("is-null expressions are always well-typed")
+}
+
+// ---- IsNan ----
+
+/// Creates an expression that checks for NaN values.
+///
+/// The expression is strict: null inputs produce null outputs, so the output nullability
+/// follows the input. Only primitive float inputs are supported.
+///
+/// ```rust
+/// # use vortex_array::expr::{is_nan, root};
+/// let expr = is_nan(root());
+/// ```
+pub fn is_nan(child: Expression) -> Expression {
+    IsNan.new_expr(EmptyOptions, vec![child])
+}
+
+/// Creates a bound expression that checks for NaN values.
+pub fn bound_is_nan(child: BoundExpression) -> BoundExpression {
+    IsNan
+        .try_new_bound_expr(EmptyOptions, [child])
+        .vortex_expect("is-nan expressions are always well-typed")
 }
 
 // ---- IsNotNull ----
@@ -1097,23 +1104,64 @@ pub fn bound_dynamic(
 
 // ---- ListContains ----
 
-/// Creates an expression that checks if a value is contained in a list.
+/// Creates an expression that checks whether a list contains a value.
 ///
-/// Returns a boolean array indicating whether the value appears in each list.
+/// A null element never matches anything: a needle that matches no element yields `false`. For
+/// SQL's three-valued `IN`, where a null element makes that `null`, use [`in_list`].
 ///
 /// ```rust
 /// # use vortex_array::expr::{list_contains, lit, root};
 /// let expr = list_contains(root(), lit(42));
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
-    ListContains.new_expr(EmptyOptions, [list, value])
+    list_contains_opts(list, value, ListContainsOptions::default())
 }
 
-/// Creates a bound expression that checks if a value is contained in a list.
+/// Creates an expression that checks whether a list contains a value, with explicit
+/// [`ListContainsOptions`].
+pub fn list_contains_opts(
+    list: Expression,
+    value: Expression,
+    options: ListContainsOptions,
+) -> Expression {
+    ListContains.new_expr(options, [list, value])
+}
+
+/// Creates `needle IN (list)` with SQL null semantics: a null element is an unknown value, so a
+/// needle that matches no element yields `null` rather than `false` when the list holds one, and
+/// `not(in_list(..))` never admits such a row.
+///
+/// ```rust
+/// # use vortex_array::expr::{in_list, lit, root};
+/// let expr = in_list(root(), lit(vec![1, 2, 3]));
+/// ```
+pub fn in_list(needle: Expression, list: Expression) -> Expression {
+    list_contains_opts(
+        list,
+        needle,
+        ListContainsOptions {
+            sql_null_semantics: true,
+        },
+    )
+}
+
+/// Creates a bound expression that checks whether a list contains a value.
 pub fn bound_list_contains(list: BoundExpression, value: BoundExpression) -> BoundExpression {
     ListContains
-        .try_new_bound_expr(EmptyOptions, [list, value])
-        .vortex_expect("list-contains expressions require a compatible list and value dtype")
+        .try_new_bound_expr(ListContainsOptions::default(), [list, value])
+        .vortex_expect("list-contains expressions require a list child")
+}
+
+/// Creates a bound `needle IN (list)` with SQL null semantics. See [`in_list`].
+pub fn bound_in_list(needle: BoundExpression, list: BoundExpression) -> BoundExpression {
+    ListContains
+        .try_new_bound_expr(
+            ListContainsOptions {
+                sql_null_semantics: true,
+            },
+            [list, needle],
+        )
+        .vortex_expect("list-contains expressions require a list child")
 }
 
 // ---- ByteLength ----
@@ -1242,6 +1290,8 @@ pub mod bound {
     pub use super::bound_gt as gt;
     pub use super::bound_gt_eq as gt_eq;
     pub use super::bound_ilike as ilike;
+    pub use super::bound_in_list as in_list;
+    pub use super::bound_is_nan as is_nan;
     pub use super::bound_is_not_null as is_not_null;
     pub use super::bound_is_null as is_null;
     pub use super::bound_like as like;

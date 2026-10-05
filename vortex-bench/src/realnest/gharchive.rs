@@ -130,7 +130,7 @@ impl Benchmark for GithubArchiveBenchmark {
                 .arg(format!(
                     "
                     CREATE TABLE events AS select * from read_ndjson_auto('{json_path}', ignore_errors = true);
-                    COPY events TO '{parquet}' (FORMAT parquet);
+                    COPY events TO '{parquet}' (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3);
                     "
                 ))
                 .spawn()?

@@ -16,6 +16,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
@@ -30,6 +31,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::InterleaveArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

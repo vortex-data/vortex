@@ -13,6 +13,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -34,6 +35,8 @@ use crate::array::ArrayId;
 use crate::array::ArrayInner;
 use crate::array::ArraySlots;
 use crate::array::DynArrayData;
+use crate::array::probe::ArrayProbe;
+use crate::array::probe::RepeatedArrayProbe;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
@@ -273,31 +276,61 @@ impl ArrayRef {
     }
 
     /// Execute the array to extract a scalar at the given index.
+    ///
+    /// A one-off read; the same as `self.probe().execute_scalar(index, ctx)`.
+    // TODO(joe): deprecate this in favour of `probe()`.
+    #[inline]
     pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.dtype().is_nullable() && self.is_invalid(index, ctx)? {
-            return Ok(Scalar::null(self.dtype().clone()));
-        }
-        let scalar = self.0.data.execute_scalar(self, index, ctx)?;
-        debug_assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
+        self.probe().execute_scalar(index, ctx)
+    }
+
+    /// A one-off row accessor over this array. It borrows the handle and retains nothing; for
+    /// many reads of the same array use [`Self::repeated_probe`].
+    ///
+    /// ```
+    /// use vortex_array::{IntoArray, VortexSessionExecute};
+    /// use vortex_array::arrays::PrimitiveArray;
+    ///
+    /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
+    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// assert_eq!(array.probe().execute_scalar(2, &mut ctx)?, 30i32.into());
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    #[inline]
+    pub fn probe(&self) -> ArrayProbe<'_> {
+        ArrayProbe::Once(self)
+    }
+
+    /// A row accessor that owns a handle to this array and keeps encoding state, its validity
+    /// probe and child probes between reads.
+    ///
+    /// ```
+    /// use vortex_array::{IntoArray, VortexSessionExecute};
+    /// use vortex_array::arrays::PrimitiveArray;
+    ///
+    /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
+    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// let mut probe = array.repeated_probe();
+    /// assert_eq!(probe.execute_scalar(2, &mut ctx)?, 30i32.into());
+    /// assert_eq!(probe.execute_scalar(0, &mut ctx)?, 10i32.into());
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    pub fn repeated_probe(&self) -> RepeatedArrayProbe {
+        RepeatedArrayProbe::new(self.clone())
     }
 
     /// Returns whether the item at `index` is valid.
+    ///
+    /// A one-off read; the same as `self.probe().execute_is_valid(index, ctx)`.
+    // TODO(joe): deprecate this in favour of `probe/repeated_probe()`.
+    #[inline]
     pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(true),
-            Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => a
-                .execute_scalar(index, ctx)?
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
-        }
+        self.probe().execute_is_valid(index, ctx)
     }
 
     /// Returns whether the item at `index` is invalid.
+    // TODO(joe): deprecate this.
+    #[inline]
     pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(!self.is_valid(index, ctx)?)
     }
@@ -482,19 +515,17 @@ impl ArrayRef {
         let existing = slots[slot_idx]
             .as_ref()
             .vortex_expect("with_slot cannot replace an absent slot");
-        vortex_ensure!(
-            existing.dtype() == replacement.dtype(),
-            "slot {} dtype changed from {} to {} during physical rewrite",
-            slot_idx,
+        vortex_ensure_eq!(
             existing.dtype(),
-            replacement.dtype()
+            replacement.dtype(),
+            "slot {} dtype changed during physical rewrite",
+            slot_idx
         );
-        vortex_ensure!(
-            existing.len() == replacement.len(),
-            "slot {} len changed from {} to {} during physical rewrite",
-            slot_idx,
+        vortex_ensure_eq!(
             existing.len(),
-            replacement.len()
+            replacement.len(),
+            "slot {} len changed during physical rewrite",
+            slot_idx
         );
         slots[slot_idx] = Some(replacement);
         // SAFETY: upheld by the caller of this unsafe API.
@@ -573,32 +604,30 @@ impl ArrayRef {
     /// parent statistics are preserved and must remain valid.
     pub unsafe fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
-        vortex_ensure!(
-            old_slots.len() == slots.len(),
-            "slot count changed from {} to {} during physical rewrite",
+        vortex_ensure_eq!(
             old_slots.len(),
-            slots.len()
+            slots.len(),
+            "slot count changed during physical rewrite"
         );
         for (idx, (old_slot, new_slot)) in old_slots.iter().zip(slots.iter()).enumerate() {
-            vortex_ensure!(
-                old_slot.is_some() == new_slot.is_some(),
+            vortex_ensure_eq!(
+                old_slot.is_some(),
+                new_slot.is_some(),
                 "slot {} presence changed during physical rewrite",
                 idx
             );
             if let (Some(old_slot), Some(new_slot)) = (old_slot.as_ref(), new_slot.as_ref()) {
-                vortex_ensure!(
-                    old_slot.dtype() == new_slot.dtype(),
-                    "slot {} dtype changed from {} to {} during physical rewrite",
-                    idx,
+                vortex_ensure_eq!(
                     old_slot.dtype(),
-                    new_slot.dtype()
+                    new_slot.dtype(),
+                    "slot {} dtype changed during physical rewrite",
+                    idx
                 );
-                vortex_ensure!(
-                    old_slot.len() == new_slot.len(),
-                    "slot {} len changed from {} to {} during physical rewrite",
-                    idx,
+                vortex_ensure_eq!(
                     old_slot.len(),
-                    new_slot.len()
+                    new_slot.len(),
+                    "slot {} len changed during physical rewrite",
+                    idx
                 );
             }
         }
@@ -623,11 +652,10 @@ impl ArrayRef {
     ) -> VortexResult<ArrayRef> {
         let buffers = buffers.into_iter().collect::<Vec<_>>();
         let nbuffers = self.nbuffers();
-        vortex_ensure!(
-            nbuffers == buffers.len(),
-            "buffer count changed from {} to {} during physical rewrite",
+        vortex_ensure_eq!(
             nbuffers,
-            buffers.len()
+            buffers.len(),
+            "buffer count changed during physical rewrite"
         );
         for (idx, (old_buffer, new_buffer)) in self
             .buffer_handles()
@@ -635,12 +663,11 @@ impl ArrayRef {
             .zip(buffers.iter())
             .enumerate()
         {
-            vortex_ensure!(
-                old_buffer.len() == new_buffer.len(),
-                "buffer {} length changed from {} to {} during physical rewrite",
-                idx,
+            vortex_ensure_eq!(
                 old_buffer.len(),
-                new_buffer.len()
+                new_buffer.len(),
+                "buffer {} length changed during physical rewrite",
+                idx
             );
         }
         self.0.data.with_buffers(&self, buffers)
@@ -700,8 +727,8 @@ impl ArrayRef {
     /// Returns the nth child of the array without allocating a Vec.
     ///
     /// Returns `None` if the index is out of bounds.
-    pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        self.children_iter().nth(idx).cloned()
+    pub fn nth_child(&self, idx: usize) -> Option<&ArrayRef> {
+        self.children_iter().nth(idx)
     }
 
     /// Returns the names of the children of the array: the slot names of the non-None slots

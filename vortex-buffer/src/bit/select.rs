@@ -386,7 +386,7 @@ fn select_in_word(word: u64, nth: usize) -> usize {
     static KERNEL: CpuKernel<SelectInWord> = CpuKernel::new(|| {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("bmi2") {
+            if is_x86_feature_detected!("bmi1") && is_x86_feature_detected!("bmi2") {
                 return select_in_word_bmi2;
             }
         }
@@ -399,6 +399,7 @@ fn select_in_word(word: u64, nth: usize) -> usize {
 
 /// BMI2: deposit a single bit at the nth set-bit position, then count trailing zeros.
 #[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi1")]
 #[target_feature(enable = "bmi2")]
 unsafe fn select_in_word_bmi2(word: u64, nth: usize) -> usize {
     use std::arch::x86_64::_pdep_u64;
@@ -406,7 +407,8 @@ unsafe fn select_in_word_bmi2(word: u64, nth: usize) -> usize {
 
     use vortex_error::VortexExpect;
 
-    usize::try_from(unsafe { _tzcnt_u64(_pdep_u64(1u64 << nth, word)) })
+    // Both intrinsics are safe to call here: `bmi1` and `bmi2` are enabled on this function.
+    usize::try_from(_tzcnt_u64(_pdep_u64(1u64 << nth, word)))
         .vortex_expect("safe to convert tzcnt result to usize")
 }
 

@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -14,6 +15,9 @@ use vortex_array::dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

@@ -138,7 +138,7 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
     // Each CUDA thread owns complete output bytes, avoiding races between threads writing
     // different bits in the same byte. The kernel handles the final partial byte explicitly.
     let output_bytes = codes_len.div_ceil(8);
-    let mut output_slice = ctx.device_alloc::<u8>(output_bytes)?;
+    let mut output_slice = ctx.stream().device_alloc_bitmap(output_bytes)?;
 
     let values_view = values_device.cuda_view::<u8>()?;
     let codes_view = codes_device.cuda_view::<I>()?;
@@ -155,9 +155,9 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
             .arg(&mut output_slice);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new_with_zeroed_tail(output_slice, output_bytes)?;
     Ok(Canonical::Bool(BoolArray::new_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
+        BufferHandle::new_device(Arc::new(output_device)).slice(0..output_bytes),
         0,
         codes_len,
         output_validity,
@@ -389,6 +389,9 @@ mod tests {
 
     use super::*;
     use crate::CanonicalCudaExt;
+    use crate::arrow::DeviceArrayExt;
+    use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+    use crate::device_buffer::cuda_backing_allocation;
     use crate::session::CudaSession;
 
     /// Copy a CUDA primitive array result to host memory.
@@ -406,8 +409,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
-        // Slicing leaves the dictionary values at a non-zero bit offset. Thirteen codes also
-        // exercise a final partial output byte.
+        // Slicing leaves a non-zero input bit offset; thirteen codes exercise a partial output byte.
         let values = BoolArray::from_iter([
             false, true, false, true, false, true, true, false, true, false,
         ])
@@ -417,6 +419,7 @@ mod tests {
             Buffer::from(vec![0u8, 1, 2, 3, 4, 3, 2, 1, 0, 4, 1, 3, 0]),
             NonNullable,
         );
+        let len = codes.len();
         let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?.into_array();
 
         let codes_handle = cuda_ctx
@@ -426,14 +429,36 @@ mod tests {
             PrimitiveArray::from_buffer_handle(codes_handle, codes.ptype(), codes.validity()?);
         let dict = DictArray::try_new(device_codes.into_array(), values)?.into_array();
 
-        let actual = DictExecutor
-            .execute(dict, &mut cuda_ctx)
-            .await?
-            .into_host()
-            .await?
-            .into_bool();
+        let actual = DictExecutor.execute(dict, &mut cuda_ctx).await?;
+        let bits = actual.clone().into_bool().into_data().into_parts(len).bits;
+        let logical_bytes = len.div_ceil(8);
+        let padded_bytes = logical_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
+        assert_eq!(bits.len(), logical_bytes);
 
-        assert_arrays_eq!(actual.into_array(), expected, &mut ctx);
+        assert!(bits.has_zeroed_tail_padding(logical_bytes, padded_bytes)?);
+        let backing = cuda_backing_allocation(&bits)?;
+        assert_eq!(backing.len(), padded_bytes);
+        let bytes = backing.try_to_host()?.await?;
+        assert!(bytes[logical_bytes..].iter().all(|byte| *byte == 0));
+
+        let bits_ptr = bits.cuda_device_ptr()?;
+        let mut exported = actual
+            .clone()
+            .into_array()
+            .export_device_array(&mut cuda_ctx)
+            .await?;
+        // SAFETY: The live bool export has a host-resident buffer table with values at index 1.
+        let exported_bits_ptr = unsafe { *exported.array.buffers.add(1) } as u64;
+        let release = exported
+            .array
+            .release
+            .vortex_expect("missing Arrow release callback");
+        // SAFETY: This is the sole release of the successfully exported array.
+        unsafe { release(&raw mut exported.array) };
+        assert_eq!(exported_bits_ptr, bits_ptr);
+
+        let actual = actual.into_host().await?.into_array();
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 

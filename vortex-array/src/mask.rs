@@ -47,10 +47,6 @@ impl Executable for Mask {
 ///
 /// Use for filter and pruning predicates over nullable data, where SQL semantics treat `NULL` as
 /// not matching.
-///
-/// Prefer `array.null_as_false().execute(ctx)` over `array.fill_null(false)?.execute::<Mask>(ctx)`:
-/// `fill_null` on a lazy `ScalarFn` array (e.g. the result of `apply(<predicate>)`) is currently
-/// slow because its `validity()` executes the predicate expression.
 pub struct NullAsFalse(ArrayRef);
 
 impl ArrayRef {

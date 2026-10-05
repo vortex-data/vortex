@@ -18,18 +18,21 @@ __device__ uint64_t load_input_word(const uint8_t *const input, int64_t word_idx
     if (byte_idx >= input_bytes) {
         return 0;
     }
-    if (byte_idx + sizeof(uint64_t) <= input_bytes) {
-        return reinterpret_cast<const uint64_t *>(input)[word_idx];
+    const uint64_t available_bytes = input_bytes - byte_idx;
+    // The host aligns input down within its allocation and adjusts the bit offset.
+    if (available_bytes >= sizeof(uint64_t)) {
+        return reinterpret_cast<const uint64_t *>(input + byte_idx)[0];
     }
-    // Trailing partial word: assemble byte-by-byte to avoid reading past the buffer.
+    // Only the final partial word needs byte loads; never overread the logical tail.
+    const uint64_t min_bytes = min(static_cast<uint64_t>(sizeof(uint64_t)), available_bytes);
     uint64_t word = 0;
-    for (uint64_t i = byte_idx; i < input_bytes; i++) {
-        word |= static_cast<uint64_t>(input[i]) << ((i - byte_idx) * 8);
+    for (uint64_t i = 0; i < min_bytes; i++) {
+        word |= static_cast<uint64_t>(input[byte_idx + i]) << (i * 8);
     }
     return word;
 }
 
-// Build one output word for sliced validity. The row bits are the same, but
+// Build one output word for a sliced bitmap. The row bits are the same, but
 // row 0 may live at a different bit position in the source and Arrow bitmaps.
 // For example, `input_offset = 5` and `arrow_offset = 0` shifts row0 from bit 5
 // in the input bitmap to bit 0 in the Arrow bitmap.
@@ -39,7 +42,7 @@ __device__ uint64_t load_input_word(const uint8_t *const input, int64_t word_idx
 //   Arrow bitmap:  [ row0 ][ row1 ][ row2 ]....
 //                     ^ arrow_offset
 //
-// Padding bits are cleared so word-sized validity readers can safely over-read.
+// Padding bits are cleared for word-sized bitmap readers.
 __device__ uint64_t repack_word(const uint8_t *const input,
                                 uint64_t word_idx,
                                 int64_t shift,
@@ -137,7 +140,7 @@ __device__ uint64_t block_sum_to_thread_zero(uint64_t value, uint64_t *const war
 
 } // namespace
 
-// Repack sliced validity when the source bitmap offset does not match the
+// Repack a sliced bitmap when the source bit offset does not match the
 // Arrow array offset. Each thread writes independent output words.
 //
 //   thread 0 -> output word 0, word N, ...

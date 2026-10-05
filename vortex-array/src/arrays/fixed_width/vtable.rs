@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::buffer::BufferHandle;
@@ -26,11 +26,7 @@ pub(crate) fn buffer_name(idx: usize) -> Option<String> {
 }
 
 pub(crate) fn single_buffer(buffers: &[BufferHandle]) -> VortexResult<BufferHandle> {
-    vortex_ensure!(
-        buffers.len() == 1,
-        "Expected 1 buffer, got {}",
-        buffers.len()
-    );
+    vortex_ensure_eq!(buffers.len(), 1);
     Ok(buffers[0].clone())
 }
 

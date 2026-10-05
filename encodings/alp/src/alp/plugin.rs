@@ -17,7 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
@@ -52,10 +52,10 @@ impl ArrayPlugin for ALPPatchedPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            parts.serialized_id == self.id(),
-            "ALP plugin does not recognize serialized ID {}",
+        vortex_ensure_eq!(
             parts.serialized_id,
+            self.id(),
+            "ALP plugin does not recognize serialized ID"
         );
         let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
             &ALP,

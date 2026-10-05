@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex zstd compression array encoding"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -18,10 +17,6 @@ all-features = true
 
 [lints]
 workspace = true
-
-[features]
-# This feature enables unstable encodings for which we don't guarantee stability.
-unstable_encodings = []
 
 [dependencies]
 itertools = { workspace = true }

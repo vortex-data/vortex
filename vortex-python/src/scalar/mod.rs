@@ -120,7 +120,9 @@ impl PyScalar {
                 "Map scalars are not supported in Python",
             )),
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => Err(PyValueError::new_err(
+                "Union scalars are not supported in Python yet",
+            )),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),

@@ -8,7 +8,7 @@ use std::hash::Hash;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
@@ -147,12 +147,7 @@ where
 
     /// Replace the partition expressions and update every root dtype in the recombination tree.
     pub fn replace_partitions(&mut self, partitions: Box<[BoundExpression]>) -> VortexResult<()> {
-        vortex_ensure!(
-            partitions.len() == self.partition_names.len(),
-            "Expected {} partitions, got {}",
-            self.partition_names.len(),
-            partitions.len()
-        );
+        vortex_ensure_eq!(partitions.len(), self.partition_names.len());
 
         let root_dtype = partition_root_dtype(&self.partition_names, &partitions);
         let root = replace_root_dtype(self.root.clone(), root_dtype)?;
@@ -312,14 +307,13 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_bound_free_field_annotator;
-    use crate::expr::and;
+    use crate::expr::checked_add;
     use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::merge;
     use crate::expr::pack;
     use crate::expr::root;
-    use crate::expr::transform::replace::replace_root_fields;
 
     #[fixture]
     fn dtype() -> DType {
@@ -359,7 +353,13 @@ mod tests {
         assert_eq!(partitioned.root, root().bind(&dtype).unwrap());
 
         // Instead, callers must expand the root expression themselves.
-        let expr = replace_root_fields(expr, fields);
+        let expr = pack(
+            fields
+                .names()
+                .iter()
+                .map(|name| (name.clone(), col(name.clone()))),
+            NonNullable,
+        );
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());
@@ -409,7 +409,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
-        let expr = and(get_item("y", get_item("a", root())), lit(1));
+        let expr = checked_add(get_item("y", get_item("a", root())), lit(1));
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
 
         // Whole expr is a single split
@@ -418,7 +418,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
-        let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
+        let expr = checked_add(get_item("y", get_item("a", root())), get_item("b", root()));
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
 
         // One for id.a and id.b

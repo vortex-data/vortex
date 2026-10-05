@@ -33,6 +33,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
+use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
@@ -120,11 +121,14 @@ fn polygon_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> Pol
 /// Build canonical non-nullable 2-D polygon storage from row-oriented `geo_types` polygons.
 pub(crate) fn build_polygon_storage(
     polygons: &[geo_types::Polygon<f64>],
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
-    let mut xs = Vec::new();
-    let mut ys = Vec::new();
-    let mut ring_offsets = vec![0_u64];
-    let mut polygon_offsets = vec![0_u64];
+    let mut xs = allocator.with_capacity::<f64>(0);
+    let mut ys = allocator.with_capacity::<f64>(0);
+    let mut ring_offsets = allocator.with_capacity::<u64>(1);
+    ring_offsets.push(0);
+    let mut polygon_offsets = allocator.with_capacity::<u64>(polygons.len() + 1);
+    polygon_offsets.push(0);
 
     for polygon in polygons {
         let exterior = (!polygon.exterior().is_empty()).then_some(polygon.exterior());
@@ -143,19 +147,25 @@ pub(crate) fn build_polygon_storage(
     }
 
     let coordinates = StructArray::from_fields(&[
-        ("x", PrimitiveArray::from_iter(xs).into_array()),
-        ("y", PrimitiveArray::from_iter(ys).into_array()),
+        (
+            "x",
+            PrimitiveArray::new(xs.freeze(), Validity::NonNullable).into_array(),
+        ),
+        (
+            "y",
+            PrimitiveArray::new(ys.freeze(), Validity::NonNullable).into_array(),
+        ),
     ])?
     .into_array();
     let rings = ListArray::try_new(
         coordinates,
-        PrimitiveArray::from_iter(ring_offsets).into_array(),
+        PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
         Validity::NonNullable,
     )?
     .into_array();
     let storage = ListArray::try_new(
         rings,
-        PrimitiveArray::from_iter(polygon_offsets).into_array(),
+        PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
         Validity::NonNullable,
     )?
     .into_array();

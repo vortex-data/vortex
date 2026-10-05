@@ -135,7 +135,7 @@ def _str_to_python(s: gdb.Value) -> str | None:
 class _PinnedThread:
     """Make a pretty-printer's call safe with multiple threads"""
 
-    def __enter__(self):
+    def __enter__(self) -> _PinnedThread:
         try:
             self._frame = gdb.selected_frame()
         except gdb.error:
@@ -148,7 +148,7 @@ class _PinnedThread:
             self._prev_lock = None
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type, exc, tb) -> None:
         if self._prev_lock is not None:
             try:
                 gdb.execute(f"set scheduler-locking {self._prev_lock}", to_string=True)
@@ -247,7 +247,7 @@ def _format_array_ref(val: gdb.Value) -> str:
     if inner is None:
         return f"ArrayRef(?) @ {arc_inner_base:#x}"
 
-    def _try(fn, default):
+    def _try(fn, default) -> object:
         try:
             return fn()
         except (gdb.error, RuntimeError):
@@ -276,7 +276,7 @@ def _format_typed_array(val: gdb.Value) -> str:
 
 
 class _Printer:
-    def __init__(self, val: gdb.Value, fmt: Callable[[gdb.Value], str]):
+    def __init__(self, val: gdb.Value, fmt: Callable[[gdb.Value], str]) -> None:
         self._val, self._fmt = val, fmt
 
     def to_string(self) -> str:

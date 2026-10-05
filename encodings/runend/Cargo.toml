@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex run end encoded array"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -57,4 +56,8 @@ harness = false
 
 [[bench]]
 name = "run_end_filter"
+harness = false
+
+[[bench]]
+name = "run_end_sum"
 harness = false

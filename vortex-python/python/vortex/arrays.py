@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pyarrow
 from typing_extensions import override
 
-import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
+import vortex._lib.arrays as _arrays
+from vortex._lib.dtype import DType
+from vortex._lib.serde import (
     ArrayContext,
     SerializedArray,
     decode_ipc_array_buffers,
@@ -24,10 +24,13 @@ except ImportError:
 else:
     # HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
     # See https://github.com/pandas-dev/pandas/issues/60068 for more details
-    _old_ArrowDtype_type: Callable[[pandas.ArrowDtype], type] = pandas.ArrowDtype.type.fget  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    _old_ArrowDtype_type = cast(
+        Callable[[pandas.ArrowDtype], type],
+        pandas.ArrowDtype.type.fget,  # ty: ignore[unresolved-attribute]
+    )
 
     @property
-    def __ArrowDtype_type_patched(self: pandas.ArrowDtype):
+    def __ArrowDtype_type_patched(self: pandas.ArrowDtype) -> type:
         if pyarrow.types.is_string_view(self.pyarrow_dtype):
             return str
         if pyarrow.types.is_binary_view(self.pyarrow_dtype):
@@ -48,7 +51,7 @@ def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
     def empty_array(f: pyarrow.Field[pyarrow.DataType]) -> pyarrow.Array[pyarrow.Scalar[pyarrow.DataType]]:
         return pyarrow.array([], type=f.type)
 
-    return pyarrow.Table.from_arrays([empty_array(field) for field in schema], schema=schema)  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+    return pyarrow.Table.from_arrays([empty_array(field) for field in schema], schema=schema)
 
 
 def arrow_table_from_struct_array(
@@ -59,7 +62,7 @@ def arrow_table_from_struct_array(
     return pyarrow.Table.from_struct_array(array)
 
 
-def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
+def _Array_to_arrow_table(self: _arrays.Array, *, combine_chunks: bool = False) -> pyarrow.Table:
     """Construct an Arrow table from this Vortex array.
 
     .. seealso::
@@ -69,6 +72,12 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     -------
 
     Only struct-typed arrays can be converted to Arrow tables.
+
+    Parameters
+    ----------
+    combine_chunks : :class:`bool`, optional
+        If ``True``, a chunked Vortex array is concatenated natively during export so that every
+        column of the resulting table has a single chunk. Defaults to ``False``.
 
     Returns
     -------
@@ -93,7 +102,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     age: [[25,31,33,57]]
 
     """
-    array = self.to_arrow_array()
+    array = self.to_arrow_array(combine_chunks=combine_chunks)
     assert isinstance(array, pyarrow.StructArray | pyarrow.ChunkedArray)
     return arrow_table_from_struct_array(array)
 
@@ -134,15 +143,15 @@ def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
     """
     import pandas
 
-    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
+    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)
 
 
 Array.to_pandas = _Array_to_pandas
 
 
-def _Array_to_polars_dataframe(
+def _Array_to_polars_dataframe(  # noqa: ANN202  # A Polars return annotation breaks docs; see #7027.
     self: _arrays.Array,
-):  # -> 'polars.DataFrame':  # breaks docs due to Polars issue #7027
+):
     """Construct a Polars dataframe from this Vortex array.
 
     .. seealso::
@@ -186,13 +195,15 @@ def _Array_to_polars_dataframe(
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_table())  # pyright: ignore[reportUnknownMemberType]
+    return polars.from_arrow(self.to_arrow_table())
 
 
 setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
 
 
-def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
+def _Array_to_polars_series(  # noqa: ANN202  # A Polars return annotation breaks docs; see #7027.
+    self: _arrays.Array,
+):
     """Construct a Polars series from this Vortex array.
 
     .. seealso::
@@ -254,7 +265,7 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_array())  # pyright: ignore[reportUnknownMemberType]
+    return polars.from_arrow(self.to_arrow_array())
 
 
 setattr(Array, "to_polars_series", _Array_to_polars_series)
@@ -291,7 +302,7 @@ def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> nump
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[reportExplicitAny]
+def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -317,10 +328,10 @@ Array.to_pylist = _Array_to_pylist
 
 
 def array(
-    obj: pyarrow.Array[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
-    | pyarrow.ChunkedArray[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
+    obj: pyarrow.Array[pyarrow.Scalar[Any]]
+    | pyarrow.ChunkedArray[pyarrow.Scalar[Any]]
     | pyarrow.Table
-    | list[Any]  # pyright: ignore[reportExplicitAny]
+    | list[Any]
     | pandas.DataFrame
     | range,
 ) -> Array:
@@ -472,7 +483,7 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         """
 
 
-def _unpickle_array(  # pyright: ignore[reportUnusedFunction]
+def _unpickle_array(
     array_buffers: Sequence[bytes | memoryview],
     dtype_buffers: Sequence[bytes | memoryview],
 ) -> Array:

@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::mem;
 
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -80,8 +79,7 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        let allocator = self.inner.allocator().clone();
-        let inner = mem::replace(&mut self.inner, BitBufferMut::empty_in(allocator)).freeze();
+        let inner = self.inner.take().freeze();
         BoolArray::new(
             inner,
             self.nulls.finish_with_nullability(self.dtype.nullability()),
@@ -127,11 +125,10 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == self.dtype(),
-            "BoolBuilder expected scalar with dtype {}, got {}",
+        vortex_ensure_eq!(
+            scalar.dtype(),
             self.dtype(),
-            scalar.dtype()
+            "BoolBuilder received a scalar with the wrong dtype"
         );
 
         match scalar.as_bool().value() {

@@ -7,7 +7,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
@@ -226,11 +226,10 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == self.dtype(),
-            "DecimalBuilder expected scalar with dtype {}, got {}",
+        vortex_ensure_eq!(
+            scalar.dtype(),
             self.dtype(),
-            scalar.dtype()
+            "DecimalBuilder received a scalar with the wrong dtype"
         );
 
         match scalar.as_decimal().decimal_value() {
@@ -259,10 +258,7 @@ impl ArrayBuilder for DecimalBuilder {
 
 impl DecimalBuffer {
     fn take(&mut self) -> Self {
-        delegate_fn!(self, |T, buffer| {
-            let allocator = buffer.allocator();
-            DecimalBuffer::from(std::mem::replace(buffer, allocator.with_capacity(0)))
-        })
+        delegate_fn!(self, |T, buffer| { DecimalBuffer::from(buffer.take()) })
     }
 
     fn push<V: NativeDecimalType>(&mut self, value: V) {

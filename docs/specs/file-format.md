@@ -1,9 +1,11 @@
 # File Format
 
 :::{important}
-The Vortex File Format has been considered stable since the release of version 0.36.0. That means that you can expect all
-future versions of the Vortex library to be able to read files written by version 0.36.0 or later (up to and including
-the version doing the reading).
+The Vortex file format's stability guarantee starts with version `0.36.0` of the Vortex Rust crates
+and edition `core2025.05.0`. Later versions of those crates retain read support for the components
+in frozen editions.
+[Versioning](/specs/versioning) explains the guarantee and the requirements for draft and custom
+components.
 :::
 
 :::{seealso}
@@ -17,9 +19,8 @@ definition that allows efficiently querying the layout.
 
 Other considerations for the Vortex file format include:
 
-* Backwards compatibility, and (coming soon) forwards compatibility. The set of encodings a
-  writer may put in a file — and the resulting read-compatibility promise — is governed by
-  [Editions](/specs/editions).
+* File compatibility. Editions constrain which serialized components a writer can use. A writer
+  built with newer Vortex crates can target an older edition that its intended readers support.
 * Fine-grained encryption.
 * Efficient access for both local disk and cloud storage.
 * Minimal overhead reading few columns or rows from wide or long arrays.
@@ -62,7 +63,7 @@ Readers do not load the opaque metadata values by default. Opt-in metadata reads
 locator separately, allowing values outside the initial file-tail read to be fetched without reading
 the intervening file contents.
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
+:::{literalinclude} ../../vortex-file/flatbuffers/vortex-file/footer.fbs
 :start-after: [postscript]
 :end-before: [postscript]
 :::
@@ -84,10 +85,10 @@ valid to store a `Float64` array, a `Boolean` array, or any other root data type
 ## Footer
 
 The footer is a flat buffer serialized `Footer` object. This object contains all the information required to
-load the root `Layout` object into a usable `LayoutReader`).
+load the root `Layout` object into a usable `LayoutReader`.
 For example, it contains the locations, compression schemes, encryption schemes, and required alignment of all segments in the file.
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
+:::{literalinclude} ../../vortex-file/flatbuffers/vortex-file/footer.fbs
 :start-after: [footer]
 :end-before: [footer]
 :::
@@ -106,23 +107,18 @@ as of June 2025, it might look as follows.
 
 ## Backward Compatibility
 
-Backward compatibility guarantees that any **older** Vortex file can be read by **newer** versions of the Vortex library,
-and is expected from all releases of Vortex from version 0.36.0 onwards.
+Later Vortex library versions retain read support for frozen formats, beginning with the formats in
+`core2025.05.0`, supported from version `0.36.0`. The reader must retain the required component
+implementations, including optional plugins. See [Versioning](versioning.md) for the guarantee and
+its boundaries.
 
 ## Forward Compatibility
 
-:::{warning}
-Forward compatibility is not yet implemented, but is planned to ship prior to the 1.0 release.
-:::
+Newer writers can already produce files for older readers by
+[selecting editions](versioning/using-editions.md) whose formats those readers support. That allows
+applications to upgrade independently while continuing to exchange files in supported formats.
 
-Forward compatibility extends the preceding stability guarantee such that **newer** Vortex files can be read by
-**older** versions of the Vortex library.
-
-The intent of this work is to allow us to continue to evolve the Vortex File Format, avoiding calcification
-and remaining up-to-date with new compression codecs and layout optimizations -- without breaking existing
-readers or requiring lockstep upgrades.
-
-The plan is that at write-time, a minimum supported reader version is declared. Any encodings or layouts added after that minimum
-reader version can then be embedded into the file with WebAssembly decompression logic. Old readers are able to decompress new
-data (slower than native code, but still with SIMD acceleration) and read the file. New readers are able to make the best use of
-these encodings with native decompression logic and additional push-down compute functions (which also provides an incentive to upgrade).
+Reading a newly introduced format with an older reader is a separate capability. A proposed approach
+embeds WebAssembly decoding logic for new encodings and layouts in the file. An older reader with
+the required execution support could then interpret them without a native implementation. This
+approach is not implemented and is not part of the edition compatibility guarantee.

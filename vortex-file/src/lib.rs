@@ -105,6 +105,7 @@
 
 mod counting;
 mod file;
+pub mod flatbuffers;
 mod footer;
 pub mod multi;
 mod open;
@@ -191,7 +192,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_sequence::initialize(session);
     vortex_sparse::initialize(session);
 
-    #[cfg(feature = "unstable_encodings")]
+    #[cfg(feature = "tensor")]
     vortex_tensor::initialize(session);
 }
 

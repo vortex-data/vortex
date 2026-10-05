@@ -12,6 +12,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -86,36 +87,51 @@ impl AggregateFnVTable for NullCount {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _input_dtype: &DType,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
         Ok(0)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let count = other
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Ok(scalar
             .as_primitive()
             .typed_value::<u64>()
-            .vortex_expect("null_count partial should not be null");
-        *partial += count;
-        Ok(())
+            .vortex_expect("null_count partial should not be null"))
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        Ok(first + second)
+    }
+
+    fn to_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
     }
 
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
-    }
-
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partial: &Self::Partial,
+    ) -> bool {
         false
     }
 
     fn try_accumulate(
         &self,
+        _args: AggregateArgs<'_, Self::Options>,
         state: &mut Self::Partial,
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -126,6 +142,7 @@ impl AggregateFnVTable for NullCount {
 
     fn accumulate(
         &self,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -143,12 +160,20 @@ impl AggregateFnVTable for NullCount {
         Ok(())
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(args, partial)
     }
 }
 

@@ -1,0 +1,1379 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT asceding.rnk,
+       i1.i_product_name best_performing,
+       i2.i_product_name worst_performing
+FROM
+  (SELECT *
+   FROM
+     (SELECT item_sk,
+             rank() OVER (
+                          ORDER BY rank_col ASC) rnk
+      FROM
+        (SELECT ss_item_sk item_sk,
+                avg(ss_net_profit) rank_col
+         FROM store_sales ss1
+         WHERE ss_store_sk = 4
+         GROUP BY ss_item_sk
+         HAVING avg(ss_net_profit) > 0.9*
+           (SELECT avg(ss_net_profit) rank_col
+            FROM store_sales
+            WHERE ss_store_sk = 4
+              AND ss_addr_sk IS NULL
+            GROUP BY ss_store_sk))V1)V11
+   WHERE rnk < 11) asceding,
+  (SELECT *
+   FROM
+     (SELECT item_sk,
+             rank() OVER (
+                          ORDER BY rank_col DESC) rnk
+      FROM
+        (SELECT ss_item_sk item_sk,
+                avg(ss_net_profit) rank_col
+         FROM store_sales ss1
+         WHERE ss_store_sk = 4
+         GROUP BY ss_item_sk
+         HAVING avg(ss_net_profit) > 0.9*
+           (SELECT avg(ss_net_profit) rank_col
+            FROM store_sales
+            WHERE ss_store_sk = 4
+              AND ss_addr_sk IS NULL
+            GROUP BY ss_store_sk))V2)V21
+   WHERE rnk < 11) descending,
+     item i1,
+     item i2
+WHERE asceding.rnk = descending.rnk
+  AND i1.i_item_sk=asceding.item_sk
+  AND i2.i_item_sk=descending.item_sk
+ORDER BY asceding.rnk
+LIMIT 100;
+----
+logical_plan [
+    {
+        "name": "LIMIT",
+        "children": [
+            {
+                "name": "ORDER_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "FILTER",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "FILTER",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "WINDOW",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "FILTER",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "CROSS_PRODUCT",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "AGGREGATE",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "FILTER",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "PROJECTION",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "READ_VORTEX",
+                                                                                                                                                "children": [],
+                                                                                                                                                "extra_info": {
+                                                                                                                                                    "Filters": "",
+                                                                                                                                                    "Function": "Vortex Scan"
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Expressions": [
+                                                                                                                                                "ss_sold_date_sk",
+                                                                                                                                                "ss_sold_time_sk",
+                                                                                                                                                "ss_item_sk",
+                                                                                                                                                "ss_customer_sk",
+                                                                                                                                                "ss_cdemo_sk",
+                                                                                                                                                "ss_hdemo_sk",
+                                                                                                                                                "ss_addr_sk",
+                                                                                                                                                "ss_store_sk",
+                                                                                                                                                "ss_promo_sk",
+                                                                                                                                                "ss_ticket_number",
+                                                                                                                                                "ss_quantity",
+                                                                                                                                                "ss_wholesale_cost",
+                                                                                                                                                "ss_list_price",
+                                                                                                                                                "ss_sales_price",
+                                                                                                                                                "ss_ext_discount_amt",
+                                                                                                                                                "ss_ext_sales_price",
+                                                                                                                                                "ss_ext_wholesale_cost",
+                                                                                                                                                "ss_ext_list_price",
+                                                                                                                                                "ss_ext_tax",
+                                                                                                                                                "ss_coupon_amt",
+                                                                                                                                                "ss_net_paid",
+                                                                                                                                                "ss_net_paid_inc_tax",
+                                                                                                                                                "ss_net_profit"
+                                                                                                                                            ]
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": "(ss_store_sk = CAST(4 AS BIGINT))"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Groups": "ss_item_sk",
+                                                                                                                            "Expressions": "avg(ss_net_profit)"
+                                                                                                                        }
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "name": "PROJECTION",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "AGGREGATE",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "PROJECTION",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "AGGREGATE",
+                                                                                                                                                "children": [
+                                                                                                                                                    {
+                                                                                                                                                        "name": "FILTER",
+                                                                                                                                                        "children": [
+                                                                                                                                                            {
+                                                                                                                                                                "name": "PROJECTION",
+                                                                                                                                                                "children": [
+                                                                                                                                                                    {
+                                                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                                                        "children": [],
+                                                                                                                                                                        "extra_info": {
+                                                                                                                                                                            "Filters": "",
+                                                                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                                                                        }
+                                                                                                                                                                    }
+                                                                                                                                                                ],
+                                                                                                                                                                "extra_info": {
+                                                                                                                                                                    "Expressions": [
+                                                                                                                                                                        "ss_sold_date_sk",
+                                                                                                                                                                        "ss_sold_time_sk",
+                                                                                                                                                                        "ss_item_sk",
+                                                                                                                                                                        "ss_customer_sk",
+                                                                                                                                                                        "ss_cdemo_sk",
+                                                                                                                                                                        "ss_hdemo_sk",
+                                                                                                                                                                        "ss_addr_sk",
+                                                                                                                                                                        "ss_store_sk",
+                                                                                                                                                                        "ss_promo_sk",
+                                                                                                                                                                        "ss_ticket_number",
+                                                                                                                                                                        "ss_quantity",
+                                                                                                                                                                        "ss_wholesale_cost",
+                                                                                                                                                                        "ss_list_price",
+                                                                                                                                                                        "ss_sales_price",
+                                                                                                                                                                        "ss_ext_discount_amt",
+                                                                                                                                                                        "ss_ext_sales_price",
+                                                                                                                                                                        "ss_ext_wholesale_cost",
+                                                                                                                                                                        "ss_ext_list_price",
+                                                                                                                                                                        "ss_ext_tax",
+                                                                                                                                                                        "ss_coupon_amt",
+                                                                                                                                                                        "ss_net_paid",
+                                                                                                                                                                        "ss_net_paid_inc_tax",
+                                                                                                                                                                        "ss_net_profit"
+                                                                                                                                                                    ]
+                                                                                                                                                                }
+                                                                                                                                                            }
+                                                                                                                                                        ],
+                                                                                                                                                        "extra_info": {
+                                                                                                                                                            "Expressions": [
+                                                                                                                                                                "(ss_store_sk = CAST(4 AS BIGINT))",
+                                                                                                                                                                "(ss_addr_sk IS NULL)"
+                                                                                                                                                            ]
+                                                                                                                                                        }
+                                                                                                                                                    }
+                                                                                                                                                ],
+                                                                                                                                                "extra_info": {
+                                                                                                                                                    "Groups": "ss_store_sk",
+                                                                                                                                                    "Expressions": "avg(ss_net_profit)"
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Expressions": "rank_col"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Groups": "",
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "\"first\"(#[20.0])",
+                                                                                                                                        "count_star()"
+                                                                                                                                    ]
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Expressions": [
+                                                                                                                                "CASE  WHEN ((#[26.1] > 1)) THEN (\"error\"('More than one row returned by a subquery used as an expression - scalar subqueries can only return a single row.",
+                                                                                                                                "Use \"SET scalar_subquery_error_on_multiple_rows=false\" to revert to previous behavior of returning a random row.')) ELSE #[26.0] END"
+                                                                                                                            ]
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": ""
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": "(avg(ss_net_profit) > (CAST(0.9 AS DOUBLE) * SUBQUERY))"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "item_sk",
+                                                                                                        "rank_col"
+                                                                                                    ]
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": "RANK() OVER (ORDER BY rank_col ASC NULLS LAST)"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "item_sk",
+                                                                                        "rnk"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "(rnk < CAST(11 AS BIGINT))"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "item_sk",
+                                                                        "rnk"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "FILTER",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "WINDOW",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "FILTER",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "CROSS_PRODUCT",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "AGGREGATE",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "FILTER",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "PROJECTION",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "READ_VORTEX",
+                                                                                                                                                "children": [],
+                                                                                                                                                "extra_info": {
+                                                                                                                                                    "Filters": "",
+                                                                                                                                                    "Function": "Vortex Scan"
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Expressions": [
+                                                                                                                                                "ss_sold_date_sk",
+                                                                                                                                                "ss_sold_time_sk",
+                                                                                                                                                "ss_item_sk",
+                                                                                                                                                "ss_customer_sk",
+                                                                                                                                                "ss_cdemo_sk",
+                                                                                                                                                "ss_hdemo_sk",
+                                                                                                                                                "ss_addr_sk",
+                                                                                                                                                "ss_store_sk",
+                                                                                                                                                "ss_promo_sk",
+                                                                                                                                                "ss_ticket_number",
+                                                                                                                                                "ss_quantity",
+                                                                                                                                                "ss_wholesale_cost",
+                                                                                                                                                "ss_list_price",
+                                                                                                                                                "ss_sales_price",
+                                                                                                                                                "ss_ext_discount_amt",
+                                                                                                                                                "ss_ext_sales_price",
+                                                                                                                                                "ss_ext_wholesale_cost",
+                                                                                                                                                "ss_ext_list_price",
+                                                                                                                                                "ss_ext_tax",
+                                                                                                                                                "ss_coupon_amt",
+                                                                                                                                                "ss_net_paid",
+                                                                                                                                                "ss_net_paid_inc_tax",
+                                                                                                                                                "ss_net_profit"
+                                                                                                                                            ]
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": "(ss_store_sk = CAST(4 AS BIGINT))"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Groups": "ss_item_sk",
+                                                                                                                            "Expressions": "avg(ss_net_profit)"
+                                                                                                                        }
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "name": "PROJECTION",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "AGGREGATE",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "PROJECTION",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "AGGREGATE",
+                                                                                                                                                "children": [
+                                                                                                                                                    {
+                                                                                                                                                        "name": "FILTER",
+                                                                                                                                                        "children": [
+                                                                                                                                                            {
+                                                                                                                                                                "name": "PROJECTION",
+                                                                                                                                                                "children": [
+                                                                                                                                                                    {
+                                                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                                                        "children": [],
+                                                                                                                                                                        "extra_info": {
+                                                                                                                                                                            "Filters": "",
+                                                                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                                                                        }
+                                                                                                                                                                    }
+                                                                                                                                                                ],
+                                                                                                                                                                "extra_info": {
+                                                                                                                                                                    "Expressions": [
+                                                                                                                                                                        "ss_sold_date_sk",
+                                                                                                                                                                        "ss_sold_time_sk",
+                                                                                                                                                                        "ss_item_sk",
+                                                                                                                                                                        "ss_customer_sk",
+                                                                                                                                                                        "ss_cdemo_sk",
+                                                                                                                                                                        "ss_hdemo_sk",
+                                                                                                                                                                        "ss_addr_sk",
+                                                                                                                                                                        "ss_store_sk",
+                                                                                                                                                                        "ss_promo_sk",
+                                                                                                                                                                        "ss_ticket_number",
+                                                                                                                                                                        "ss_quantity",
+                                                                                                                                                                        "ss_wholesale_cost",
+                                                                                                                                                                        "ss_list_price",
+                                                                                                                                                                        "ss_sales_price",
+                                                                                                                                                                        "ss_ext_discount_amt",
+                                                                                                                                                                        "ss_ext_sales_price",
+                                                                                                                                                                        "ss_ext_wholesale_cost",
+                                                                                                                                                                        "ss_ext_list_price",
+                                                                                                                                                                        "ss_ext_tax",
+                                                                                                                                                                        "ss_coupon_amt",
+                                                                                                                                                                        "ss_net_paid",
+                                                                                                                                                                        "ss_net_paid_inc_tax",
+                                                                                                                                                                        "ss_net_profit"
+                                                                                                                                                                    ]
+                                                                                                                                                                }
+                                                                                                                                                            }
+                                                                                                                                                        ],
+                                                                                                                                                        "extra_info": {
+                                                                                                                                                            "Expressions": [
+                                                                                                                                                                "(ss_store_sk = CAST(4 AS BIGINT))",
+                                                                                                                                                                "(ss_addr_sk IS NULL)"
+                                                                                                                                                            ]
+                                                                                                                                                        }
+                                                                                                                                                    }
+                                                                                                                                                ],
+                                                                                                                                                "extra_info": {
+                                                                                                                                                    "Groups": "ss_store_sk",
+                                                                                                                                                    "Expressions": "avg(ss_net_profit)"
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Expressions": "rank_col"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Groups": "",
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "\"first\"(#[61.0])",
+                                                                                                                                        "count_star()"
+                                                                                                                                    ]
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Expressions": [
+                                                                                                                                "CASE  WHEN ((#[67.1] > 1)) THEN (\"error\"('More than one row returned by a subquery used as an expression - scalar subqueries can only return a single row.",
+                                                                                                                                "Use \"SET scalar_subquery_error_on_multiple_rows=false\" to revert to previous behavior of returning a random row.')) ELSE #[67.0] END"
+                                                                                                                            ]
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": ""
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": "(avg(ss_net_profit) > (CAST(0.9 AS DOUBLE) * SUBQUERY))"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "item_sk",
+                                                                                                        "rank_col"
+                                                                                                    ]
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": "RANK() OVER (ORDER BY rank_col DESC NULLS LAST)"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "item_sk",
+                                                                                        "rnk"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "(rnk < CAST(11 AS BIGINT))"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "item_sk",
+                                                                        "rnk"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "i_item_sk",
+                                                                "i_item_id",
+                                                                "i_rec_start_date",
+                                                                "i_rec_end_date",
+                                                                "i_item_desc",
+                                                                "i_current_price",
+                                                                "i_wholesale_cost",
+                                                                "i_brand_id",
+                                                                "i_brand",
+                                                                "i_class_id",
+                                                                "i_class",
+                                                                "i_category_id",
+                                                                "i_category",
+                                                                "i_manufact_id",
+                                                                "i_manufact",
+                                                                "i_size",
+                                                                "i_formulation",
+                                                                "i_color",
+                                                                "i_units",
+                                                                "i_container",
+                                                                "i_manager_id",
+                                                                "i_product_name"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "i_item_sk",
+                                                        "i_item_id",
+                                                        "i_rec_start_date",
+                                                        "i_rec_end_date",
+                                                        "i_item_desc",
+                                                        "i_current_price",
+                                                        "i_wholesale_cost",
+                                                        "i_brand_id",
+                                                        "i_brand",
+                                                        "i_class_id",
+                                                        "i_class",
+                                                        "i_category_id",
+                                                        "i_category",
+                                                        "i_manufact_id",
+                                                        "i_manufact",
+                                                        "i_size",
+                                                        "i_formulation",
+                                                        "i_color",
+                                                        "i_units",
+                                                        "i_container",
+                                                        "i_manager_id",
+                                                        "i_product_name"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "(rnk = rnk)",
+                                        "(i_item_sk = item_sk)",
+                                        "(i_item_sk = item_sk)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "rnk",
+                                "best_performing",
+                                "worst_performing"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Order By": "asceding.rnk"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": ""
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "COMPARISON_JOIN",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": "",
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "1800"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "i_item_sk",
+                                        "i_product_name"
+                                    ],
+                                    "Estimated Cardinality": "1800"
+                                }
+                            },
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "1800"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "i_item_sk",
+                                                "i_product_name"
+                                            ],
+                                            "Estimated Cardinality": "1800"
+                                        }
+                                    },
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "FILTER",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "WINDOW",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "COMPARISON_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "AGGREGATE",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "EMPTY_RESULT",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": ""
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Groups": "ss_item_sk",
+                                                                                                    "Expressions": "avg(ss_net_profit)",
+                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "AGGREGATE",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                                "children": [],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": ""
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Groups": "ss_store_sk",
+                                                                                                                            "Expressions": "avg(ss_net_profit)",
+                                                                                                                            "Estimated Cardinality": "10457"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": "rank_col",
+                                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Groups": "",
+                                                                                                            "Expressions": [
+                                                                                                                "\"first\"(#0)",
+                                                                                                                "count_star()"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "1"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "CASE  WHEN ((#1 > 1)) THEN (\"error\"('More than one row returned by a subquery used as an expression - scalar subqueries can only return a single row.",
+                                                                                                        "Use \"SET scalar_subquery_error_on_multiple_rows=false\" to revert to previous behavior of returning a random row.')) ELSE #0 END"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "1"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "(avg(ss_net_profit) > (0.9 * SUBQUERY))",
+                                                                                            "Estimated Cardinality": "21"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "item_sk",
+                                                                                        "rank_col"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "21"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "RANK() OVER (ORDER BY rank_col ASC NULLS LAST)",
+                                                                            "Estimated Cardinality": "21"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "(rnk < 11)",
+                                                                    "Estimated Cardinality": "4"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "item_sk",
+                                                                "rnk"
+                                                            ],
+                                                            "Estimated Cardinality": "4"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "item_sk",
+                                                        "rnk"
+                                                    ],
+                                                    "Estimated Cardinality": "4"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "FILTER",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "WINDOW",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "COMPARISON_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "AGGREGATE",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "EMPTY_RESULT",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": ""
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Groups": "ss_item_sk",
+                                                                                                    "Expressions": "avg(ss_net_profit)",
+                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "AGGREGATE",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                                "children": [],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": ""
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Groups": "ss_store_sk",
+                                                                                                                            "Expressions": "avg(ss_net_profit)",
+                                                                                                                            "Estimated Cardinality": "10457"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": "rank_col",
+                                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Groups": "",
+                                                                                                            "Expressions": [
+                                                                                                                "\"first\"(#0)",
+                                                                                                                "count_star()"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "1"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "CASE  WHEN ((#1 > 1)) THEN (\"error\"('More than one row returned by a subquery used as an expression - scalar subqueries can only return a single row.",
+                                                                                                        "Use \"SET scalar_subquery_error_on_multiple_rows=false\" to revert to previous behavior of returning a random row.')) ELSE #0 END"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "1"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "(avg(ss_net_profit) > (0.9 * SUBQUERY))",
+                                                                                            "Estimated Cardinality": "21"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "item_sk",
+                                                                                        "rank_col"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "21"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "RANK() OVER (ORDER BY rank_col DESC NULLS LAST)",
+                                                                            "Estimated Cardinality": "21"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "(rnk < 11)",
+                                                                    "Estimated Cardinality": "4"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "item_sk",
+                                                                "rnk"
+                                                            ],
+                                                            "Estimated Cardinality": "4"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "item_sk",
+                                                        "rnk"
+                                                    ],
+                                                    "Estimated Cardinality": "4"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(rnk = rnk)",
+                                            "Estimated Cardinality": "0"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(i_item_sk = item_sk)",
+                                    "Estimated Cardinality": "0"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "(i_item_sk = item_sk)",
+                            "Estimated Cardinality": "0"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "rnk",
+                        "best_performing",
+                        "worst_performing"
+                    ],
+                    "Estimated Cardinality": "0"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": "",
+            "Estimated Cardinality": "0"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_JOIN",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Projections": [
+                                        "i_item_sk",
+                                        "i_product_name"
+                                    ],
+                                    "Estimated Cardinality": "1800"
+                                }
+                            },
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Projections": [
+                                                "i_item_sk",
+                                                "i_product_name"
+                                            ],
+                                            "Estimated Cardinality": "1800"
+                                        }
+                                    },
+                                    {
+                                        "name": "HASH_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "FILTER",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "WINDOW",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "NESTED_LOOP_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "HASH_GROUP_BY",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {}
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Projections": [
+                                                                                                                "ss_item_sk",
+                                                                                                                "ss_net_profit"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "0"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Groups": "#0",
+                                                                                                    "Aggregates": "avg(#1)",
+                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "UNGROUPED_AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "PROJECTION",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "HASH_GROUP_BY",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "PROJECTION",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                                                "children": [],
+                                                                                                                                                "extra_info": {}
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Projections": [
+                                                                                                                                                "ss_store_sk",
+                                                                                                                                                "ss_net_profit"
+                                                                                                                                            ],
+                                                                                                                                            "Estimated Cardinality": "0"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Groups": "#0",
+                                                                                                                                    "Aggregates": "avg(#1)",
+                                                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Projections": "rank_col",
+                                                                                                                            "Estimated Cardinality": "10457"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Projections": "#0",
+                                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Aggregates": [
+                                                                                                                "\"first\"(#0)",
+                                                                                                                "count_star()"
+                                                                                                            ]
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Projections": [
+                                                                                                        "CASE  WHEN ((#1 > 1)) THEN (\"error\"('More than one row returned by a subquery used as an expression - scalar subqueries can only return a single row.",
+                                                                                                        "Use \"SET scalar_subquery_error_on_multiple_rows=false\" to revert to previous behavior of returning a random row.')) ELSE #0 END"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "1"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "avg(ss_net_profit) > (0.9 * SUBQUERY)",
+                                                                                            "Estimated Cardinality": "21"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Projections": [
+                                                                                        "item_sk",
+                                                                                        "rank_col"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "21"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Projections": "RANK() OVER (ORDER BY rank_col ASC NULLS LAST)"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Projections": [
+                                                                        "#0",
+                                                                        "#1",
+                                                                        "#2"
+                                                                    ],
+                                                                    "Estimated Cardinality": "21"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expression": "(rnk < 11)",
+                                                            "Estimated Cardinality": "4"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": [
+                                                        "#0",
+                                                        "#2"
+                                                    ],
+                                                    "Estimated Cardinality": "4"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "FILTER",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "WINDOW",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "NESTED_LOOP_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "HASH_GROUP_BY",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {}
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Projections": [
+                                                                                                                "ss_item_sk",
+                                                                                                                "ss_net_profit"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "0"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Groups": "#0",
+                                                                                                    "Aggregates": "avg(#1)",
+                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "UNGROUPED_AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "PROJECTION",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "HASH_GROUP_BY",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "PROJECTION",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                                                "children": [],
+                                                                                                                                                "extra_info": {}
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Projections": [
+                                                                                                                                                "ss_store_sk",
+                                                                                                                                                "ss_net_profit"
+                                                                                                                                            ],
+                                                                                                                                            "Estimated Cardinality": "0"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Groups": "#0",
+                                                                                                                                    "Aggregates": "avg(#1)",
+                                                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Projections": "rank_col",
+                                                                                                                            "Estimated Cardinality": "10457"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Projections": "#0",
+                                                                                                                    "Estimated Cardinality": "10457"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Aggregates": [
+                                                                                                                "\"first\"(#0)",
+                                                                                                                "count_star()"
+                                                                                                            ]
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Projections": [
+                                                                                                        "CASE  WHEN ((#1 > 1)) THEN (\"error\"('More than one row returned by a subquery used as an expression - scalar subqueries can only return a single row.",
+                                                                                                        "Use \"SET scalar_subquery_error_on_multiple_rows=false\" to revert to previous behavior of returning a random row.')) ELSE #0 END"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "1"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "avg(ss_net_profit) > (0.9 * SUBQUERY)",
+                                                                                            "Estimated Cardinality": "21"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Projections": [
+                                                                                        "item_sk",
+                                                                                        "rank_col"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "21"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Projections": "RANK() OVER (ORDER BY rank_col DESC NULLS LAST)"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Projections": [
+                                                                        "#0",
+                                                                        "#1",
+                                                                        "#2"
+                                                                    ],
+                                                                    "Estimated Cardinality": "21"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expression": "(rnk < 11)",
+                                                            "Estimated Cardinality": "4"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": [
+                                                        "#0",
+                                                        "#2"
+                                                    ],
+                                                    "Estimated Cardinality": "4"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "rnk = rnk",
+                                            "Estimated Cardinality": "0"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "i_item_sk = item_sk",
+                                    "Estimated Cardinality": "0"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "i_item_sk = item_sk",
+                            "Estimated Cardinality": "0"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": [
+                        "rnk",
+                        "best_performing",
+                        "worst_performing"
+                    ],
+                    "Estimated Cardinality": "0"
+                }
+            }
+        ],
+        "extra_info": {
+            "Top": "100",
+            "Order By": "asceding.rnk ASC"
+        }
+    }
+]

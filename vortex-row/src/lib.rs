@@ -22,10 +22,10 @@
 //! those sizes to allocate one contiguous elements buffer, then writes each column's bytes
 //! into the per-row slots from left to right.
 //!
-//! Supported logical types are nulls, booleans, primitive integers and floats, decimals up to
-//! 128 bits, UTF-8 and binary values, structs, and fixed-size lists. Extension, variant,
-//! union, and variable-size list arrays are rejected because this crate does not define an
-//! ordering for them.
+//! Supported logical types are nulls, booleans, primitive integers and floats, decimals,
+//! UTF-8 and binary values, structs, fixed-size and variable-size lists, and maps. Extension,
+//! variant, and union arrays are rejected because this crate does not define a total ordering
+//! for them.
 //!
 //! The byte-level format is documented in the row encoding spec:
 //! <https://docs.vortex.dev/specs/row-encoding.html>.

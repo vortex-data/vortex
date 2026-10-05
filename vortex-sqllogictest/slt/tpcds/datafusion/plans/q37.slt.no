@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_item_id,
+       i_item_desc,
+       i_current_price
+FROM item,
+     inventory,
+     date_dim,
+     catalog_sales
+WHERE i_current_price BETWEEN 68 AND 68 + 30
+  AND inv_item_sk = i_item_sk
+  AND d_date_sk=inv_date_sk
+  AND d_date BETWEEN cast('2000-02-01' AS date) AND cast('2000-04-01' AS date)
+  AND i_manufact_id IN (677,
+                        940,
+                        694,
+                        808)
+  AND inv_quantity_on_hand BETWEEN 100 AND 500
+  AND cs_item_sk = i_item_sk
+GROUP BY i_item_id,
+         i_item_desc,
+         i_current_price
+ORDER BY i_item_id
+LIMIT 100;
+----
+logical_plan
+01)Sort: item.i_item_id ASC NULLS LAST, fetch=100
+02)--Aggregate: groupBy=[[item.i_item_id, item.i_item_desc, item.i_current_price]], aggr=[[]]
+03)----Projection: item.i_item_id, item.i_item_desc, item.i_current_price
+04)------LeftSemi Join: item.i_item_sk = catalog_sales.cs_item_sk
+05)--------Projection: item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price
+06)----------LeftSemi Join: inventory.inv_date_sk = date_dim.d_date_sk
+07)------------Projection: item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price, inventory.inv_date_sk
+08)--------------Inner Join: item.i_item_sk = inventory.inv_item_sk
+09)----------------Projection: item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price
+10)------------------Filter: item.i_current_price >= Decimal128(68.00,7,2) AND item.i_current_price <= Decimal128(98.00,7,2) AND item.i_manufact_id IN ([Int64(677), Int64(940), Int64(694), Int64(808)])
+11)--------------------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc, i_current_price, i_manufact_id], partial_filters=[item.i_current_price >= Decimal128(68.00,7,2), item.i_current_price <= Decimal128(98.00,7,2), item.i_manufact_id IN ([Int64(677), Int64(940), Int64(694), Int64(808)])]
+12)----------------Projection: inventory.inv_date_sk, inventory.inv_item_sk
+13)------------------Filter: inventory.inv_quantity_on_hand >= Int32(100) AND inventory.inv_quantity_on_hand <= Int32(500)
+14)--------------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_quantity_on_hand], partial_filters=[inventory.inv_quantity_on_hand >= Int32(100), inventory.inv_quantity_on_hand <= Int32(500)]
+15)------------Projection: date_dim.d_date_sk
+16)--------------Filter: date_dim.d_date >= Date32("2000-02-01") AND date_dim.d_date <= Date32("2000-04-01")
+17)----------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-02-01"), date_dim.d_date <= Date32("2000-04-01")]
+18)--------TableScan: catalog_sales projection=[cs_item_sk]
+physical_plan
+01)SortPreservingMergeExec: [i_item_id@0 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[i_item_id@0 ASC NULLS LAST], preserve_partitioning=[true]
+03)----AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, i_current_price@2 as i_current_price], aggr=[]
+04)------RepartitionExec: partitioning=Hash([i_item_id@0, i_item_desc@1, i_current_price@2], 4), input_partitions=4
+05)--------AggregateExec: mode=Partial, gby=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, i_current_price@2 as i_current_price], aggr=[]
+06)----------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(i_item_sk@0, cs_item_sk@0)], projection=[i_item_id@1, i_item_desc@2, i_current_price@3]
+07)------------CoalescePartitionsExec
+08)--------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, inv_date_sk@4)], projection=[i_item_sk@0, i_item_id@1, i_item_desc@2, i_current_price@3]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-02-01 AND d_date@2 <= 2000-04-01
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@1)], projection=[i_item_sk@0, i_item_id@1, i_item_desc@2, i_current_price@3, inv_date_sk@4]
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id, i_item_desc, i_current_price], file_type=vortex, predicate: i_current_price@5 >= 68.00 AND i_current_price@5 <= 98.00 AND i_manufact_id@13 IN (SET) ([677, 940, 694, 808])
+12)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk], file_type=vortex, predicate: inv_quantity_on_hand@3 >= 100 AND inv_quantity_on_hand@3 <= 500
+14)------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_item_sk], file_type=vortex

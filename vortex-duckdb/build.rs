@@ -627,6 +627,35 @@ fn cbindgen_rust2c(crate_dir: &Path) {
     }
 }
 
+fn git(crate_dir: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(crate_dir)
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let stdout = stdout.trim();
+    (!stdout.is_empty()).then(|| stdout.to_owned())
+}
+
+fn vortex_version(crate_dir: &Path) {
+    println!("cargo:rerun-if-env-changed=VORTEX_VERSION");
+    let version = env::var("VORTEX_VERSION")
+        .ok()
+        .filter(|version| !version.is_empty())
+        // If this commit belongs to a tag
+        .or_else(|| git(crate_dir, &["describe", "--tags", "--exact-match", "HEAD"]))
+        // If this commit doesn't belong to a tag
+        .or_else(|| git(crate_dir, &["rev-parse", "HEAD"]))
+        // No version, can't build
+        .unwrap();
+    println!("cargo:rustc-env=VORTEX_VERSION={version}");
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=cpp/include");
     println!("cargo:rerun-if-changed=patches");
@@ -653,6 +682,7 @@ fn main() {
     // in vortex's CI.
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    vortex_version(&crate_dir);
     if let Some(source_dir) = env::var_os("DUCKDB_SOURCE_DIR") {
         let source_dir = PathBuf::from(source_dir);
         let duckdb_include_dir = source_dir.join("src").join("include");

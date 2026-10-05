@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -44,17 +45,15 @@ pub(crate) fn check_index_arrays(
     check_index_array("starts", starts)?;
     check_index_array("lengths", lengths)?;
     check_index_array("multipliers", multipliers)?;
-    vortex_ensure!(
-        starts.len() == lengths.len(),
-        "PiecewiseSequenceArray starts length {} does not match lengths length {}",
+    vortex_ensure_eq!(
         starts.len(),
-        lengths.len()
+        lengths.len(),
+        "PiecewiseSequenceArray starts length does not match lengths length",
     );
-    vortex_ensure!(
-        starts.len() == multipliers.len(),
-        "PiecewiseSequenceArray starts length {} does not match multipliers length {}",
+    vortex_ensure_eq!(
         starts.len(),
-        multipliers.len()
+        multipliers.len(),
+        "PiecewiseSequenceArray starts length does not match multipliers length",
     );
     Ok(())
 }

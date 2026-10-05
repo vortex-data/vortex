@@ -15,6 +15,7 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use tokio::fs::File as TokioFile;
 use tokio::sync::Semaphore;
@@ -303,7 +304,7 @@ impl ParquetWriter {
     async fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
         let file = TokioFile::create(&path).await?;
         let props = WriterProperties::builder()
-            .set_compression(Compression::SNAPPY)
+            .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
             .build();
         let writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
         Ok(Self { writer })

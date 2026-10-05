@@ -11,6 +11,7 @@ use std::fmt::Formatter;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
@@ -24,6 +25,9 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() {
     divan::main();
 }
@@ -35,7 +39,6 @@ const NESTED_WIDTH: usize = 8;
 enum Pattern {
     Sorted,
     Shuffled,
-    Repeated,
     Duplicate90,
     Duplicate99,
     SameChunk,
@@ -48,7 +51,6 @@ impl Display for Pattern {
         f.write_str(match self {
             Self::Sorted => "sorted",
             Self::Shuffled => "shuffled",
-            Self::Repeated => "repeated",
             Self::Duplicate90 => "duplicate90",
             Self::Duplicate99 => "duplicate99",
             Self::SameChunk => "same_chunk",
@@ -153,11 +155,10 @@ fn cases() -> Vec<Case> {
         }
     }
 
-    for pattern in [
-        Pattern::Repeated,
-        Pattern::Duplicate90,
-        Pattern::Duplicate99,
-    ] {
+    // Duplicate90 and Duplicate99 cover heavy duplication. An all-identical index vector used
+    // to sit here too, but it reported either 24 µs or 104 µs on pull requests that changed no
+    // Vortex code, so the degenerate case measured nothing useful.
+    for pattern in [Pattern::Duplicate90, Pattern::Duplicate99] {
         cases.push(Case::new("duplicates", pattern, 16, 1_000));
     }
 
@@ -255,8 +256,7 @@ fn index_values(case: Case) -> Vec<u64> {
     let mut indices = match case.pattern {
         Pattern::Sorted | Pattern::Shuffled => (0..case.indices)
             .map(|_| advance_random(&mut state) % u64::try_from(SOURCE_LEN).unwrap())
-            .collect(),
-        Pattern::Repeated => vec![u64::try_from(SOURCE_LEN / 2).unwrap(); case.indices],
+            .collect::<Vec<_>>(),
         Pattern::Duplicate90 | Pattern::Duplicate99 => {
             let divisor = match case.pattern {
                 Pattern::Duplicate90 => 10,

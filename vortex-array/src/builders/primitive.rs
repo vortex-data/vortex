@@ -8,7 +8,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -138,8 +138,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             .nulls
             .finish_with_nullability(self.dtype().nullability());
 
-        let allocator = self.values.allocator().clone();
-        let values = std::mem::replace(&mut self.values, allocator.with_capacity(0)).freeze();
+        let values = self.values.take().freeze();
         PrimitiveArray::new(values, validity)
     }
 
@@ -200,11 +199,10 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == self.dtype(),
-            "PrimitiveBuilder expected scalar with dtype {}, got {}",
+        vortex_ensure_eq!(
+            scalar.dtype(),
             self.dtype(),
-            scalar.dtype()
+            "PrimitiveBuilder received a scalar with the wrong dtype"
         );
 
         if let Some(pv) = scalar.as_primitive().pvalue() {
@@ -321,14 +319,11 @@ impl<T> UninitRange<'_, T> {
             "tried to copy a slice into a `UninitRange` past its boundary"
         );
 
-        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-        let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
-
         // Note: spare_capacity_mut() returns the spare capacity starting from the current length,
         // so we just use local_offset directly.
         let dst =
             &mut self.builder.values.spare_capacity_mut()[local_offset..local_offset + src.len()];
-        dst.copy_from_slice(uninit_src);
+        dst.write_copy_of_slice(src);
     }
 
     /// Get a mutable slice of uninitialized memory at the specified offset within this range.

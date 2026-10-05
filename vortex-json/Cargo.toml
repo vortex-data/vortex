@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex JSON extension type"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -24,7 +23,6 @@ vortex-array = { workspace = true, default-features = false }
 vortex-arrow = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true, default-features = false }
-vortex-proto = { workspace = true, features = ["expr"] }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

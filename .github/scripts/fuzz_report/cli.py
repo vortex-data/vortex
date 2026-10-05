@@ -41,7 +41,7 @@ def _write_github_output(key: str, value: str) -> None:
             f.write(f"{key}={value}\n")
 
 
-def _run_gh(cmd: list[str], *, retries: int = 1, **kwargs) -> subprocess.CompletedProcess:
+def _run_gh(cmd: list[str], *, retries: int = 1, **kwargs: object) -> subprocess.CompletedProcess:
     """Run a gh CLI command with logging and retry on failure.
 
     Prints the command before execution and surfaces stderr on failure.

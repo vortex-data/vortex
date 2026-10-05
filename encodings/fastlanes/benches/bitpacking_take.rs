@@ -7,6 +7,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
@@ -21,6 +22,9 @@ use vortex_buffer::buffer;
 use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

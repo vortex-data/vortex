@@ -4,24 +4,26 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex in memory columnar data format"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
+
 version = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
+
+[package.metadata.cargo-shear]
+# Referenced only by the generated Protocol Buffers bindings.
+ignored = ["prost-types"]
 
 [lints]
 workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-lock = { workspace = true }
@@ -47,6 +49,7 @@ primitive-types = { workspace = true, optional = true, features = [
     "arbitrary",
 ] }
 prost = { workspace = true }
+prost-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 regex-syntax = { workspace = true }
@@ -61,14 +64,11 @@ tabled = { workspace = true, optional = true, default-features = false, features
     "std",
 ] }
 tracing = { workspace = true }
-uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
-vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true, features = ["dtype", "expr", "scalar"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dyn-traits"] }
 
@@ -137,6 +137,10 @@ name = "binary_ops"
 harness = false
 
 [[bench]]
+name = "row_fn_bool_retry"
+harness = false
+
+[[bench]]
 name = "row_fn_output"
 harness = false
 
@@ -146,6 +150,10 @@ harness = false
 
 [[bench]]
 name = "like"
+harness = false
+
+[[bench]]
+name = "list_contains_set"
 harness = false
 
 [[bench]]
@@ -220,6 +228,10 @@ name = "validity_is_valid"
 harness = false
 
 [[bench]]
+name = "scalar_fn_probe"
+harness = false
+
+[[bench]]
 name = "dict_unreferenced_mask"
 harness = false
 
@@ -253,10 +265,6 @@ harness = false
 
 [[bench]]
 name = "piecewise_sequence_take_primitive"
-harness = false
-
-[[bench]]
-name = "take_slices_to_buffer_matrix"
 harness = false
 
 [[bench]]
@@ -305,4 +313,8 @@ harness = false
 
 [[bench]]
 name = "slice_dict_primitive"
+harness = false
+
+[[bench]]
+name = "probe"
 harness = false

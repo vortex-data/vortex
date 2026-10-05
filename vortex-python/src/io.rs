@@ -34,6 +34,7 @@ use crate::arrow::FromPyArrow;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
 use crate::current_runtime;
+use crate::dataset::ProjectionColumn;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -125,7 +126,7 @@ pub fn read_url<'py>(
     py: Python<'py>,
     url: &str,
     store: Option<Bound<'py, PyAny>>,
-    projection: Option<Vec<Bound<'py, PyAny>>>,
+    projection: Option<Vec<ProjectionColumn>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
@@ -378,11 +379,12 @@ impl PyVortexWriteOptions {
     ) -> PyVortexResult<()> {
         let session = session();
         py.detach(|| {
-            let mut strategy = WriteStrategyBuilder::default();
+            let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
             if self.use_compact_encodings {
-                strategy = strategy
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+                compressor = compressor.with_compact();
             }
+            let strategy =
+                WriteStrategyBuilder::from_session(session).with_btrblocks_builder(compressor);
             let strategy = strategy.build();
             current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {

@@ -2,11 +2,11 @@
 
 ## FlatBuffer Definition
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-dtype/dtype.fbs
+:::{literalinclude} ../../vortex-array/flatbuffers/vortex-dtype/dtype.fbs
 :::
 
 ## Protobuf Definition
 
-:::{literalinclude} ../../vortex-proto/proto/dtype.proto
+:::{literalinclude} ../../vortex-array/proto/dtype.proto
 :language: protobuf
 :::

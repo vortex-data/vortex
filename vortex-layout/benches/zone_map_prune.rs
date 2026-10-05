@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -42,6 +43,9 @@ use vortex_layout::layouts::zoned::zone_map::ZoneMap;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
@@ -303,11 +307,13 @@ fn is_not_null_pred(bencher: Bencher, num_zones: usize) {
     );
 }
 
-/// A 16-term `OR` chain, which is where lowering cost grows relative to evaluation cost.
+/// A 4-term `OR` chain, which is where lowering cost grows relative to evaluation cost. Sixteen
+/// terms ran for 1.4 ms in the CodSpeed simulation at 1024 zones, over the 1 ms budget, and
+/// longer still at 8192 zones.
 #[divan::bench(args = ZONE_COUNTS)]
 fn or_chain(bencher: Bencher, num_zones: usize) {
     static PREDICATE: LazyLock<BoundExpression> = LazyLock::new(|| {
-        let expr = (0..16i32)
+        let expr = (0..4i32)
             .map(|i| eq(root(), lit(i * 500)))
             .reduce(or)
             .unwrap();

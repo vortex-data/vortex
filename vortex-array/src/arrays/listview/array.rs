@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
@@ -245,19 +246,18 @@ impl ListViewData {
         );
 
         // Check that they have the same length.
-        vortex_ensure!(
-            offsets.len() == sizes.len(),
-            "offsets and sizes must have the same length, got {} and {}",
+        vortex_ensure_eq!(
             offsets.len(),
-            sizes.len()
+            sizes.len(),
+            "offsets and sizes must have the same length",
         );
 
         // If a validity array is present, it must be the same length as the `ListViewArray`.
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len(),
-                "validity with size {validity_len} does not match array size {}",
-                offsets.len()
+            vortex_ensure_eq!(
+                validity_len,
+                offsets.len(),
+                "validity length does not match array size",
             );
         }
 
@@ -709,10 +709,10 @@ where
         })?;
 
         if offset_u64 == elements_len {
-            vortex_ensure!(
-                size_u64 == 0,
-                "views to the end of the elements array (length {elements_len}) must have size 0 \
-                    (had size {size_u64})"
+            vortex_ensure_eq!(
+                size_u64,
+                0,
+                "views to the end of the elements array (length {elements_len}) must have size 0",
             );
         }
 

@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex physical encoding that compresses temporal components individually"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -26,6 +25,13 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-error = { workspace = true }
+
+[[bench]]
+name = "split_temporal"
+harness = false

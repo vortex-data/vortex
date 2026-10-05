@@ -57,6 +57,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -66,6 +67,7 @@ use zstd::zstd_safe::WriteBuf;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
+use crate::decompressor::with_decompressor;
 use crate::validate_frame_content_size;
 
 // Zstd doesn't support training dictionaries on very few samples.
@@ -289,14 +291,15 @@ impl VTable for Zstd {
         {
             return result;
         }
-        // The two arms here are every builder a `Utf8`/`Binary` dtype has: all four
-        // `VarBinBuilder` widths above, and `VarBinViewBuilder` below. There is deliberately no
-        // canonicalize-then-append fallback — it would decompress to a `VarBinView` only for
-        // `VarBinView::append_to_builder` to reject the same remainder.
-        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!("append_to_builder for Zstd requires a variable-binary builder")
-        };
-        append_to_varbinview(array, builder, ctx)
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
+            return append_to_varbinview(array, builder, ctx);
+        }
+        array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 
     fn reduce_parent(
@@ -383,12 +386,11 @@ fn append_to_varbinview(
     builder.append_views_built_at(&mask, |next_buffer_index| {
         let (buffers, valid_views) =
             try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
-        vortex_ensure!(
-            valid_views.len() == mask.true_count(),
-            "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows \
-             of the slice",
+        vortex_ensure_eq!(
             valid_views.len(),
-            mask.true_count()
+            mask.true_count(),
+            "Corrupt zstd metadata: the decompressed frames must hold one value per valid row of \
+             the slice"
         );
 
         let views = match mask.bit_buffer() {
@@ -960,39 +962,23 @@ impl ZstdData {
             self.slice_stop,
             self.unsliced_n_rows
         );
-        vortex_ensure!(
-            self.slice_stop - self.slice_start == len,
-            "Slice length {} does not match array length {}",
-            self.slice_stop - self.slice_start,
-            len
-        );
+        vortex_ensure_eq!(self.slice_stop - self.slice_start, len);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == self.unsliced_n_rows,
-                "Validity length {} does not match unsliced row count {}",
-                validity_len,
-                self.unsliced_n_rows
-            );
+            vortex_ensure_eq!(validity_len, self.unsliced_n_rows);
         }
 
         match &self.dictionary {
-            Some(dictionary) => vortex_ensure!(
-                usize::try_from(self.metadata.dictionary_size)? == dictionary.len(),
-                "Dictionary size metadata {} does not match buffer size {}",
-                self.metadata.dictionary_size,
+            Some(dictionary) => vortex_ensure_eq!(
+                usize::try_from(self.metadata.dictionary_size)?,
                 dictionary.len()
             ),
-            None => vortex_ensure!(
-                self.metadata.dictionary_size == 0,
+            None => vortex_ensure_eq!(
+                self.metadata.dictionary_size,
+                0,
                 "Dictionary metadata present without dictionary buffer"
             ),
         }
-        vortex_ensure!(
-            self.frames.len() == self.metadata.frames.len(),
-            "Frame count {} does not match metadata frame count {}",
-            self.frames.len(),
-            self.metadata.frames.len()
-        );
+        vortex_ensure_eq!(self.frames.len(), self.metadata.frames.len());
         for (index, (frame, metadata)) in self.frames.iter().zip(&self.metadata.frames).enumerate()
         {
             validate_frame_content_size(frame.as_slice(), metadata.uncompressed_size, index)?;
@@ -1358,8 +1344,9 @@ impl ZstdData {
                 // The same fallback would read a byte count as a value count for variable-width
                 // values, which misattributes values to frames. A single frame holds every stored
                 // value, so that case is still recoverable; anything else is not.
-                vortex_ensure!(
-                    self.frames.len() == 1,
+                vortex_ensure_eq!(
+                    self.frames.len(),
+                    1,
                     "Zstd frame metadata for a variable-width array is missing its value count"
                 );
                 unsliced_mask.true_count()
@@ -1386,27 +1373,33 @@ impl ZstdData {
         }
 
         // then we actually decompress those frames
-        let mut decompressor = if let Some(dictionary) = &self.dictionary {
-            zstd::bulk::Decompressor::with_dictionary(dictionary)?
-        } else {
-            zstd::bulk::Decompressor::new()?
-        };
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
         );
-        let mut uncompressed_start = 0;
-        for frame in frames_to_decompress {
-            // Decompress straight into the spare capacity. Each frame gets only the region after
-            // the ones before it, bounded by the size the metadata declared, so a frame that
-            // expands further than advertised is refused by zstd rather than overrunning.
-            let mut destination = UninitDestination::new(
-                &mut decompressed.spare_capacity_mut()
-                    [uncompressed_start..uncompressed_size_to_decompress],
-            );
-            uncompressed_start +=
-                decompressor.decompress_to_buffer(frame.as_slice(), &mut destination)?;
-        }
+        let mut decompress_frames =
+            |decompressor: &mut zstd::bulk::Decompressor<'_>| -> VortexResult<usize> {
+                let mut uncompressed_start = 0;
+                for frame in &frames_to_decompress {
+                    // Decompress straight into the spare capacity. Each frame gets only the region
+                    // after the ones before it, bounded by the size the metadata declared, so a
+                    // frame that expands further than advertised is refused by zstd rather than
+                    // overrunning.
+                    let mut destination = UninitDestination::new(
+                        &mut decompressed.spare_capacity_mut()
+                            [uncompressed_start..uncompressed_size_to_decompress],
+                    );
+                    uncompressed_start +=
+                        decompressor.decompress_to_buffer(frame.as_slice(), &mut destination)?;
+                }
+                Ok(uncompressed_start)
+            };
+        let uncompressed_start = match &self.dictionary {
+            Some(dictionary) => {
+                decompress_frames(&mut zstd::bulk::Decompressor::with_dictionary(dictionary)?)?
+            }
+            None => with_decompressor(|decompressor| decompress_frames(decompressor))?,
+        };
         if uncompressed_start != uncompressed_size_to_decompress {
             vortex_bail!(
                 "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",
@@ -1588,6 +1581,8 @@ impl ValidityVTable<Zstd> for Zstd {
 }
 
 impl OperationsVTable<Zstd> for Zstd {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Zstd>,
         index: usize,

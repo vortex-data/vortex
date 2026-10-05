@@ -340,8 +340,9 @@ where
         }
         DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
-        DataType::Duration(_) => unimplemented!(),
-        DataType::Interval(_) => unimplemented!(),
+        DataType::Duration(_) | DataType::Interval(_) => {
+            vortex_bail!("Arrow {} arrays are not supported", value.data_type())
+        }
         _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
     })
 }
@@ -606,8 +607,9 @@ pub(crate) fn map_from_arrow_parts(
             entries.dtype()
         );
     };
-    vortex_ensure!(
-        struct_dtype.nfields() == 2,
+    vortex_ensure_eq!(
+        struct_dtype.nfields(),
+        2,
         "Arrow map entries struct must contain exactly two fields"
     );
 
@@ -702,7 +704,13 @@ impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArra
     }
 }
 
-pub(crate) fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validity> {
+/// Convert an Arrow [`NullBuffer`] into a Vortex [`Validity`] for an array of the given
+/// nullability.
+///
+/// # Errors
+///
+/// Returns an error if `nullable` is false but the null buffer contains nulls.
+pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validity> {
     if nullable {
         Ok(nulls
             .map(|nulls| {
@@ -718,7 +726,7 @@ pub(crate) fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<
         vortex_ensure_eq!(
             null_count,
             0,
-            "Cannot convert an Arrow array containing {null_count} nulls into a non-nullable Vortex array"
+            "Cannot convert an Arrow array containing nulls into a non-nullable Vortex array"
         );
         Ok(Validity::NonNullable)
     }

@@ -6,25 +6,19 @@
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
 mod fold;
-mod references;
 mod visitor;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub use fold::FoldDown;
 pub use fold::FoldDownContext;
 pub use fold::FoldUp;
-pub use fold::NodeFolder;
 pub use fold::NodeFolderContext;
-pub use references::ReferenceCollector;
 pub use visitor::pre_order_visit_down;
-pub use visitor::pre_order_visit_up;
 use vortex_error::VortexResult;
 
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
-use crate::expr::traversal::fold::NodeFolderContextWrapper;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,37 +198,8 @@ pub trait NodeExt: Node {
         self,
         f: F,
     ) -> VortexResult<Transformed<Self>> {
-        let mut rewriter = FnRewriter::<F, F, _> {
-            f_down: Some(f),
-            f_up: None,
-            _data: PhantomData,
-        };
-
-        self.rewrite(&mut rewriter)
-    }
-
-    fn transform<F, G>(self, down: F, up: G) -> VortexResult<Transformed<Self>>
-    where
-        F: FnMut(Self) -> VortexResult<Transformed<Self>>,
-        G: FnMut(Self) -> VortexResult<Transformed<Self>>,
-    {
         let mut rewriter = FnRewriter {
-            f_down: Some(down),
-            f_up: Some(up),
-            _data: PhantomData,
-        };
-
-        self.rewrite(&mut rewriter)
-    }
-
-    /// A post-order transform
-    fn transform_up<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        let mut rewriter = FnRewriter::<F, F, _> {
-            f_down: None,
-            f_up: Some(f),
+            f,
             _data: PhantomData,
         };
 
@@ -278,47 +243,24 @@ pub trait NodeExt: Node {
 
         folder.visit_up(self, &ctx, children)
     }
-
-    /// applies the `NodeFolder` to the Node tree
-    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
-        self,
-        folder: &mut F,
-    ) -> VortexResult<FoldUp<R>> {
-        let mut folder = NodeFolderContextWrapper { inner: folder };
-        self.fold_context(&(), &mut folder)
-    }
 }
 
 impl<T: Node> NodeExt for T {}
 
-struct FnRewriter<F, G, T> {
-    f_down: Option<F>,
-    f_up: Option<G>,
+struct FnRewriter<F, T> {
+    f: F,
     _data: PhantomData<T>,
 }
 
-impl<F, G, T> NodeRewriter for FnRewriter<F, G, T>
+impl<F, T> NodeRewriter for FnRewriter<F, T>
 where
     T: Node,
     F: FnMut(T) -> VortexResult<Transformed<T>>,
-    G: FnMut(T) -> VortexResult<Transformed<T>>,
 {
     type NodeTy = T;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-        if let Some(f) = self.f_down.as_mut() {
-            f(node)
-        } else {
-            Ok(Transformed::no(node))
-        }
-    }
-
-    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-        if let Some(f) = self.f_up.as_mut() {
-            f(node)
-        } else {
-            Ok(Transformed::no(node))
-        }
+        (self.f)(node)
     }
 }
 
@@ -701,7 +643,7 @@ mod tests {
 
         let mut idx = 0_i32;
         let new = expr
-            .transform_up(|node| expr_col_to_lit_transform(node, &mut idx))
+            .transform_down(|node| expr_col_to_lit_transform(node, &mut idx))
             .unwrap();
         assert!(new.changed);
 

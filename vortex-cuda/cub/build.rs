@@ -22,6 +22,7 @@ fn main() {
         "CUDA_PATH",
         "PATH",
         "VORTEX_CUDA_ARCH_FLAGS",
+        "VORTEX_CUDA_HOST_COMPILER",
         "CUDA_VISIBLE_DEVICES",
         "CUDA_DEVICE_ORDER",
         "NVCC_PREPEND_FLAGS",
@@ -73,6 +74,13 @@ fn compile_shared_library(kernel_dir: &Path, sources: &[PathBuf], out_dir: &Path
     let mut cmd = Command::new("nvcc");
     cmd.arg("-std=c++20")
         .args(architecture_flags.split_whitespace());
+    if let Some(host_compiler) =
+        env::var_os("VORTEX_CUDA_HOST_COMPILER").filter(|path| !path.is_empty())
+    {
+        // Despite its name, --compiler-bindir accepts a compiler executable path.
+        // It is used to honor CMake's host compiler choice; CXX alone does not reliably control NVCC.
+        cmd.arg("--compiler-bindir").arg(host_compiler);
+    }
 
     if env::var("PROFILE").unwrap() == "debug" {
         cmd.args(["-O0", "-g", "-G", "-lineinfo"]);

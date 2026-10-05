@@ -8,7 +8,9 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
-use vortex_error::VortexExpect;
+use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 
 use crate::array::Sequence;
@@ -19,21 +21,24 @@ impl ListContainsElementReduce for Sequence {
     fn list_contains(
         list: &ArrayRef,
         element: ArrayView<'_, Self>,
+        options: &ListContainsOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(list_scalar) = list.as_constant() else {
             return Ok(None);
         };
 
-        let list_elements = list_scalar
-            .as_list()
-            .elements()
-            .vortex_expect("non-null element (checked in entry)");
+        // A null list falls back to the generic path, which yields all-null.
+        let Some(list_elements) = list_scalar.as_list().elements() else {
+            return Ok(None);
+        };
 
-        let nullability = list.dtype().nullability() | element.dtype().nullability();
+        let nullability = options.result_nullability(list.dtype(), element.dtype());
 
-        let mut set_indices: Vec<usize> = Vec::new();
+        let mut matches = BitBufferMut::new_unset(element.len());
+        let mut has_null = false;
         for intercept in list_elements.iter() {
             let Some(intercept) = intercept.as_primitive().pvalue() else {
+                has_null = true;
                 continue;
             };
             match find_intersection(
@@ -44,7 +49,7 @@ impl ListContainsElementReduce for Sequence {
             ) {
                 // Non-integer elements do not match the sequence.
                 None | Some(Intersection::None) => {}
-                Some(Intersection::At(idx)) => set_indices.push(idx),
+                Some(Intersection::At(idx)) => matches.set(idx),
                 Some(Intersection::All) => {
                     return Ok(Some(
                         ConstantArray::new(Scalar::bool(true, nullability), element.len())
@@ -54,9 +59,16 @@ impl ListContainsElementReduce for Sequence {
             }
         }
 
-        Ok(Some(
-            BoolArray::from_indices(element.len(), set_indices, nullability.into()).into_array(),
-        ))
+        let matches = matches.freeze();
+
+        // Under SQL null semantics a null element makes every non-match unknown.
+        let validity = if options.sql_null_semantics && has_null {
+            Validity::from_bit_buffer(matches.clone(), nullability)
+        } else {
+            nullability.into()
+        };
+
+        Ok(Some(BoolArray::new(matches, validity).into_array()))
     }
 }
 
@@ -69,12 +81,15 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
     use vortex_array::expr::list_contains;
+    use vortex_array::expr::list_contains_opts;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
@@ -120,6 +135,54 @@ mod tests {
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
+    }
+
+    #[test]
+    fn test_list_contains_null_list() {
+        // A null list yields null for every row. The reduce rule used to panic on it.
+        let array = Sequence::try_new_typed(1, 1, Nullability::NonNullable, 3)
+            .unwrap()
+            .into_array();
+
+        let null_list = Scalar::null(DType::List(Arc::new(I32.into()), Nullability::Nullable));
+        let expr = list_contains(lit(null_list), root());
+        let result = array.apply(&expr).unwrap();
+        let expected = BoolArray::from_iter([None::<bool>, None, None]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    #[test]
+    fn test_list_contains_null_element_semantics() {
+        // By default a null element matches nothing. Under SQL null semantics it makes every
+        // non-match null.
+        let element = DType::Primitive(I32, Nullability::Nullable);
+        let set = Scalar::list(
+            Arc::new(element.clone()),
+            vec![
+                Scalar::primitive(1i32, Nullability::Nullable),
+                Scalar::null(element),
+            ],
+            Nullability::NonNullable,
+        );
+        let array = Sequence::try_new_typed(1, 1, Nullability::NonNullable, 3)
+            .unwrap()
+            .into_array();
+
+        let result = array
+            .clone()
+            .apply(&list_contains(lit(set.clone()), root()))
+            .unwrap();
+        let expected = BoolArray::from_iter([true, false, false]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+
+        let sql = ListContainsOptions {
+            sql_null_semantics: true,
+        };
+        let result = array
+            .apply(&list_contains_opts(lit(set), root(), sql))
+            .unwrap();
+        let expected = BoolArray::from_iter([Some(true), None, None]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]

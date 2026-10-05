@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use prost::Message;
+use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -33,6 +34,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -41,6 +43,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -104,12 +107,7 @@ impl VTable for RunEnd {
         // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
         let mut ctx = legacy_session().create_execution_ctx();
         RunEndData::validate_parts(ends, values, data.offset, len, &mut ctx)?;
-        vortex_ensure!(
-            values.dtype() == dtype,
-            "expected dtype {}, got {}",
-            dtype,
-            values.dtype()
-        );
+        vortex_ensure_eq!(values.dtype(), dtype);
         Ok(())
     }
 
@@ -182,6 +180,8 @@ impl VTable for RunEnd {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.ends(), RunEndSlots::ENDS => Primitive);
+        let array = require_child!(array, array.values(), RunEndSlots::VALUES => AnyCanonical);
         run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
     }
 }
@@ -331,19 +331,11 @@ impl RunEndData {
             "run ends must be unsigned integers, was {}",
             ends.dtype(),
         );
-        vortex_ensure!(
-            ends.len() == values.len(),
-            "run ends len != run values len, {} != {}",
-            ends.len(),
-            values.len()
-        );
+        vortex_ensure_eq!(ends.len(), values.len());
 
         // Handle empty run-ends
         if ends.is_empty() {
-            vortex_ensure!(
-                offset == 0,
-                "non-zero offset provided for empty RunEndArray"
-            );
+            vortex_ensure_eq!(offset, 0, "non-zero offset provided for empty RunEndArray");
             return Ok(());
         }
 

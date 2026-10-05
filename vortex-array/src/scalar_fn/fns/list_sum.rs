@@ -143,7 +143,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_proto::expr as pb;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -165,6 +164,7 @@ mod tests {
     use crate::expr::list_sum_opts;
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
+    use crate::proto::expr as pb;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::list_sum::ListSum;

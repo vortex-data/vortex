@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -197,11 +198,10 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     /// Returns an error if `scalar` has a different dtype than the builder, or if the resulting
     /// end offsets do not fit in `O`.
     pub fn append_scalar_repeated(&mut self, scalar: &Scalar, n: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == &self.dtype,
-            "VarBinBuilder expected scalar with dtype {}, got {}",
-            self.dtype,
-            scalar.dtype()
+        vortex_ensure_eq!(
+            scalar.dtype(),
+            &self.dtype,
+            "VarBinBuilder scalar dtype does not match builder dtype",
         );
         match &self.dtype {
             DType::Utf8(_) => match scalar.as_utf8().value() {
@@ -291,9 +291,10 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
 
         let data_len = self.data.len();
         let written = decode(self.data.spare_capacity_mut())?;
-        vortex_ensure!(
-            written == num_bytes,
-            "Decoded {written} bytes, expected {num_bytes}"
+        vortex_ensure_eq!(
+            written,
+            num_bytes,
+            "Decoded byte count does not match expected byte count",
         );
 
         // The decoded bytes live in spare capacity until `set_len` below, so an invalid `lengths`
@@ -413,19 +414,11 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             "The offset count must be one more than the validity length"
         );
 
-        let allocator = self.offsets.allocator().clone();
-        let mut fresh_offsets = BufferMut::with_capacity_in(1, allocator.clone());
-        fresh_offsets.push(O::zero());
-        let offsets = PrimitiveArray::new(
-            std::mem::replace(&mut self.offsets, fresh_offsets).freeze(),
-            Validity::NonNullable,
-        );
-        let data = std::mem::replace(
-            &mut self.data,
-            BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
-        );
-        let nulls =
-            std::mem::replace(&mut self.validity, BitBufferMut::empty_in(allocator)).freeze();
+        let offsets = self.offsets.take();
+        self.offsets.push(O::zero());
+        let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
+        let data = self.data.take();
+        let nulls = self.validity.take().freeze();
 
         let validity = Validity::from_bit_buffer(nulls, self.dtype.nullability());
 
@@ -468,12 +461,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     fn push_value(&mut self, value: &[u8]) {
         self.offsets
             .push(O::from(self.data.len() + value.len()).unwrap_or_else(|| {
-                vortex_panic!(
-                    "Failed to convert sum of {} and {} to offset of type {}",
-                    self.data.len(),
-                    value.len(),
-                    std::any::type_name::<O>()
-                )
+                offset_overflow(self.data.len(), value.len(), std::any::type_name::<O>())
             }));
         self.data.extend_from_slice(value);
     }
@@ -528,9 +516,10 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             end_offsets.next().is_none(),
             "End offset count exceeds the validity length {count}"
         );
-        vortex_ensure!(
-            previous == num_bytes,
-            "Final end offset {previous} does not match the value byte count {num_bytes}"
+        vortex_ensure_eq!(
+            previous,
+            num_bytes,
+            "Final end offset does not match the value byte count",
         );
 
         // SAFETY: the loop initialized the first `count` spare slots.
@@ -589,10 +578,10 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         // A caller whose slices overrun `num_bytes` only grows the byte buffer past the reservation,
         // so the overrun is caught here rather than per value. The offsets are still uncommitted, so
         // rejecting it now leaves them untouched.
-        vortex_ensure!(
-            data.len() == data_start + num_bytes,
-            "Value slices total {} bytes, expected {num_bytes}",
-            data.len() - data_start
+        vortex_ensure_eq!(
+            data.len(),
+            data_start + num_bytes,
+            "Value slices byte count does not match expected byte count",
         );
 
         // SAFETY: every branch above initialized all `count` spare slots.
@@ -714,6 +703,14 @@ macro_rules! __match_varbin_builder_arms {
             $crate::__match_varbin_builder_arms!($builder, |$typed| $body, [$($tail),*])
         }
     };
+}
+
+#[cold]
+#[inline(never)]
+fn offset_overflow(data_len: usize, value_len: usize, offset_type: &'static str) -> ! {
+    vortex_panic!(
+        "Failed to convert sum of {data_len} and {value_len} to offset of type {offset_type}"
+    )
 }
 
 /// Running totals of `lengths`, wrapping so a corrupt lengths child is rejected rather than

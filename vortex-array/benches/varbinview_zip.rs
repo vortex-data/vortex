@@ -6,6 +6,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -16,6 +17,9 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);

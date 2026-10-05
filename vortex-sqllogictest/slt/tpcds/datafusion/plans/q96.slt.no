@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT count(*)
+FROM store_sales ,
+     household_demographics,
+     time_dim,
+     store
+WHERE ss_sold_time_sk = time_dim.t_time_sk
+  AND ss_hdemo_sk = household_demographics.hd_demo_sk
+  AND ss_store_sk = s_store_sk
+  AND time_dim.t_hour = 20
+  AND time_dim.t_minute >= 30
+  AND household_demographics.hd_dep_count = 7
+  AND store.s_store_name = 'ese'
+ORDER BY count(*)
+LIMIT 100;
+----
+logical_plan
+01)Sort: count(*) ASC NULLS LAST, fetch=100
+02)--Projection: count(Int64(1)) AS count(*)
+03)----Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+04)------Projection:
+05)--------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+06)----------Projection: store_sales.ss_store_sk
+07)------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+08)--------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+09)----------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+10)------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+11)------------------Projection: household_demographics.hd_demo_sk
+12)--------------------Filter: household_demographics.hd_dep_count = Int64(7)
+13)----------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count], partial_filters=[household_demographics.hd_dep_count = Int64(7)]
+14)--------------Projection: time_dim.t_time_sk
+15)----------------Filter: time_dim.t_hour = Int64(20) AND time_dim.t_minute >= Int64(30)
+16)------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(20), time_dim.t_minute >= Int64(30)]
+17)----------Projection: store.s_store_sk
+18)------------Filter: store.s_store_name = Utf8View("ese")
+19)--------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+physical_plan
+01)ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
+02)--GlobalLimitExec: skip=0, fetch=100
+03)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+04)------CoalescePartitionsExec
+05)--------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+06)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+07)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+08)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+09)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 20 AND t_minute@4 >= 30
+10)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+11)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 7
+12)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex

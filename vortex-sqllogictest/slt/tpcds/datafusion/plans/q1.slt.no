@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH customer_total_return AS
+  (SELECT sr_customer_sk AS ctr_customer_sk,
+          sr_store_sk AS ctr_store_sk,
+          sum(sr_return_amt) AS ctr_total_return
+   FROM store_returns,
+        date_dim
+   WHERE sr_returned_date_sk = d_date_sk
+     AND d_year = 2000
+   GROUP BY sr_customer_sk,
+            sr_store_sk)
+SELECT c_customer_id
+FROM customer_total_return ctr1,
+     store,
+     customer
+WHERE ctr1.ctr_total_return >
+    (SELECT avg(ctr_total_return)*1.2
+     FROM customer_total_return ctr2
+     WHERE ctr1.ctr_store_sk = ctr2.ctr_store_sk)
+  AND s_store_sk = ctr1.ctr_store_sk
+  AND s_state = 'TN'
+  AND ctr1.ctr_customer_sk = c_customer_sk
+ORDER BY c_customer_id
+LIMIT 100;
+----
+logical_plan
+01)Sort: customer.c_customer_id ASC NULLS LAST, fetch=100
+02)--Projection: customer.c_customer_id
+03)----LeftSemi Join: ctr1.ctr_store_sk = __scalar_sq_1.ctr_store_sk Filter: CAST(ctr1.ctr_total_return AS Decimal128(30, 15)) > __scalar_sq_1.avg(ctr2.ctr_total_return) * Float64(1.2)
+04)------Projection: ctr1.ctr_store_sk, ctr1.ctr_total_return, customer.c_customer_id
+05)--------Inner Join: ctr1.ctr_customer_sk = customer.c_customer_sk
+06)----------Projection: ctr1.ctr_customer_sk, ctr1.ctr_store_sk, ctr1.ctr_total_return
+07)------------Inner Join: ctr1.ctr_store_sk = store.s_store_sk
+08)--------------SubqueryAlias: ctr1
+09)----------------SubqueryAlias: customer_total_return
+10)------------------Projection: store_returns.sr_customer_sk AS ctr_customer_sk, store_returns.sr_store_sk AS ctr_store_sk, sum(store_returns.sr_return_amt) AS ctr_total_return
+11)--------------------Aggregate: groupBy=[[store_returns.sr_customer_sk, store_returns.sr_store_sk]], aggr=[[sum(store_returns.sr_return_amt)]]
+12)----------------------Projection: store_returns.sr_customer_sk, store_returns.sr_store_sk, store_returns.sr_return_amt
+13)------------------------Inner Join: store_returns.sr_returned_date_sk = date_dim.d_date_sk
+14)--------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt]
+15)--------------------------Projection: date_dim.d_date_sk
+16)----------------------------Filter: date_dim.d_year = Int64(2000)
+17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+18)--------------Projection: store.s_store_sk
+19)----------------Filter: store.s_state = Utf8View("TN")
+20)------------------TableScan: store projection=[s_store_sk, s_state], partial_filters=[store.s_state = Utf8View("TN")]
+21)----------TableScan: customer projection=[c_customer_sk, c_customer_id]
+22)------SubqueryAlias: __scalar_sq_1
+23)--------Projection: CAST(CAST(avg(ctr2.ctr_total_return) AS Float64) * Float64(1.2) AS Decimal128(30, 15)), ctr2.ctr_store_sk
+24)----------Aggregate: groupBy=[[ctr2.ctr_store_sk]], aggr=[[avg(ctr2.ctr_total_return)]]
+25)------------SubqueryAlias: ctr2
+26)--------------SubqueryAlias: customer_total_return
+27)----------------Projection: store_returns.sr_store_sk AS ctr_store_sk, sum(store_returns.sr_return_amt) AS ctr_total_return
+28)------------------Aggregate: groupBy=[[store_returns.sr_customer_sk, store_returns.sr_store_sk]], aggr=[[sum(store_returns.sr_return_amt)]]
+29)--------------------Projection: store_returns.sr_customer_sk, store_returns.sr_store_sk, store_returns.sr_return_amt
+30)----------------------Inner Join: store_returns.sr_returned_date_sk = date_dim.d_date_sk
+31)------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt]
+32)------------------------Projection: date_dim.d_date_sk
+33)--------------------------Filter: date_dim.d_year = Int64(2000)
+34)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+physical_plan
+01)SortPreservingMergeExec: [c_customer_id@0 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[c_customer_id@0 ASC NULLS LAST], preserve_partitioning=[true]
+03)----HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(ctr_store_sk@0, ctr_store_sk@1)], filter=CAST(ctr_total_return@0 AS Decimal128(30, 15)) > avg(ctr2.ctr_total_return) * Float64(1.2)@1, projection=[c_customer_id@2]
+04)------CoalescePartitionsExec
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ctr_customer_sk@0, c_customer_sk@0)], projection=[ctr_store_sk@1, ctr_total_return@2, c_customer_id@4]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ctr_store_sk@1)], projection=[ctr_customer_sk@1, ctr_store_sk@2, ctr_total_return@3]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_state@24 = TN
+09)--------------ProjectionExec: expr=[sr_customer_sk@0 as ctr_customer_sk, sr_store_sk@1 as ctr_store_sk, sum(store_returns.sr_return_amt)@2 as ctr_total_return]
+10)----------------AggregateExec: mode=FinalPartitioned, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
+11)------------------RepartitionExec: partitioning=Hash([sr_customer_sk@0, sr_store_sk@1], 4), input_partitions=4
+12)--------------------AggregateExec: mode=Partial, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
+13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_customer_sk@2, sr_store_sk@3, sr_return_amt@4]
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
+15)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], file_type=vortex
+16)----------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+17)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id], file_type=vortex
+18)------ProjectionExec: expr=[CAST(CAST(avg(ctr2.ctr_total_return)@1 AS Float64) * 1.2 AS Decimal128(30, 15)) as avg(ctr2.ctr_total_return) * Float64(1.2), ctr_store_sk@0 as ctr_store_sk]
+19)--------AggregateExec: mode=FinalPartitioned, gby=[ctr_store_sk@0 as ctr_store_sk], aggr=[avg(ctr2.ctr_total_return)]
+20)----------RepartitionExec: partitioning=Hash([ctr_store_sk@0], 4), input_partitions=4
+21)------------AggregateExec: mode=Partial, gby=[ctr_store_sk@0 as ctr_store_sk], aggr=[avg(ctr2.ctr_total_return)]
+22)--------------ProjectionExec: expr=[sr_store_sk@1 as ctr_store_sk, sum(store_returns.sr_return_amt)@2 as ctr_total_return]
+23)----------------AggregateExec: mode=FinalPartitioned, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
+24)------------------RepartitionExec: partitioning=Hash([sr_customer_sk@0, sr_store_sk@1], 4), input_partitions=4
+25)--------------------AggregateExec: mode=Partial, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
+26)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_customer_sk@2, sr_store_sk@3, sr_return_amt@4]
+27)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
+28)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], file_type=vortex

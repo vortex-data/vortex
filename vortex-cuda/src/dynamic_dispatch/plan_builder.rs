@@ -128,7 +128,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    id == FoR.id()
+    (id == FoR.id() && array.as_::<FoR>().constant_reference().is_some())
         || id == ZigZag.id()
         || id == Primitive.id()
         || id == Slice.id()
@@ -167,6 +167,9 @@ pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
     // FoR fuses with BitPacked (FFOR) and Slice(BitPacked) in one launch.
     if id == FoR.id() {
         let for_arr = array.as_::<FoR>();
+        if for_arr.constant_reference().is_none() {
+            return false;
+        }
         let child = for_arr.encoded();
         if child.encoding_id() == BitPacked.id() {
             return true;
@@ -639,7 +642,8 @@ impl FusedPlan {
     ) -> VortexResult<Stage> {
         let for_arr = array.as_::<FoR>();
         let ref_pvalue = for_arr
-            .reference_scalar()
+            .constant_reference()
+            .ok_or_else(|| vortex_err!("FoR references must be constant"))?
             .as_primitive()
             .pvalue()
             .ok_or_else(|| vortex_err!("FoR reference scalar is null"))?;

@@ -3,82 +3,142 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::VortexSessionExecute;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::EmptyArrayData;
+use crate::array::OperationsVTable;
+use crate::array::VTable;
 use crate::array::ValidityVTable;
-use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::arrays::scalar_fn::vtable::ArrayExpr;
-use crate::arrays::scalar_fn::vtable::FakeEq;
-use crate::arrays::scalar_fn::vtable::ScalarFn;
-use crate::expr::Expression;
-use crate::expr::lit;
-use crate::legacy_session;
-use crate::scalar_fn::TypedScalarFnInstance;
-use crate::scalar_fn::VecExecutionArgs;
-use crate::scalar_fn::fns::literal::Literal;
+use crate::array::with_empty_buffers;
+use crate::array_slots;
+use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::executor::ExecutionCtx;
+use crate::executor::ExecutionResult;
+use crate::scalar::Scalar;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
-/// Execute an expression tree recursively.
-///
-/// This assumes all leaf expressions are either ArrayExpr (wrapping actual arrays) or Literals.
-fn execute_expr(
-    expr: &Expression,
-    row_count: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // Only Expression::Scalar is executable
-    let Some(scalar_fn) = expr.as_scalar() else {
-        vortex_bail!("Only Expression::Scalar is executable");
-    };
-
-    // Handle Literal expression - create a constant array
-    if expr.is::<Literal>() {
-        let scalar = expr.as_::<Literal>();
-        return Ok(ConstantArray::new(scalar.clone(), row_count).into_array());
-    }
-
-    // Recursively execute child expressions to get input arrays
-    let inputs: Vec<ArrayRef> = expr
-        .children()
-        .iter()
-        .map(|child| execute_expr(child, row_count, ctx))
-        .collect::<VortexResult<_>>()?;
-
-    let args = VecExecutionArgs::new(inputs, row_count);
-
-    Ok(scalar_fn.execute(&args, ctx)?.into_array())
+#[array_slots(ScalarFnValidity)]
+struct ValiditySlots {
+    #[slot(0)]
+    child: ArrayRef,
 }
 
-impl ValidityVTable<ScalarFn> for ScalarFn {
-    fn validity(array: ArrayView<'_, ScalarFn>) -> VortexResult<Validity> {
-        let inputs: Vec<_> = array
-            .iter_children()
-            .map(|child| {
-                if let Some(scalar) = child.as_constant() {
-                    return Ok(lit(scalar));
-                }
-                Expression::try_new(
-                    TypedScalarFnInstance::new(ArrayExpr, FakeEq(child.clone())).erased(),
-                    [],
-                )
-            })
-            .collect::<VortexResult<_>>()?;
+pub(crate) type ValidityArray = Array<ScalarFnValidity>;
 
-        let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
-        let validity_expr = array.scalar_fn().validity(&expr)?;
+/// Special case for scalar functions whose validity is Irreducible.
+/// Does a single execute step of a child.
+#[derive(Clone, Debug)]
+pub(crate) struct ScalarFnValidity;
 
-        #[allow(clippy::disallowed_methods)]
-        let ctx = &mut legacy_session().create_execution_ctx();
-        // Execute the validity expression. All leaves are ArrayExpr nodes.
-        Ok(Validity::Array(execute_expr(
-            &validity_expr,
-            array.len(),
-            ctx,
-        )?))
+impl Array<ScalarFnValidity> {
+    pub(crate) fn new(child: ArrayRef) -> Self {
+        let len = child.len();
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ScalarFnValidity, Validity::DTYPE, len, EmptyArrayData)
+                    .with_slots(ValiditySlots { child }.into_slots()),
+            )
+        }
+    }
+}
+
+impl VTable for ScalarFnValidity {
+    type TypedArrayData = EmptyArrayData;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+
+    fn id(&self) -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.scalar_fn_validity");
+        *ID
+    }
+
+    fn validate(
+        &self,
+        _data: &Self::TypedArrayData,
+        _dtype: &DType,
+        _len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        // We construct it internally, valid by definition
+        Ok(())
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
+        vortex_panic!("ScalarFnValidity has no buffers")
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    fn deserialize(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_bail!("ScalarFnValidity deserialize not supported");
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ValiditySlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let len = array.len();
+        let child = array.child().clone().execute::<ArrayRef>(ctx)?;
+        Ok(ExecutionResult::done(child.validity()?.to_array(len)))
+    }
+}
+
+impl OperationsVTable<ScalarFnValidity> for ScalarFnValidity {
+    type ProbeState = ();
+
+    fn scalar_at(
+        array: ArrayView<'_, ScalarFnValidity>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let child = array.child();
+        let value = child.dyn_array().probe_scalar_once(child, index, ctx)?;
+        Ok(Scalar::bool(!value.is_null(), Nullability::NonNullable))
+    }
+}
+
+impl ValidityVTable<ScalarFnValidity> for ScalarFnValidity {
+    fn validity(_array: ArrayView<'_, ScalarFnValidity>) -> VortexResult<Validity> {
+        Ok(Validity::NonNullable)
     }
 }

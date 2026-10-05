@@ -4,20 +4,20 @@
 import json
 import operator
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 
 import vortex.expr as ve
 
-from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
+from ._lib import dtype as _dtype
 
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
-    data = json.loads(expr.meta.serialize(format="json"))  # pyright: ignore[reportAny]
+    data = json.loads(expr.meta.serialize(format="json"))
     assert isinstance(data, dict)
-    return _polars_to_vortex(data)  # pyright: ignore[reportUnknownArgumentType]
+    return _polars_to_vortex(data)
 
 
 _OPS = {
@@ -34,7 +34,7 @@ _OPS = {
 }
 
 
-_LITERAL_TYPES: dict[str, Callable[[Any | None], _dtype.DType]] = {  # pyright: ignore[reportExplicitAny]
+_LITERAL_TYPES: dict[str, Callable[[Any | None], _dtype.DType]] = {
     "Boolean": lambda v: _dtype.bool_(nullable=v is None),
     "Int": lambda v: _dtype.int_(64, nullable=v is None),
     "Int8": lambda v: _dtype.int_(8, nullable=v is None),
@@ -53,48 +53,48 @@ _LITERAL_TYPES: dict[str, Callable[[Any | None], _dtype.DType]] = {  # pyright: 
 }
 
 
-def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[reportExplicitAny]
+def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
     if "BinaryExpr" in expr:
-        expr = expr["BinaryExpr"]  # pyright: ignore[reportAny]
-        lhs = _polars_to_vortex(expr["left"])  # pyright: ignore[reportAny]
-        rhs = _polars_to_vortex(expr["right"])  # pyright: ignore[reportAny]
-        op = expr["op"]  # pyright: ignore[reportAny]
+        expr = expr["BinaryExpr"]
+        lhs = _polars_to_vortex(expr["left"])
+        rhs = _polars_to_vortex(expr["right"])
+        op = expr["op"]
 
         if op not in _OPS:
             raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
-        return _OPS[op](lhs, rhs)  # pyright: ignore[reportAny]
+        return cast(ve.Expr, _OPS[op](lhs, rhs))
 
     if "Column" in expr:
-        return ve.column(expr["Column"])  # pyright: ignore[reportAny]
+        return ve.column(expr["Column"])
 
     # See https://github.com/pola-rs/polars/pull/21849
     if "Scalar" in expr:
-        scalar = expr["Scalar"]  # pyright: ignore[reportAny]
+        scalar = expr["Scalar"]
 
         if "Null" in scalar:
             value = None
             dtype = "Null"
         elif "String" in scalar:
-            value = scalar["String"]  # pyright: ignore[reportAny]
+            value = scalar["String"]
             dtype = "String"
         elif "Int" in scalar:
-            value = scalar["Int"]  # pyright: ignore[reportAny]
+            value = scalar["Int"]
             dtype = "Int64"
         elif "Float" in scalar:
-            value = scalar["Float"]  # pyright: ignore[reportAny]
+            value = scalar["Float"]
             dtype = "Float64"
         elif "Float32" in scalar:
-            value = scalar["Float32"]  # pyright: ignore[reportAny]
+            value = scalar["Float32"]
             dtype = "Float32"
         elif "Float64" in scalar:
-            value = scalar["Float64"]  # pyright: ignore[reportAny]
+            value = scalar["Float64"]
             dtype = "Float64"
         elif "Int32" in scalar:
-            value = scalar["Int32"]  # pyright: ignore[reportAny]
+            value = scalar["Int32"]
             dtype = "Int32"
         elif "Int64" in scalar:
-            value = scalar["Int64"]  # pyright: ignore[reportAny]
+            value = scalar["Int64"]
             dtype = "Int64"
         else:
             raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
@@ -102,7 +102,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
         return ve.literal(_LITERAL_TYPES[dtype](value), value)
 
     if "Literal" in expr:
-        expr = expr["Literal"]  # pyright: ignore[reportAny]
+        expr = expr["Literal"]
 
         literal_type = next(iter(expr.keys()), None)
 
@@ -115,7 +115,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
 
         # Special-case date-times
         if literal_type == "DateTime":
-            (value, unit, tz) = expr[literal_type]  # pyright: ignore[reportAny, reportAny]
+            (value, unit, tz) = expr[literal_type]
             if unit == "Nanoseconds":
                 unit = "ns"
             elif unit == "Microseconds":
@@ -127,37 +127,37 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
             else:
                 raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
 
-            dtype = _dtype.timestamp(unit, tz=tz, nullable=value)  # pyright: ignore[reportAny]
-            return ve.literal(dtype, value)  # pyright: ignore[reportAny]
+            dtype = _dtype.timestamp(unit, tz=tz, nullable=value)
+            return ve.literal(dtype, value)
 
         # Unwrap 'Dyn' scalars, whose type hasn't been established yet.
         # (post https://github.com/pola-rs/polars/pull/21849)
         if literal_type == "Dyn":
-            expr = expr["Dyn"]  # pyright: ignore[reportAny]
+            expr = expr["Dyn"]
             literal_type = next(iter(expr.keys()), None)
 
         if literal_type not in _LITERAL_TYPES:
             raise NotImplementedError(f"Unsupported Polars literal type: {literal_type}")
-        value = expr[literal_type]  # pyright: ignore[reportAny]
-        return ve.literal(_LITERAL_TYPES[literal_type](value), value)  # pyright: ignore[reportAny]
+        value = expr[literal_type]
+        return ve.literal(_LITERAL_TYPES[literal_type](value), value)
 
     if "Function" in expr:
-        expr = expr["Function"]  # pyright: ignore[reportAny]
-        _inputs = [_polars_to_vortex(e) for e in expr["input"]]  # pyright: ignore[reportAny]
+        expr = expr["Function"]
+        _inputs = [_polars_to_vortex(e) for e in expr["input"]]
 
-        fn = expr["function"]  # pyright: ignore[reportAny]
+        fn = expr["function"]
         if "Boolean" in fn:
-            fn = fn["Boolean"]  # pyright: ignore[reportAny]
+            fn = fn["Boolean"]
 
             if "IsIn" in fn:
-                fn = fn["IsIn"]  # pyright: ignore[reportAny]
+                fn = fn["IsIn"]
                 if fn["nulls_equal"]:
                     raise ValueError(f"Unsupported nulls_equal argument in fn {expr}")
 
                 # Vortex doesn't support is-in, so we need to construct a series of ORs?
 
         if "StringExpr" in fn:
-            fn = fn["StringExpr"]  # pyright: ignore[reportAny]
+            fn = fn["StringExpr"]
             if "Contains" in fn:
                 raise ValueError("Unsupported Polars StringExpr.Contains")
 

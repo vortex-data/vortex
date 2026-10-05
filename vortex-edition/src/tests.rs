@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ComponentKind;
@@ -66,7 +68,7 @@ fn session() -> EditionSession {
 }
 
 #[test]
-fn editions_pass_the_test_harness() -> Result<(), crate::EditionError> {
+fn editions_pass_the_test_harness() -> VortexResult<()> {
     crate::test_harness::validate_edition(&session(), &FIRST)?;
     crate::test_harness::validate_edition(&session(), &SECOND)?;
 
@@ -77,7 +79,7 @@ fn editions_pass_the_test_harness() -> Result<(), crate::EditionError> {
 }
 
 #[test]
-fn membership_is_transitive() -> Result<(), crate::EditionError> {
+fn membership_is_transitive() -> VortexResult<()> {
     let editions = session();
 
     let first = editions.components_in(&FIRST, ComponentKind::Array);
@@ -95,17 +97,17 @@ fn membership_is_transitive() -> Result<(), crate::EditionError> {
     let alpha = second
         .iter()
         .find(|i| i.component_id.as_str() == "test.alpha")
-        .ok_or_else(|| crate::EditionError::new("test.alpha is a member"))?;
+        .ok_or_else(|| vortex_err!("test.alpha is a member"))?;
     assert_eq!(alpha.since, FIRST);
     let alpha_v2 = second
         .iter()
         .find(|i| i.component_id.as_str() == "test.alpha_v2")
-        .ok_or_else(|| crate::EditionError::new("test.alpha_v2 is a member"))?;
+        .ok_or_else(|| vortex_err!("test.alpha_v2 is a member"))?;
     assert_eq!(alpha_v2.since, SECOND);
     let beta = second
         .iter()
         .find(|i| i.component_id.as_str() == "test.beta")
-        .ok_or_else(|| crate::EditionError::new("test.beta is a member"))?;
+        .ok_or_else(|| vortex_err!("test.beta is a member"))?;
     assert_eq!(beta.since, FIRST);
 
     // The second edition's delta is exactly the members declared at it.
@@ -173,7 +175,7 @@ fn session_exposes_edition_registry() {
 }
 
 #[test]
-fn registered_and_enabled_editions_are_separate() -> Result<(), crate::EditionError> {
+fn registered_and_enabled_editions_are_separate() -> VortexResult<()> {
     let session = VortexSession::empty().with::<EditionSession>();
     for declaration in DECLARATIONS {
         session.register_edition(declaration)?;
@@ -216,7 +218,7 @@ fn enabling_requires_registration() {
 }
 
 #[test]
-fn enabled_editions_are_independent_across_families() -> Result<(), crate::EditionError> {
+fn enabled_editions_are_independent_across_families() -> VortexResult<()> {
     const OTHER: EditionId = EditionId::new("other", 2026, 4, 0);
     static OTHER_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
@@ -243,7 +245,7 @@ fn enabled_editions_are_independent_across_families() -> Result<(), crate::Editi
 }
 
 #[test]
-fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> Result<(), crate::EditionError> {
+fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> VortexResult<()> {
     const OPT_IN: EditionId = EditionId::new("other", 2026, 8, 0);
     static OPT_IN_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
@@ -292,7 +294,7 @@ fn duplicate_declarations_error() {
 }
 
 #[test]
-fn validate_rejects_inconsistent_declarations() -> Result<(), crate::EditionError> {
+fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     // An inclusion referencing an undeclared edition.
     let editions = EditionSession::empty();
     editions.declare_inclusion(EditionInclusion::array("test.alpha", FIRST))?;
@@ -358,7 +360,7 @@ fn edition_id_display() {
 }
 
 #[test]
-fn families_must_be_declared_before_their_editions() -> Result<(), crate::EditionError> {
+fn families_must_be_declared_before_their_editions() -> VortexResult<()> {
     // An edition whose family was never declared: the name would otherwise be whatever the
     // declaration happened to spell, and a typo would mint a family of one.
     let editions = EditionSession::empty();
@@ -401,7 +403,7 @@ fn families_must_name_their_origin() {
 }
 
 #[test]
-fn kinds_are_resolved_independently() -> Result<(), crate::EditionError> {
+fn kinds_are_resolved_independently() -> VortexResult<()> {
     // `test.alpha` is declared under both kinds: same id, two distinct members.
     static MIXED: EditionDeclaration = EditionDeclaration {
         edition: Edition {

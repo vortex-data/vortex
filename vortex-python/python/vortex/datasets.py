@@ -1,14 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-# pyright: reportAny=false
-# pyright: reportMissingTypeStubs=false
-# pyright: reportMissingTypeArgument=false
-# pyright: reportPrivateUsage=false
-# pyright: reportUnannotatedClassAttribute=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownParameterType=false
-# pyright: reportUnknownVariableType=false
 
 from __future__ import annotations
 
@@ -17,11 +8,12 @@ import functools
 import glob
 import inspect
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import TypeAlias, cast, final
 from urllib.parse import quote, unquote
 
+import numpy as np
 import pyarrow as pa
 from typing_extensions import override
 
@@ -113,7 +105,7 @@ def load_dataset(
         streaming=streaming,
     )
 
-    def build_one(split_name: str):
+    def build_one(split_name: str) -> VortexIterableDataset | hf_datasets.Dataset:
         files = split_to_files[split_name]
         if streaming:
             return VortexIterableDataset(
@@ -174,7 +166,7 @@ class VortexIterableDataset(hf_datasets.IterableDataset):
         distributed: object | None = None,
         token_per_repo_id: dict[str, bool | str | None] | None = None,
         features: hf_datasets.Features | None = None,
-    ):
+    ) -> None:
         file_names = tuple(str(file) for file in files)
         if not file_names:
             raise ValueError("VortexIterableDataset requires at least one Vortex file")
@@ -202,19 +194,19 @@ class VortexIterableDataset(hf_datasets.IterableDataset):
             super().__init__(
                 ex_iterable=ex_iterable,
                 info=info,
-                split=hf_datasets.Split(split),
+                split=hf_datasets.Split(split),  # ty: ignore[invalid-argument-type]
                 formatting=formatting,
-                shuffling=shuffling,  # pyright: ignore[reportCallIssue]
-                distributed=distributed,
+                shuffling=shuffling,  # ty: ignore[unknown-argument]
+                distributed=distributed,  # ty: ignore[invalid-argument-type]
                 token_per_repo_id=token_per_repo_id,
             )
         else:
             super().__init__(
                 ex_iterable=ex_iterable,
                 info=info,
-                split=hf_datasets.Split(split),
+                split=hf_datasets.Split(split),  # ty: ignore[invalid-argument-type]
                 formatting=formatting,
-                distributed=distributed,  # pyright: ignore[reportArgumentType]
+                distributed=distributed,  # ty: ignore[invalid-argument-type]
                 token_per_repo_id=token_per_repo_id,
             )
 
@@ -300,7 +292,7 @@ class VortexIterableDataset(hf_datasets.IterableDataset):
         limit: int | None | object = ...,
         formatting: FormattingConfig | None | object = ...,
     ) -> VortexIterableDataset:
-        new_columns = self._vortex_columns if columns is ... else _normalize_columns(columns)  # pyright: ignore[reportArgumentType]
+        new_columns = self._vortex_columns if columns is ... else _normalize_columns(columns)  # ty: ignore[invalid-argument-type]
         # Derive the new features from the current ones instead of re-reading the file schema:
         # select_columns/remove_columns only ever narrow the current selection.
         if new_columns == self._vortex_columns:
@@ -312,12 +304,12 @@ class VortexIterableDataset(hf_datasets.IterableDataset):
         return VortexIterableDataset(
             self._vortex_files,
             columns=new_columns,
-            filter=self._vortex_filter if filter is ... else filter,  # pyright: ignore[reportArgumentType]
-            limit=self._vortex_limit if limit is ... else limit,  # pyright: ignore[reportArgumentType]
+            filter=self._vortex_filter if filter is ... else filter,  # ty: ignore[invalid-argument-type]
+            limit=self._vortex_limit if limit is ... else limit,  # ty: ignore[invalid-argument-type]
             batch_size=self._vortex_batch_size,
             store=self._vortex_store,
             split=str(self._split),
-            formatting=self._formatting if formatting is ... else formatting,  # pyright: ignore[reportArgumentType]
+            formatting=self._formatting if formatting is ... else formatting,  # ty: ignore[invalid-argument-type]
             shuffling=copy.deepcopy(getattr(self, "_shuffling", None)),
             distributed=copy.deepcopy(self._distributed),
             token_per_repo_id=self._token_per_repo_id,
@@ -345,7 +337,7 @@ class _VortexExamplesIterable(_BaseExamplesIterable):
         batch_size: int | None,
         store: ObjectStore | None,
         features: hf_datasets.Features,
-    ):
+    ) -> None:
         super().__init__()
         # datasets>=5 reads this flag on every leaf iterable when tearing down prefetch threads
         # (shuffle(), interleave_datasets()); the base-class fallback assumes a wrapper with an
@@ -361,7 +353,7 @@ class _VortexExamplesIterable(_BaseExamplesIterable):
 
     @property
     @override
-    def iter_arrow(self):
+    def iter_arrow(self) -> Callable[[], Iterator[tuple[str, pa.Table]]]:
         return self._iter_arrow
 
     @property
@@ -381,28 +373,30 @@ class _VortexExamplesIterable(_BaseExamplesIterable):
 
     @override
     def _init_state_dict(self) -> dict[str, int | str]:
-        self._state_dict = {
+        state: dict[str, int | str] = {
             "file_idx": 0,
             "file_row_idx": 0,
             "num_yielded": 0,
             "type": self.__class__.__name__,
         }
-        return self._state_dict
+        self._state_dict = state
+        return state
 
     @override
-    def __iter__(self):
+    def __iter__(self) -> Iterator[tuple[str, dict[str, object]]]:
         # The resume state must advance per row here: a state_dict() checkpoint taken while the
         # consumer is mid-batch would otherwise record the whole batch as consumed and resume
         # would silently skip its remaining rows.
         for file_idx, row_start, yielded_before, table in self._resumed_batches():
             state = self._state()
-            for offset, row in enumerate(table.to_pylist()):
+            for offset, untyped_row in enumerate(table.to_pylist()):
+                row = cast(dict[str, object], untyped_row)
                 if state is not None:
                     state["file_row_idx"] = row_start + offset + 1
                     state["num_yielded"] = yielded_before + offset + 1
                 yield f"{file_idx}:{row_start + offset}", row
 
-    def _iter_arrow(self):
+    def _iter_arrow(self) -> Iterator[tuple[str, pa.Table]]:
         # Batches are the unit of consumption on this path, so the resume state advances per
         # batch; mid-batch checkpoints are handled by RebatchedArrowExamplesIterable, which
         # replays from the last batch boundary and crops.
@@ -413,7 +407,7 @@ class _VortexExamplesIterable(_BaseExamplesIterable):
                 state["num_yielded"] = yielded_before + len(table)
             yield f"{file_idx}:{row_start}", table
 
-    def _resumed_batches(self):
+    def _resumed_batches(self) -> Iterator[tuple[int, int, int, pa.Table]]:
         """Scan the files from the resume state, yielding ``(file_idx, row_start, yielded_before, table)``.
 
         Rows already consumed per the resume state are skipped and the row limit is enforced.
@@ -468,7 +462,7 @@ class _VortexExamplesIterable(_BaseExamplesIterable):
                 state["file_row_idx"] = 0
 
     @override
-    def shuffle_data_sources(self, generator) -> _VortexExamplesIterable:  # pyright: ignore[reportMissingParameterType]
+    def shuffle_data_sources(self, generator: np.random.Generator) -> _VortexExamplesIterable:
         if self.limit is not None:
             # A pushed-down limit (take()) must keep selecting the same rows, so the file order
             # cannot be permuted — mirroring TakeExamplesIterable. datasets>=5 signals this with
@@ -545,13 +539,13 @@ def _materialize_dataset(
     return hf_datasets.Dataset.from_generator(
         _generate_rows,
         features=features,
-        cache_dir=cache_dir,  # pyright: ignore[reportArgumentType]
+        cache_dir=cache_dir,  # ty: ignore[invalid-argument-type]
         keep_in_memory=keep_in_memory,
         gen_kwargs=gen_kwargs,
         # A global row limit cannot be divided across processes without overshooting, so force
         # single-process generation whenever a limit is set.
         num_proc=None if limit is not None else num_proc,
-        split=hf_datasets.Split(split),
+        split=hf_datasets.Split(split),  # ty: ignore[invalid-argument-type]
     )
 
 
@@ -561,7 +555,7 @@ def _generate_rows(
     filter: Expr | None,
     limit: int | None,
     batch_size: int | None,
-):
+) -> Iterator[dict[str, object]]:
     yielded = 0
     for file_name in files:
         remaining = None if limit is None else limit - yielded
@@ -574,7 +568,8 @@ def _generate_rows(
             limit=remaining,
             batch_size=batch_size,
         ):
-            for row in table.to_pylist():
+            for untyped_row in table.to_pylist():
+                row = cast(dict[str, object], untyped_row)
                 yielded += 1
                 yield row
                 if limit is not None and yielded >= limit:
@@ -626,7 +621,7 @@ def _hf_compatible_schema(schema: pa.Schema) -> pa.Schema:
     return pa.schema([_hf_compatible_field(field) for field in schema], metadata=metadata)
 
 
-def _hf_compatible_field(field: pa.Field) -> pa.Field:
+def _hf_compatible_field(field: pa.Field[pa.DataType]) -> pa.Field[pa.DataType]:
     return pa.field(
         field.name,
         _hf_compatible_type(field.type),
@@ -645,7 +640,7 @@ def _hf_compatible_type(dtype: pa.DataType) -> pa.DataType:
         if pa.types.is_large_list(dtype):
             return pa.large_list(value_field)
         if pa.types.is_fixed_size_list(dtype):
-            return pa.list_(value_field, dtype.list_size)
+            return cast(pa.DataType, pa.list_(value_field, dtype.list_size))
         return pa.list_(value_field)
     if pa.types.is_struct(dtype):
         return pa.struct([_hf_compatible_field(field) for field in dtype])

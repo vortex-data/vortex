@@ -7,6 +7,7 @@
 //! uninitialized scalar storage, [`FixedSizeListSink`] provides runtime-width row storage, and
 //! [`Utf8Sink`] provides variable-length UTF-8 storage.
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -57,8 +58,9 @@ pub use utf8::Utf8Writer;
 /// - [`initialize_skipped_rows`] is the only exception to this stability requirement. The executor
 ///   checks the length again after the initializer. The initializer **must** initialize every row.
 /// - A row must either be initialized before the callback or require a
-///   [`WriteToken`] that safe code cannot produce without initializing that exact row. Evidence for
-///   an uninitialized row **must not** be safely forgeable, reusable, or substitutable.
+///   [`WriteToken`] that safe code cannot produce without initializing that exact row and keeping
+///   it initialized until the callback returns. Evidence for an uninitialized row **must not** be
+///   safely forgeable, reusable, or substitutable.
 /// - `Self` and every borrowed [`Rows`] view **must** remain safe to drop if decoding,
 ///   preparation, skipped-row initialization, or a row callback returns an error or unwinds. The
 ///   executor can abandon a sink after any prefix of rows.
@@ -128,8 +130,14 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// result, and masks the null rows.
     fn storage_dtype(params: &Self::Params) -> DType;
 
-    /// Allocate a sink for `rows` rows.
-    fn with_capacity(rows: usize, params: &Self::Params) -> VortexResult<Self>;
+    /// Allocate a sink for `rows` rows, using `allocator` for new output payload buffers.
+    ///
+    /// The allocator is an execution resource, separate from physical storage parameters.
+    fn with_capacity(
+        rows: usize,
+        params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self>;
 
     /// Borrow all output rows for the hot loop.
     fn rows(&mut self) -> Self::Rows<'_>;

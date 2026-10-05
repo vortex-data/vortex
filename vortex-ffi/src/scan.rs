@@ -54,7 +54,8 @@ box_wrapper!(
     /// A vx_scan is a single traversal of a vx_data_source with projections and
     /// filters. A vx_scan can be consumed only once.
     VxScan,
-    vx_scan);
+    vx_scan
+);
 
 pub enum VxPartitionScan {
     Pending(Box<dyn Partition>),
@@ -66,7 +67,8 @@ box_wrapper!(
     /// repeatedly to retrieve arrays, then free the partition with
     /// vx_partition_free.
     VxPartitionScan,
-    vx_partition);
+    vx_partition
+);
 
 /// Consume an owned partition pointer for layered FFI crates and return its Vortex array stream.
 ///

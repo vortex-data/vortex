@@ -5,11 +5,12 @@
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
-use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -28,7 +29,7 @@ use crate::require_child;
 
 pub(super) fn execute(
     mut array: Array<Interleave>,
-    _ctx: &mut ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
     let num_values = array.num_values();
     array = require_child!(array, array.array_indices(), 0 => Primitive);
@@ -39,7 +40,7 @@ pub(super) fn execute(
 
     let validity = array.as_ref().validity()?;
     let output = match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-        let values = gather_values::<T>(&array)?;
+        let values = gather_values::<T>(&array, ctx.allocator())?;
         VortexResult::Ok(PrimitiveArray::new(values, validity))
     })?;
 
@@ -54,7 +55,10 @@ struct PrimitiveSource<T> {
     row_mask: usize,
 }
 
-fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buffer<T>> {
+fn gather_values<T: NativePType>(
+    array: &Array<Interleave>,
+    allocator: &BufferAllocatorRef,
+) -> VortexResult<Buffer<T>> {
     let values = (0..array.num_values())
         .map(|i| {
             let value = array.value(i);
@@ -67,7 +71,7 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
                     .typed_value::<T>()
                     .unwrap_or_default();
                 PrimitiveSource {
-                    data: buffer![payload],
+                    data: Buffer::full_in(payload, 1, allocator.clone()),
                     len,
                     row_mask: 0,
                 }
@@ -85,7 +89,12 @@ fn gather_values<T: NativePType>(array: &Array<Interleave>) -> VortexResult<Buff
 
     match_each_unsigned_integer_ptype!(branches.ptype(), |A| {
         match_each_unsigned_integer_ptype!(rows.ptype(), |R| {
-            gather(&values, branches.as_slice::<A>(), rows.as_slice::<R>())
+            gather(
+                &values,
+                branches.as_slice::<A>(),
+                rows.as_slice::<R>(),
+                allocator,
+            )
         })
     })
 }
@@ -94,6 +103,7 @@ fn gather<T, A, R>(
     values: &[PrimitiveSource<T>],
     branches: &[A],
     rows: &[R],
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<Buffer<T>>
 where
     T: NativePType,
@@ -101,38 +111,39 @@ where
     R: AsPrimitive<usize>,
 {
     // `zip` truncates to the shorter input.
-    vortex_ensure!(
-        rows.len() == branches.len(),
-        "interleave selectors differ in length: array_indices {}, row_indices {}",
+    vortex_ensure_eq!(
+        rows.len(),
         branches.len(),
-        rows.len()
+        "interleave row_indices length does not match array_indices length",
     );
 
-    let output =
-        BufferMut::try_from_trusted_len_iter(branches.iter().zip(rows).map(|(branch, row)| {
-            let Some(source) = values.get((*branch).as_()) else {
-                vortex_bail!("interleave array index out of bounds");
-            };
-            let row = (*row).as_();
-            vortex_ensure!(row < source.len, "interleave row index out of bounds");
-            Ok(source.data[row & source.row_mask])
-        }))?;
+    let mut output = BufferMut::with_capacity_in(branches.len(), allocator.clone());
+    output.try_extend_trusted(branches.iter().zip(rows).map(|(branch, row)| {
+        let Some(source) = values.get((*branch).as_()) else {
+            vortex_bail!("interleave array index out of bounds");
+        };
+        let row = (*row).as_();
+        vortex_ensure!(row < source.len, "interleave row index out of bounds");
+        Ok(source.data[row & source.row_mask])
+    }))?;
     Ok(output.freeze())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::BufferAllocatorRef;
 
     #[test]
     fn rejects_out_of_bounds_selectors() {
         let values = [PrimitiveSource {
-            data: buffer![1u32],
+            data: Buffer::full_in(1u32, 1, BufferAllocatorRef::statically_allocated()),
             len: 1,
             row_mask: 0,
         }];
 
-        assert!(gather(&values, &[1u8], &[0u8]).is_err());
-        assert!(gather(&values, &[0u8], &[1u8]).is_err());
+        let allocator = BufferAllocatorRef::statically_allocated();
+        assert!(gather(&values, &[1u8], &[0u8], &allocator).is_err());
+        assert!(gather(&values, &[0u8], &[1u8], &allocator).is_err());
     }
 }

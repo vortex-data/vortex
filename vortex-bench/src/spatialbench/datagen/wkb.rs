@@ -22,6 +22,7 @@ use spatialbench_arrow::RecordBatchIterator;
 use spatialbench_arrow::TripArrow;
 use spatialbench_parquet::arrow::AsyncArrowWriter;
 use spatialbench_parquet::basic::Compression;
+use spatialbench_parquet::basic::ZstdLevel;
 use spatialbench_parquet::file::properties::WriterProperties;
 use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
@@ -93,7 +94,7 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
 
                 let file = TokioFile::create(&path).await?;
                 let props = WriterProperties::builder()
-                    .set_compression(Compression::SNAPPY)
+                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
                 for batch in iter {

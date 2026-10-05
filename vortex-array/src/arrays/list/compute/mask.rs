@@ -13,12 +13,17 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for List {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, List>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        ListArray::try_new(
-            array.elements().clone(),
-            array.offsets().clone(),
-            array.validity()?.and(Validity::Array(mask.clone()))?,
-        )
-        .map(|a| Some(a.into_array()))
+        // SAFETY: elements and offsets are unchanged, and masking only removes valid rows.
+        Ok(Some(unsafe {
+            ListArray::new_unchecked(
+                array.elements().clone(),
+                array.offsets().clone(),
+                array.validity()?.and(Validity::Array(mask.clone()))?,
+            )
+            .into_array()
+        }))
     }
 }

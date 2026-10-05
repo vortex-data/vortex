@@ -22,6 +22,7 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::CoalesceConfig;
 use crate::ReadAtRequest;
@@ -144,11 +145,10 @@ async fn read_object_store_range(
                 written = end;
             }
 
-            vortex_ensure!(
-                written == length,
-                "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+            vortex_ensure_eq!(
                 written,
                 length,
+                "Object store stream returned too few bytes (range: {:?})",
                 range
             );
 

@@ -53,7 +53,7 @@ Issues = "https://github.com/vortex-data/vortex/issues"
 Benchmarks = "https://bench.vortex.dev"
 
 [build-system]
-requires = ["maturin>=1.10.2,<2.0"]
+requires = ["maturin>=1.15.0,<2.0"]
 build-backend = "maturin"
 
 [tool.uv]
@@ -77,7 +77,7 @@ dev = [
     "datasets>=4.0.0,<6",
     "duckdb>=1.1.2",
     "huggingface-hub>=0.34.0",
-    "maturin>=1.10.2",
+    "maturin>=1.15.0",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",
     "pandas[output-formatting]>=2.2.3",
@@ -91,5 +91,9 @@ dev = [
     "protobuf>=6.33.5",
 ]
 
-[tool.basedpyright]
-exclude = ["python/vortex/_lib/store/**.pyi"]
+[tool.ty.environment]
+root = ["python", "."]
+
+[tool.ty.src]
+# Vendored obstore stubs are not checked.
+exclude = ["python/vortex/_lib/store/**/*.pyi"]

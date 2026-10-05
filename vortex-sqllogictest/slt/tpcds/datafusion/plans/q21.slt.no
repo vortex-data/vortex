@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT *
+FROM
+  (SELECT w_warehouse_name,
+          i_item_id,
+          sum(CASE
+                  WHEN (cast(d_date AS date) < CAST ('2000-03-11' AS date)) THEN inv_quantity_on_hand
+                  ELSE 0
+              END) AS inv_before,
+          sum(CASE
+                  WHEN (cast(d_date AS date) >= CAST ('2000-03-11' AS date)) THEN inv_quantity_on_hand
+                  ELSE 0
+              END) AS inv_after
+   FROM inventory,
+        warehouse,
+        item,
+        date_dim
+   WHERE i_current_price BETWEEN 0.99 AND 1.49
+     AND i_item_sk = inv_item_sk
+     AND inv_warehouse_sk = w_warehouse_sk
+     AND inv_date_sk = d_date_sk
+     AND d_date BETWEEN CAST ('2000-02-10' AS date) AND CAST ('2000-04-10' AS date)
+   GROUP BY w_warehouse_name,
+            i_item_id) x
+WHERE (CASE
+           WHEN inv_before > 0 THEN (inv_after*1.000) / inv_before
+           ELSE NULL
+       END) BETWEEN 2.000/3.000 AND 3.000/2.000
+ORDER BY w_warehouse_name NULLS FIRST,
+         i_item_id NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: x.w_warehouse_name ASC NULLS FIRST, x.i_item_id ASC NULLS FIRST, fetch=100
+02)--SubqueryAlias: x
+03)----Projection: warehouse.w_warehouse_name, item.i_item_id, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END) AS inv_before, sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END) AS inv_after
+04)------Filter: __common_expr_3 >= Float64(0.6666666666666666) AND __common_expr_3 <= Float64(1.5)
+05)--------Projection: CASE WHEN sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END) > Int64(0) THEN CAST(sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END) AS Float64) / CAST(sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END) AS Float64) ELSE Float64(NULL) END AS __common_expr_3, warehouse.w_warehouse_name, item.i_item_id, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)
+06)----------Aggregate: groupBy=[[warehouse.w_warehouse_name, item.i_item_id]], aggr=[[sum(CASE WHEN date_dim.d_date < Date32("2000-03-11") THEN CAST(inventory.inv_quantity_on_hand AS Int64) ELSE Int64(0) END) AS sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= Date32("2000-03-11") THEN CAST(inventory.inv_quantity_on_hand AS Int64) ELSE Int64(0) END) AS sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)]]
+07)------------Projection: inventory.inv_quantity_on_hand, warehouse.w_warehouse_name, item.i_item_id, date_dim.d_date
+08)--------------Inner Join: inventory.inv_date_sk = date_dim.d_date_sk
+09)----------------Projection: inventory.inv_date_sk, inventory.inv_quantity_on_hand, warehouse.w_warehouse_name, item.i_item_id
+10)------------------Inner Join: inventory.inv_item_sk = item.i_item_sk
+11)--------------------Projection: inventory.inv_date_sk, inventory.inv_item_sk, inventory.inv_quantity_on_hand, warehouse.w_warehouse_name
+12)----------------------Inner Join: inventory.inv_warehouse_sk = warehouse.w_warehouse_sk
+13)------------------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand]
+14)------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
+15)--------------------Projection: item.i_item_sk, item.i_item_id
+16)----------------------Filter: item.i_current_price >= Decimal128(0.99,7,2) AND item.i_current_price <= Decimal128(1.49,7,2)
+17)------------------------TableScan: item projection=[i_item_sk, i_item_id, i_current_price], partial_filters=[item.i_current_price >= Decimal128(0.99,7,2), item.i_current_price <= Decimal128(1.49,7,2)]
+18)----------------Filter: date_dim.d_date >= Date32("2000-02-10") AND date_dim.d_date <= Date32("2000-04-10")
+19)------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-02-10"), date_dim.d_date <= Date32("2000-04-10")]
+physical_plan
+01)SortPreservingMergeExec: [w_warehouse_name@0 ASC, i_item_id@1 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[w_warehouse_name@0 ASC, i_item_id@1 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[w_warehouse_name@0 as w_warehouse_name, i_item_id@1 as i_item_id, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@2 as inv_before, sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@3 as inv_after]
+04)------FilterExec: __common_expr_3@0 >= 0.6666666666666666 AND __common_expr_3@0 <= 1.5, projection=[w_warehouse_name@1, i_item_id@2, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@3, sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@4]
+05)--------ProjectionExec: expr=[CASE WHEN sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@2 > 0 THEN CAST(sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@3 AS Float64) / CAST(sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@2 AS Float64) END as __common_expr_3, w_warehouse_name@0 as w_warehouse_name, i_item_id@1 as i_item_id, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@2 as sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)@3 as sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)]
+06)----------AggregateExec: mode=FinalPartitioned, gby=[w_warehouse_name@0 as w_warehouse_name, i_item_id@1 as i_item_id], aggr=[sum(CASE WHEN date_dim.d_date < 2000-03-11 THEN inventory.inv_quantity_on_hand ELSE 0 END) as sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= 2000-03-11 THEN inventory.inv_quantity_on_hand ELSE 0 END) as sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)]
+07)------------RepartitionExec: partitioning=Hash([w_warehouse_name@0, i_item_id@1], 4), input_partitions=4
+08)--------------AggregateExec: mode=Partial, gby=[w_warehouse_name@1 as w_warehouse_name, i_item_id@2 as i_item_id], aggr=[sum(CASE WHEN date_dim.d_date < 2000-03-11 THEN inventory.inv_quantity_on_hand ELSE 0 END) as sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= 2000-03-11 THEN inventory.inv_quantity_on_hand ELSE 0 END) as sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN inventory.inv_quantity_on_hand ELSE Int64(0) END)]
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@0)], projection=[inv_quantity_on_hand@3, w_warehouse_name@4, i_item_id@5, d_date@1]
+10)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, predicate: d_date@2 >= 2000-02-10 AND d_date@2 <= 2000-04-10
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@1)], projection=[inv_date_sk@2, inv_quantity_on_hand@4, w_warehouse_name@5, i_item_id@1]
+12)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex, predicate: i_current_price@5 >= 0.99 AND i_current_price@5 <= 1.49
+13)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, inv_warehouse_sk@2)], projection=[inv_date_sk@2, inv_item_sk@3, inv_quantity_on_hand@5, w_warehouse_name@1]
+14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_warehouse_name], file_type=vortex
+15)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], file_type=vortex

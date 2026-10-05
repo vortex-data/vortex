@@ -6,8 +6,12 @@
 #![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     // Pre-resolve the one-time CpuKernel selections on the rank/select path so no

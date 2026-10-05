@@ -17,6 +17,7 @@ impl Debug for TableInitInput<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("TableInitInput")
             .field("column_ids", &self.column_ids())
+            .field("projection_ids", &self.projection_ids())
             .field("table_filter_set", &self.table_filter_set())
             .finish()
     }
@@ -29,6 +30,17 @@ impl<'a> TableInitInput<'a> {
 
     pub fn column_ids(&self) -> &[u64] {
         unsafe { std::slice::from_raw_parts(self.input.column_ids, self.input.column_ids_count) }
+    }
+
+    pub fn projection_ids(&self) -> &[u64] {
+        if self.input.projection_ids_count == 0 {
+            // from_raw_parts requires a non-null pointer. C++'s empty vector
+            // may have a null pointer.
+            return &[];
+        }
+        unsafe {
+            std::slice::from_raw_parts(self.input.projection_ids, self.input.projection_ids_count)
+        }
     }
 
     /// Returns the table filter set for the table function.

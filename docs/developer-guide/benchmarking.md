@@ -134,9 +134,39 @@ benchmark binary takes. CodSpeed reports exactly that: its performance report on
 request lists the per-iteration time under `HEAD` for every benchmark the pull request adds
 or changes, so check any new benchmark there before merging.
 
+### Keep per-iteration work above the harness floor
+
+The budget has a floor as well as a ceiling. CodSpeed runs each benchmark once and adds a fixed
+cost of roughly half a microsecond of reported time around the closure. A closure that does tens
+of nanoseconds of real work, such as one small allocation or a fast path that finds nothing to
+do, reports mostly that floor, and the floor moves by more than 10% between runs of identical
+code. Such benchmarks flag regressions on pull requests that do not touch Rust at all.
+
+Aim for at least a few microseconds of real work per iteration:
+
+- When the operation itself is tiny, repeat it a fixed number of times inside the closure and
+  black-box each result, as `vortex-buffer/benches/allocation.rs` does.
+- Drop degenerate inputs, such as a zero-byte allocation or a compaction with nothing to move.
+- Size inputs by bytes rather than element count so narrow and wide types land in the same
+  range, as `vortex-array/benches/filter_fixed_width.rs` does.
+
+Benchmarks tagged `#[cpu_features]` run on the walltime legs instead, where the floor is timer
+resolution and per-iteration jitter. Give those at least tens of microseconds per iteration, and
+keep the working set inside the L2 cache of the leg machines (1 MiB on the Graviton leg) when the
+benchmark is about kernel code rather than memory bandwidth.
+
 ### Gate CodSpeed-incompatible benchmarks
 
 Use `#[cfg(not(codspeed))]` for benchmarks that are incompatible with CodSpeed.
+
+### Keep third-party and frozen baselines out of CodSpeed
+
+A benchmark of code that Vortex does not own, such as an arrow-rs kernel over the same data, or
+of a frozen copy of an old Vortex implementation, cannot regress because of a pull request, so a
+change in its number is never actionable. On the walltime legs these baselines were among the
+noisiest series in the suite. Keep them for local `cargo bench` comparisons, but gate them with
+`#[cfg(not(codspeed))]` and leave them untagged, as `vortex-compute/benches/lane_kernels.rs` and
+`vortex-buffer/benches/collect_bool.rs` do.
 
 ### CodSpeed's single-run model
 
@@ -152,16 +182,22 @@ trace — including cache and memory access costs. This has several implications
   [walltime instrument](https://codspeed.io/docs/instruments/walltime) or be gated with
   `#[cfg(not(codspeed))]`.
 
-### Prefer `mimalloc` for throughput benchmarks
+### Use `mimalloc` as the global allocator
 
-Throughput benchmarks should use `mimalloc` as the global allocator to reduce system allocator
-noise:
+Every benchmark binary uses `mimalloc` as its global allocator:
 
 ```rust
 use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 ```
+
+The system allocator's cost depends on its state, which differs between runner images and between
+runs, so allocation inside a timed region made several simulation benchmarks flip between two
+values on pull requests that could not have affected them. `mimalloc` does the same work every
+time, and one allocator for every binary means no benchmark measures a different allocator from
+its neighbours. Add the two lines to every new benchmark file; each crate with benchmarks already
+has the `mimalloc` dev-dependency.
 
 ## SQL Benchmarks
 
@@ -221,17 +257,24 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on every
   commit to `develop`, with results uploaded for historical tracking.
 - **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
+- **Random access (S3)** -- `action/bench-random-access-s3` runs the random-access benchmark
+  against data uploaded to S3 instead of local disk.
 - **Compression** -- `action/bench-compress` runs only the compression benchmark.
 - **String encoding** -- `action/bench-string` runs only the string encoding benchmark.
 - **GPU compression** -- `action/bench-gpu-compress` runs the allow-listed Vortex decompression
   cases on a GPU runner.
-- **SQL** -- `action/bench-sql` runs the `pr` preset, which excludes `vortex-compact`.
+- **SQL** -- `action/bench-sql` runs the `pr` preset, a quick core subset of the SQL benchmarks
+  that excludes `vortex-compact`, Clickbench Sorted, Appian, statpopgen, FineWeb on S3, TPC-H SF=10
+  on S3, and Vortex queries.
+- **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
+  benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,
-  and the `pr-all` SQL preset, which combines the `pr` and `pr-compact` coverage without
-  repeating shared jobs. Do not combine it with other benchmark labels; GPU compression is the
-  only exception.
+  and the `pr-all` SQL preset, which combines the `pr` and `pr-compact` coverage, plus the
+  default targets of Clickbench Sorted, statpopgen, and FineWeb on S3, without repeating shared
+  jobs. Do not combine it with other benchmark labels;
+  GPU compression is the only exception.
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.

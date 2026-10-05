@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT SUM (ss_quantity)
+FROM store_sales,
+     store,
+     customer_demographics,
+     customer_address,
+     date_dim
+WHERE s_store_sk = ss_store_sk
+  AND ss_sold_date_sk = d_date_sk
+  AND d_year = 2000
+  AND ((cd_demo_sk = ss_cdemo_sk
+        AND cd_marital_status = 'M'
+        AND cd_education_status = '4 yr Degree'
+        AND ss_sales_price BETWEEN 100.00 AND 150.00)
+       OR (cd_demo_sk = ss_cdemo_sk
+           AND cd_marital_status = 'D'
+           AND cd_education_status = '2 yr Degree'
+           AND ss_sales_price BETWEEN 50.00 AND 100.00)
+       OR (cd_demo_sk = ss_cdemo_sk
+           AND cd_marital_status = 'S'
+           AND cd_education_status = 'College'
+           AND ss_sales_price BETWEEN 150.00 AND 200.00))
+  AND ((ss_addr_sk = ca_address_sk
+        AND ca_country = 'United States'
+        AND ca_state IN ('CO',
+                         'OH',
+                         'TX')
+        AND ss_net_profit BETWEEN 0 AND 2000)
+       OR (ss_addr_sk = ca_address_sk
+           AND ca_country = 'United States'
+           AND ca_state IN ('OR',
+                            'MN',
+                            'KY')
+           AND ss_net_profit BETWEEN 150 AND 3000)
+       OR (ss_addr_sk = ca_address_sk
+           AND ca_country = 'United States'
+           AND ca_state IN ('VA',
+                            'CA',
+                            'MS')
+           AND ss_net_profit BETWEEN 50 AND 25000)) ;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[sum(store_sales.ss_quantity)]]
+02)--Projection: store_sales.ss_quantity
+03)----Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+04)------Projection: store_sales.ss_sold_date_sk, store_sales.ss_quantity
+05)--------Inner Join: store_sales.ss_addr_sk = customer_address.ca_address_sk Filter: (customer_address.ca_state = Utf8View("CO") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("TX")) AND store_sales.ss_net_profit >= Decimal128(0.00,7,2) AND store_sales.ss_net_profit <= Decimal128(2000.00,7,2) OR (customer_address.ca_state = Utf8View("OR") OR customer_address.ca_state = Utf8View("MN") OR customer_address.ca_state = Utf8View("KY")) AND store_sales.ss_net_profit >= Decimal128(150.00,7,2) AND store_sales.ss_net_profit <= Decimal128(3000.00,7,2) OR (customer_address.ca_state = Utf8View("VA") OR customer_address.ca_state = Utf8View("CA") OR customer_address.ca_state = Utf8View("MS")) AND store_sales.ss_net_profit >= Decimal128(50.00,7,2) AND store_sales.ss_net_profit <= Decimal128(25000.00,7,2)
+06)----------Projection: store_sales.ss_sold_date_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_net_profit
+07)------------Inner Join: store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("4 yr Degree") AND store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) OR customer_demographics.cd_marital_status = Utf8View("D") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree") AND store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") AND store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2)
+08)--------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_cdemo_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_net_profit
+09)----------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+10)------------------Filter: (store_sales.ss_net_profit >= Decimal128(0.00,7,2) AND store_sales.ss_net_profit <= Decimal128(2000.00,7,2) OR store_sales.ss_net_profit >= Decimal128(150.00,7,2) AND store_sales.ss_net_profit <= Decimal128(3000.00,7,2) OR store_sales.ss_net_profit >= Decimal128(50.00,7,2) AND store_sales.ss_net_profit <= Decimal128(25000.00,7,2)) AND (store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) OR store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) OR store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2))
+11)--------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_cdemo_sk, ss_addr_sk, ss_store_sk, ss_quantity, ss_sales_price, ss_net_profit], partial_filters=[store_sales.ss_net_profit >= Decimal128(0.00,7,2) AND store_sales.ss_net_profit <= Decimal128(2000.00,7,2) OR store_sales.ss_net_profit >= Decimal128(150.00,7,2) AND store_sales.ss_net_profit <= Decimal128(3000.00,7,2) OR store_sales.ss_net_profit >= Decimal128(50.00,7,2) AND store_sales.ss_net_profit <= Decimal128(25000.00,7,2), store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) OR store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) OR store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2)]
+12)------------------TableScan: store projection=[s_store_sk]
+13)--------------Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("4 yr Degree") OR customer_demographics.cd_marital_status = Utf8View("D") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree") OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College")
+14)----------------TableScan: customer_demographics projection=[cd_demo_sk, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("4 yr Degree") OR customer_demographics.cd_marital_status = Utf8View("D") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree") OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College")]
+15)----------Projection: customer_address.ca_address_sk, customer_address.ca_state
+16)------------Filter: customer_address.ca_country = Utf8View("United States") AND customer_address.ca_state IN ([Utf8View("CO"), Utf8View("OH"), Utf8View("TX"), Utf8View("OR"), Utf8View("MN"), Utf8View("KY"), Utf8View("VA"), Utf8View("CA"), Utf8View("MS")]) AND (customer_address.ca_state = Utf8View("CO") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("OR") OR customer_address.ca_state = Utf8View("MN") OR customer_address.ca_state = Utf8View("KY") OR customer_address.ca_state = Utf8View("VA") OR customer_address.ca_state = Utf8View("CA") OR customer_address.ca_state = Utf8View("MS"))
+17)--------------TableScan: customer_address projection=[ca_address_sk, ca_state, ca_country], partial_filters=[customer_address.ca_country = Utf8View("United States"), customer_address.ca_state IN ([Utf8View("CO"), Utf8View("OH"), Utf8View("TX"), Utf8View("OR"), Utf8View("MN"), Utf8View("KY"), Utf8View("VA"), Utf8View("CA"), Utf8View("MS")]), customer_address.ca_state = Utf8View("CO") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("OR") OR customer_address.ca_state = Utf8View("MN") OR customer_address.ca_state = Utf8View("KY") OR customer_address.ca_state = Utf8View("VA") OR customer_address.ca_state = Utf8View("CA") OR customer_address.ca_state = Utf8View("MS")]
+18)------Projection: date_dim.d_date_sk
+19)--------Filter: date_dim.d_year = Int64(2000)
+20)----------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+physical_plan
+01)AggregateExec: mode=Final, gby=[], aggr=[sum(store_sales.ss_quantity)]
+02)--CoalescePartitionsExec
+03)----AggregateExec: mode=Partial, gby=[], aggr=[sum(store_sales.ss_quantity)]
+04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_quantity@2]
+05)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
+06)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@1)], filter=(ca_state@1 = CO OR ca_state@1 = OH OR ca_state@1 = TX) AND ss_net_profit@0 >= 0.00 AND ss_net_profit@0 <= 2000.00 OR (ca_state@1 = OR OR ca_state@1 = MN OR ca_state@1 = KY) AND ss_net_profit@0 >= 150.00 AND ss_net_profit@0 <= 3000.00 OR (ca_state@1 = VA OR ca_state@1 = CA OR ca_state@1 = MS) AND ss_net_profit@0 >= 50.00 AND ss_net_profit@0 <= 25000.00, projection=[ss_sold_date_sk@2, ss_quantity@4]
+07)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex, predicate: ca_country@10 = United States AND ca_state@8 IN (SET) ([CO, OH, TX, OR, MN, KY, VA, CA, MS]) AND (ca_state@8 = CO OR ca_state@8 = OH OR ca_state@8 = TX OR ca_state@8 = OR OR ca_state@8 = MN OR ca_state@8 = KY OR ca_state@8 = VA OR ca_state@8 = CA OR ca_state@8 = MS)
+08)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, ss_cdemo_sk@1)], filter=cd_marital_status@1 = M AND cd_education_status@2 = 4 yr Degree AND ss_sales_price@0 >= 100.00 AND ss_sales_price@0 <= 150.00 OR cd_marital_status@1 = D AND cd_education_status@2 = 2 yr Degree AND ss_sales_price@0 >= 50.00 AND ss_sales_price@0 <= 100.00 OR cd_marital_status@1 = S AND cd_education_status@2 = College AND ss_sales_price@0 >= 150.00 AND ss_sales_price@0 <= 200.00, projection=[ss_sold_date_sk@3, ss_addr_sk@5, ss_quantity@6, ss_net_profit@8]
+09)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], file_type=vortex, predicate: cd_marital_status@2 = M AND cd_education_status@3 = 4 yr Degree OR cd_marital_status@2 = D AND cd_education_status@3 = 2 yr Degree OR cd_marital_status@2 = S AND cd_education_status@3 = College
+10)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@3)], projection=[ss_sold_date_sk@1, ss_cdemo_sk@2, ss_addr_sk@3, ss_quantity@5, ss_sales_price@6, ss_net_profit@7]
+11)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
+12)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_cdemo_sk, ss_addr_sk, ss_store_sk, ss_quantity, ss_sales_price, ss_net_profit], file_type=vortex, predicate: (ss_net_profit@22 >= 0.00 AND ss_net_profit@22 <= 2000.00 OR ss_net_profit@22 >= 150.00 AND ss_net_profit@22 <= 3000.00 OR ss_net_profit@22 >= 50.00 AND ss_net_profit@22 <= 25000.00) AND (ss_sales_price@13 >= 100.00 AND ss_sales_price@13 <= 150.00 OR ss_sales_price@13 >= 50.00 AND ss_sales_price@13 <= 100.00 OR ss_sales_price@13 >= 150.00 AND ss_sales_price@13 <= 200.00)

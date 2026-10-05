@@ -5,10 +5,10 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::expr::Expression;
+use crate::proto::expr as pb;
 use crate::scalar_fn::ForeignScalarFnVTable;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::session::ScalarFnSessionExt;
@@ -98,7 +98,6 @@ pub fn deserialize_expr_proto(
 #[cfg(test)]
 mod tests {
     use prost::Message;
-    use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
@@ -111,6 +110,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::proto::expr as pb;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;

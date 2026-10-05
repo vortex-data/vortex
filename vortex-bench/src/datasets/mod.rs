@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::error::vortex_panic;
 
 use crate::clickbench::Flavor;
 
@@ -177,7 +178,9 @@ impl BenchmarkDataset {
                 "supplier",
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::ClickBenchSorted => &["hits"],
-            BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::PublicBi { .. } => {
+                vortex_panic!("PublicBi table names are not implemented")
+            }
             BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "customer", "zone"],
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],

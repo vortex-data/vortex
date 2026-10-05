@@ -35,11 +35,13 @@ def drop_os_caches() -> None:
         pass
 
 
-def run_combinations(emit_ingest_records: bool) -> None:
+def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> None:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Arrow IPC has no object store reader, so a remote run would silently read local disk.
+    formats = [f for f in FORMATS if not (remote_data_dir and f == "arrow-ipc")]
     i = 0
     for dataset in DATASETS:
-        for fmt in FORMATS:
+        for fmt in formats:
             for pattern in PATTERNS:
                 for open_mode in OPEN_MODES:
                     drop_os_caches()
@@ -61,6 +63,8 @@ def run_combinations(emit_ingest_records: bool) -> None:
                         "-o",
                         str(PARTS_DIR / f"{i}.gh.json"),
                     ]
+                    if remote_data_dir:
+                        args += ["--remote-data-dir", remote_data_dir]
                     if emit_ingest_records:
                         args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
                     print("+", " ".join(args), flush=True)
@@ -109,9 +113,13 @@ def main() -> None:
         action="store_true",
         help="merge --ingest-jsonl records into results.ingest.jsonl",
     )
+    parser.add_argument(
+        "--remote-data-dir",
+        help="read the benchmark data from this remote directory (e.g. s3://bucket/prefix/)",
+    )
     args = parser.parse_args()
 
-    run_combinations(args.emit_ingest_records)
+    run_combinations(args.emit_ingest_records, args.remote_data_dir)
     merge(f"{PARTS_DIR}/*.gh.json", lambda record: record["name"], "results.json")
     if args.emit_ingest_records:
         merge(

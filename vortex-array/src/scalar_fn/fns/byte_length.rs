@@ -6,7 +6,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -24,7 +24,6 @@ use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::Expression;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -54,7 +53,7 @@ impl<V: ByteLengthKernel> ExecuteParentKernel<V> for ByteLengthExecuteAdaptor<V>
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        vortex_ensure!(child_idx == 0);
+        vortex_ensure_eq!(child_idx, 0);
         V::byte_length(array, ctx)
     }
 }
@@ -121,14 +120,6 @@ impl ScalarFnVTable for ByteLength {
             DType::Utf8(_) | DType::Binary(_) => byte_length(&input, nullability, ctx),
             other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
         }
-    }
-
-    fn validity(
-        &self,
-        _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(expression.child(0).validity()?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

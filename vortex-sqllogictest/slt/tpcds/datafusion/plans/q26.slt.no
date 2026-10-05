@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_item_id,
+       avg(cs_quantity) agg1,
+       avg(cs_list_price) agg2,
+       avg(cs_coupon_amt) agg3,
+       avg(cs_sales_price) agg4
+FROM catalog_sales,
+     customer_demographics,
+     date_dim,
+     item,
+     promotion
+WHERE cs_sold_date_sk = d_date_sk
+  AND cs_item_sk = i_item_sk
+  AND cs_bill_cdemo_sk = cd_demo_sk
+  AND cs_promo_sk = p_promo_sk
+  AND cd_gender = 'M'
+  AND cd_marital_status = 'S'
+  AND cd_education_status = 'College'
+  AND (p_channel_email = 'N'
+       OR p_channel_event = 'N')
+  AND d_year = 2000
+GROUP BY i_item_id
+ORDER BY i_item_id
+LIMIT 100;
+----
+logical_plan
+01)Sort: item.i_item_id ASC NULLS LAST, fetch=100
+02)--Projection: item.i_item_id, avg(catalog_sales.cs_quantity) AS agg1, avg(catalog_sales.cs_list_price) AS agg2, avg(catalog_sales.cs_coupon_amt) AS agg3, avg(catalog_sales.cs_sales_price) AS agg4
+03)----Aggregate: groupBy=[[item.i_item_id]], aggr=[[avg(CAST(catalog_sales.cs_quantity AS Float64)), avg(catalog_sales.cs_list_price), avg(catalog_sales.cs_coupon_amt), avg(catalog_sales.cs_sales_price)]]
+04)------Projection: catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt, item.i_item_id
+05)--------Inner Join: catalog_sales.cs_promo_sk = promotion.p_promo_sk
+06)----------Projection: catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt, item.i_item_id
+07)------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+08)--------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt
+09)----------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+10)------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, catalog_sales.cs_sales_price, catalog_sales.cs_coupon_amt
+11)--------------------Inner Join: catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk
+12)----------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_cdemo_sk, cs_item_sk, cs_promo_sk, cs_quantity, cs_list_price, cs_sales_price, cs_coupon_amt]
+13)----------------------Projection: customer_demographics.cd_demo_sk
+14)------------------------Filter: customer_demographics.cd_gender = Utf8View("M") AND customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College")
+15)--------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_gender, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_gender = Utf8View("M"), customer_demographics.cd_marital_status = Utf8View("S"), customer_demographics.cd_education_status = Utf8View("College")]
+16)------------------Projection: date_dim.d_date_sk
+17)--------------------Filter: date_dim.d_year = Int64(2000)
+18)----------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+19)--------------TableScan: item projection=[i_item_sk, i_item_id]
+20)----------Projection: promotion.p_promo_sk
+21)------------Filter: promotion.p_channel_email = Utf8View("N") OR promotion.p_channel_event = Utf8View("N")
+22)--------------TableScan: promotion projection=[p_promo_sk, p_channel_email, p_channel_event], partial_filters=[promotion.p_channel_email = Utf8View("N") OR promotion.p_channel_event = Utf8View("N")]
+physical_plan
+01)SortPreservingMergeExec: [i_item_id@0 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[i_item_id@0 as i_item_id, avg(catalog_sales.cs_quantity)@1 as agg1, avg(catalog_sales.cs_list_price)@2 as agg2, avg(catalog_sales.cs_coupon_amt)@3 as agg3, avg(catalog_sales.cs_sales_price)@4 as agg4]
+03)----SortExec: TopK(fetch=100), expr=[i_item_id@0 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id], aggr=[avg(catalog_sales.cs_quantity), avg(catalog_sales.cs_list_price), avg(catalog_sales.cs_coupon_amt), avg(catalog_sales.cs_sales_price)]
+05)--------RepartitionExec: partitioning=Hash([i_item_id@0], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[i_item_id@4 as i_item_id], aggr=[avg(catalog_sales.cs_quantity), avg(catalog_sales.cs_list_price), avg(catalog_sales.cs_coupon_amt), avg(catalog_sales.cs_sales_price)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_promo_sk@0, cs_promo_sk@0)], projection=[cs_quantity@2, cs_list_price@3, cs_sales_price@4, cs_coupon_amt@5, i_item_id@6]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], file_type=vortex, predicate: p_channel_email@9 = N OR p_channel_event@14 = N
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@0)], projection=[cs_promo_sk@3, cs_quantity@4, cs_list_price@5, cs_sales_price@6, cs_coupon_amt@7, i_item_id@1]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_item_sk@2, cs_promo_sk@3, cs_quantity@4, cs_list_price@5, cs_sales_price@6, cs_coupon_amt@7]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
+13)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, cs_bill_cdemo_sk@1)], projection=[cs_sold_date_sk@1, cs_item_sk@3, cs_promo_sk@4, cs_quantity@5, cs_list_price@6, cs_sales_price@7, cs_coupon_amt@8]
+14)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex, predicate: cd_gender@1 = M AND cd_marital_status@2 = S AND cd_education_status@3 = College
+15)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_cdemo_sk, cs_item_sk, cs_promo_sk, cs_quantity, cs_list_price, cs_sales_price, cs_coupon_amt], file_type=vortex

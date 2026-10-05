@@ -13,16 +13,19 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for VarBin {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, VarBin>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            VarBinArray::try_new(
+        // SAFETY: offsets and bytes are unchanged, and masking only removes valid rows.
+        Ok(Some(unsafe {
+            VarBinArray::new_unchecked_from_handle(
                 array.offsets().clone(),
-                array.bytes().clone(),
+                array.bytes_handle().clone(),
                 array.dtype().as_nullable(),
                 array.validity()?.and(Validity::Array(mask.clone()))?,
-            )?
-            .into_array(),
-        ))
+            )
+            .into_array()
+        }))
     }
 }
 

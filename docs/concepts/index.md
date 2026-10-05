@@ -23,8 +23,9 @@ scanning
 without dictating physical layout, allowing the same logical data to use different encodings.
 
 **[Arrays](arrays.md)** are the in-memory representation. Unlike Arrow, Vortex arrays can be
-*compressed*—an integer array might be bit-packed rather than stored as a flat buffer. Arrays
-share the same representation on disk and over the wire, enabling zero-copy I/O.
+*compressed*, so an integer array can be bit-packed rather than stored as a flat buffer.
+Serialized formats can reuse array buffers for zero-copy I/O, while plugins adapt historical
+formats to current array implementations.
 
 **[Compute](expressions.md)** functions operate directly on compressed arrays where possible,
 dispatching to encoding-specific kernels or falling back to canonical implementations.
@@ -38,6 +39,9 @@ and can read from any block storage: local disk, object stores, caches, etc.
 segment retrieval, FlatBuffer metadata for O(1) schema access, and support for memory mapping.
 
 **[IPC Format](../specs/ipc-format.md)** provides streaming transfer of compressed arrays.
+
+**[Versioning](../specs/versioning/design.md)** explains how library implementations, serialized
+formats, and editions evolve while preserving read compatibility.
 
 ## Integrations
 

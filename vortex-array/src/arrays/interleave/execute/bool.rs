@@ -6,8 +6,10 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -25,7 +27,7 @@ use crate::require_child;
 /// each selected bit into the output position it routes to.
 pub(super) fn execute(
     array: Array<Interleave>,
-    _ctx: &mut ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
     let num_values = array.num_values();
 
@@ -54,6 +56,7 @@ pub(super) fn execute(
                 &value_bits,
                 array_indices.as_slice::<A>(),
                 row_indices.as_slice::<R>(),
+                ctx.allocator(),
             )?
         })
     });
@@ -70,12 +73,13 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     value_bits: &[BitBuffer],
     branches: &[A],
     rows: &[R],
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<BitBufferMut> {
     let len = validate_selectors(value_bits, branches, rows)?;
 
     // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
     // `i < len` that `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()`.
-    Ok(unsafe { gather_bits(len, value_bits, branches, rows) })
+    Ok(unsafe { gather_bits(len, value_bits, branches, rows, allocator) })
 }
 
 /// Validates the per-row selector bounds, returning the output length (`branches.len()`).
@@ -90,10 +94,10 @@ fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
 ) -> VortexResult<usize> {
     // The two selectors are validated to equal length at construction, which is the output length.
     let len = branches.len();
-    vortex_ensure!(
-        rows.len() == len,
-        "interleave selectors differ in length: array_indices {len}, row_indices {}",
-        rows.len()
+    vortex_ensure_eq!(
+        rows.len(),
+        len,
+        "interleave row_indices length does not match array_indices length",
     );
 
     for i in 0..len {
@@ -125,11 +129,16 @@ unsafe fn gather_bits<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     bits: &[BitBuffer],
     branches: &[A],
     rows: &[R],
+    allocator: &BufferAllocatorRef,
 ) -> BitBufferMut {
     // SAFETY: `collect_bool` calls this for `i < len`, and the caller guarantees `branches[i]` and
     // `rows[i]` are in bounds for `bits` / the selected buffer.
-    BitBufferMut::collect_bool(len, |i| unsafe {
-        bits.get_unchecked(branches.get_unchecked(i).as_())
-            .value_unchecked(rows.get_unchecked(i).as_())
-    })
+    BitBufferMut::collect_bool_in(
+        len,
+        |i| unsafe {
+            bits.get_unchecked(branches.get_unchecked(i).as_())
+                .value_unchecked(rows.get_unchecked(i).as_())
+        },
+        allocator.clone(),
+    )
 }

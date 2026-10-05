@@ -59,7 +59,9 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
                     return Ok(None);
                 }
             }
-            _ => true,
+            (None, None) => true,
+            // Mixed shredding layouts: let the generic canonical path handle it.
+            _ => return Ok(None),
         };
 
         if typed_identical {
@@ -86,13 +88,20 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
     use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+    use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+    use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::AllNonDistinctParquetVariant;
     use crate::ParquetVariant;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -156,6 +165,33 @@ mod tests {
         let rhs = parquet_variant(0, Some(binary(Vec::<&[u8]>::new())), None)?;
         let mut ctx = SESSION.create_execution_ctx();
         assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_distinct_declines_when_only_one_side_is_shredded() -> VortexResult<()> {
+        let shredded = parquet_variant(
+            2,
+            Some(binary([b"\x10", b"\x11"])),
+            Some(buffer![1i32, 2].into_array()),
+        )?;
+        let unshredded = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
+        let batch = StructArray::try_new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![shredded, unshredded],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let aggregate = AllNonDistinct.bind(EmptyOptions);
+        let result = AllNonDistinctParquetVariant.aggregate(&aggregate, &batch, &mut ctx)?;
+        assert!(
+            result.is_none(),
+            "a shredded value cannot be compared to an unshredded one from `value` alone, so the \
+             kernel must decline rather than report them identical; got {result:?}"
+        );
         Ok(())
     }
 }

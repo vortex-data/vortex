@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.serde import (
     ArrayContext,
     SerializedArray,
     decode_ipc_array_buffers,

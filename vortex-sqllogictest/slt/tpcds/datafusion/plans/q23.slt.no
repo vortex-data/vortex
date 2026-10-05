@@ -1,0 +1,300 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH frequent_ss_items AS
+  (SELECT itemdesc,
+          i_item_sk item_sk,
+          d_date solddate,
+          count(*) cnt
+   FROM store_sales,
+        date_dim,
+     (SELECT SUBSTRING(i_item_desc, 1, 30) itemdesc,
+             *
+      FROM item) sq1
+   WHERE ss_sold_date_sk = d_date_sk
+     AND ss_item_sk = i_item_sk
+     AND d_year IN (2000,
+                    2000+1,
+                    2000+2,
+                    2000+3)
+   GROUP BY itemdesc,
+            i_item_sk,
+            d_date
+   HAVING count(*) >4),
+     max_store_sales AS
+  (SELECT max(csales) tpcds_cmax
+   FROM
+     (SELECT c_customer_sk,
+             sum(ss_quantity*ss_sales_price) csales
+      FROM store_sales,
+           customer,
+           date_dim
+      WHERE ss_customer_sk = c_customer_sk
+        AND ss_sold_date_sk = d_date_sk
+        AND d_year IN (2000,
+                       2000+1,
+                       2000+2,
+                       2000+3)
+      GROUP BY c_customer_sk) sq2),
+     best_ss_customer AS
+  (SELECT c_customer_sk,
+          sum(ss_quantity*ss_sales_price) ssales
+   FROM store_sales,
+        customer,
+        max_store_sales
+   WHERE ss_customer_sk = c_customer_sk
+   GROUP BY c_customer_sk
+   HAVING sum(ss_quantity*ss_sales_price) > (50/100.0) * max(tpcds_cmax))
+SELECT c_last_name,
+       c_first_name,
+       sales
+FROM
+  (SELECT c_last_name,
+          c_first_name,
+          sum(cs_quantity*cs_list_price) sales
+   FROM catalog_sales,
+        customer,
+        date_dim,
+        frequent_ss_items,
+        best_ss_customer
+   WHERE d_year = 2000
+     AND d_moy = 2
+     AND cs_sold_date_sk = d_date_sk
+     AND cs_item_sk = item_sk
+     AND cs_bill_customer_sk = best_ss_customer.c_customer_sk
+     AND cs_bill_customer_sk = customer.c_customer_sk
+   GROUP BY c_last_name,
+            c_first_name
+   UNION ALL SELECT c_last_name,
+                    c_first_name,
+                    sum(ws_quantity*ws_list_price) sales
+   FROM web_sales,
+        customer,
+        date_dim,
+        frequent_ss_items,
+        best_ss_customer
+   WHERE d_year = 2000
+     AND d_moy = 2
+     AND ws_sold_date_sk = d_date_sk
+     AND ws_item_sk = item_sk
+     AND ws_bill_customer_sk = best_ss_customer.c_customer_sk
+     AND ws_bill_customer_sk = customer.c_customer_sk
+   GROUP BY c_last_name,
+            c_first_name) sq3
+ORDER BY c_last_name NULLS FIRST,
+         c_first_name NULLS FIRST,
+         sales NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: sq3.c_last_name ASC NULLS FIRST, sq3.c_first_name ASC NULLS FIRST, sq3.sales ASC NULLS FIRST, fetch=100
+02)--SubqueryAlias: sq3
+03)----Union
+04)------Projection: customer.c_last_name, customer.c_first_name, sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price) AS sales
+05)--------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name]], aggr=[[sum(CAST(catalog_sales.cs_quantity AS Decimal128(20, 0)) * catalog_sales.cs_list_price)]]
+06)----------Projection: catalog_sales.cs_quantity, catalog_sales.cs_list_price, customer.c_first_name, customer.c_last_name
+07)------------LeftSemi Join: catalog_sales.cs_bill_customer_sk = best_ss_customer.c_customer_sk
+08)--------------Projection: catalog_sales.cs_bill_customer_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, customer.c_first_name, customer.c_last_name
+09)----------------Inner Join: catalog_sales.cs_item_sk = frequent_ss_items.item_sk
+10)------------------Projection: catalog_sales.cs_bill_customer_sk, catalog_sales.cs_item_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, customer.c_first_name, customer.c_last_name
+11)--------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+12)----------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_bill_customer_sk, catalog_sales.cs_item_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, customer.c_first_name, customer.c_last_name
+13)------------------------Inner Join: catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
+14)--------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity, cs_list_price]
+15)--------------------------TableScan: customer projection=[c_customer_sk, c_first_name, c_last_name]
+16)----------------------Projection: date_dim.d_date_sk
+17)------------------------Filter: date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(2)
+18)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2000), date_dim.d_moy = Int64(2)]
+19)------------------SubqueryAlias: frequent_ss_items
+20)--------------------Projection: sq1.i_item_sk AS item_sk
+21)----------------------Filter: count(Int64(1)) > Int64(4)
+22)------------------------Projection: sq1.i_item_sk, count(Int64(1))
+23)--------------------------Aggregate: groupBy=[[sq1.itemdesc, sq1.i_item_sk, date_dim.d_date]], aggr=[[count(Int64(1))]]
+24)----------------------------Projection: date_dim.d_date, sq1.itemdesc, sq1.i_item_sk
+25)------------------------------Inner Join: store_sales.ss_item_sk = sq1.i_item_sk
+26)--------------------------------Projection: store_sales.ss_item_sk, date_dim.d_date
+27)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+28)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk]
+29)------------------------------------Projection: date_dim.d_date_sk, date_dim.d_date
+30)--------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
+31)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+32)--------------------------------SubqueryAlias: sq1
+33)----------------------------------Projection: substr(item.i_item_desc, Int64(1), Int64(30)) AS itemdesc, item.i_item_sk
+34)------------------------------------TableScan: item projection=[i_item_sk, i_item_desc]
+35)--------------SubqueryAlias: best_ss_customer
+36)----------------Projection: customer.c_customer_sk
+37)------------------Filter: CAST(sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS Decimal128(38, 15)) > CAST(Float64(0.5) * CAST(max(max_store_sales.tpcds_cmax) AS Float64) AS Decimal128(38, 15))
+38)--------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]]
+39)----------------------Cross Join:
+40)------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
+41)--------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
+42)----------------------------TableScan: store_sales projection=[ss_customer_sk, ss_quantity, ss_sales_price]
+43)----------------------------TableScan: customer projection=[c_customer_sk]
+44)------------------------SubqueryAlias: max_store_sales
+45)--------------------------Projection: max(sq2.csales) AS tpcds_cmax
+46)----------------------------Aggregate: groupBy=[[]], aggr=[[max(sq2.csales)]]
+47)------------------------------SubqueryAlias: sq2
+48)--------------------------------Projection: sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS csales
+49)----------------------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price)]]
+50)------------------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
+51)--------------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+52)----------------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
+53)------------------------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
+54)--------------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_quantity, ss_sales_price]
+55)--------------------------------------------TableScan: customer projection=[c_customer_sk]
+56)----------------------------------------Projection: date_dim.d_date_sk
+57)------------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
+58)--------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+59)------Projection: customer.c_last_name, customer.c_first_name, sum(web_sales.ws_quantity * web_sales.ws_list_price) AS sales
+60)--------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name]], aggr=[[sum(CAST(web_sales.ws_quantity AS Decimal128(20, 0)) * web_sales.ws_list_price)]]
+61)----------Projection: web_sales.ws_quantity, web_sales.ws_list_price, customer.c_first_name, customer.c_last_name
+62)------------LeftSemi Join: web_sales.ws_bill_customer_sk = best_ss_customer.c_customer_sk
+63)--------------Projection: web_sales.ws_bill_customer_sk, web_sales.ws_quantity, web_sales.ws_list_price, customer.c_first_name, customer.c_last_name
+64)----------------Inner Join: web_sales.ws_item_sk = frequent_ss_items.item_sk
+65)------------------Projection: web_sales.ws_item_sk, web_sales.ws_bill_customer_sk, web_sales.ws_quantity, web_sales.ws_list_price, customer.c_first_name, customer.c_last_name
+66)--------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+67)----------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_bill_customer_sk, web_sales.ws_quantity, web_sales.ws_list_price, customer.c_first_name, customer.c_last_name
+68)------------------------Inner Join: web_sales.ws_bill_customer_sk = customer.c_customer_sk
+69)--------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_bill_customer_sk, ws_quantity, ws_list_price]
+70)--------------------------TableScan: customer projection=[c_customer_sk, c_first_name, c_last_name]
+71)----------------------Projection: date_dim.d_date_sk
+72)------------------------Filter: date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(2)
+73)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2000), date_dim.d_moy = Int64(2)]
+74)------------------SubqueryAlias: frequent_ss_items
+75)--------------------Projection: sq1.i_item_sk AS item_sk
+76)----------------------Filter: count(Int64(1)) > Int64(4)
+77)------------------------Projection: sq1.i_item_sk, count(Int64(1))
+78)--------------------------Aggregate: groupBy=[[sq1.itemdesc, sq1.i_item_sk, date_dim.d_date]], aggr=[[count(Int64(1))]]
+79)----------------------------Projection: date_dim.d_date, sq1.itemdesc, sq1.i_item_sk
+80)------------------------------Inner Join: store_sales.ss_item_sk = sq1.i_item_sk
+81)--------------------------------Projection: store_sales.ss_item_sk, date_dim.d_date
+82)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+83)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk]
+84)------------------------------------Projection: date_dim.d_date_sk, date_dim.d_date
+85)--------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
+86)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+87)--------------------------------SubqueryAlias: sq1
+88)----------------------------------Projection: substr(item.i_item_desc, Int64(1), Int64(30)) AS itemdesc, item.i_item_sk
+89)------------------------------------TableScan: item projection=[i_item_sk, i_item_desc]
+90)--------------SubqueryAlias: best_ss_customer
+91)----------------Projection: customer.c_customer_sk
+92)------------------Filter: CAST(sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS Decimal128(38, 15)) > CAST(Float64(0.5) * CAST(max(max_store_sales.tpcds_cmax) AS Float64) AS Decimal128(38, 15))
+93)--------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]]
+94)----------------------Cross Join:
+95)------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
+96)--------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
+97)----------------------------TableScan: store_sales projection=[ss_customer_sk, ss_quantity, ss_sales_price]
+98)----------------------------TableScan: customer projection=[c_customer_sk]
+99)------------------------SubqueryAlias: max_store_sales
+100)--------------------------Projection: max(sq2.csales) AS tpcds_cmax
+101)----------------------------Aggregate: groupBy=[[]], aggr=[[max(sq2.csales)]]
+102)------------------------------SubqueryAlias: sq2
+103)--------------------------------Projection: sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS csales
+104)----------------------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price)]]
+105)------------------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
+106)--------------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+107)----------------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
+108)------------------------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
+109)--------------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_quantity, ss_sales_price]
+110)--------------------------------------------TableScan: customer projection=[c_customer_sk]
+111)----------------------------------------Projection: date_dim.d_date_sk
+112)------------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
+113)--------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+physical_plan
+01)SortPreservingMergeExec: [c_last_name@0 ASC, c_first_name@1 ASC, sales@2 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[c_last_name@0 ASC, c_first_name@1 ASC, sales@2 ASC], preserve_partitioning=[true]
+03)----InterleaveExec
+04)------ProjectionExec: expr=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price)@2 as sales]
+05)--------AggregateExec: mode=FinalPartitioned, gby=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name], aggr=[sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price)]
+06)----------RepartitionExec: partitioning=Hash([c_last_name@0, c_first_name@1], 4), input_partitions=4
+07)------------AggregateExec: mode=Partial, gby=[c_last_name@3 as c_last_name, c_first_name@2 as c_first_name], aggr=[sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price)]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(c_customer_sk@0, cs_bill_customer_sk@0)], projection=[cs_quantity@1, cs_list_price@2, c_first_name@3, c_last_name@4]
+09)----------------CoalescePartitionsExec
+10)------------------FilterExec: CAST(sum(store_sales.ss_quantity * store_sales.ss_sales_price)@1 AS Decimal128(38, 15)) > CAST(0.5 * CAST(max(max_store_sales.tpcds_cmax)@2 AS Float64) AS Decimal128(38, 15)), projection=[c_customer_sk@0]
+11)--------------------AggregateExec: mode=FinalPartitioned, gby=[c_customer_sk@0 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]
+12)----------------------RepartitionExec: partitioning=Hash([c_customer_sk@0], 4), input_partitions=4
+13)------------------------AggregateExec: mode=Partial, gby=[c_customer_sk@2 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]
+14)--------------------------ProjectionExec: expr=[ss_quantity@1 as ss_quantity, ss_sales_price@2 as ss_sales_price, c_customer_sk@3 as c_customer_sk, tpcds_cmax@0 as tpcds_cmax]
+15)----------------------------CrossJoinExec
+16)------------------------------ProjectionExec: expr=[max(sq2.csales)@0 as tpcds_cmax]
+17)--------------------------------AggregateExec: mode=Final, gby=[], aggr=[max(sq2.csales)]
+18)----------------------------------CoalescePartitionsExec
+19)------------------------------------AggregateExec: mode=Partial, gby=[], aggr=[max(sq2.csales)]
+20)--------------------------------------ProjectionExec: expr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price)@1 as csales]
+21)----------------------------------------AggregateExec: mode=FinalPartitioned, gby=[c_customer_sk@0 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price)]
+22)------------------------------------------RepartitionExec: partitioning=Hash([c_customer_sk@0], 4), input_partitions=4
+23)--------------------------------------------AggregateExec: mode=Partial, gby=[c_customer_sk@2 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price)]
+24)----------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_quantity@2, ss_sales_price@3, c_customer_sk@4]
+25)------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 IN (SET) ([2000, 2001, 2002, 2003])
+26)------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@1)], projection=[ss_sold_date_sk@1, ss_quantity@3, ss_sales_price@4, c_customer_sk@0]
+27)--------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk], file_type=vortex
+28)--------------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_quantity, ss_sales_price], file_type=vortex
+29)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@0)], projection=[ss_quantity@2, ss_sales_price@3, c_customer_sk@0]
+30)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk], file_type=vortex
+31)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_customer_sk, ss_quantity, ss_sales_price], file_type=vortex
+32)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cs_item_sk@1, item_sk@0)], projection=[cs_bill_customer_sk@0, cs_quantity@2, cs_list_price@3, c_first_name@4, c_last_name@5]
+33)------------------CoalescePartitionsExec
+34)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_bill_customer_sk@2, cs_item_sk@3, cs_quantity@4, cs_list_price@5, c_first_name@6, c_last_name@7]
+35)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000 AND d_moy@8 = 2
+36)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, cs_bill_customer_sk@1)], projection=[cs_sold_date_sk@3, cs_bill_customer_sk@4, cs_item_sk@5, cs_quantity@6, cs_list_price@7, c_first_name@1, c_last_name@2]
+37)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_first_name, c_last_name], file_type=vortex
+38)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity, cs_list_price], file_type=vortex
+39)------------------ProjectionExec: expr=[i_item_sk@0 as item_sk]
+40)--------------------FilterExec: count(Int64(1))@1 > 4, projection=[i_item_sk@0]
+41)----------------------ProjectionExec: expr=[i_item_sk@1 as i_item_sk, count(Int64(1))@3 as count(Int64(1))]
+42)------------------------AggregateExec: mode=FinalPartitioned, gby=[itemdesc@0 as itemdesc, i_item_sk@1 as i_item_sk, d_date@2 as d_date], aggr=[count(Int64(1))]
+43)--------------------------RepartitionExec: partitioning=Hash([itemdesc@0, i_item_sk@1, d_date@2], 4), input_partitions=4
+44)----------------------------AggregateExec: mode=Partial, gby=[itemdesc@1 as itemdesc, i_item_sk@2 as i_item_sk, d_date@0 as d_date], aggr=[count(Int64(1))]
+45)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@1, ss_item_sk@0)], projection=[d_date@3, itemdesc@0, i_item_sk@1]
+46)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[substr(i_item_desc@4, 1, 30) as itemdesc, i_item_sk], file_type=vortex
+47)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@3, d_date@1]
+48)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, predicate: d_year@6 IN (SET) ([2000, 2001, 2002, 2003])
+49)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk], file_type=vortex
+50)------ProjectionExec: expr=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, sum(web_sales.ws_quantity * web_sales.ws_list_price)@2 as sales]
+51)--------AggregateExec: mode=FinalPartitioned, gby=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name], aggr=[sum(web_sales.ws_quantity * web_sales.ws_list_price)]
+52)----------RepartitionExec: partitioning=Hash([c_last_name@0, c_first_name@1], 4), input_partitions=4
+53)------------AggregateExec: mode=Partial, gby=[c_last_name@3 as c_last_name, c_first_name@2 as c_first_name], aggr=[sum(web_sales.ws_quantity * web_sales.ws_list_price)]
+54)--------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(c_customer_sk@0, ws_bill_customer_sk@0)], projection=[ws_quantity@1, ws_list_price@2, c_first_name@3, c_last_name@4]
+55)----------------CoalescePartitionsExec
+56)------------------FilterExec: CAST(sum(store_sales.ss_quantity * store_sales.ss_sales_price)@1 AS Decimal128(38, 15)) > CAST(0.5 * CAST(max(max_store_sales.tpcds_cmax)@2 AS Float64) AS Decimal128(38, 15)), projection=[c_customer_sk@0]
+57)--------------------AggregateExec: mode=FinalPartitioned, gby=[c_customer_sk@0 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]
+58)----------------------RepartitionExec: partitioning=Hash([c_customer_sk@0], 4), input_partitions=4
+59)------------------------AggregateExec: mode=Partial, gby=[c_customer_sk@2 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]
+60)--------------------------ProjectionExec: expr=[ss_quantity@1 as ss_quantity, ss_sales_price@2 as ss_sales_price, c_customer_sk@3 as c_customer_sk, tpcds_cmax@0 as tpcds_cmax]
+61)----------------------------CrossJoinExec
+62)------------------------------ProjectionExec: expr=[max(sq2.csales)@0 as tpcds_cmax]
+63)--------------------------------AggregateExec: mode=Final, gby=[], aggr=[max(sq2.csales)]
+64)----------------------------------CoalescePartitionsExec
+65)------------------------------------AggregateExec: mode=Partial, gby=[], aggr=[max(sq2.csales)]
+66)--------------------------------------ProjectionExec: expr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price)@1 as csales]
+67)----------------------------------------AggregateExec: mode=FinalPartitioned, gby=[c_customer_sk@0 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price)]
+68)------------------------------------------RepartitionExec: partitioning=Hash([c_customer_sk@0], 4), input_partitions=4
+69)--------------------------------------------AggregateExec: mode=Partial, gby=[c_customer_sk@2 as c_customer_sk], aggr=[sum(store_sales.ss_quantity * store_sales.ss_sales_price)]
+70)----------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_quantity@2, ss_sales_price@3, c_customer_sk@4]
+71)------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 IN (SET) ([2000, 2001, 2002, 2003])
+72)------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@1)], projection=[ss_sold_date_sk@1, ss_quantity@3, ss_sales_price@4, c_customer_sk@0]
+73)--------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk], file_type=vortex
+74)--------------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_quantity, ss_sales_price], file_type=vortex
+75)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@0)], projection=[ss_quantity@2, ss_sales_price@3, c_customer_sk@0]
+76)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk], file_type=vortex
+77)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_customer_sk, ss_quantity, ss_sales_price], file_type=vortex
+78)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ws_item_sk@0, item_sk@0)], projection=[ws_bill_customer_sk@1, ws_quantity@2, ws_list_price@3, c_first_name@4, c_last_name@5]
+79)------------------CoalescePartitionsExec
+80)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@2, ws_bill_customer_sk@3, ws_quantity@4, ws_list_price@5, c_first_name@6, c_last_name@7]
+81)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000 AND d_moy@8 = 2
+82)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ws_bill_customer_sk@2)], projection=[ws_sold_date_sk@3, ws_item_sk@4, ws_bill_customer_sk@5, ws_quantity@6, ws_list_price@7, c_first_name@1, c_last_name@2]
+83)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_first_name, c_last_name], file_type=vortex
+84)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_bill_customer_sk, ws_quantity, ws_list_price], file_type=vortex
+85)------------------ProjectionExec: expr=[i_item_sk@0 as item_sk]
+86)--------------------FilterExec: count(Int64(1))@1 > 4, projection=[i_item_sk@0]
+87)----------------------ProjectionExec: expr=[i_item_sk@1 as i_item_sk, count(Int64(1))@3 as count(Int64(1))]
+88)------------------------AggregateExec: mode=FinalPartitioned, gby=[itemdesc@0 as itemdesc, i_item_sk@1 as i_item_sk, d_date@2 as d_date], aggr=[count(Int64(1))]
+89)--------------------------RepartitionExec: partitioning=Hash([itemdesc@0, i_item_sk@1, d_date@2], 4), input_partitions=4
+90)----------------------------AggregateExec: mode=Partial, gby=[itemdesc@1 as itemdesc, i_item_sk@2 as i_item_sk, d_date@0 as d_date], aggr=[count(Int64(1))]
+91)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@1, ss_item_sk@0)], projection=[d_date@3, itemdesc@0, i_item_sk@1]
+92)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[substr(i_item_desc@4, 1, 30) as itemdesc, i_item_sk], file_type=vortex
+93)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@3, d_date@1]
+94)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, predicate: d_year@6 IN (SET) ([2000, 2001, 2002, 2003])
+95)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk], file_type=vortex

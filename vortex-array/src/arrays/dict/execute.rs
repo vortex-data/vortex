@@ -98,8 +98,8 @@ fn take_primitive(
     <Primitive as TakeExecute>::take(array, codes_ref, ctx)
         .vortex_expect("take primitive array")
         .vortex_expect("take primitive should not return None")
-        .as_::<Primitive>()
-        .into_owned()
+        .execute::<PrimitiveArray>(ctx)
+        .vortex_expect("canonicalize taken primitive array")
 }
 
 fn take_decimal(
@@ -162,8 +162,8 @@ fn take_fixed_size_list(
     <FixedSizeList as TakeExecute>::take(array, codes_ref, ctx)
         .vortex_expect("take fixed size list array")
         .vortex_expect("take fixed size list should not return None")
-        .as_::<FixedSizeList>()
-        .into_owned()
+        .execute::<FixedSizeListArray>(ctx)
+        .vortex_expect("canonicalize taken fixed size list")
 }
 
 fn take_struct(array: ArrayView<'_, Struct>, codes: ArrayView<'_, Primitive>) -> StructArray {

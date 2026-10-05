@@ -9,12 +9,12 @@
 //! snapshot untouched, so snapshot churn in a later change is the reviewable signal of a
 //! behavior change.
 //!
-//! Three variants cover the feature matrix:
+//! Three variants cover the edition and feature matrix:
 //!
-//! - `default`: the default feature set and [`BtrBlocksCompressor::default`].
-//! - `unstable`: `unstable_encodings` enabled, default builder — pins Delta / OnPair
-//!   selection (compiled out of `ALL_SCHEMES` otherwise).
-//! - `compact`: `unstable_encodings` + `zstd` + `pco`, with
+//! - `regular`: the schemes permitted by the default `core` edition, minus OnPair.
+//! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
+//! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
+//!   the `zstd` + `pco` features and
 //!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
@@ -47,9 +47,18 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
+#[cfg(feature = "pco")]
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
+use vortex_edition::EDITION_DECLARATIONS;
+use vortex_edition::EDITION_FAMILIES;
+use vortex_edition::EditionId;
+use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
+use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -94,7 +103,17 @@ fn render(input: &ArrayRef, compressed: &ArrayRef) -> String {
 /// Compresses every corpus entry twice (direct determinism check) and snapshots the result
 /// under `{variant}__{entry}`.
 fn golden_corpus_snapshots(variant: &str, compressor: &BtrBlocksCompressor) -> VortexResult<()> {
-    for (name, array) in corpus()? {
+    golden_snapshots(variant, compressor, corpus()?)
+}
+
+/// Compresses each entry twice (direct determinism check) and snapshots the result under
+/// `{variant}__{entry}`.
+fn golden_snapshots(
+    variant: &str,
+    compressor: &BtrBlocksCompressor,
+    entries: Vec<(&'static str, ArrayRef)>,
+) -> VortexResult<()> {
+    for (name, array) in entries {
         let rendered = {
             let mut exec_ctx = SESSION.create_execution_ctx();
             render(&array, &compressor.compress(&array, &mut exec_ctx)?)
@@ -117,6 +136,10 @@ fn golden_corpus_snapshots(variant: &str, compressor: &BtrBlocksCompressor) -> V
 fn corpus() -> VortexResult<Vec<(&'static str, ArrayRef)>> {
     Ok(vec![
         ("int_monotone_jitter", int_monotone_jitter()),
+        (
+            "int_monotone_jitter_nullable",
+            int_monotone_jitter_nullable(),
+        ),
         ("int_arithmetic_sequence", int_arithmetic_sequence()),
         ("int_low_cardinality", int_low_cardinality()),
         ("int_runs", int_runs()),
@@ -150,6 +173,27 @@ fn int_monotone_jitter() -> ArrayRef {
         })
         .collect();
     PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+/// [`int_monotone_jitter`] with a tenth of the slots null: covers the nullable Delta tree, whose
+/// validity is a top-level child rather than part of the deltas, once Delta rejoins
+/// [`ALL_SCHEMES`](vortex_btrblocks::ALL_SCHEMES).
+fn int_monotone_jitter_nullable() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(101);
+    let mut value = 1_700_000_000_000u64;
+    let mut validity: Vec<bool> = Vec::with_capacity(N);
+    let values: Buffer<u64> = (0..N)
+        .map(|_| {
+            value += 900 + rng.random_range(0..200);
+            validity.push(rng.random_range(0..10) != 0);
+            value
+        })
+        .collect();
+    PrimitiveArray::new(
+        values,
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
+    )
+    .into_array()
 }
 
 /// Exact arithmetic sequence: Sequence habitat (distinct == len, no nulls).
@@ -372,44 +416,69 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
     Ok(ListArray::try_new(elements, offsets.into_array(), Validity::NonNullable)?.into_array())
 }
 
-/// Excludes OnPair from the golden compressors: its dictionary training (upstream `onpair`
-/// crate) iterates randomly-seeded `hashbrown` maps, so its compressed output — and therefore
-/// its sampled estimate — differs run-to-run. A nondeterministic scheme cannot serve as a
-/// golden baseline; excluding it keeps the remaining unstable schemes pinned.
-#[cfg(feature = "unstable_encodings")]
-fn without_onpair(
-    builder: vortex_btrblocks::BtrBlocksCompressorBuilder,
-) -> vortex_btrblocks::BtrBlocksCompressorBuilder {
+/// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
+/// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
+/// are pinned by [`golden_onpair`].
+fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBuilder {
     use vortex_btrblocks::SchemeExt;
     use vortex_btrblocks::schemes::string::OnPairScheme;
 
     builder.exclude_schemes([OnPairScheme.id()])
 }
 
-#[cfg(not(feature = "unstable_encodings"))]
-#[test]
-fn golden_default() -> VortexResult<()> {
-    golden_corpus_snapshots("default", &BtrBlocksCompressor::default())
+fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
+    let session = vortex_array::array_session().with::<EditionSession>();
+    // The compressor only produces encodings registered on the session.
+    vortex_alp::initialize(&session);
+    vortex_datetime_parts::initialize(&session);
+    vortex_decimal_byte_parts::initialize(&session);
+    vortex_fastlanes::initialize(&session);
+    vortex_fsst::initialize(&session);
+    vortex_onpair::initialize(&session);
+    vortex_runend::initialize(&session);
+    vortex_sequence::initialize(&session);
+    vortex_sparse::initialize(&session);
+    vortex_zigzag::initialize(&session);
+    #[cfg(feature = "pco")]
+    session.arrays().register(vortex_pco::Pco);
+    for family in EDITION_FAMILIES {
+        session.editions().declare_family(family)?;
+    }
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    for edition in editions {
+        session.enable_edition(*edition)?;
+    }
+    Ok(session)
 }
 
-#[cfg(feature = "unstable_encodings")]
 #[test]
-fn golden_unstable() -> VortexResult<()> {
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+fn golden_regular() -> VortexResult<()> {
+    let session = edition_session(&[CORE_2026_08_3])?;
+    let compressor = without_onpair(BtrBlocksCompressorBuilder::from_session(&session)).build();
+    golden_corpus_snapshots("regular", &compressor)
+}
 
-    golden_corpus_snapshots(
-        "unstable",
-        &without_onpair(BtrBlocksCompressorBuilder::default()).build(),
+/// Pins OnPair's selection over FSST on the structured-string entry.
+#[test]
+fn golden_onpair() -> VortexResult<()> {
+    let session = edition_session(&[CORE_2026_08_3])?;
+    let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
+    golden_snapshots(
+        "onpair",
+        &compressor,
+        vec![("string_fsst_structured", string_fsst_structured())],
     )
 }
 
-#[cfg(all(feature = "unstable_encodings", feature = "zstd", feature = "pco"))]
+#[cfg(all(feature = "zstd", feature = "pco"))]
 #[test]
 fn golden_compact() -> VortexResult<()> {
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
-
-    golden_corpus_snapshots(
-        "compact",
-        &without_onpair(BtrBlocksCompressorBuilder::default().with_compact()).build(),
-    )
+    let session = edition_session(&[CORE_2026_08_3])?;
+    vortex_zstd::initialize(&session);
+    session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
+    let compressor =
+        without_onpair(BtrBlocksCompressorBuilder::from_session(&session).with_compact()).build();
+    golden_corpus_snapshots("compact", &compressor)
 }

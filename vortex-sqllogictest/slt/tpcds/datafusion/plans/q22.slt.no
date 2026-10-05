@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_product_name ,
+       i_brand ,
+       i_class ,
+       i_category ,
+       avg(inv_quantity_on_hand) qoh
+FROM inventory ,
+     date_dim ,
+     item
+WHERE inv_date_sk=d_date_sk
+  AND inv_item_sk=i_item_sk
+  AND d_month_seq BETWEEN 1200 AND 1200 + 11
+GROUP BY rollup(i_product_name ,i_brand ,i_class ,i_category)
+ORDER BY qoh NULLS FIRST,
+         i_product_name NULLS FIRST,
+         i_brand NULLS FIRST,
+         i_class NULLS FIRST,
+         i_category NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: qoh ASC NULLS FIRST, item.i_product_name ASC NULLS FIRST, item.i_brand ASC NULLS FIRST, item.i_class ASC NULLS FIRST, item.i_category ASC NULLS FIRST, fetch=100
+02)--Projection: item.i_product_name, item.i_brand, item.i_class, item.i_category, avg(inventory.inv_quantity_on_hand) AS qoh
+03)----Aggregate: groupBy=[[ROLLUP (item.i_product_name, item.i_brand, item.i_class, item.i_category)]], aggr=[[avg(CAST(inventory.inv_quantity_on_hand AS Float64))]]
+04)------Projection: inventory.inv_quantity_on_hand, item.i_brand, item.i_class, item.i_category, item.i_product_name
+05)--------Inner Join: inventory.inv_item_sk = item.i_item_sk
+06)----------Projection: inventory.inv_item_sk, inventory.inv_quantity_on_hand
+07)------------Inner Join: inventory.inv_date_sk = date_dim.d_date_sk
+08)--------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_quantity_on_hand]
+09)--------------Projection: date_dim.d_date_sk
+10)----------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+11)------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+12)----------TableScan: item projection=[i_item_sk, i_brand, i_class, i_category, i_product_name]
+physical_plan
+01)SortPreservingMergeExec: [qoh@4 ASC, i_product_name@0 ASC, i_brand@1 ASC, i_class@2 ASC, i_category@3 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[qoh@4 ASC, i_product_name@0 ASC, i_brand@1 ASC, i_class@2 ASC, i_category@3 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[i_product_name@0 as i_product_name, i_brand@1 as i_brand, i_class@2 as i_class, i_category@3 as i_category, avg(inventory.inv_quantity_on_hand)@5 as qoh]
+04)------AggregateExec: mode=FinalPartitioned, gby=[i_product_name@0 as i_product_name, i_brand@1 as i_brand, i_class@2 as i_class, i_category@3 as i_category, __grouping_id@4 as __grouping_id], aggr=[avg(inventory.inv_quantity_on_hand)]
+05)--------RepartitionExec: partitioning=Hash([i_product_name@0, i_brand@1, i_class@2, i_category@3, __grouping_id@4], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[(NULL as i_product_name, NULL as i_brand, NULL as i_class, NULL as i_category), (i_product_name@4 as i_product_name, NULL as i_brand, NULL as i_class, NULL as i_category), (i_product_name@4 as i_product_name, i_brand@1 as i_brand, NULL as i_class, NULL as i_category), (i_product_name@4 as i_product_name, i_brand@1 as i_brand, i_class@2 as i_class, NULL as i_category), (i_product_name@4 as i_product_name, i_brand@1 as i_brand, i_class@2 as i_class, i_category@3 as i_category)], aggr=[avg(inventory.inv_quantity_on_hand)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@0)], projection=[inv_quantity_on_hand@6, i_brand@1, i_class@2, i_category@3, i_product_name@4]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand, i_class, i_category, i_product_name], file_type=vortex
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@0)], projection=[inv_item_sk@2, inv_quantity_on_hand@3]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+11)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_quantity_on_hand], file_type=vortex

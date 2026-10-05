@@ -13,10 +13,10 @@ import pyarrow as pa
 import pyarrow.dataset
 from typing_extensions import override
 
-from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
-from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
-from ._lib.runtime import set_worker_threads as _set_worker_threads  # pyright: ignore[reportMissingModuleSource]
-from ._lib.runtime import worker_threads as _worker_threads  # pyright: ignore[reportMissingModuleSource]
+from ._lib import dataset as _dataset
+from ._lib import file as _file
+from ._lib.runtime import set_worker_threads as _set_worker_threads
+from ._lib.runtime import worker_threads as _worker_threads
 from .arrays import array
 from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
@@ -52,16 +52,16 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     """
 
-    def __init__(self, dataset: _dataset.VortexDataset, *, filters: list[Expr] | None = None):
+    def __init__(self, dataset: _dataset.VortexDataset, *, filters: list[Expr] | None = None) -> None:
         self._dataset = dataset
         self._filters: list[Expr] = filters or []
 
     @staticmethod
-    def from_url(url: str):
+    def from_url(url: str) -> VortexDataset:
         return VortexDataset(_dataset.dataset_from_url(url))
 
     @staticmethod
-    def from_path(path: str):
+    def from_path(path: str) -> VortexDataset:
         return VortexDataset(_file.open(path).to_dataset())
 
     @property
@@ -281,12 +281,14 @@ class VortexDataset(pyarrow.dataset.Dataset):
         )
 
     @override
-    def sort_by(self, sorting: str | list[tuple[str, str]], **kwargs) -> pyarrow.dataset.InMemoryDataset:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportIncompatibleMethodOverride]
+    def sort_by(  # ty: ignore[invalid-method-override]
+        self, sorting: str | list[tuple[str, str]], **kwargs: object
+    ) -> pyarrow.dataset.InMemoryDataset:
         """Not implemented."""
         raise NotImplementedError("sort_by")
 
     @override
-    def take(  # pyright: ignore[reportIncompatibleMethodOverride]
+    def take(  # ty: ignore[invalid-method-override]
         self,
         indices: pyarrow.Array[
             pyarrow.Int8Scalar
@@ -545,7 +547,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         self,
         dataset: VortexDataset,
         _row_range: tuple[int, int],
-    ):
+    ) -> None:
         self._dataset = dataset
         self._row_range = _row_range
 
@@ -654,7 +656,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         )
 
     @override
-    def take(  # pyright: ignore[reportIncompatibleMethodOverride]
+    def take(  # ty: ignore[invalid-method-override]
         self,
         indices: pyarrow.Array[
             pyarrow.Int8Scalar
@@ -729,7 +731,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
 
     # regarding the ignore: https://github.com/zen-xu/pyarrow-stubs/pull/258
     @override
-    def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
+    def count_rows(  # ty: ignore[invalid-method-override]
         self,
         filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
@@ -800,7 +802,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
-    ):
+    ) -> None:
         self._dataset = dataset
         self._columns = columns
         self._filter = filter
@@ -814,7 +816,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         self._row_range = _row_range
 
     @property
-    def schema(self):
+    def schema(self) -> pyarrow.Schema:
         return self._dataset.schema
 
     @property
@@ -826,15 +828,12 @@ class VortexScanner(pyarrow.dataset.Scanner):
     @override
     def projected_schema(self) -> pyarrow.Schema:
         if self._columns:
-            fields: list[pa.Field[pa.DataType]] = [
-                self._dataset.schema.field(c)  # pyright: ignore[reportUnknownMemberType]
-                for c in self._columns
-            ]
+            fields: list[pa.Field[pa.DataType]] = [self._dataset.schema.field(c) for c in self._columns]
             return pyarrow.schema(fields)
         return self._dataset.schema
 
     @override
-    def count_rows(self):
+    def count_rows(self) -> int:
         return self._dataset.count_rows(
             self._filter,
             self._batch_size,
@@ -876,7 +875,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         )
 
     @override
-    def scan_batches(self) -> Iterator[pyarrow.dataset.TaggedRecordBatch]:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def scan_batches(self) -> Iterator[pyarrow.dataset.TaggedRecordBatch]:  # ty: ignore[invalid-method-override]
         """Not implemented."""
         raise NotImplementedError("scan batches")
 

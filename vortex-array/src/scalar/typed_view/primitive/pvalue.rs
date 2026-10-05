@@ -11,6 +11,8 @@ use std::hash::Hasher;
 use num_traits::NumCast;
 use num_traits::ToPrimitive;
 use num_traits::Zero;
+use num_traits::bounds::LowerBounded;
+use num_traits::bounds::UpperBounded;
 use paste::paste;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -23,6 +25,7 @@ use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::ToBytes;
 use crate::dtype::half::f16;
+use crate::match_each_native_ptype;
 
 /// Utility macro that makes it easy to write expressions generic over the different `PValue`
 /// variants.
@@ -203,6 +206,22 @@ macro_rules! as_primitive {
 }
 
 impl PValue {
+    /// The smallest value of the given primitive type.
+    #[inline]
+    pub fn min_value(ptype: PType) -> Self {
+        match_each_native_ptype!(ptype, |T| {
+            PValue::from(<T as LowerBounded>::min_value())
+        })
+    }
+
+    /// The largest value of the given primitive type.
+    #[inline]
+    pub fn max_value(ptype: PType) -> Self {
+        match_each_native_ptype!(ptype, |T| {
+            PValue::from(<T as UpperBounded>::max_value())
+        })
+    }
+
     /// Returns true if this decimal value is zero.
     pub fn is_zero(&self) -> bool {
         matches!(
@@ -614,5 +633,20 @@ impl CoercePValue for f64 {
                 vortex_bail!("Unsupported PValue {value:?} type for f64")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn min_max_value() {
+        assert_eq!(PValue::min_value(PType::U8), PValue::U8(0));
+        assert_eq!(PValue::max_value(PType::U64), PValue::U64(u64::MAX));
+        assert_eq!(PValue::min_value(PType::I8), PValue::I8(i8::MIN));
+        assert_eq!(PValue::max_value(PType::I64), PValue::I64(i64::MAX));
+        assert_eq!(PValue::min_value(PType::F32), PValue::F32(f32::MIN));
+        assert_eq!(PValue::max_value(PType::F64), PValue::F64(f64::MAX));
     }
 }

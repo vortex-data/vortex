@@ -14,6 +14,8 @@ use crate::ALPRDArrayExt;
 use crate::ALPRDArraySlotsExt;
 
 impl OperationsVTable<ALPRD> for ALPRD {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, ALPRD>,
         index: usize,

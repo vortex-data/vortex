@@ -24,6 +24,7 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
@@ -82,7 +83,7 @@ impl CudaExecute for FilterExecutor {
                     Canonical::VarBinView(varbinview) => {
                         filter_varbinview(varbinview, m, ctx).await
                     }
-                    _ => unimplemented!(),
+                    c => vortex_bail!("CUDA filter kernel is not implemented for {}", c.dtype()),
                 }
             }
         }

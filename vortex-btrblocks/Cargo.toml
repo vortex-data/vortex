@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "BtrBlocks style compressor"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -26,34 +24,28 @@ vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
+vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
-vortex-onpair = { workspace = true, optional = true }
+vortex-onpair = { workspace = true }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
+vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
-arrow-array = { workspace = true }
 divan = { workspace = true }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
-test-with = { workspace = true }
-tpchgen = { workspace = true }
-tpchgen-arrow = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-arrow = { workspace = true }
-vortex-mask = { workspace = true }
-vortex-session = { workspace = true }
 
 [features]
-# This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = ["dep:vortex-onpair", "vortex-zstd?/unstable_encodings"]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 

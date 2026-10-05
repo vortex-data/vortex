@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Python bindings for Vortex, an Apache Arrow-compatible toolkit for working with compressed array data."
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -65,3 +64,6 @@ vortex-tui = { workspace = true, optional = true }
 [dev-dependencies]
 rstest = { workspace = true }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
+# Maturin 1.15 only packages resolved dependencies, but Cargo also needs the manifest
+# of vortex-file's disabled optional tensor dependency when loading an sdist.
+vortex-tensor = { workspace = true }

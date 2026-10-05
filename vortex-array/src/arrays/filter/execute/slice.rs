@@ -9,6 +9,7 @@
 use std::ptr;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
@@ -54,7 +55,11 @@ pub(super) fn low_bits_mask(len: usize) -> u64 {
 }
 
 /// Filter a slice from the mask bitmap without materializing indices or ranges.
-pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) -> Buffer<T> {
+pub(super) fn filter_slice_by_bitmap<T: Copy>(
+    slice: &[T],
+    mask: &MaskValues,
+    allocator: &BufferAllocatorRef,
+) -> Buffer<T> {
     assert_eq!(
         mask.len(),
         slice.len(),
@@ -62,20 +67,16 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) ->
     );
 
     let output_len = mask.true_count();
-    let mut out = BufferMut::<T>::with_capacity(output_len);
+    let mut out = BufferMut::<T>::with_capacity_in(output_len, allocator.clone());
     let src_ptr = slice.as_ptr();
-    let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
+    let spare = out.spare_capacity_mut();
     let mut write_pos = 0;
 
     for_each_mask_word(mask, |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {
-            // SAFETY: a full mask word selects `word_len` in-bounds source values and the output
-            // was allocated for every selected value.
-            unsafe {
-                ptr::copy_nonoverlapping(src_ptr.add(word_start), out_ptr.add(write_pos), word_len);
-            }
+            spare[write_pos..][..word_len].write_copy_of_slice(&slice[word_start..][..word_len]);
             write_pos += word_len;
         } else {
             let mut selected = word;
@@ -84,7 +85,9 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) ->
                 // SAFETY: set bits are limited to `word_len`, and the output was allocated for
                 // exactly `mask.true_count()` values.
                 unsafe {
-                    out_ptr.add(write_pos).write(*src_ptr.add(index));
+                    spare
+                        .get_unchecked_mut(write_pos)
+                        .write(*src_ptr.add(index));
                 }
                 write_pos += 1;
                 selected &= selected - 1;
@@ -99,8 +102,12 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) ->
 }
 
 /// Filter a slice by a set of strictly increasing indices.
-pub(super) fn filter_slice_by_indices<T: Copy>(slice: &[T], indices: &[usize]) -> Buffer<T> {
-    let mut out = BufferMut::<T>::with_capacity(indices.len());
+pub(super) fn filter_slice_by_indices<T: Copy>(
+    slice: &[T],
+    indices: &[usize],
+    allocator: &BufferAllocatorRef,
+) -> Buffer<T> {
+    let mut out = BufferMut::<T>::with_capacity_in(indices.len(), allocator.clone());
     let src_ptr = slice.as_ptr();
     let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
 
@@ -120,8 +127,9 @@ pub(super) fn filter_slice_by_slices<T: Copy>(
     slice: &[T],
     slices: &[(usize, usize)],
     output_len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    let mut out = BufferMut::<T>::with_capacity(output_len);
+    let mut out = BufferMut::<T>::with_capacity_in(output_len, allocator.clone());
     for (start, end) in slices {
         out.extend_from_slice(&slice[*start..*end]);
     }

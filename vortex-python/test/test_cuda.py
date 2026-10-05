@@ -13,12 +13,12 @@ def workspace_version() -> str:
     return cast(str, workspace_pyproject["workspace"]["package"]["version"])
 
 
-def test_cuda_extension_installed_returns_bool():
+def test_cuda_extension_installed_returns_bool() -> None:
     assert isinstance(vortex.cuda_extension_installed(), bool)
     assert "cuda_extension_installed" in vortex.__all__
 
 
-def test_cuda_extra_installs_exact_matching_extension():
+def test_cuda_extra_installs_exact_matching_extension() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
     assert pyproject["project"]["optional-dependencies"]["cuda"] == [f"vortex-data-cuda=={workspace_version()}"]

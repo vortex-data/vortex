@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Apache Arrow interoperability for Vortex arrays"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -39,6 +38,7 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-fsst = { workspace = true }

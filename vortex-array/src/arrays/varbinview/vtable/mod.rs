@@ -9,6 +9,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -93,17 +94,11 @@ impl VTable for VarBinView {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == VarBinViewSlots::COUNT,
-            "VarBinViewArray expected {} slots, found {}",
-            VarBinViewSlots::COUNT,
-            slots.len()
-        );
-        vortex_ensure!(
-            data.len() == len,
-            "VarBinViewArray length {} does not match outer length {}",
+        vortex_ensure_eq!(slots.len(), VarBinViewSlots::COUNT);
+        vortex_ensure_eq!(
             data.len(),
-            len
+            len,
+            "VarBinViewArray length does not match outer length",
         );
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),

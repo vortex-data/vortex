@@ -30,9 +30,9 @@ use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
+use vortex::expr::in_list;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
-use vortex::expr::list_contains;
 use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
@@ -347,7 +347,8 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(literal) = df.downcast_ref::<df_expr::Literal>() {
-            let value = scalar_from_df(literal.value(), &self.session);
+            let value = scalar_from_df(literal.value(), &self.session)
+                .map_err(|e| exec_datafusion_err!("Failed to convert literal to scalar: {e}"))?;
             return Ok(lit(value));
         }
 
@@ -371,28 +372,45 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             return Ok(is_not_null(arg));
         }
 
-        if let Some(in_list) = df.downcast_ref::<df_expr::InListExpr>() {
-            let value = self.convert(in_list.expr().as_ref())?;
-            let list_elements: Vec<_> = in_list
+        if let Some(in_list_expr) = df.downcast_ref::<df_expr::InListExpr>() {
+            let value = self.convert(in_list_expr.expr().as_ref())?;
+            let list_elements: Vec<_> = in_list_expr
                 .list()
                 .iter()
                 .map(|e| {
                     if let Some(lit) = e.downcast_ref::<df_expr::Literal>() {
-                        Ok(scalar_from_df(lit.value(), &self.session))
+                        scalar_from_df(lit.value(), &self.session).map_err(|e| {
+                            exec_datafusion_err!("Failed to convert literal to scalar: {e}")
+                        })
                     } else {
                         Err(exec_datafusion_err!("Failed to cast sub-expression"))
                     }
                 })
                 .try_collect()?;
 
-            let list = Scalar::list(
-                list_elements[0].dtype().clone(),
-                list_elements,
-                Nullability::Nullable,
-            );
-            let expr = list_contains(lit(list), value);
+            // A null literal is nullable and a non-null one is not. `Scalar::list` needs one
+            // element dtype, so make all elements nullable when any is.
+            let list_elements = if list_elements.iter().any(|e| e.dtype().is_nullable()) {
+                list_elements
+                    .into_iter()
+                    .map(Scalar::into_nullable)
+                    .collect()
+            } else {
+                list_elements
+            };
+            let element_dtype = list_elements
+                .first()
+                .ok_or_else(|| exec_datafusion_err!("Cannot infer the type of an empty IN list"))?
+                .dtype()
+                .clone();
+            let list = Scalar::list(element_dtype, list_elements, Nullability::NonNullable);
+            let expr = in_list(value, lit(list));
 
-            return Ok(if in_list.negated() { not(expr) } else { expr });
+            return Ok(if in_list_expr.negated() {
+                not(expr)
+            } else {
+                expr
+            });
         }
 
         if let Some(scalar_fn) = df.downcast_ref::<ScalarFunctionExpr>() {
@@ -653,7 +671,11 @@ fn supported_data_types(dt: &DataType) -> bool {
 /// Currently GetFieldFunc, OctetLengthFunc, and ArrayLength are supported.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
     if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
-        return true;
+        // Field access is pushable only when its entire source is convertible.
+        // A struct-producing DataFusion UDF must remain above the native scan.
+        return DefaultExpressionConvertor::default()
+            .try_convert_scalar_function(scalar_fn)
+            .is_ok();
     }
 
     if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
@@ -727,15 +749,21 @@ mod tests {
     use arrow_schema::Schema;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
     use datafusion::arrow::array::AsArray;
+    use datafusion::arrow::array::Int32Array;
+    use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::datatypes::Int32Type;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_expr::ScalarUDF;
+    use datafusion_functions::core::named_struct::NamedStructFunc;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
     use rstest::rstest;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::BoolArray;
+    use vortex::array::assert_arrays_eq;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
@@ -870,6 +898,73 @@ mod tests {
             .unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @"vortex.literal(42i32)");
+    }
+
+    #[rstest]
+    fn test_in_list_null_semantics(
+        #[values(false, true)] negated: bool,
+        #[values(false, true)] null_first: bool,
+    ) {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            true,
+        )]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), None]))],
+        )
+        .unwrap();
+        let mut list = vec![
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as Arc<dyn PhysicalExpr>,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(None))) as Arc<dyn PhysicalExpr>,
+        ];
+        if null_first {
+            list.reverse();
+        }
+        let expr = df_expr::InListExpr::try_new(
+            Arc::new(df_expr::Column::new("value", 0)),
+            list,
+            negated,
+            &schema,
+        )
+        .unwrap();
+        let expected = expr
+            .evaluate(&batch)
+            .unwrap()
+            .into_array(batch.num_rows())
+            .unwrap();
+        let session = VortexSession::default();
+        let converted = DefaultExpressionConvertor::new(session.clone())
+            .convert(&expr)
+            .unwrap();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch, &schema)
+            .unwrap();
+        let actual = input.apply(&converted).unwrap();
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter(expected.as_boolean().iter()),
+            &mut session.create_execution_ctx()
+        );
+    }
+
+    #[test]
+    fn test_empty_in_list_declines_conversion() {
+        let schema = Schema::new(vec![Field::new("value", DataType::Int32, true)]);
+        let expr = df_expr::InListExpr::try_new_from_array(
+            Arc::new(df_expr::Column::new("value", 0)),
+            Arc::new(Int32Array::from(Vec::<i32>::new())),
+            false,
+            &schema,
+        )
+        .unwrap();
+        assert!(
+            DefaultExpressionConvertor::default()
+                .convert(&expr)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1109,6 +1204,34 @@ mod tests {
         let octet_length = octet_length_expr(expr, &test_schema);
 
         assert!(can_be_pushed_down_impl(&octet_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_get_field_of_unsupported_struct_function_stays_in_datafusion(test_schema: Schema) {
+        let field_name = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            "value".to_string(),
+        )))) as Arc<dyn PhysicalExpr>;
+        let value = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let struct_expr = Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(NamedStructFunc::new())),
+                vec![Arc::clone(&field_name), value],
+                &test_schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        ) as Arc<dyn PhysicalExpr>;
+        let get_field = Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(GetFieldFunc::new())),
+                vec![struct_expr, field_name],
+                &test_schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        ) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down_impl(&get_field, &test_schema));
     }
 
     #[rstest]

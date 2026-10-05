@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex Mask - sorted, unique, non-negative integers"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -27,7 +26,10 @@ vortex-error = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
+vortex-bench-support = { workspace = true }
 
 [[bench]]
 name = "intersect_by_rank"

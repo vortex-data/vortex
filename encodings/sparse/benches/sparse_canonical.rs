@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -22,6 +23,9 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

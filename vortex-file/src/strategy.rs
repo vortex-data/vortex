@@ -26,6 +26,7 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 const ONE_MEG: u64 = 1 << 20;
@@ -64,12 +65,14 @@ pub struct WriteStrategyBuilder {
     use_list_layout: bool,
 }
 
-impl Default for WriteStrategyBuilder {
-    /// Create a new empty builder. It can be further configured,
-    /// and then finally built yielding the [`LayoutStrategy`].
-    fn default() -> Self {
+impl WriteStrategyBuilder {
+    /// Create a new builder that compresses with the schemes registered on `session`. It can be
+    /// further configured, and then finally built yielding the [`LayoutStrategy`].
+    pub fn from_session(session: &VortexSession) -> Self {
         Self {
-            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::default()),
+            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::from_session(
+                session,
+            )),
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
@@ -78,9 +81,7 @@ impl Default for WriteStrategyBuilder {
             use_list_layout: use_experimental_list_layout(),
         }
     }
-}
 
-impl WriteStrategyBuilder {
     /// Override the row block size used for row repartitioning and zoned statistics.
     ///
     /// Larger blocks reduce footer/statistics overhead. Smaller blocks can improve pruning and

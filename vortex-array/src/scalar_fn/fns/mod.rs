@@ -10,6 +10,7 @@ pub mod dynamic;
 pub mod ext_storage;
 pub mod fill_null;
 pub mod get_item;
+pub mod is_nan;
 pub mod is_not_null;
 pub mod is_null;
 pub mod like;

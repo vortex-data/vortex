@@ -8,6 +8,7 @@
 
 use std::iter;
 
+use arbitrary::Error::IncorrectFormat;
 use arbitrary::Result;
 use arbitrary::Unstructured;
 use vortex_buffer::BufferString;
@@ -128,7 +129,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             )
             .vortex_expect("generated union scalar must be valid")
         }
-        DType::Variant(_) => todo!(),
+        DType::Variant(_) => return Err(IncorrectFormat),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }

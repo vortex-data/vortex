@@ -31,8 +31,11 @@ use git2::TreeWalkMode;
 use git2::TreeWalkResult;
 use toml::Table;
 
-use crate::generate_editions::FAMILY_FILE;
-use crate::generate_editions::RECORD_DIR;
+/// The file recording what a family is, beside that family's editions.
+pub const FAMILY_FILE: &str = "family.toml";
+
+/// The edition records, relative to the repository root.
+pub const RECORD_DIR: &str = "vortex/editions";
 
 /// A record carries this key once the edition's freeze has been documented.
 const FROZEN_MARKER: &str = "min_library_version";

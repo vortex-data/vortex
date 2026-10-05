@@ -4,7 +4,6 @@ description = "Vortex string benchmarks for direct compression and serialized wr
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
-homepage.workspace = true
 include.workspace = true
 keywords.workspace = true
 license.workspace = true
@@ -32,16 +31,8 @@ vortex-btrblocks = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true }
 
-[features]
-unstable_encodings = [
-    "vortex/unstable_encodings",
-    "vortex-bench/unstable_encodings",
-    "vortex-btrblocks/unstable_encodings",
-]
-
 [[bin]]
 name = "string-bench"
-required-features = ["unstable_encodings"]
 
 [lints]
 workspace = true

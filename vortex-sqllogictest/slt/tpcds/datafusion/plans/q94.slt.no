@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT count(DISTINCT ws_order_number) AS "order count" ,
+       sum(ws_ext_ship_cost) AS "total shipping cost" ,
+       sum(ws_net_profit) AS "total net profit"
+FROM web_sales ws1 ,
+     date_dim ,
+     customer_address ,
+     web_site
+WHERE d_date BETWEEN '1999-02-01' AND cast('1999-04-02' AS date)
+  AND ws1.ws_ship_date_sk = d_date_sk
+  AND ws1.ws_ship_addr_sk = ca_address_sk
+  AND ca_state = 'IL'
+  AND ws1.ws_web_site_sk = web_site_sk
+  AND web_company_name = 'pri'
+  AND EXISTS
+    (SELECT *
+     FROM web_sales ws2
+     WHERE ws1.ws_order_number = ws2.ws_order_number
+       AND ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+  AND NOT exists
+    (SELECT *
+     FROM web_returns wr1
+     WHERE ws1.ws_order_number = wr1.wr_order_number)
+ORDER BY count(DISTINCT ws_order_number)
+LIMIT 100;
+----
+logical_plan
+01)Sort: order count ASC NULLS LAST, fetch=100
+02)--Projection: count(alias1) AS order count, sum(alias2) AS total shipping cost, sum(alias3) AS total net profit
+03)----Aggregate: groupBy=[[]], aggr=[[count(alias1), sum(alias2), sum(alias3)]]
+04)------Aggregate: groupBy=[[ws1.ws_order_number AS alias1]], aggr=[[sum(ws1.ws_ext_ship_cost) AS alias2, sum(ws1.ws_net_profit) AS alias3]]
+05)--------LeftAnti Join: ws1.ws_order_number = __correlated_sq_2.wr_order_number
+06)----------Projection: ws1.ws_order_number, ws1.ws_ext_ship_cost, ws1.ws_net_profit
+07)------------LeftSemi Join: ws1.ws_order_number = __correlated_sq_1.ws_order_number Filter: ws1.ws_warehouse_sk != __correlated_sq_1.ws_warehouse_sk
+08)--------------Projection: ws1.ws_warehouse_sk, ws1.ws_order_number, ws1.ws_ext_ship_cost, ws1.ws_net_profit
+09)----------------Inner Join: ws1.ws_web_site_sk = web_site.web_site_sk
+10)------------------Projection: ws1.ws_web_site_sk, ws1.ws_warehouse_sk, ws1.ws_order_number, ws1.ws_ext_ship_cost, ws1.ws_net_profit
+11)--------------------Inner Join: ws1.ws_ship_addr_sk = customer_address.ca_address_sk
+12)----------------------Projection: ws1.ws_ship_addr_sk, ws1.ws_web_site_sk, ws1.ws_warehouse_sk, ws1.ws_order_number, ws1.ws_ext_ship_cost, ws1.ws_net_profit
+13)------------------------Inner Join: ws1.ws_ship_date_sk = date_dim.d_date_sk
+14)--------------------------SubqueryAlias: ws1
+15)----------------------------TableScan: web_sales projection=[ws_ship_date_sk, ws_ship_addr_sk, ws_web_site_sk, ws_warehouse_sk, ws_order_number, ws_ext_ship_cost, ws_net_profit]
+16)--------------------------Projection: date_dim.d_date_sk
+17)----------------------------Filter: date_dim.d_date >= Date32("1999-02-01") AND date_dim.d_date <= Date32("1999-04-02")
+18)------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("1999-02-01"), date_dim.d_date <= Date32("1999-04-02")]
+19)----------------------Projection: customer_address.ca_address_sk
+20)------------------------Filter: customer_address.ca_state = Utf8View("IL")
+21)--------------------------TableScan: customer_address projection=[ca_address_sk, ca_state], partial_filters=[customer_address.ca_state = Utf8View("IL")]
+22)------------------Projection: web_site.web_site_sk
+23)--------------------Filter: web_site.web_company_name = Utf8View("pri")
+24)----------------------TableScan: web_site projection=[web_site_sk, web_company_name], partial_filters=[web_site.web_company_name = Utf8View("pri")]
+25)--------------SubqueryAlias: __correlated_sq_1
+26)----------------SubqueryAlias: ws2
+27)------------------TableScan: web_sales projection=[ws_warehouse_sk, ws_order_number]
+28)----------SubqueryAlias: __correlated_sq_2
+29)------------SubqueryAlias: wr1
+30)--------------TableScan: web_returns projection=[wr_order_number]
+physical_plan
+01)ProjectionExec: expr=[count(alias1)@0 as order count, sum(alias2)@1 as total shipping cost, sum(alias3)@2 as total net profit]
+02)--GlobalLimitExec: skip=0, fetch=100
+03)----AggregateExec: mode=Final, gby=[], aggr=[count(alias1), sum(alias2), sum(alias3)]
+04)------CoalescePartitionsExec
+05)--------AggregateExec: mode=Partial, gby=[], aggr=[count(alias1), sum(alias2), sum(alias3)]
+06)----------AggregateExec: mode=FinalPartitioned, gby=[alias1@0 as alias1], aggr=[sum(ws1.ws_ext_ship_cost) as alias2, sum(ws1.ws_net_profit) as alias3]
+07)------------RepartitionExec: partitioning=Hash([alias1@0], 4), input_partitions=4
+08)--------------AggregateExec: mode=Partial, gby=[ws_order_number@0 as alias1], aggr=[sum(ws1.ws_ext_ship_cost) as alias2, sum(ws1.ws_net_profit) as alias3]
+09)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+10)------------------HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(ws_order_number@0, wr_order_number@0)]
+11)--------------------CoalescePartitionsExec
+12)----------------------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(ws_order_number@1, ws_order_number@1)], filter=ws_warehouse_sk@0 != ws_warehouse_sk@1, projection=[ws_order_number@1, ws_ext_ship_cost@2, ws_net_profit@3]
+13)------------------------CoalescePartitionsExec
+14)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(web_site_sk@0, ws_web_site_sk@0)], projection=[ws_warehouse_sk@2, ws_order_number@3, ws_ext_ship_cost@4, ws_net_profit@5]
+15)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_site.vortex]]}, projection=[web_site_sk], file_type=vortex, predicate: web_company_name@14 = pri
+16)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ws_ship_addr_sk@0)], projection=[ws_web_site_sk@2, ws_warehouse_sk@3, ws_order_number@4, ws_ext_ship_cost@5, ws_net_profit@6]
+17)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_state@8 = IL
+18)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_ship_date_sk@0)], projection=[ws_ship_addr_sk@2, ws_web_site_sk@3, ws_warehouse_sk@4, ws_order_number@5, ws_ext_ship_cost@6, ws_net_profit@7]
+19)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 1999-02-01 AND d_date@2 <= 1999-04-02
+20)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_ship_date_sk, ws_ship_addr_sk, ws_web_site_sk, ws_warehouse_sk, ws_order_number, ws_ext_ship_cost, ws_net_profit], file_type=vortex
+21)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_warehouse_sk, ws_order_number], file_type=vortex
+22)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_order_number], file_type=vortex

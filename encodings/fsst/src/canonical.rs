@@ -5,6 +5,7 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use fsst::Decompressor;
+use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -19,6 +20,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
@@ -80,10 +83,21 @@ impl FsstDecodePlan {
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
 
-        #[expect(clippy::cast_possible_truncation)]
-        let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
-            lengths.as_slice::<P>().iter().map(|x| *x as usize).sum()
-        });
+        let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
+            lengths
+                .as_slice::<P>()
+                .iter()
+                .try_fold(0usize, |acc, &x| acc.checked_add(x.to_usize()?))
+        })
+        .ok_or_else(|| vortex_err!("FSST uncompressed lengths are negative or overflow"))?;
+
+        // Stored lengths size the output buffer, so bound them by the codes:
+        // symbols emit 1 to 8 bytes; escapes use two code bytes per output byte.
+        vortex_ensure!(
+            codes.len().div_ceil(2) <= total_size && total_size <= codes.len().saturating_mul(8),
+            "FSST recorded length {total_size} is impossible for {} code bytes",
+            codes.len()
+        );
 
         Ok(Self {
             codes,
@@ -104,11 +118,7 @@ impl FsstDecodePlan {
         out: &mut [MaybeUninit<u8>],
     ) -> VortexResult<usize> {
         let len = decompressor.decompress_into(self.codes.as_slice(), out);
-        vortex_ensure!(
-            len == self.total_size,
-            "FSST decoded {len} bytes, expected {}",
-            self.total_size
-        );
+        vortex_ensure_eq!(len, self.total_size, "FSST decoded length mismatch");
         Ok(len)
     }
 }
@@ -312,6 +322,30 @@ mod tests {
         )?;
 
         assert!(fsst_decode_bytes(invalid.as_view(), &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_rejects_impossible_uncompressed_lengths() -> VortexResult<()> {
+        let input = VarBinViewArray::from_iter_str(["hello", "world"]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
+        let lengths = [
+            PrimitiveArray::from_iter([i32::MAX, 5]).into_array(),
+            PrimitiveArray::from_iter([-1i32, 5]).into_array(),
+            PrimitiveArray::from_iter([u64::MAX, 1]).into_array(),
+            PrimitiveArray::from_iter([0u32, 0]).into_array(),
+        ];
+        for lengths in lengths {
+            let invalid = FSST::try_new_with_symbol_table(
+                encoded.dtype().clone(),
+                encoded.symbol_table(),
+                encoded.codes(),
+                lengths,
+                &mut ctx,
+            )?;
+            assert!(fsst_decode_bytes(invalid.as_view(), &mut ctx).is_err());
+        }
         Ok(())
     }
 }

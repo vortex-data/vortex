@@ -24,7 +24,7 @@ class BenchmarkBuilder:
         workspace_root: Path | None = None,
         config: BuildConfig | None = None,
         verbose: bool = False,
-    ):
+    ) -> None:
         self.workspace_root = workspace_root or get_workspace_root()
         self.config = config or BuildConfig()
         self.verbose = verbose

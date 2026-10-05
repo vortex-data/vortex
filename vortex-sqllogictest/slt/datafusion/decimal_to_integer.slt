@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+SET vortex.projection_pushdown = true;
+
+statement ok
+COPY (SELECT id, CAST(value AS DECIMAL(21,1)) AS value FROM (VALUES
+    (1, '0.0'),
+    (2, '1.0'),
+    (3, '-19.9'),
+    (4, '19.9'),
+    (5, '1786639777684000001.0'),
+    (6, '-9223372036854775808.0'),
+    (7, '9223372036854775807.0'),
+    (8, NULL)
+) AS t(id, value)) TO '${WORK_DIR}/decimal_to_integer.vortex';
+
+statement ok
+CREATE VIEW decimals AS SELECT * FROM '${WORK_DIR}/decimal_to_integer.vortex';
+
+# EXPLAIN verifies that the cast executes inside the Vortex scan.
+query TT
+EXPLAIN SELECT CAST(value AS BIGINT) AS integer_value FROM decimals;
+----
+logical_plan
+01)Projection: CAST(decimals.value AS Int64) AS integer_value
+02)--SubqueryAlias: decimals
+03)----TableScan: ${WORK_DIR}/decimal_to_integer.vortex projection=[value]
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/decimal_to_integer.vortex]]}, projection=[CAST(value@1 AS Int64) as integer_value], file_type=vortex
+
+# Fractions truncate toward zero; large integers remain exact and nulls survive.
+query I
+SELECT CAST(value AS BIGINT) FROM decimals ORDER BY id;
+----
+0
+1
+-19
+19
+1786639777684000001
+-9223372036854775808
+9223372036854775807
+NULL
+
+# Repeat with projection pushdown disabled to check agreement with DataFusion.
+statement ok
+SET vortex.projection_pushdown = false;
+
+query I
+SELECT CAST(value AS BIGINT) FROM decimals ORDER BY id;
+----
+0
+1
+-19
+19
+1786639777684000001
+-9223372036854775808
+9223372036854775807
+NULL

@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES (1),(2),(CAST(NULL AS BIGINT))) AS t(x))
+TO '${WORK_DIR}/is_null.vortex';
+
+onlyif duckdb
+query TT
+EXPLAIN (FORMAT JSON)
+SELECT x FROM '${WORK_DIR}/is_null.vortex' WHERE x IS NULL;
+----
+<!REGEX>:.*FILTER.*
+
+query I
+SELECT x FROM '${WORK_DIR}/is_null.vortex' WHERE x IS NULL;
+----
+NULL
+
+onlyif duckdb
+query TT
+EXPLAIN (FORMAT JSON)
+SELECT x FROM '${WORK_DIR}/is_null.vortex' WHERE x IS NOT NULL;
+----
+<!REGEX>:.*FILTER.*
+
+query I
+SELECT x FROM '${WORK_DIR}/is_null.vortex' WHERE x IS NOT NULL;
+----
+1
+2

@@ -369,8 +369,8 @@ mod tests {
         let expr = Binary::try_new(dict, const_false, Operator::And)?.into_array();
 
         let mut ctx = array_session().create_execution_ctx();
-        // Kleene AND: null AND false == false, so all three rows must be valid `false`.
-        let expected = expr.clone().execute::<BoolArray>(&mut ctx)?.into_array();
+        // Kleene AND: null AND false == false
+        let expected = BoolArray::from_iter([false, false, false]).into_array();
         let optimized = expr.optimize()?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
@@ -386,8 +386,8 @@ mod tests {
         let expr = Binary::try_new(dict, const_true, Operator::Or)?.into_array();
 
         let mut ctx = array_session().create_execution_ctx();
-        // Kleene OR: null OR true == true, so all three rows must be valid `true`.
-        let expected = expr.clone().execute::<BoolArray>(&mut ctx)?.into_array();
+        // Kleene OR: null OR true == true
+        let expected = BoolArray::from_iter([true, true, true]).into_array();
         let optimized = expr.optimize()?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())

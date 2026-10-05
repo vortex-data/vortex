@@ -38,10 +38,10 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
-use vortex_bench::benchmark_write_options;
 use vortex_bench::measurements::CustomUnitMeasurement;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
+use vortex_btrblocks::schemes::integer::DeltaScheme;
 use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::OnPairScheme;
@@ -57,7 +57,7 @@ use crate::prepare_column;
 use crate::throughput;
 use crate::verify_canonicalized;
 
-/// The btrblocks string schemes that `BtrBlocksCompressorBuilder::default()` can
+/// The btrblocks string schemes that `BtrBlocksCompressorBuilder::from_session` can
 /// choose between. Forcing one encoder excludes every entry except its own
 /// scheme, so this list must track the default scheme set: add a row whenever a
 /// new string encoder becomes selectable by default (e.g. Zstd).
@@ -169,15 +169,19 @@ impl SerializedResult {
 }
 
 /// Build the file writer strategy that forces one selected string scheme while
-/// leaving non-string child compression enabled.
-fn serialized_write_strategy(encoder: StringEncoder) -> Arc<dyn LayoutStrategy> {
+/// leaving editioned non-string child compression enabled.
+fn serialized_write_strategy(
+    session: &VortexSession,
+    encoder: StringEncoder,
+) -> Arc<dyn LayoutStrategy> {
     let forced = encoder.scheme_id();
-    let compressor = BtrBlocksCompressorBuilder::default().exclude_schemes(
+    let compressor = BtrBlocksCompressorBuilder::from_session(session).exclude_schemes(
         default_string_scheme_ids()
             .into_iter()
-            .filter(|&id| id != forced),
+            .filter(|&id| id != forced)
+            .chain([DeltaScheme::default().id()]),
     );
-    WriteStrategyBuilder::default()
+    WriteStrategyBuilder::from_session(session)
         .with_btrblocks_builder(compressor)
         .build()
 }
@@ -192,7 +196,8 @@ async fn write_serialized_file(
     let mut buf = Vec::new();
     {
         let mut cursor = Cursor::new(&mut buf);
-        benchmark_write_options(session.write_options())
+        session
+            .write_options()
             .with_strategy(Arc::clone(strategy))
             .write(&mut cursor, input.to_array_stream())
             .await?;
@@ -249,7 +254,7 @@ async fn prepare_serialized_file(
     verify: bool,
     ctx: &mut ExecutionCtx,
 ) -> Result<SerializedFile> {
-    let strategy = serialized_write_strategy(encoder);
+    let strategy = serialized_write_strategy(session, encoder);
     let data = write_serialized_file(session, input, &strategy).await?;
     let file_bytes = data.len() as u64;
 
@@ -353,8 +358,9 @@ mod tests {
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
-    use vortex_btrblocks::ALL_SCHEMES;
+    use vortex_btrblocks::CompressionSession;
     use vortex_btrblocks::SchemeExt;
+    use vortex_btrblocks::schemes::string::ZstdScheme;
 
     use super::*;
 
@@ -363,9 +369,12 @@ mod tests {
         // Every default scheme whose dtype gate accepts canonical Utf8 must be
         // excluded when another root string encoding is forced.
         let canonical = Canonical::VarBinView(VarBinViewArray::from_iter_str(["value"]));
-        let mut actual = ALL_SCHEMES
+        let mut actual = CompressionSession::default()
+            .schemes()
             .iter()
             .filter(|scheme| scheme.matches(&canonical))
+            // Registered, but the default compression mode excludes it.
+            .filter(|scheme| scheme.id() != ZstdScheme.id())
             .map(|scheme| scheme.id())
             .collect::<Vec<_>>();
         let mut expected = default_string_scheme_ids();

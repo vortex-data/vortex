@@ -125,11 +125,7 @@ impl<T> BufferMut<T> {
         );
 
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!(
-                "Alignment {} must align to the scalar type's alignment {}",
-                alignment,
-                align_of::<T>()
-            );
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
         }
 
         let size = capacity
@@ -308,12 +304,18 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a mutable scalar buffer by copying the contents of the slice.
-    pub fn copy_from(other: impl AsRef<[T]>) -> Self {
+    pub fn copy_from(other: impl AsRef<[T]>) -> Self
+    where
+        T: Copy,
+    {
         Self::copy_from_in(other, BufferAllocatorRef::statically_allocated())
     }
 
     /// Create a mutable scalar buffer by copying with the given allocator.
-    pub fn copy_from_in(other: impl AsRef<[T]>, allocator: BufferAllocatorRef) -> Self {
+    pub fn copy_from_in(other: impl AsRef<[T]>, allocator: BufferAllocatorRef) -> Self
+    where
+        T: Copy,
+    {
         Self::copy_from_aligned_in(other, Alignment::of::<T>(), allocator)
     }
 
@@ -327,7 +329,10 @@ impl<T> BufferMut<T> {
     /// ## Panics
     ///
     /// Panics when the requested alignment isn't itself aligned to type T.
-    pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
+    pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self
+    where
+        T: Copy,
+    {
         Self::copy_from_aligned_in(other, alignment, BufferAllocatorRef::statically_allocated())
     }
 
@@ -336,7 +341,10 @@ impl<T> BufferMut<T> {
         other: impl AsRef<[T]>,
         alignment: Alignment,
         allocator: BufferAllocatorRef,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Copy,
+    {
         Self::copy_from_preferred_aligned_in(
             other,
             alignment,
@@ -357,7 +365,10 @@ impl<T> BufferMut<T> {
         other: impl AsRef<[T]>,
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Copy,
+    {
         Self::copy_from_preferred_aligned_in(
             other,
             alignment,
@@ -372,7 +383,10 @@ impl<T> BufferMut<T> {
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
         allocator: BufferAllocatorRef,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Copy,
+    {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Given alignment is not aligned to type T")
         }
@@ -395,9 +409,16 @@ impl<T> BufferMut<T> {
         self.alignment
     }
 
-    /// Returns the allocator that owns this buffer.
-    pub fn allocator(&self) -> &BufferAllocatorRef {
+    #[cfg(test)]
+    pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         self.allocation.allocator()
+    }
+
+    /// Takes the buffer, leaving an empty buffer with the same alignment and allocator.
+    pub fn take(&mut self) -> Self {
+        let replacement =
+            Self::empty_aligned_in(self.alignment, self.allocation.allocator().clone());
+        std::mem::replace(self, replacement)
     }
 
     /// Returns the length of the buffer.
@@ -481,73 +502,109 @@ impl<T> BufferMut<T> {
         self.reserve_allocate(additional);
     }
 
-    /// A separate function so we can inline the reserve call's fast path.
+    /// Keeps allocation work out of the inline fast path in [`Self::reserve`].
+    ///
+    /// Buffer capacity measures the space available from the data pointer. The allocation also
+    /// includes any bytes before that pointer, which can come from alignment padding or slicing.
+    /// The new layout follows the buffer growth policy without retaining that old prefix.
+    ///
+    /// For a byte buffer:
+    ///
+    /// ```text
+    /// Before reserve(100): allocation = 1,000 bytes, capacity = 100 bytes.
+    /// | 900 bytes before slice | 100 data |
+    ///                          ^ data pointer
+    ///
+    /// After reserve(100): allocation = 257 bytes, capacity = 256 bytes.
+    /// | 100 data | 156 spare | 1 unused |
+    /// ^ data pointer
+    /// ```
+    ///
+    /// [`Allocator::grow`] requires the new allocation to be at least as large as the entire old
+    /// allocation. If the new layout is smaller, allocate a separate block and copy the initialized
+    /// data instead of violating that safety contract.
+    ///
+    /// [`Allocator::grow`]: allocator_api2::alloc::Allocator::grow
     fn reserve_allocate(&mut self, additional: usize) {
-        let required = self
+        let required_capacity = self
             .length
             .checked_add(additional)
             .vortex_expect("buffer capacity overflow");
-        let required_size = required
+        let required_bytes = required_capacity
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
-        let alignment = self.alignment;
-        let current_size = self
+        let capacity_bytes = self
             .capacity
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
-        let logical_size = required_size
-            .max(current_size.saturating_mul(2))
+        let new_capacity_bytes = required_bytes
+            .max(capacity_bytes.saturating_mul(2))
             .max(Alignment::DEFAULT_ALIGNMENT.as_usize());
-        let allocation_size = logical_size
-            .checked_add(alignment.as_usize())
+
+        // Reserve space before the data so its pointer can satisfy the buffer's alignment.
+        let data_alignment = self.alignment.as_usize();
+        let new_allocation_bytes = new_capacity_bytes
+            .checked_add(data_alignment)
             .vortex_expect("buffer capacity overflow");
         let allocation_alignment = if self.allocation.size() == 0 {
             1
         } else {
             self.allocation.alignment()
         };
-        let layout = Layout::from_size_align(allocation_size, allocation_alignment)
+        let new_layout = Layout::from_size_align(new_allocation_bytes, allocation_alignment)
             .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
+        let initialized_bytes = self.length * size_of::<T>();
 
-        let old_offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
-        let new_offset = if self.allocation.allocator().is_statically_allocated() {
-            let allocation =
-                Allocation::allocate(layout, BufferAllocatorRef::statically_allocated());
-            let new_offset = allocation.ptr().as_ptr().align_offset(alignment.as_usize());
-            // SAFETY: both allocations have room for the initialized elements and do not overlap.
+        // The default global allocator (`is_statically_allocated`) uses allocate-and-copy. Custom
+        // allocators must also allocate and copy when the new layout is smaller, because
+        // `Allocator::grow` forbids shrinking.
+        let needs_new_allocation = self.allocation.allocator().is_statically_allocated()
+            || new_layout.size() < self.allocation.size();
+
+        let data_offset = if needs_new_allocation {
+            let new_allocation =
+                Allocation::allocate(new_layout, self.allocation.allocator().clone());
+            let new_data_offset = new_allocation.ptr().as_ptr().align_offset(data_alignment);
+
+            // SAFETY: self.ptr addresses initialized_bytes of live data. The new allocation has
+            // room for those bytes after alignment padding and is disjoint from the old allocation.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     self.ptr.cast::<u8>().as_ptr(),
-                    allocation.ptr().as_ptr().add(new_offset),
-                    self.length * size_of::<T>(),
+                    new_allocation.ptr().as_ptr().add(new_data_offset),
+                    initialized_bytes,
                 );
             }
-            self.allocation = allocation;
-            new_offset
+
+            self.allocation = new_allocation;
+
+            new_data_offset
         } else {
-            self.allocation.grow(layout);
-            let new_offset = self
-                .allocation
-                .ptr()
-                .as_ptr()
-                .align_offset(alignment.as_usize());
-            if new_offset != old_offset {
-                // SAFETY: grow preserved the initialized elements at old_offset. The new allocation
-                // has room for the requested elements plus alignment padding, and copy permits
-                // overlap.
+            let old_data_offset =
+                self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
+            self.allocation.grow(new_layout);
+
+            let new_data_offset = self.allocation.ptr().as_ptr().align_offset(data_alignment);
+
+            if new_data_offset != old_data_offset {
+                // SAFETY: grow preserved initialized_bytes at old_data_offset. The reserved padding
+                // leaves room for the data at new_data_offset, and copy permits overlap.
                 unsafe {
                     std::ptr::copy(
-                        self.allocation.ptr().as_ptr().add(old_offset),
-                        self.allocation.ptr().as_ptr().add(new_offset),
-                        self.length * size_of::<T>(),
+                        self.allocation.ptr().as_ptr().add(old_data_offset),
+                        self.allocation.ptr().as_ptr().add(new_data_offset),
+                        initialized_bytes,
                     );
                 }
             }
-            new_offset
+
+            new_data_offset
         };
-        // SAFETY: new_offset was computed within the allocation for alignment.
-        self.ptr = unsafe { self.allocation.ptr().add(new_offset).cast() };
-        self.capacity = logical_size / size_of::<T>();
+
+        // SAFETY: data_offset satisfies the required alignment and leaves new_capacity_bytes
+        // available within the allocation.
+        self.ptr = unsafe { self.allocation.ptr().add(data_offset).cast() };
+        self.capacity = new_capacity_bytes / size_of::<T>();
     }
 
     /// Returns the spare capacity of the buffer as a slice of `MaybeUninit<T>`.
@@ -663,29 +720,42 @@ impl<T> BufferMut<T> {
         self.length += n;
     }
 
-    /// Appends a slice of type `T`, growing the internal buffer as needed.
+    /// Appends a slice by copying its elements, growing the internal buffer as needed.
     ///
-    /// # Example:
+    /// This does not call [`Clone::clone`].
+    ///
+    /// # Example
     ///
     /// ```
-    /// # use vortex_buffer::BufferMut;
+    /// use vortex_buffer::BufferMut;
     ///
-    /// let mut builder = BufferMut::<u16>::with_capacity(10);
-    /// builder.extend_from_slice(&[42, 44, 46]);
+    /// let mut buffer = BufferMut::from_iter([1, 2]);
+    /// buffer.extend_from_slice(&[3, 4]);
+    /// assert_eq!(buffer.as_slice(), &[1, 2, 3, 4]);
+    /// ```
     ///
-    /// assert_eq!(builder.len(), 3);
+    /// Elements must implement `Copy`, even when they implement `Clone`.
+    ///
+    /// ```compile_fail,E0277
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// #[derive(Clone)]
+    /// struct NotCopy(u32);
+    ///
+    /// let mut buffer = BufferMut::with_capacity(1);
+    /// buffer.extend_from_slice(&[NotCopy(1)]);
     /// ```
     #[inline]
-    pub fn extend_from_slice(&mut self, slice: &[T]) {
+    pub fn extend_from_slice(&mut self, slice: &[T])
+    where
+        T: Copy,
+    {
         self.reserve(slice.len());
-        // SAFETY: reserve made the destination valid and non-overlapping for slice.len() values.
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                slice.as_ptr(),
-                self.as_mut_ptr().add(self.length),
-                slice.len(),
-            );
-        }
+        let dst = self
+            .spare_capacity_mut()
+            .get_mut(..slice.len())
+            .vortex_expect("reserve guarantees sufficient spare capacity");
+        dst.write_copy_of_slice(slice);
         self.length += slice.len();
     }
 
@@ -711,30 +781,15 @@ impl<T> BufferMut<T> {
         Buffer::from_allocation(self.allocation, offset, self.length, self.alignment)
     }
 
-    /// Map each element of the buffer with a closure.
-    pub fn map_each_in_place<R, F>(self, mut f: F) -> BufferMut<R>
-    where
-        T: Copy,
-        F: FnMut(T) -> R,
-    {
-        assert_eq!(
-            size_of::<T>(),
-            size_of::<R>(),
-            "Size of T and R do not match"
-        );
-        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
-        let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
-        buf.iter_mut()
-            .for_each(|item| *item = f(unsafe { std::mem::transmute_copy(item) }));
-        buf
-    }
-
     /// Return a `BufferMut<T>` with the same data as this one with the given alignment.
     ///
     /// If the data is already properly aligned, this is a metadata-only operation.
     ///
     /// If the data is not aligned, we copy it into a new allocation.
-    pub fn aligned(self, alignment: Alignment) -> Self {
+    pub fn aligned(self, alignment: Alignment) -> Self
+    where
+        T: Copy,
+    {
         if self.as_ptr().align_offset(alignment.as_usize()) == 0 {
             Self { alignment, ..self }
         } else {
@@ -777,7 +832,7 @@ impl<T> BufferMut<T> {
     }
 }
 
-impl<T> Clone for BufferMut<T> {
+impl<T: Copy> Clone for BufferMut<T> {
     fn clone(&self) -> Self {
         let mut buffer = BufferMut::<T>::with_capacity_aligned_in(
             self.capacity(),
@@ -993,11 +1048,53 @@ impl<T> FromIterator<T> for BufferMut<T> {
     }
 }
 
+#[cold]
+#[inline(never)]
+fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
+    vortex_panic!("Alignment {alignment} must align to the scalar type's alignment {scalar_align}")
+}
+
 #[cfg(test)]
-mod test {
+mod tests {
+    use std::cell::Cell;
+
+    use allocator_api2::alloc::Global;
+
     use crate::Alignment;
+    use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::buffer_mut;
+
+    #[derive(Copy, Debug, PartialEq)]
+    struct CopyWithCloneCounter<'a> {
+        value: u32,
+        clones: &'a Cell<usize>,
+    }
+
+    #[allow(clippy::non_canonical_clone_impl)]
+    impl Clone for CopyWithCloneCounter<'_> {
+        fn clone(&self) -> Self {
+            self.clones.set(self.clones.get() + 1);
+            *self
+        }
+    }
+
+    #[test]
+    fn extend_from_slice_skips_clone() {
+        let clones = Cell::new(0);
+        let source = [CopyWithCloneCounter {
+            value: 42,
+            clones: &clones,
+        }];
+        let mut buffer = BufferMut::empty();
+        buffer.extend_from_slice(&source);
+        buffer.extend_from_slice(&source);
+        buffer.extend_from_slice(&[]);
+        assert_eq!(clones.get(), 0);
+        assert_eq!(buffer.as_slice(), &[source[0], source[0]]);
+        assert_eq!(buffer.clone().as_slice(), buffer.as_slice());
+        assert_eq!(clones.get(), 0);
+    }
 
     #[test]
     fn capacity() {
@@ -1012,6 +1109,22 @@ mod test {
         }
 
         assert_eq!(buf.alignment(), Alignment::new(1024));
+    }
+
+    #[test]
+    fn take_preserves_alignment_and_allocator() {
+        let alignment = Alignment::new(1024);
+        let allocator = BufferAllocatorRef::new(Global);
+        let mut buffer = BufferMut::with_capacity_aligned_in(4, alignment, allocator.clone());
+        buffer.extend([1u32, 2, 3]);
+
+        let taken = buffer.take();
+
+        assert_eq!(taken.as_slice(), [1, 2, 3]);
+        assert!(taken.allocator().ptr_eq(&allocator));
+        assert!(buffer.is_empty());
+        assert_eq!(buffer.alignment(), alignment);
+        assert!(buffer.allocator().ptr_eq(&allocator));
     }
 
     #[test]
@@ -1052,6 +1165,29 @@ mod test {
         assert_ne!(buffer.as_ptr(), old_ptr);
         assert_eq!(&buffer[..capacity], vec![7; capacity]);
         assert_eq!(buffer[capacity], u32::MAX);
+    }
+
+    #[test]
+    fn growth_of_sliced_buffer_preserves_allocator_and_values() {
+        let allocator = BufferAllocatorRef::new(Global);
+        let mut buffer = BufferMut::<u32>::with_capacity_preferred_aligned_in(
+            1024,
+            Alignment::of::<u32>(),
+            None,
+            allocator.clone(),
+        );
+        buffer.extend_from_slice(&[7; 1024]);
+        let sliced_ptr = buffer.as_ptr().wrapping_add(1016);
+        let sliced = buffer.freeze().slice(1016..);
+        let mut buffer = sliced.try_into_mut().unwrap();
+        assert_eq!(buffer.as_ptr(), sliced_ptr);
+
+        // The slice retains a large backing allocation, but needs only a small capacity increase.
+        buffer.extend_from_slice(&[8; 16]);
+
+        assert!(buffer.allocator().ptr_eq(&allocator));
+        assert_eq!(&buffer[..8], &[7; 8]);
+        assert_eq!(&buffer[8..], &[8; 16]);
     }
 
     #[test]
@@ -1134,14 +1270,6 @@ mod test {
         // Uses as_mut
         buf.as_mut()[2] = 0;
         assert_eq!(buf.as_slice(), &[0, 0, 0]);
-    }
-
-    #[test]
-    fn map_each() {
-        let buf = buffer_mut![0i32, 1, 2];
-        // Add one, and cast to an unsigned u32 in the same closure
-        let buf = buf.map_each_in_place(|i| (i + 1) as u32);
-        assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
     }
 
     #[test]

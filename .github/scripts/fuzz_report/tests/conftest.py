@@ -2,20 +2,21 @@
 
 import json
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
-def temp_dir():
+def temp_dir() -> Iterator[Path]:
     """Create a temporary directory."""
     with tempfile.TemporaryDirectory() as d:
         yield Path(d)
 
 
 @pytest.fixture
-def sample_log_content():
+def sample_log_content() -> str:
     """Sample fuzzer log content with index out of bounds crash."""
     return """
 Running: cargo +nightly fuzz run file_io
@@ -37,7 +38,7 @@ stack backtrace:
 
 
 @pytest.fixture
-def sample_issues():
+def sample_issues() -> list[dict[str, object]]:
     """Sample existing issues for dedup testing."""
     return [
         {
@@ -56,7 +57,7 @@ def sample_issues():
 
 
 @pytest.fixture
-def issues_file(sample_issues, temp_dir):
+def issues_file(sample_issues, temp_dir) -> Path:
     """Write sample issues to a temporary JSON file."""
     path = temp_dir / "issues.json"
     path.write_text(json.dumps(sample_issues))

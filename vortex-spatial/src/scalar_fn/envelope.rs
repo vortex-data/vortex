@@ -18,12 +18,13 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::expr::Expression;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
+use vortex_array::scalar_fn::ReduceNodeValidity;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
@@ -32,6 +33,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -53,10 +55,10 @@ use crate::scalar_fn::execute::dispatch_unary;
 
 /// Validate the native geometry operand accepted by `envelope`.
 fn validate_envelope_operands(dtypes: &[DType]) -> VortexResult<()> {
-    vortex_ensure!(
-        dtypes.len() == 1,
-        "spatial: envelope requires exactly one geometry operand, got {}",
-        dtypes.len()
+    vortex_ensure_eq!(
+        dtypes.len(),
+        1,
+        "spatial: envelope requires exactly one geometry operand"
     );
     vortex_ensure!(
         is_native_geometry(&dtypes[0]),
@@ -256,10 +258,14 @@ impl ScalarFnVTable for SpatialEnvelope {
         )
     }
 
-    fn validity(&self, _: &Self::Options, _: &Expression) -> VortexResult<Option<Expression>> {
+    fn validity<T: ReduceNode>(
+        &self,
+        _: &Self::Options,
+        _: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
         // The output null mask is not derivable from the operand's validity alone: an empty
         // geometry yields a null box even where the operand is valid. Let the planner execute.
-        Ok(None)
+        Ok(ReduceNodeValidity::Irreducible)
     }
 
     fn is_strict(&self, _: &Self::Options) -> bool {

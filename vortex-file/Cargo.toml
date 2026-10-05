@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex file readers and writers"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -17,7 +15,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -42,7 +39,6 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
@@ -63,6 +59,7 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
@@ -88,9 +85,4 @@ tokio = [
 ]
 wasm-bindgen = ["vortex-layout/wasm-bindgen"]
 zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
-# This feature enables unstable encodings for which we don't guarantee stability.
-unstable_encodings = [
-    "dep:vortex-tensor",
-    "vortex-zstd?/unstable_encodings",
-    "vortex-btrblocks/unstable_encodings",
-]
+tensor = ["dep:vortex-tensor"]

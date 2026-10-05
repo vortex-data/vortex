@@ -8,8 +8,10 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
@@ -18,6 +20,8 @@ use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
 
 impl OperationsVTable<OnPair> for OnPair {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, OnPair>,
         index: usize,
@@ -41,21 +45,24 @@ impl OperationsVTable<OnPair> for OnPair {
             .uncompressed_lengths()
             .execute_scalar(index, ctx)?
             .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("OnPair uncompressed_lengths[{index}] is null"))?;
+            .as_opt::<usize>()
+            .flatten()
+            .ok_or_else(|| {
+                vortex_err!("OnPair uncompressed_lengths[{index}] is null, negative, or too large")
+            })?;
+        // The stored length controls allocation; each code emits 1 to MAX_TOKEN_SIZE bytes.
+        vortex_ensure!(
+            codes.len() <= len && len <= codes.len().saturating_mul(onpair::MAX_TOKEN_SIZE),
+            "OnPair row {index} recorded length {len} is impossible for {} codes",
+            codes.len()
+        );
         let mut buf: Vec<u8> = Vec::with_capacity(len);
         let written =
             match onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut()) {
                 Ok(written) => written,
-                Err(_) => vortex_panic!(
-                    "OnPair row {index} decodes to more bytes than uncompressed_lengths records"
-                ),
+                Err(_) => vortex_bail!("OnPair row {index} exceeds its recorded length"),
             };
-        if written != len {
-            vortex_panic!(
-                "OnPair row {index} decoded to {written} bytes but uncompressed_lengths records {len}"
-            );
-        }
+        vortex_ensure_eq!(written, len, "OnPair row {index} decoded length mismatch");
         // SAFETY: `try_decode_into` initialised exactly `written` bytes.
         unsafe { buf.set_len(written) };
         Ok(varbin_scalar(ByteBuffer::from(buf), array.dtype()))

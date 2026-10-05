@@ -38,6 +38,7 @@ use geoarrow::datatypes::WkbType;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
 use parquet::file::metadata::KeyValue;
 use parquet::file::properties::WriterProperties;
 use tokio::fs::File as TokioFile;
@@ -143,7 +144,7 @@ async fn sort_part(path: &Path, table: Table, geom_col: &str) -> anyhow::Result<
 
     let tmp_path = path.with_extension("parquet.sorttmp");
     let props = WriterProperties::builder()
-        .set_compression(Compression::SNAPPY)
+        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
         .build();
     let mut writer =
         AsyncArrowWriter::try_new(TokioFile::create(&tmp_path).await?, schema, Some(props))?;

@@ -19,10 +19,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::array as fba;
-use vortex_flatbuffers::array::Compression;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -36,6 +32,10 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
+use crate::flatbuffers::FlatBuffer;
+use crate::flatbuffers::WriteFlatBuffer;
+use crate::flatbuffers::array as fba;
+use crate::flatbuffers::array::Compression;
 use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 
@@ -774,6 +774,7 @@ mod tests {
 
     use vortex_buffer::ByteBufferMut;
     use vortex_error::vortex_ensure;
+    use vortex_error::vortex_ensure_eq;
     use vortex_session::registry::CachedId;
 
     use super::*;
@@ -814,10 +815,10 @@ mod tests {
             array: &ArrayRef,
             _session: &VortexSession,
         ) -> VortexResult<Option<ArraySerialization>> {
-            vortex_ensure!(
-                array.encoding_id() == self.id(),
-                "versioned primitive serializer received {}",
+            vortex_ensure_eq!(
                 array.encoding_id(),
+                self.id(),
+                "versioned primitive serializer received a different encoding",
             );
 
             let serialized_id = if array.len() <= 4 {

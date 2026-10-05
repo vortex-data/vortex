@@ -52,21 +52,23 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 const LEN: usize = 4_096;
 
 /// Primitive cases process at least this many rows and this many value bytes per varying input.
-/// This lengthens narrow integer cases while keeping the current CodSpeed simulations below 1 ms.
+///
+/// The primitive cases run on the walltime legs, where short iterations are noisy: at 96 KiB per
+/// input the `u32` multiply took under 6 µs and flipped by 12% between runs of identical code.
+/// 256 KiB per input makes every iteration several times longer while two inputs and the output
+/// still fit in a 1 MiB L2 cache.
 const MIN_PRIMITIVE_LEN: usize = 16_384;
-const MIN_PRIMITIVE_INPUT_BYTES: usize = 96 * 1_024;
+const MIN_PRIMITIVE_INPUT_BYTES: usize = 256 * 1_024;
 
 const I8_LEN: usize = primitive_len::<i8>();
 const I16_LEN: usize = primitive_len::<i16>();
 const I32_LEN: usize = primitive_len::<i32>();
 const I64_LEN: usize = primitive_len::<i64>();
 
-/// Per-row against per-row, short and long. This is the shape the operators are tuned for, so it
-/// is the one every operator is measured on.
-const BINARY_SHAPE_CASES: &[(usize, BinaryShape)] = &[
-    (128, BinaryShape::PerRowPerRow),
-    (I64_LEN, BinaryShape::PerRowPerRow),
-];
+/// Per-row against per-row at the long length. This is the shape the operators are tuned for, so
+/// it is the one every operator is measured on. A 128-row case used to sit alongside it, but at
+/// about 2 µs per iteration its walltime moved by up to 95% between runs of identical code.
+const BINARY_SHAPE_CASES: &[(usize, BinaryShape)] = &[(I64_LEN, BinaryShape::PerRowPerRow)];
 
 /// Constant operands are measured on `Add` alone, at the long length.
 ///

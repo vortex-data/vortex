@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![cfg(feature = "unstable_encodings")]
-
 //! String-compression benchmarks for Vortex.
 //!
 //! Two intentionally separate suites:

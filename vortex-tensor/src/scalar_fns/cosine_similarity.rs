@@ -6,37 +6,32 @@
 //! [`CosineSimilarity`] derives each result from the decoded input coordinates and preserves the
 //! established floating-point operation order.
 
-use num_traits::Zero;
+use num_traits::Float;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
-use vortex_array::expr::union_child_validities;
+use vortex_array::dtype::NativePType;
 use vortex_array::match_each_float_ptype;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::unstable::row::InitializedElement;
+use vortex_array::scalar_fn::unstable::row::RowFn;
+use vortex_array::scalar_fn::unstable::row::RowVisitor;
+use vortex_array::scalar_fn::unstable::row::UninitElementSink;
 use vortex_array::serde::ArrayChildren;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::scalar_fns::inner_product::InnerProduct;
-use crate::scalar_fns::l2_norm::L2Norm;
+use crate::scalar_fns::arithmetic::inner_product_row;
+use crate::scalar_fns::arithmetic::l2_norm_row;
+use crate::scalar_fns::row::TensorRow;
+use crate::scalar_fns::row::tensor_element_ptype;
 use crate::utils::BinaryTensorOpMetadata;
-use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Cosine similarity between two columns.
 ///
@@ -62,98 +57,44 @@ impl CosineSimilarity {
     }
 }
 
-impl ScalarFnVTable for CosineSimilarity {
+impl RowFn for CosineSimilarity {
     type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.tensor.cosine_similarity");
         *ID
     }
 
-    fn arity(&self, _options: &Self::Options) -> Arity {
-        Arity::Exact(2)
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
-    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
-        match child_idx {
-            0 => ChildName::from("lhs"),
-            1 => ChildName::from("rhs"),
-            _ => unreachable!("CosineSimilarity must have exactly two children"),
-        }
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        let lhs = &arg_dtypes[0];
-        let rhs = &arg_dtypes[1];
-
-        let tensor_match = validate_binary_tensor_float_inputs(lhs, rhs)?;
-        let ptype = tensor_match.element_ptype();
-        let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
-        Ok(DType::Primitive(ptype, nullability))
-    }
-
-    fn execute(
+    fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
-        args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let lhs_ref = args.get(0)?;
-        let rhs_ref = args.get(1)?;
-        let len = args.row_count();
-
-        // Compute combined validity.
-        let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
-
-        // Compute inner product and norms as columnar operations, and propagate the options.
-        let norm_lhs_arr = L2Norm::try_new(lhs_ref.clone())?;
-        let norm_rhs_arr = L2Norm::try_new(rhs_ref.clone())?;
-        let dot_arr = InnerProduct::try_new(lhs_ref, rhs_ref)?;
-
-        // Execute to get the inner product and norms of the arrays. We only fully decompress
-        // because we need to perform special logic (guard against 0) during division.
-        let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
-        let norm_l: PrimitiveArray = norm_lhs_arr.into_array().execute(ctx)?;
-        let norm_r: PrimitiveArray = norm_rhs_arr.into_array().execute(ctx)?;
-
-        // TODO(connor): Ideally we would have a `SafeDiv` binary numeric operation.
-        // TODO(connor): This can be written in a more SIMD-friendly manner.
-        match_each_float_ptype!(dot.ptype(), |T| {
-            let dots = dot.as_slice::<T>();
-            let norms_l = norm_l.as_slice::<T>();
-            let norms_r = norm_r.as_slice::<T>();
-            let buffer: Buffer<T> = (0..len)
-                .map(|i| {
-                    let denom = norms_l[i] * norms_r[i];
-
-                    if denom == T::zero() {
-                        T::zero()
-                    } else {
-                        dots[i] / denom
-                    }
-                })
-                .collect();
-
-            // SAFETY: The buffer length equals `len`, which matches the source validity length.
-            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
+        args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        match_each_float_ptype!(tensor_element_ptype(args)?, |T| {
+            visitor.visit_into::<(TensorRow<T>, TensorRow<T>), UninitElementSink<T>, _>(
+                (),
+                |(lhs, rhs), output| {
+                    // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
+                    unsafe { InitializedElement::write(output, cosine_similarity_row(lhs, rhs)) }
+                },
+            )
         })
-    }
-
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        // The result is null if either input tensor is null.
-        union_child_validities(expression)
-    }
-
-    fn is_strict(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
-    fn is_infallible(&self, _options: &Self::Options) -> bool {
-        true
     }
 }
 
@@ -183,6 +124,19 @@ impl ScalarFnArrayVTable for CosineSimilarity {
     }
 }
 
+/// Computes `dot(lhs, rhs) / (||lhs|| * ||rhs||)` using the scalar functions' established
+/// arithmetic order. A zero denominator produces `0.0`.
+fn cosine_similarity_row<T: Float + NativePType>(lhs: &[T], rhs: &[T]) -> T {
+    let dot = inner_product_row(lhs, rhs);
+    let denominator = l2_norm_row(lhs) * l2_norm_row(rhs);
+
+    if denominator == T::zero() {
+        T::zero()
+    } else {
+        dot / denominator
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -194,6 +148,7 @@ mod tests {
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+    use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
@@ -202,15 +157,81 @@ mod tests {
     use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
+    use crate::utils::test_helpers::literal_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
+    use crate::utils::test_helpers::zero_width_vector_array;
 
-    /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
-    fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<Vec<f64>> {
+    fn evaluate_cosine_similarity<T: NativePType>(
+        lhs: ArrayRef,
+        rhs: ArrayRef,
+    ) -> VortexResult<Vec<T>> {
         let result = CosineSimilarity::try_new(lhs, rhs)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
-        Ok(prim.as_slice::<f64>().to_vec())
+        let output: PrimitiveArray = result.into_array().execute(&mut ctx)?;
+
+        Ok(output.as_slice::<T>().to_vec())
+    }
+
+    #[test]
+    fn test_zero_width_and_empty_inputs() -> VortexResult<()> {
+        let lhs = zero_width_vector_array::<f64>(3)?;
+        let rhs = zero_width_vector_array::<f64>(3)?;
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[0.0, 0.0, 0.0]);
+
+        let lhs = vector_array::<f64>(2, &[])?;
+        let rhs = vector_array::<f64>(2, &[])?;
+        assert!(evaluate_cosine_similarity::<f64>(lhs, rhs)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ieee_edges_follow_direct_arithmetic() -> VortexResult<()> {
+        let overflow = vector_array(2, &[f32::MAX, 1.0])?;
+        let overflow_result = evaluate_cosine_similarity::<f32>(overflow.clone(), overflow)?;
+        assert!(overflow_result[0].is_nan());
+
+        let underflow = vector_array(2, &[f32::MIN_POSITIVE, f32::MIN_POSITIVE])?;
+        let underflow_result = evaluate_cosine_similarity::<f32>(underflow.clone(), underflow)?;
+        assert_eq!(underflow_result[0].to_bits(), 0.0f32.to_bits());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_encoded_constants_match_materialized_rows_bitwise() -> VortexResult<()> {
+        let lhs_row = [1.0e10f32, 1.0, -1.0e10];
+        let rhs_row = [1.0f32, 2.0, 3.0];
+        let materialized_lhs = vector_array(3, &[lhs_row, lhs_row, lhs_row].concat())?;
+        let materialized_rhs = vector_array(3, &[rhs_row, rhs_row, rhs_row].concat())?;
+        let expected: Vec<_> =
+            evaluate_cosine_similarity::<f32>(materialized_lhs.clone(), materialized_rhs.clone())?
+                .into_iter()
+                .map(f32::to_bits)
+                .collect();
+
+        let cases = [
+            (
+                Vector::constant_array(&lhs_row, 3)?,
+                materialized_rhs.clone(),
+            ),
+            (literal_vector_array(&lhs_row, 3), materialized_rhs),
+            (
+                materialized_lhs.clone(),
+                Vector::constant_array(&rhs_row, 3)?,
+            ),
+            (materialized_lhs, literal_vector_array(&rhs_row, 3)),
+        ];
+        for (lhs, rhs) in cases {
+            let actual: Vec<_> = evaluate_cosine_similarity::<f32>(lhs, rhs)?
+                .into_iter()
+                .map(f32::to_bits)
+                .collect();
+            assert_eq!(actual, expected);
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -231,7 +252,7 @@ mod tests {
         )?;
 
         // Row 0: identical -> 1.0, row 1: orthogonal -> 0.0.
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, &[1.0, 0.0]);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[1.0, 0.0]);
         Ok(())
     }
 
@@ -251,7 +272,7 @@ mod tests {
     ) -> VortexResult<()> {
         let lhs = tensor_array(shape, lhs_elems)?;
         let rhs = tensor_array(shape, rhs_elems)?;
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, expected);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, expected);
         Ok(())
     }
 
@@ -270,7 +291,7 @@ mod tests {
     fn self_similarity(#[case] shape: &[usize], #[case] elements: &[f64]) -> VortexResult<()> {
         let lhs = tensor_array(shape, elements)?;
         let rhs = tensor_array(shape, elements)?;
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, &[1.0]);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[1.0]);
         Ok(())
     }
 
@@ -281,7 +302,7 @@ mod tests {
         let rhs = tensor_array(&[], &[5.0, -3.0])?;
 
         // Same sign -> 1.0, opposite sign -> -1.0.
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, &[1.0, -1.0]);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[1.0, -1.0]);
         Ok(())
     }
 
@@ -301,7 +322,7 @@ mod tests {
         let rhs = lhs.clone();
 
         assert_close(
-            &eval_cosine_similarity(lhs, rhs)?,
+            &evaluate_cosine_similarity(lhs, rhs)?,
             &[1.0, 1.0, 1.0, 1.0, 1.0],
         );
         Ok(())
@@ -321,7 +342,10 @@ mod tests {
         )?;
         let query = constant_tensor_array(&[3], &[1.0, 0.0, 0.0], 4)?;
 
-        assert_close(&eval_cosine_similarity(data, query)?, &[1.0, 0.0, 0.0, 1.0]);
+        assert_close(
+            &evaluate_cosine_similarity(data, query)?,
+            &[1.0, 0.0, 0.0, 1.0],
+        );
         Ok(())
     }
 
@@ -343,7 +367,7 @@ mod tests {
         )?;
 
         // Row 0: identical -> 1.0, row 1: orthogonal -> 0.0.
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, &[1.0, 0.0]);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[1.0, 0.0]);
         Ok(())
     }
 
@@ -360,7 +384,10 @@ mod tests {
         )?;
         let query = Vector::constant_array(&[1.0, 0.0, 0.0], 4)?;
 
-        assert_close(&eval_cosine_similarity(data, query)?, &[1.0, 0.0, 0.0, 1.0]);
+        assert_close(
+            &evaluate_cosine_similarity(data, query)?,
+            &[1.0, 0.0, 0.0, 1.0],
+        );
         Ok(())
     }
 
@@ -397,7 +424,7 @@ mod tests {
             ],
         )?;
         assert_close(
-            &eval_cosine_similarity(lhs, rhs)?,
+            &evaluate_cosine_similarity(lhs, rhs)?,
             &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
         );
         Ok(())
@@ -417,7 +444,7 @@ mod tests {
         )?;
         let rhs = constant_tensor_array(&[3], &[1.0, 2.0, 2.0], 4)?;
         assert_close(
-            &eval_cosine_similarity(lhs, rhs)?,
+            &evaluate_cosine_similarity(lhs, rhs)?,
             &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
         );
         Ok(())
@@ -430,7 +457,7 @@ mod tests {
         let rhs = constant_tensor_array(&[3], &[1.0, 1.0, 0.0], 3)?;
         let expected = 1.0 / 2.0_f64.sqrt();
         assert_close(
-            &eval_cosine_similarity(lhs, rhs)?,
+            &evaluate_cosine_similarity(lhs, rhs)?,
             &[expected, expected, expected],
         );
         Ok(())
@@ -448,7 +475,7 @@ mod tests {
                 7.0, 8.0, 9.0, //
             ],
         )?;
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, &[0.0, 0.0, 0.0]);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[0.0, 0.0, 0.0]);
         Ok(())
     }
 
@@ -457,7 +484,7 @@ mod tests {
         // A non-unit constant query compared to itself must produce `1.0`.
         let lhs = constant_tensor_array(&[3], &[3.0, 4.0, 0.0], 5)?;
         let rhs = constant_tensor_array(&[3], &[3.0, 4.0, 0.0], 5)?;
-        assert_close(&eval_cosine_similarity(lhs, rhs)?, &[1.0; 5]);
+        assert_close(&evaluate_cosine_similarity(lhs, rhs)?, &[1.0; 5]);
         Ok(())
     }
 
@@ -475,7 +502,7 @@ mod tests {
             ],
         )?;
         assert_close(
-            &eval_cosine_similarity(lhs, rhs)?,
+            &evaluate_cosine_similarity(lhs, rhs)?,
             &[1.0 / 3.0, 1.0, 2.0 / 3.0, 8.0 / 9.0],
         );
         Ok(())

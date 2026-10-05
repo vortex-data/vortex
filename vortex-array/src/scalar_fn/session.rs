@@ -19,6 +19,7 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_nan::IsNan;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
@@ -70,6 +71,7 @@ impl Default for ScalarFnSession {
         this.register(ExtStorage);
         this.register(FillNull);
         this.register(GetItem);
+        this.register(IsNan);
         this.register(IsNotNull);
         this.register(IsNull);
         this.register(Like);

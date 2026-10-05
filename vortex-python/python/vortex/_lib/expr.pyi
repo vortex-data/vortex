@@ -18,9 +18,9 @@ VariantPath: TypeAlias = str | int | Sequence[str | int]
 @final
 class Expr:
     @override
-    def __eq__(self, other: IntoExpr) -> Expr: ...  # pyright: ignore[reportIncompatibleMethodOverride]
+    def __eq__(self, other: IntoExpr) -> Expr: ...  # ty: ignore[invalid-method-override]
     @override
-    def __ne__(self, other: IntoExpr) -> Expr: ...  # pyright: ignore[reportIncompatibleMethodOverride]
+    def __ne__(self, other: IntoExpr) -> Expr: ...  # ty: ignore[invalid-method-override]
     def __lt__(self, other: IntoExpr) -> Expr: ...
     def __le__(self, other: IntoExpr) -> Expr: ...
     def __gt__(self, other: IntoExpr) -> Expr: ...

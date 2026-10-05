@@ -15,6 +15,7 @@ pub(super) use owned::execute_owned_infallible_valid_rows;
 pub(super) use owned::execute_owned_valid_rows;
 
 mod packed_bool;
+pub(super) use packed_bool::execute_bool_dense_attempt;
 pub(super) use packed_bool::execute_owned_bool;
 pub(super) use packed_bool::execute_owned_infallible_bool;
 
@@ -26,3 +27,6 @@ mod sink;
 pub(super) use sink::execute_sink;
 pub(super) use sink::execute_sink_filtered;
 pub(super) use sink::execute_sink_valid_rows;
+
+#[cfg(test)]
+mod tests;

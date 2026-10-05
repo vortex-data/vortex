@@ -36,7 +36,6 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::stats::expr::bound::stat as bound_stat;
-use vortex_array::stats::rewrite::StatsRewriteCtx;
 use vortex_array::stats::rewrite::StatsRewriteRule;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -160,10 +159,10 @@ impl ScalarFnVTable for BloomContains {
             // over `BinaryView::MAX_INLINED_SIZE` to spot changes. I'm keeping it this way just to
             // keep this function "robust" for now.
             let bytes = if view.is_inlined() {
-                view.as_inlined().value()
+                Buffer::copy_from(view.as_inlined().value())
             } else {
                 let view_ref = view.as_view();
-                &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+                buffers[view_ref.buffer_index as usize].slice(view_ref.as_range())
             };
 
             // One possible performance optimization here would be to hash the needle and
@@ -181,8 +180,7 @@ impl ScalarFnVTable for BloomContains {
                 // Bloom filter length is never larger than a `u32`. This is intentional
                 // and a property of the implementation.
                 u32::try_from(partial.len()).vortex_expect("valid u32 size"),
-                options.blocks_count().get(),
-                "expected equal blocks count"
+                options.blocks_count().get()
             );
             partial.contains_scalar(&needle)
         };
@@ -249,7 +247,7 @@ impl StatsRewriteRule for BloomEqRewrite {
     fn falsify(
         &self,
         expr: &BoundExpression,
-        ctx: &StatsRewriteCtx<'_>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         if *expr.as_::<Binary>() != Operator::Eq {
             return Ok(None);
@@ -267,7 +265,7 @@ impl StatsRewriteRule for BloomEqRewrite {
 
         // Nulls are not stored in Bloom filters, so it is not possible to determine
         // if it is present or not, so the answer is inconclusive.
-        if !is_bloom_valid_dtype(&ctx.return_dtype(column)?) || literal.as_::<Literal>().is_null() {
+        if !is_bloom_valid_dtype(column.dtype()) || literal.as_::<Literal>().is_null() {
             return Ok(None);
         }
 
@@ -308,7 +306,6 @@ mod tests {
     use vortex_array::scalar_fn::VecExecutionArgs;
     use vortex_array::scalar_fn::session::ScalarFnSessionExt;
     use vortex_array::stats::StatsSessionExt;
-    use vortex_array::stats::rewrite::StatsRewriteCtx;
     use vortex_array::stats::rewrite::StatsRewriteRule;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
@@ -332,7 +329,7 @@ mod tests {
         for value in values {
             partial.insert_scalar(value)?;
         }
-        Ok(partial.serialize())
+        Ok(partial.serialize().as_slice().to_vec())
     }
 
     #[test]
@@ -377,16 +374,15 @@ mod tests {
     fn bloom_rule_is_inconclusive_for_nulls() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         let session = array_session();
-        let ctx = StatsRewriteCtx::new(&session);
         let rule = BloomEqRewrite {
             options: BloomOptions::default(),
         };
 
         let non_literal = eq(root(dtype.clone()), root(dtype.clone()));
-        assert!(rule.falsify(&non_literal, &ctx)?.is_none());
+        assert!(rule.falsify(&non_literal, &session)?.is_none());
 
         let null_literal = eq(root(dtype.clone()), lit(Scalar::null(dtype)));
-        assert!(rule.falsify(&null_literal, &ctx)?.is_none());
+        assert!(rule.falsify(&null_literal, &session)?.is_none());
         Ok(())
     }
 
@@ -450,7 +446,7 @@ mod tests {
             .execute(&options, &args, &mut ctx)
             .expect_err("the Bloom filter block count should not match the options");
         assert!(
-            error.to_string().contains("expected equal blocks count"),
+            error.to_string().contains("options.blocks_count().get()"),
             "unexpected error: {error}"
         );
     }

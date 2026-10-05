@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH inv AS
+  (SELECT w_warehouse_name,
+          w_warehouse_sk,
+          i_item_sk,
+          d_moy,
+          stdev,
+          mean,
+          CASE mean
+              WHEN 0 THEN NULL
+              ELSE stdev/mean
+          END cov
+   FROM
+     (SELECT w_warehouse_name,
+             w_warehouse_sk,
+             i_item_sk,
+             d_moy,
+             stddev_samp(inv_quantity_on_hand)*1.000 stdev,
+             avg(inv_quantity_on_hand) mean
+      FROM inventory,
+           item,
+           warehouse,
+           date_dim
+      WHERE inv_item_sk = i_item_sk
+        AND inv_warehouse_sk = w_warehouse_sk
+        AND inv_date_sk = d_date_sk
+        AND d_year =2001
+      GROUP BY w_warehouse_name,
+               w_warehouse_sk,
+               i_item_sk,
+               d_moy) foo
+   WHERE CASE mean
+             WHEN 0 THEN 0
+             ELSE stdev/mean
+         END > 1)
+SELECT inv1.w_warehouse_sk wsk1,
+       inv1.i_item_sk isk1,
+       inv1.d_moy dmoy1,
+       inv1.mean mean1,
+       inv1.cov cov1,
+       inv2.w_warehouse_sk,
+       inv2.i_item_sk,
+       inv2.d_moy,
+       inv2.mean,
+       inv2.cov
+FROM inv inv1,
+     inv inv2
+WHERE inv1.i_item_sk = inv2.i_item_sk
+  AND inv1.w_warehouse_sk = inv2.w_warehouse_sk
+  AND inv1.d_moy=1
+  AND inv2.d_moy=1+1
+ORDER BY inv1.w_warehouse_sk NULLS FIRST,
+         inv1.i_item_sk NULLS FIRST,
+         inv1.d_moy NULLS FIRST,
+         inv1.mean NULLS FIRST,
+         inv1.cov NULLS FIRST,
+         inv2.d_moy NULLS FIRST,
+         inv2.mean NULLS FIRST,
+         inv2.cov NULLS FIRST;
+----
+logical_plan
+01)Sort: wsk1 ASC NULLS FIRST, isk1 ASC NULLS FIRST, dmoy1 ASC NULLS FIRST, mean1 ASC NULLS FIRST, cov1 ASC NULLS FIRST, inv2.d_moy ASC NULLS FIRST, inv2.mean ASC NULLS FIRST, inv2.cov ASC NULLS FIRST
+02)--Projection: inv1.w_warehouse_sk AS wsk1, inv1.i_item_sk AS isk1, inv1.d_moy AS dmoy1, inv1.mean AS mean1, inv1.cov AS cov1, inv2.w_warehouse_sk, inv2.i_item_sk, inv2.d_moy, inv2.mean, inv2.cov
+03)----Inner Join: inv1.i_item_sk = inv2.i_item_sk, inv1.w_warehouse_sk = inv2.w_warehouse_sk
+04)------SubqueryAlias: inv1
+05)--------SubqueryAlias: inv
+06)----------Projection: foo.w_warehouse_sk, foo.i_item_sk, foo.d_moy, foo.mean, CASE foo.mean WHEN Float64(0) THEN Float64(NULL) ELSE foo.stdev / foo.mean END AS cov
+07)------------SubqueryAlias: foo
+08)--------------Projection: warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy, stddev(inventory.inv_quantity_on_hand) AS stdev, avg(inventory.inv_quantity_on_hand) AS mean
+09)----------------Filter: CASE avg(inventory.inv_quantity_on_hand) WHEN Float64(0) THEN Float64(0) ELSE stddev(inventory.inv_quantity_on_hand) / avg(inventory.inv_quantity_on_hand) END > Float64(1)
+10)------------------Projection: warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy, stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)
+11)--------------------Aggregate: groupBy=[[warehouse.w_warehouse_name, warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy]], aggr=[[stddev(__common_expr_1 AS inventory.inv_quantity_on_hand), avg(__common_expr_1 AS inventory.inv_quantity_on_hand)]]
+12)----------------------Projection: CAST(inventory.inv_quantity_on_hand AS Float64) AS __common_expr_1, item.i_item_sk, warehouse.w_warehouse_sk, warehouse.w_warehouse_name, date_dim.d_moy
+13)------------------------Inner Join: inventory.inv_date_sk = date_dim.d_date_sk
+14)--------------------------Projection: inventory.inv_date_sk, inventory.inv_quantity_on_hand, item.i_item_sk, warehouse.w_warehouse_sk, warehouse.w_warehouse_name
+15)----------------------------Inner Join: inventory.inv_warehouse_sk = warehouse.w_warehouse_sk
+16)------------------------------Projection: inventory.inv_date_sk, inventory.inv_warehouse_sk, inventory.inv_quantity_on_hand, item.i_item_sk
+17)--------------------------------Inner Join: inventory.inv_item_sk = item.i_item_sk
+18)----------------------------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand]
+19)----------------------------------TableScan: item projection=[i_item_sk]
+20)------------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
+21)--------------------------Projection: date_dim.d_date_sk, date_dim.d_moy
+22)----------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(1)
+23)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(1)]
+24)------SubqueryAlias: inv2
+25)--------SubqueryAlias: inv
+26)----------Projection: foo.w_warehouse_sk, foo.i_item_sk, foo.d_moy, foo.mean, CASE foo.mean WHEN Float64(0) THEN Float64(NULL) ELSE foo.stdev / foo.mean END AS cov
+27)------------SubqueryAlias: foo
+28)--------------Projection: warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy, stddev(inventory.inv_quantity_on_hand) AS stdev, avg(inventory.inv_quantity_on_hand) AS mean
+29)----------------Filter: CASE avg(inventory.inv_quantity_on_hand) WHEN Float64(0) THEN Float64(0) ELSE stddev(inventory.inv_quantity_on_hand) / avg(inventory.inv_quantity_on_hand) END > Float64(1)
+30)------------------Projection: warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy, stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)
+31)--------------------Aggregate: groupBy=[[warehouse.w_warehouse_name, warehouse.w_warehouse_sk, item.i_item_sk, date_dim.d_moy]], aggr=[[stddev(__common_expr_2 AS inventory.inv_quantity_on_hand), avg(__common_expr_2 AS inventory.inv_quantity_on_hand)]]
+32)----------------------Projection: CAST(inventory.inv_quantity_on_hand AS Float64) AS __common_expr_2, item.i_item_sk, warehouse.w_warehouse_sk, warehouse.w_warehouse_name, date_dim.d_moy
+33)------------------------Inner Join: inventory.inv_date_sk = date_dim.d_date_sk
+34)--------------------------Projection: inventory.inv_date_sk, inventory.inv_quantity_on_hand, item.i_item_sk, warehouse.w_warehouse_sk, warehouse.w_warehouse_name
+35)----------------------------Inner Join: inventory.inv_warehouse_sk = warehouse.w_warehouse_sk
+36)------------------------------Projection: inventory.inv_date_sk, inventory.inv_warehouse_sk, inventory.inv_quantity_on_hand, item.i_item_sk
+37)--------------------------------Inner Join: inventory.inv_item_sk = item.i_item_sk
+38)----------------------------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand]
+39)----------------------------------TableScan: item projection=[i_item_sk]
+40)------------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
+41)--------------------------Projection: date_dim.d_date_sk, date_dim.d_moy
+42)----------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(2)
+43)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(2)]
+physical_plan
+01)SortPreservingMergeExec: [wsk1@0 ASC, isk1@1 ASC, dmoy1@2 ASC, mean1@3 ASC, cov1@4 ASC, d_moy@7 ASC, mean@8 ASC, cov@9 ASC]
+02)--ProjectionExec: expr=[w_warehouse_sk@0 as wsk1, i_item_sk@1 as isk1, d_moy@2 as dmoy1, mean@3 as mean1, cov@4 as cov1, w_warehouse_sk@5 as w_warehouse_sk, i_item_sk@6 as i_item_sk, d_moy@7 as d_moy, mean@8 as mean, cov@9 as cov]
+03)----SortExec: expr=[w_warehouse_sk@0 ASC, i_item_sk@1 ASC, mean@3 ASC, cov@4 ASC, mean@8 ASC, cov@9 ASC], preserve_partitioning=[true]
+04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@1, i_item_sk@1), (w_warehouse_sk@0, w_warehouse_sk@0)]
+05)--------CoalescePartitionsExec
+06)----------ProjectionExec: expr=[w_warehouse_sk@0 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@2 as d_moy, avg(inventory.inv_quantity_on_hand)@4 as mean, CASE avg(inventory.inv_quantity_on_hand)@4 WHEN 0 THEN NULL ELSE stddev(inventory.inv_quantity_on_hand)@3 / avg(inventory.inv_quantity_on_hand)@4 END as cov]
+07)------------FilterExec: CASE avg(inventory.inv_quantity_on_hand)@4 WHEN 0 THEN 0 ELSE stddev(inventory.inv_quantity_on_hand)@3 / avg(inventory.inv_quantity_on_hand)@4 END > 1
+08)--------------ProjectionExec: expr=[w_warehouse_sk@1 as w_warehouse_sk, i_item_sk@2 as i_item_sk, d_moy@3 as d_moy, stddev(inventory.inv_quantity_on_hand)@4 as stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)@5 as avg(inventory.inv_quantity_on_hand)]
+09)----------------AggregateExec: mode=FinalPartitioned, gby=[w_warehouse_name@0 as w_warehouse_name, w_warehouse_sk@1 as w_warehouse_sk, i_item_sk@2 as i_item_sk, d_moy@3 as d_moy], aggr=[stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)], ordering_mode=PartiallySorted([3])
+10)------------------RepartitionExec: partitioning=Hash([w_warehouse_name@0, w_warehouse_sk@1, i_item_sk@2, d_moy@3], 4), input_partitions=4
+11)--------------------AggregateExec: mode=Partial, gby=[w_warehouse_name@3 as w_warehouse_name, w_warehouse_sk@2 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@4 as d_moy], aggr=[stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)], ordering_mode=PartiallySorted([3])
+12)----------------------ProjectionExec: expr=[CAST(inv_quantity_on_hand@0 AS Float64) as __common_expr_1, i_item_sk@1 as i_item_sk, w_warehouse_sk@2 as w_warehouse_sk, w_warehouse_name@3 as w_warehouse_name, d_moy@4 as d_moy]
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@0)], projection=[inv_quantity_on_hand@3, i_item_sk@4, w_warehouse_sk@5, w_warehouse_name@6, d_moy@1]
+14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 1
+15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, inv_warehouse_sk@1)], projection=[inv_date_sk@2, inv_quantity_on_hand@4, i_item_sk@5, w_warehouse_sk@0, w_warehouse_name@1]
+16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_warehouse_name], file_type=vortex
+17)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@1)], projection=[inv_date_sk@1, inv_warehouse_sk@3, inv_quantity_on_hand@4, i_item_sk@0]
+18)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex
+19)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+20)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], file_type=vortex
+21)--------ProjectionExec: expr=[w_warehouse_sk@0 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@2 as d_moy, avg(inventory.inv_quantity_on_hand)@4 as mean, CASE avg(inventory.inv_quantity_on_hand)@4 WHEN 0 THEN NULL ELSE stddev(inventory.inv_quantity_on_hand)@3 / avg(inventory.inv_quantity_on_hand)@4 END as cov]
+22)----------FilterExec: CASE avg(inventory.inv_quantity_on_hand)@4 WHEN 0 THEN 0 ELSE stddev(inventory.inv_quantity_on_hand)@3 / avg(inventory.inv_quantity_on_hand)@4 END > 1
+23)------------ProjectionExec: expr=[w_warehouse_sk@1 as w_warehouse_sk, i_item_sk@2 as i_item_sk, d_moy@3 as d_moy, stddev(inventory.inv_quantity_on_hand)@4 as stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)@5 as avg(inventory.inv_quantity_on_hand)]
+24)--------------AggregateExec: mode=FinalPartitioned, gby=[w_warehouse_name@0 as w_warehouse_name, w_warehouse_sk@1 as w_warehouse_sk, i_item_sk@2 as i_item_sk, d_moy@3 as d_moy], aggr=[stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)], ordering_mode=PartiallySorted([3])
+25)----------------RepartitionExec: partitioning=Hash([w_warehouse_name@0, w_warehouse_sk@1, i_item_sk@2, d_moy@3], 4), input_partitions=4
+26)------------------AggregateExec: mode=Partial, gby=[w_warehouse_name@3 as w_warehouse_name, w_warehouse_sk@2 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@4 as d_moy], aggr=[stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)], ordering_mode=PartiallySorted([3])
+27)--------------------ProjectionExec: expr=[CAST(inv_quantity_on_hand@0 AS Float64) as __common_expr_2, i_item_sk@1 as i_item_sk, w_warehouse_sk@2 as w_warehouse_sk, w_warehouse_name@3 as w_warehouse_name, d_moy@4 as d_moy]
+28)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@0)], projection=[inv_quantity_on_hand@3, i_item_sk@4, w_warehouse_sk@5, w_warehouse_name@6, d_moy@1]
+29)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 2
+30)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, inv_warehouse_sk@1)], projection=[inv_date_sk@2, inv_quantity_on_hand@4, i_item_sk@5, w_warehouse_sk@0, w_warehouse_name@1]
+31)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_warehouse_name], file_type=vortex
+32)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@1)], projection=[inv_date_sk@1, inv_warehouse_sk@3, inv_quantity_on_hand@4, i_item_sk@0]
+33)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex
+34)----------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+35)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], file_type=vortex

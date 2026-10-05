@@ -249,7 +249,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .into_array()
                     };
 
-                    let compressed = BtrBlocksCompressor::default()
+                    let compressed = BtrBlocksCompressor::from_session(&SESSION)
                         .compress(&indices_array, &mut ctx)
                         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
                     (
@@ -519,7 +519,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 })
         }
         DType::Map(..) => [Compress, Slice, Take, Filter, Mask, ScalarAt].into(),
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {
@@ -561,10 +561,10 @@ pub fn compress_array(
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     match strategy {
-        CompressorStrategy::Default => BtrBlocksCompressor::default()
+        CompressorStrategy::Default => BtrBlocksCompressor::from_session(ctx.session())
             .compress(array, ctx)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
+        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::from_session(ctx.session())
             .with_compact()
             .build()
             .compress(array, ctx)
@@ -579,7 +579,7 @@ pub fn compress_array(
     _strategy: CompressorStrategy,
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
-    BtrBlocksCompressor::default()
+    BtrBlocksCompressor::from_session(ctx.session())
         .compress(array, ctx)
         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
 }

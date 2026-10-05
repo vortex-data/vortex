@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Native comparison of primitive arrays via bit-packing lane kernels.
+//! Native comparison of primitive arrays with specialized bitmap packing for 8-bit inputs.
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
+use vortex_buffer::collect_bool_word;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -18,6 +21,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::compare::bit_buffer_from_words;
 use crate::scalar_fn::fns::binary::compare::collect_bits;
 use crate::scalar_fn::fns::binary::compare::collect_zip_bits;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
@@ -65,22 +69,22 @@ fn compare_primitive_typed<T: NativePType>(
         (
             PrimitiveOperand::Array { values: lhs, .. },
             PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slices(lhs, rhs, op),
+        ) => compare_slices(lhs, rhs, op, ctx.allocator()),
         (
             PrimitiveOperand::Array { values: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
-        ) => compare_slice_constant(lhs, *rhs, op),
+        ) => compare_slice_constant(lhs, *rhs, op, ctx.allocator()),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slice_constant(rhs, *lhs, op.swap()),
+        ) => compare_slice_constant(rhs, *lhs, op.swap(), ctx.allocator()),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
         ) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
             // cheap to answer anyway.
-            BitBuffer::full(apply_op(*lhs, *rhs, op), len)
+            BitBuffer::full_in(apply_op(*lhs, *rhs, op), len, ctx.allocator().clone())
         }
         (PrimitiveOperand::Null(_), _) | (_, PrimitiveOperand::Null(_)) => {
             return Ok(
@@ -106,26 +110,104 @@ fn apply_op<T: NativePType>(lhs: T, rhs: T, op: CompareOperator) -> bool {
     }
 }
 
-fn compare_slices<T: NativePType>(lhs: &[T], rhs: &[T], op: CompareOperator) -> BitBuffer {
+fn compare_slices<T: NativePType>(
+    lhs: &[T],
+    rhs: &[T],
+    op: CompareOperator,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
     // Dispatch the operator outside the lane loop so each instantiation vectorizes a single
     // branch-free predicate.
     match op {
-        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a.is_eq(b)),
-        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| !a.is_eq(b)),
-        CompareOperator::Gt => collect_zip_bits(lhs, rhs, T::is_gt),
-        CompareOperator::Gte => collect_zip_bits(lhs, rhs, T::is_ge),
-        CompareOperator::Lt => collect_zip_bits(lhs, rhs, T::is_lt),
-        CompareOperator::Lte => collect_zip_bits(lhs, rhs, T::is_le),
+        CompareOperator::Eq => {
+            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| a.is_eq(b), allocator)
+        }
+        CompareOperator::NotEq => {
+            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| !a.is_eq(b), allocator)
+        }
+        CompareOperator::Gt => collect_zip_bits_dispatch(lhs, rhs, T::is_gt, allocator),
+        CompareOperator::Gte => collect_zip_bits_dispatch(lhs, rhs, T::is_ge, allocator),
+        CompareOperator::Lt => collect_zip_bits_dispatch(lhs, rhs, T::is_lt, allocator),
+        CompareOperator::Lte => collect_zip_bits_dispatch(lhs, rhs, T::is_le, allocator),
     }
 }
 
-fn compare_slice_constant<T: NativePType>(lhs: &[T], rhs: T, op: CompareOperator) -> BitBuffer {
+fn compare_slice_constant<T: NativePType>(
+    lhs: &[T],
+    rhs: T,
+    op: CompareOperator,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
     match op {
-        CompareOperator::Eq => collect_bits(lhs, |a: T| a.is_eq(rhs)),
-        CompareOperator::NotEq => collect_bits(lhs, |a: T| !a.is_eq(rhs)),
-        CompareOperator::Gt => collect_bits(lhs, |a: T| a.is_gt(rhs)),
-        CompareOperator::Gte => collect_bits(lhs, |a: T| a.is_ge(rhs)),
-        CompareOperator::Lt => collect_bits(lhs, |a: T| a.is_lt(rhs)),
-        CompareOperator::Lte => collect_bits(lhs, |a: T| a.is_le(rhs)),
+        CompareOperator::Eq => collect_bits_dispatch(lhs, |a: T| a.is_eq(rhs), allocator),
+        CompareOperator::NotEq => collect_bits_dispatch(lhs, |a: T| !a.is_eq(rhs), allocator),
+        CompareOperator::Gt => collect_bits_dispatch(lhs, |a: T| a.is_gt(rhs), allocator),
+        CompareOperator::Gte => collect_bits_dispatch(lhs, |a: T| a.is_ge(rhs), allocator),
+        CompareOperator::Lt => collect_bits_dispatch(lhs, |a: T| a.is_lt(rhs), allocator),
+        CompareOperator::Lte => collect_bits_dispatch(lhs, |a: T| a.is_le(rhs), allocator),
     }
+}
+
+fn collect_bits_dispatch<T: NativePType>(
+    values: &[T],
+    f: impl Fn(T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    // This type check folds away during monomorphization. Wider masks keep the lane kernel:
+    // byte packing regresses 64-bit comparisons on AVX2.
+    if matches!(T::PTYPE, PType::I8 | PType::U8) {
+        collect_bits_narrow(values, f, allocator)
+    } else {
+        collect_bits(values, f, allocator)
+    }
+}
+
+fn collect_zip_bits_dispatch<T: NativePType>(
+    lhs: &[T],
+    rhs: &[T],
+    f: impl Fn(T, T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    if matches!(T::PTYPE, PType::I8 | PType::U8) {
+        collect_zip_bits_narrow(lhs, rhs, f, allocator)
+    } else {
+        collect_zip_bits(lhs, rhs, f, allocator)
+    }
+}
+
+fn collect_bits_narrow<T: Copy>(
+    values: &[T],
+    f: impl Fn(T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    let (chunks, tail) = values.as_chunks::<64>();
+    let mut words = BufferMut::<u64>::zeroed_in(values.len().div_ceil(64), allocator.clone());
+    // Fixed-size chunks let the compiler prove the predicate's indexing stays in bounds.
+    for (word, chunk) in words.iter_mut().zip(chunks) {
+        *word = collect_bool_word(64, |i| f(chunk[i]));
+    }
+    if !tail.is_empty() {
+        words[chunks.len()] = collect_bool_word(tail.len(), |i| f(tail[i]));
+    }
+    bit_buffer_from_words(words, values.len())
+}
+
+fn collect_zip_bits_narrow<T: Copy>(
+    lhs: &[T],
+    rhs: &[T],
+    f: impl Fn(T, T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    assert_eq!(lhs.len(), rhs.len());
+    let (left_chunks, left_tail) = lhs.as_chunks::<64>();
+    let (right_chunks, right_tail) = rhs.as_chunks::<64>();
+    let mut words = BufferMut::<u64>::zeroed_in(lhs.len().div_ceil(64), allocator.clone());
+    for ((word, left), right) in words.iter_mut().zip(left_chunks).zip(right_chunks) {
+        *word = collect_bool_word(64, |i| f(left[i], right[i]));
+    }
+    if !left_tail.is_empty() {
+        words[left_chunks.len()] =
+            collect_bool_word(left_tail.len(), |i| f(left_tail[i], right_tail[i]));
+    }
+    bit_buffer_from_words(words, lhs.len())
 }

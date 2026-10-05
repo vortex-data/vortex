@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Keep fixture paths under WORK_DIR so EXPLAIN output can normalize them.
+# Plans ignore byte ranges because they depend on the generated fixture sizes.
+system ok
+cp slt/tpcds/data/*.$FILE_FORMAT "$WORK_DIR/"
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS call_center
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/call_center.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS catalog_page
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/catalog_page.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS catalog_returns
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/catalog_returns.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS catalog_sales
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/catalog_sales.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS customer
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/customer.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS customer_address
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/customer_address.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS customer_demographics
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/customer_demographics.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS date_dim
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/date_dim.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS household_demographics
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/household_demographics.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS income_band
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/income_band.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS inventory
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/inventory.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS item
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/item.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS promotion
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/promotion.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS reason
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/reason.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS ship_mode
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/ship_mode.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS store
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/store.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS store_returns
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/store_returns.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS store_sales
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/store_sales.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS time_dim
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/time_dim.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS warehouse
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/warehouse.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS web_page
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/web_page.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS web_returns
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/web_returns.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS web_sales
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/web_sales.${FILE_FORMAT}';
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS web_site
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/web_site.${FILE_FORMAT}';

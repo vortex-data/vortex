@@ -121,13 +121,7 @@ impl VTable for Union {
         let DType::Union(variants, nullability) = dtype else {
             vortex_bail!("Expected union dtype, found {dtype}")
         };
-        vortex_ensure_eq!(
-            children.len(),
-            UnionSlots::CHILDREN_OFFSET + variants.len(),
-            "UnionArray expected {} children, found {}",
-            UnionSlots::CHILDREN_OFFSET + variants.len(),
-            children.len()
-        );
+        vortex_ensure_eq!(children.len(), UnionSlots::CHILDREN_OFFSET + variants.len());
 
         let type_ids = children.get(
             UnionSlots::TYPE_IDS,
@@ -164,7 +158,7 @@ impl VTable for Union {
         _builder: &mut dyn ArrayBuilder,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        todo!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
+        vortex_bail!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
     }
 
     fn reduce_parent(

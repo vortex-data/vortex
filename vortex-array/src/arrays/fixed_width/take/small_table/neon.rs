@@ -12,6 +12,7 @@ use std::arch::aarch64::vqtbl1q_u8;
 use std::arch::aarch64::vst1q_u8;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 
 use super::super::FixedWidthTakeValue;
@@ -21,28 +22,41 @@ use crate::dtype::UnsignedPType;
 
 // SAFETY: u8 has no padding or uninitialized bytes.
 unsafe impl FixedWidthTakeValue for u8 {
-    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
-        take(values, indices)
+    fn take<I: UnsignedPType>(
+        values: &[Self],
+        indices: &[I],
+        allocator: &BufferAllocatorRef,
+    ) -> Buffer<Self> {
+        take(values, indices, allocator)
     }
 }
 
 // SAFETY: i8 has no padding or uninitialized bytes.
 unsafe impl FixedWidthTakeValue for i8 {
-    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
-        take(values, indices)
+    fn take<I: UnsignedPType>(
+        values: &[Self],
+        indices: &[I],
+        allocator: &BufferAllocatorRef,
+    ) -> Buffer<Self> {
+        take(values, indices, allocator)
     }
 }
 
 // SAFETY: Byte arrays have no padding and every byte is initialized.
 unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {
-    fn take<I: UnsignedPType>(values: &[Self], indices: &[I]) -> Buffer<Self> {
-        take(values, indices)
+    fn take<I: UnsignedPType>(
+        values: &[Self],
+        indices: &[I],
+        allocator: &BufferAllocatorRef,
+    ) -> Buffer<Self> {
+        take(values, indices, allocator)
     }
 }
 
 fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
+    allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     if I::PTYPE != PType::U8
         || values.is_empty()
@@ -50,7 +64,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
         || size_of::<T>() != 1
         || indices.len() < 64
     {
-        return take_values_fallback(values, indices);
+        return take_values_fallback(values, indices, allocator);
     }
 
     // SAFETY: the sealed index type is u8, as checked above.
@@ -60,7 +74,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     let mut table = [values[0]; 16];
     table[..values.len()].copy_from_slice(values);
 
-    let mut output = BufferMut::<T>::with_capacity(indices.len());
+    let mut output = BufferMut::<T>::with_capacity_in(indices.len(), allocator.clone());
     let spare = output.spare_capacity_mut();
     let output_ptr = spare.as_mut_ptr().cast::<u8>();
     // SAFETY: AArch64 always provides NEON. T is one byte with no uninitialized bytes, the table

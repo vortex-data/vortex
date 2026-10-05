@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT cc_call_center_id Call_Center,
+       cc_name Call_Center_Name,
+       cc_manager Manager,
+       sum(cr_net_loss) Returns_Loss
+FROM call_center,
+     catalog_returns,
+     date_dim,
+     customer,
+     customer_address,
+     customer_demographics,
+     household_demographics
+WHERE cr_call_center_sk = cc_call_center_sk
+  AND cr_returned_date_sk = d_date_sk
+  AND cr_returning_customer_sk= c_customer_sk
+  AND cd_demo_sk = c_current_cdemo_sk
+  AND hd_demo_sk = c_current_hdemo_sk
+  AND ca_address_sk = c_current_addr_sk
+  AND d_year = 1998
+  AND d_moy = 11
+  AND ((cd_marital_status = 'M'
+        AND cd_education_status = 'Unknown') or(cd_marital_status = 'W'
+                                                AND cd_education_status = 'Advanced Degree'))
+  AND hd_buy_potential LIKE 'Unknown%'
+  AND ca_gmt_offset = -7
+GROUP BY cc_call_center_id,
+         cc_name,
+         cc_manager,
+         cd_marital_status,
+         cd_education_status
+ORDER BY sum(cr_net_loss) DESC;
+----
+logical_plan
+01)Sort: returns_loss DESC NULLS FIRST
+02)--Projection: call_center.cc_call_center_id AS call_center, call_center.cc_name AS call_center_name, call_center.cc_manager AS manager, sum(catalog_returns.cr_net_loss) AS returns_loss
+03)----Aggregate: groupBy=[[call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, customer_demographics.cd_marital_status, customer_demographics.cd_education_status]], aggr=[[sum(catalog_returns.cr_net_loss)]]
+04)------Projection: call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, catalog_returns.cr_net_loss, customer_demographics.cd_marital_status, customer_demographics.cd_education_status
+05)--------Inner Join: customer.c_current_hdemo_sk = household_demographics.hd_demo_sk
+06)----------Projection: call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, catalog_returns.cr_net_loss, customer.c_current_hdemo_sk, customer_demographics.cd_marital_status, customer_demographics.cd_education_status
+07)------------Inner Join: customer.c_current_cdemo_sk = customer_demographics.cd_demo_sk
+08)--------------Projection: call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, catalog_returns.cr_net_loss, customer.c_current_cdemo_sk, customer.c_current_hdemo_sk
+09)----------------Inner Join: customer.c_current_addr_sk = customer_address.ca_address_sk
+10)------------------Projection: call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, catalog_returns.cr_net_loss, customer.c_current_cdemo_sk, customer.c_current_hdemo_sk, customer.c_current_addr_sk
+11)--------------------Inner Join: catalog_returns.cr_returning_customer_sk = customer.c_customer_sk
+12)----------------------Projection: call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, catalog_returns.cr_returning_customer_sk, catalog_returns.cr_net_loss
+13)------------------------Inner Join: catalog_returns.cr_returned_date_sk = date_dim.d_date_sk
+14)--------------------------Projection: call_center.cc_call_center_id, call_center.cc_name, call_center.cc_manager, catalog_returns.cr_returned_date_sk, catalog_returns.cr_returning_customer_sk, catalog_returns.cr_net_loss
+15)----------------------------Inner Join: call_center.cc_call_center_sk = catalog_returns.cr_call_center_sk
+16)------------------------------TableScan: call_center projection=[cc_call_center_sk, cc_call_center_id, cc_name, cc_manager]
+17)------------------------------TableScan: catalog_returns projection=[cr_returned_date_sk, cr_returning_customer_sk, cr_call_center_sk, cr_net_loss]
+18)--------------------------Projection: date_dim.d_date_sk
+19)----------------------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(1998)
+20)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(1998)]
+21)----------------------TableScan: customer projection=[c_customer_sk, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk]
+22)------------------Projection: customer_address.ca_address_sk
+23)--------------------Filter: customer_address.ca_gmt_offset = Decimal128(-7.00,5,2)
+24)----------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-7.00,5,2)]
+25)--------------Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Unknown") OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree")
+26)----------------TableScan: customer_demographics projection=[cd_demo_sk, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Unknown") OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree")]
+27)----------Projection: household_demographics.hd_demo_sk
+28)------------Filter: household_demographics.hd_buy_potential LIKE Utf8View("Unknown%")
+29)--------------TableScan: household_demographics projection=[hd_demo_sk, hd_buy_potential], partial_filters=[household_demographics.hd_buy_potential LIKE Utf8View("Unknown%")]
+physical_plan
+01)SortPreservingMergeExec: [returns_loss@3 DESC]
+02)--SortExec: expr=[returns_loss@3 DESC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[cc_call_center_id@0 as call_center, cc_name@1 as call_center_name, cc_manager@2 as manager, sum(catalog_returns.cr_net_loss)@5 as returns_loss]
+04)------AggregateExec: mode=FinalPartitioned, gby=[cc_call_center_id@0 as cc_call_center_id, cc_name@1 as cc_name, cc_manager@2 as cc_manager, cd_marital_status@3 as cd_marital_status, cd_education_status@4 as cd_education_status], aggr=[sum(catalog_returns.cr_net_loss)]
+05)--------RepartitionExec: partitioning=Hash([cc_call_center_id@0, cc_name@1, cc_manager@2, cd_marital_status@3, cd_education_status@4], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[cc_call_center_id@0 as cc_call_center_id, cc_name@1 as cc_name, cc_manager@2 as cc_manager, cd_marital_status@4 as cd_marital_status, cd_education_status@5 as cd_education_status], aggr=[sum(catalog_returns.cr_net_loss)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_hdemo_sk@4, hd_demo_sk@0)], projection=[cc_call_center_id@0, cc_name@1, cc_manager@2, cr_net_loss@3, cd_marital_status@5, cd_education_status@6]
+08)--------------CoalescePartitionsExec
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_cdemo_sk@4, cd_demo_sk@0)], projection=[cc_call_center_id@0, cc_name@1, cc_manager@2, cr_net_loss@3, c_current_hdemo_sk@5, cd_marital_status@7, cd_education_status@8]
+10)------------------CoalescePartitionsExec
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_addr_sk@6, ca_address_sk@0)], projection=[cc_call_center_id@0, cc_name@1, cc_manager@2, cr_net_loss@3, c_current_cdemo_sk@4, c_current_hdemo_sk@5]
+12)----------------------CoalescePartitionsExec
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cr_returning_customer_sk@3, c_customer_sk@0)], projection=[cc_call_center_id@0, cc_name@1, cc_manager@2, cr_net_loss@4, c_current_cdemo_sk@6, c_current_hdemo_sk@7, c_current_addr_sk@8]
+14)--------------------------CoalescePartitionsExec
+15)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cr_returned_date_sk@3)], projection=[cc_call_center_id@1, cc_name@2, cc_manager@3, cr_returning_customer_sk@5, cr_net_loss@6]
+16)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_moy@8 = 11 AND d_year@6 = 1998
+17)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cc_call_center_sk@0, cr_call_center_sk@2)], projection=[cc_call_center_id@1, cc_name@2, cc_manager@3, cr_returned_date_sk@4, cr_returning_customer_sk@5, cr_net_loss@7]
+18)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/call_center.vortex]]}, projection=[cc_call_center_sk, cc_call_center_id, cc_name, cc_manager], file_type=vortex
+19)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+20)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_returning_customer_sk, cr_call_center_sk, cr_net_loss], file_type=vortex
+21)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk], file_type=vortex
+23)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+24)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -7.00
+25)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+26)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], file_type=vortex, predicate: cd_marital_status@2 = M AND cd_education_status@3 = Unknown OR cd_marital_status@2 = W AND cd_education_status@3 = Advanced Degree
+27)--------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+28)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_buy_potential@2 LIKE Unknown%

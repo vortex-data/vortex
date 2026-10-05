@@ -66,7 +66,6 @@ use wkb::writer::write_geometry;
 use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
-use crate::benchmark_write_options;
 use crate::utils::file::idempotent_async;
 
 /// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
@@ -246,22 +245,23 @@ fn write_options_for(
         return compaction.apply_options(SESSION.write_options());
     }
 
-    let mut builder = WriteStrategyBuilder::default();
+    let mut builder = WriteStrategyBuilder::from_session(&SESSION);
     if matches!(compaction, CompactionStrategy::Compact) {
-        builder =
-            builder.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+        builder = builder.with_btrblocks_builder(
+            BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
+        );
     }
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
-    benchmark_write_options(SESSION.write_options()).with_strategy(builder.build())
+    SESSION.write_options().with_strategy(builder.build())
 }
 
 /// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.
 fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
     Arc::new(CompressingStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        BtrBlocksCompressorBuilder::default().build(),
+        BtrBlocksCompressorBuilder::from_session(&SESSION).build(),
     ))
 }
 

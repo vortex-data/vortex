@@ -27,3 +27,8 @@ pool and CUDA state are reused as well.
 On Linux, use `vx_cuda_scan_path_arrow_device_stream_with_options` with
 `vx_cuda_scan_options.flags = VX_CUDA_SCAN_FLAG_DIRECT_IO` to bypass the operating system page
 cache for pooled data-plane reads. Footer and zone-map reads remain buffered on the host.
+
+## Generated header
+
+`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit `src/lib.rs` or `cbindgen.toml`
+and commit the regenerated header. It skips clang-format; CUDA CI checks for header drift.

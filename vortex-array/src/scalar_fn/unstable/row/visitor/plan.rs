@@ -123,6 +123,19 @@ impl<F: RowFn> RowVisitor for BatchPlanner<'_, F> {
             RowPolicy::for_deferred_output::<Args>(),
         )
     }
+
+    fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
+    }
 }
 
 /// The output dtypes and execution policy selected by one planning visit.
@@ -210,9 +223,8 @@ impl BatchPlan {
 
     /// Ensure an executing dispatch reproduced the planned output and policy.
     pub(crate) fn ensure_reproduced_by(&self, actual: &Self) -> VortexResult<()> {
-        vortex_ensure_eq!(
-            actual.policy,
-            self.policy,
+        vortex_ensure!(
+            actual.policy == self.policy,
             "row dispatch must select the planned nullable execution policy: planned {:?}, got {:?}",
             self.policy,
             actual.policy,
@@ -220,9 +232,7 @@ impl BatchPlan {
         vortex_ensure_eq!(
             actual.storage_dtype,
             self.storage_dtype,
-            "row dispatch must select the planned storage dtype: planned {}, got {}",
-            self.storage_dtype,
-            actual.storage_dtype,
+            "row dispatch must select the planned storage dtype",
         );
         vortex_ensure!(
             actual.output_label == self.output_label,
@@ -268,8 +278,7 @@ fn validate_output_label(
     vortex_ensure_eq!(
         *output_label.storage_dtype(),
         *storage_dtype,
-        "a declared row extension output dtype must store {storage_dtype}, got {}",
-        output_label.storage_dtype(),
+        "a declared row extension output dtype has the wrong storage dtype",
     );
 
     Ok(Some(output_label))

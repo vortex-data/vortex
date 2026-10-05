@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: "Setup sccache"
+description: "Install a pinned sccache and persist its tool cache across runners"
+inputs:
+  version:
+    description: "sccache release tag"
+    default: "v0.18.0"
+runs:
+  using: "composite"
+  steps:
+    - name: Check sccache installation
+      id: tool-cache
+      shell: bash
+      env:
+        SCCACHE_VERSION: ${{ inputs.version }}
+      run: |
+        VERSION="${SCCACHE_VERSION#v}"
+        echo "path=${RUNNER_TOOL_CACHE}/sccache/$VERSION" >> "$GITHUB_OUTPUT"
+        ACTUAL=$(sccache --version 2>/dev/null || true)
+        if [ "$ACTUAL" = "sccache $VERSION" ]; then
+          echo "Using preinstalled $ACTUAL"
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Installing sccache $VERSION (found: ${ACTUAL:-none})"
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # Include the architecture completion marker alongside the executable directory.
+    # This is the installation cache, not the separately configured compiler-output cache.
+    - name: Restore sccache installation
+      if: steps.tool-cache.outputs.installed != 'true'
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ${{ steps.tool-cache.outputs.path }}
+        key: sccache-tool-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+
+    # Run on cache hits too: the installer sets PATH and registers its statistics hook.
+    - name: Install sccache
+      if: steps.tool-cache.outputs.installed != 'true'
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
+      with:
+        version: ${{ inputs.version }}
+
+    # Save before compilation so later build/test failures do not discard a good install.
+    - name: Save sccache installation
+      if: steps.tool-cache.outputs.installed != 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ${{ steps.tool-cache.outputs.path }}
+        key: ${{ steps.restore.outputs.cache-primary-key }}

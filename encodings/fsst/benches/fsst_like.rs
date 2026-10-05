@@ -7,6 +7,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -23,6 +24,9 @@ use vortex_fsst::test_utils::make_fsst_log_lines;
 use vortex_fsst::test_utils::make_fsst_rare_match;
 use vortex_fsst::test_utils::make_fsst_short_urls;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

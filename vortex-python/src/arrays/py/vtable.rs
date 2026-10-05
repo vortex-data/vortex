@@ -24,7 +24,7 @@ use vortex::array::with_empty_buffers;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -66,9 +66,9 @@ impl VTable for PythonVTable {
         len: usize,
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(data.vtable.id == self.id, "PythonArray vtable id mismatch");
-        vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");
-        vortex_ensure!(data.len == len, "PythonArray len mismatch");
+        vortex_ensure_eq!(data.vtable.id, self.id, "PythonArray vtable id mismatch");
+        vortex_ensure_eq!(&data.dtype, dtype, "PythonArray dtype mismatch");
+        vortex_ensure_eq!(data.len, len, "PythonArray len mismatch");
         Ok(())
     }
 
@@ -117,22 +117,24 @@ impl VTable for PythonVTable {
     }
 
     fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        todo!()
+        vortex_bail!("PythonArray execution is not supported");
     }
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
+    type ProbeState = ();
+
     fn scalar_at(
         _array: ArrayView<'_, PythonVTable>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        todo!()
+        vortex_bail!("PythonArray scalar_at is not supported");
     }
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
     fn validity(_array: ArrayView<'_, PythonVTable>) -> VortexResult<Validity> {
-        todo!()
+        vortex_bail!("PythonArray validity is not supported");
     }
 }

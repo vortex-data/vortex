@@ -27,7 +27,8 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -36,7 +37,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
 
@@ -159,19 +159,25 @@ impl ScalarFnVTable for Zip {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
-        _ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         let Some(mask_lit) = expr.child(2).as_opt::<Literal>() else {
             return Ok(None);
         };
 
         if let Some(mask_val) = mask_lit.as_bool().value() {
-            if mask_val {
-                return Ok(Some(expr.child(0).clone()));
+            let selected = if mask_val {
+                expr.child(0).clone()
             } else {
-                return Ok(Some(expr.child(1).clone()));
-            }
+                expr.child(1).clone()
+            };
+            // The selected branch can be less nullable than the zip result, which unions
+            // both branches' nullability, so keep the dtype that binding inferred.
+            return Ok(Some(if selected.dtype() == expr.dtype() {
+                selected
+            } else {
+                bound::cast(selected, expr.dtype().clone())
+            }));
         }
 
         Ok(None)

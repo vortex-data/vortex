@@ -79,8 +79,8 @@ session.write_options()
 
 // Scanning a layout
 let filter = expr
-    .optimize_recursive(layout_reader.dtype())?
-    .bind(layout_reader.dtype())?;
+    .bind(layout_reader.dtype())?
+    .optimize_recursive()?;
 ScanBuilder::new(session.clone(), layout_reader)
     .with_filter(filter)
     .into_array_stream()?;

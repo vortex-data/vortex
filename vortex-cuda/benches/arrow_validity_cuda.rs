@@ -41,7 +41,7 @@ const INPUT_OFFSET: usize = 5;
 const ARROW_OFFSET: usize = 3;
 const EXPORT_BENCH_SIZES: &[(usize, &str)] = &[(100_000_000, "100M")];
 
-fn validity_bitmap_byte_len(len: usize, bit_offset: usize) -> usize {
+fn arrow_bitmap_byte_len(len: usize, bit_offset: usize) -> usize {
     (bit_offset + len).div_ceil(8)
 }
 
@@ -98,7 +98,7 @@ fn benchmark_arrow_validity_export(c: &mut Criterion) {
             [("device_bitmap", 0), ("device_bitmap_repack", INPUT_OFFSET)]
         {
             group.throughput(Throughput::Bytes(
-                validity_bitmap_byte_len(len, validity_offset) as u64,
+                arrow_bitmap_byte_len(len, validity_offset) as u64,
             ));
             group.bench_with_input(
                 BenchmarkId::new(format!("cuda/arrow_validity/export/{case}"), len_label),
@@ -148,7 +148,7 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
 
     for &(len, len_label) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes(
-            validity_bitmap_byte_len(len, INPUT_OFFSET) as u64,
+            arrow_bitmap_byte_len(len, INPUT_OFFSET) as u64
         ));
         group.bench_with_input(
             BenchmarkId::new("cuda/arrow_validity/repack", len_label),
@@ -165,7 +165,7 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                             .vortex_expect("failed to create validity fixture");
 
                     for _ in 0..iters {
-                        let output = test_harness::repack_arrow_validity_buffer(
+                        let output = test_harness::repack_arrow_bitmap(
                             &input_buffer,
                             input_offset,
                             len,
@@ -190,7 +190,7 @@ fn benchmark_arrow_validity_count_nulls(c: &mut Criterion) {
 
     for &(len, len_label) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes(
-            validity_bitmap_byte_len(len, ARROW_OFFSET) as u64,
+            arrow_bitmap_byte_len(len, ARROW_OFFSET) as u64
         ));
         group.bench_with_input(
             BenchmarkId::new("cuda/arrow_validity/count_nulls", len_label),

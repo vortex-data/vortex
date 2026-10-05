@@ -29,11 +29,12 @@ fn main() {
 
 const ARGS: &[(usize, usize)] = &[
     // (output_size, buffer_utilization_pct)
-    // Output sizes sized to keep CodSpeed simulation under 1ms per benchmark.
+    // Output sizes sized to keep CodSpeed simulation under 1ms per benchmark. Only low
+    // utilization is measured: at 90% there is nothing to compact, so the timed region was a
+    // single check that CodSpeed reported as harness overhead, moving by 20% between runs of
+    // identical code.
     (1 << 10, 10),
-    (1 << 10, 90),
     (1 << 11, 10),
-    (1 << 11, 90),
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);

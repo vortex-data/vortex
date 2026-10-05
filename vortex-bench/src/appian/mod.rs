@@ -166,7 +166,7 @@ impl Benchmark for AppianBenchmark {
                 .with_context(|| format!("no columns reported for upstream table {upstream}"))?;
             let out_path = parquet_dir.join(format!("{}.parquet", TABLES[i]));
             script.push_str(&format!(
-                "COPY (SELECT {projection} FROM src.\"{upstream}\") TO '{}' (FORMAT PARQUET);\n",
+                "COPY (SELECT {projection} FROM src.\"{upstream}\") TO '{}' (FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 3);\n",
                 out_path.display(),
             ));
         }

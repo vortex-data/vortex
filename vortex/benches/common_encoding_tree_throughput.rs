@@ -111,9 +111,14 @@ mod setup {
         let compressed = FoR::encode(uint_array, &mut ctx).unwrap();
         let inner = compressed.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
-        FoR::try_new(bp.into_array(), compressed.reference_scalar().clone())
-            .unwrap()
-            .into_array()
+        FoR::try_new(
+            bp.into_array(),
+            compressed
+                .constant_reference()
+                .vortex_expect("constant reference"),
+        )
+        .unwrap()
+        .into_array()
     }
 
     /// Create ALP <- FoR <- BitPacked encoding tree for f64
@@ -131,8 +136,13 @@ mod setup {
         let for_array = FoR::encode(alp_encoded_prim, &mut ctx).unwrap();
         let inner = for_array.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
-        let for_with_bp =
-            FoR::try_new(bp.into_array(), for_array.reference_scalar().clone()).unwrap();
+        let for_with_bp = FoR::try_new(
+            bp.into_array(),
+            for_array
+                .constant_reference()
+                .vortex_expect("constant reference"),
+        )
+        .unwrap();
 
         ALP::try_new(
             for_with_bp.into_array(),
@@ -209,10 +219,14 @@ mod setup {
         let ends_for = FoR::encode(ends_prim, &mut ctx).unwrap();
         let ends_inner = ends_for.encoded();
         let ends_bp = BitPacked::encode(ends_inner, 8, &mut ctx).unwrap();
-        let compressed_ends =
-            FoR::try_new(ends_bp.into_array(), ends_for.reference_scalar().clone())
-                .unwrap()
-                .into_array();
+        let compressed_ends = FoR::try_new(
+            ends_bp.into_array(),
+            ends_for
+                .constant_reference()
+                .vortex_expect("constant reference"),
+        )
+        .unwrap()
+        .into_array();
 
         // Compress the values with BitPacked
         let values_prim = runend
@@ -358,10 +372,14 @@ mod setup {
         let days_for = FoR::encode(days_prim, &mut ctx).unwrap();
         let days_inner = days_for.encoded();
         let days_bp = BitPacked::encode(days_inner, 16, &mut ctx).unwrap();
-        let compressed_days =
-            FoR::try_new(days_bp.into_array(), days_for.reference_scalar().clone())
-                .unwrap()
-                .into_array();
+        let compressed_days = FoR::try_new(
+            days_bp.into_array(),
+            days_for
+                .constant_reference()
+                .vortex_expect("constant reference"),
+        )
+        .unwrap()
+        .into_array();
 
         // Compress seconds with FoR <- BitPacked
         let seconds_prim = parts
@@ -374,7 +392,9 @@ mod setup {
         let seconds_bp = BitPacked::encode(seconds_inner, 17, &mut ctx).unwrap();
         let compressed_seconds = FoR::try_new(
             seconds_bp.into_array(),
-            seconds_for.reference_scalar().clone(),
+            seconds_for
+                .constant_reference()
+                .vortex_expect("constant reference"),
         )
         .unwrap()
         .into_array();
@@ -389,7 +409,9 @@ mod setup {
         let subseconds_bp = BitPacked::encode(subseconds_inner, 20, &mut ctx).unwrap();
         let compressed_subseconds = FoR::try_new(
             subseconds_bp.into_array(),
-            subseconds_for.reference_scalar().clone(),
+            subseconds_for
+                .constant_reference()
+                .vortex_expect("constant reference"),
         )
         .unwrap()
         .into_array();

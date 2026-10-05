@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex decimal array (non-canonical) encodings"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -26,5 +25,18 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+hegeltest = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
+vortex-bench-support = { workspace = true }
+
+[[bench]]
+name = "dbp_assemble"
+harness = false
+
+[[bench]]
+name = "dbp_split"
+harness = false

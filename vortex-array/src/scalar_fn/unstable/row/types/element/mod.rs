@@ -16,6 +16,7 @@ mod input;
 pub use input::InputElement;
 
 mod output;
+pub use output::OutputBuffer;
 pub use output::OutputElement;
 
 mod primitive;

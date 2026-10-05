@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT c_customer_id AS customer_id ,
+       concat(concat(coalesce(c_last_name, '') , ', '), coalesce(c_first_name, '')) AS customername
+FROM customer ,
+     customer_address ,
+     customer_demographics ,
+     household_demographics ,
+     income_band ,
+     store_returns
+WHERE ca_city = 'Edgewood'
+  AND c_current_addr_sk = ca_address_sk
+  AND ib_lower_bound >= 38128
+  AND ib_upper_bound <= 38128 + 50000
+  AND ib_income_band_sk = hd_income_band_sk
+  AND cd_demo_sk = c_current_cdemo_sk
+  AND hd_demo_sk = c_current_hdemo_sk
+  AND sr_cdemo_sk = cd_demo_sk
+ORDER BY c_customer_id NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: customer_id ASC NULLS FIRST, fetch=100
+02)--Projection: customer.c_customer_id AS customer_id, concat(concat(CASE WHEN customer.c_last_name IS NOT NULL THEN customer.c_last_name ELSE Utf8View("") END, Utf8View(", ")), CASE WHEN customer.c_first_name IS NOT NULL THEN customer.c_first_name ELSE Utf8View("") END) AS customername
+03)----Inner Join: customer_demographics.cd_demo_sk = store_returns.sr_cdemo_sk
+04)------Projection: customer.c_customer_id, customer.c_first_name, customer.c_last_name, customer_demographics.cd_demo_sk
+05)--------Inner Join: household_demographics.hd_income_band_sk = income_band.ib_income_band_sk
+06)----------Projection: customer.c_customer_id, customer.c_first_name, customer.c_last_name, customer_demographics.cd_demo_sk, household_demographics.hd_income_band_sk
+07)------------Inner Join: customer.c_current_hdemo_sk = household_demographics.hd_demo_sk
+08)--------------Projection: customer.c_customer_id, customer.c_current_hdemo_sk, customer.c_first_name, customer.c_last_name, customer_demographics.cd_demo_sk
+09)----------------Inner Join: customer.c_current_cdemo_sk = customer_demographics.cd_demo_sk
+10)------------------Projection: customer.c_customer_id, customer.c_current_cdemo_sk, customer.c_current_hdemo_sk, customer.c_first_name, customer.c_last_name
+11)--------------------Inner Join: customer.c_current_addr_sk = customer_address.ca_address_sk
+12)----------------------TableScan: customer projection=[c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_name, c_last_name]
+13)----------------------Projection: customer_address.ca_address_sk
+14)------------------------Filter: customer_address.ca_city = Utf8View("Edgewood")
+15)--------------------------TableScan: customer_address projection=[ca_address_sk, ca_city], partial_filters=[customer_address.ca_city = Utf8View("Edgewood")]
+16)------------------TableScan: customer_demographics projection=[cd_demo_sk]
+17)--------------TableScan: household_demographics projection=[hd_demo_sk, hd_income_band_sk]
+18)----------Projection: income_band.ib_income_band_sk
+19)------------Filter: income_band.ib_lower_bound >= Int64(38128) AND income_band.ib_upper_bound <= Int32(88128)
+20)--------------TableScan: income_band projection=[ib_income_band_sk, ib_lower_bound, ib_upper_bound], partial_filters=[income_band.ib_lower_bound >= Int64(38128), income_band.ib_upper_bound <= Int32(88128)]
+21)------TableScan: store_returns projection=[sr_cdemo_sk]
+physical_plan
+01)SortPreservingMergeExec: [customer_id@0 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[customer_id@0 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[c_customer_id@0 as customer_id, concat(concat(CASE WHEN c_last_name@1 IS NOT NULL THEN c_last_name@1 ELSE  END, , ), CASE WHEN c_first_name@2 IS NOT NULL THEN c_first_name@2 ELSE  END) as customername]
+04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@3, sr_cdemo_sk@0)], projection=[c_customer_id@0, c_last_name@2, c_first_name@1]
+05)--------CoalescePartitionsExec
+06)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ib_income_band_sk@0, hd_income_band_sk@4)], projection=[c_customer_id@1, c_first_name@2, c_last_name@3, cd_demo_sk@4]
+07)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/income_band.vortex]]}, projection=[ib_income_band_sk], file_type=vortex, predicate: ib_lower_bound@1 >= 38128 AND ib_upper_bound@2 <= 88128
+08)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_hdemo_sk@1, hd_demo_sk@0)], projection=[c_customer_id@0, c_first_name@2, c_last_name@3, cd_demo_sk@4, hd_income_band_sk@6]
+10)----------------CoalescePartitionsExec
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_cdemo_sk@1, cd_demo_sk@0)], projection=[c_customer_id@0, c_current_hdemo_sk@2, c_first_name@3, c_last_name@4, cd_demo_sk@5]
+12)--------------------CoalescePartitionsExec
+13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@3)], projection=[c_customer_id@1, c_current_cdemo_sk@2, c_current_hdemo_sk@3, c_first_name@5, c_last_name@6]
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_city@6 = Edgewood
+15)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_name, c_last_name], file_type=vortex
+17)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+18)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex
+19)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk, hd_income_band_sk], file_type=vortex
+20)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_cdemo_sk], file_type=vortex

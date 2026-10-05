@@ -23,8 +23,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
-use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -224,14 +222,6 @@ impl ScalarFnVTable for Merge {
         )?;
 
         Ok(Some(pack_expr))
-    }
-
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(true)))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -574,12 +564,12 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let result = e.optimize(&dtype).unwrap();
+        let result = e.bind(&dtype).unwrap().optimize().unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(
-            result.return_dtype(&dtype).unwrap(),
-            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
+            result.dtype(),
+            &DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
 }

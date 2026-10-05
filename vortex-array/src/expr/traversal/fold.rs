@@ -6,19 +6,8 @@ use vortex_error::VortexResult;
 use crate::expr::traversal::Node;
 
 /// Use to indicate the control flow of the fold on the downwards pass.
-/// `Stop` indicates that the fold should stop.
-/// `Skip` indicates that the fold should skip the children of the current node.
-/// `Continue` indicates that the fold should continue.
-#[derive(Debug)]
-pub enum FoldDown<R> {
-    Continue,
-    Stop(R),
-    Skip(R),
-}
-
-/// Use to indicate the control flow of the fold on the downwards pass.
 /// In the case of Continue, the context is passed on to the children nodes.
-/// Other cases are the same as `FoldDown`.
+/// `Stop` ends the fold with a result, while `Skip` skips the current node's children.
 #[derive(Debug)]
 pub enum FoldDownContext<C, R> {
     Continue(C),
@@ -81,63 +70,6 @@ pub trait NodeFolderContext {
     ) -> VortexResult<FoldUp<Self::Result>>;
 }
 
-/// This trait is used to implement a fold (see `NodeFolderContext`), but without a context.
-pub trait NodeFolder {
-    type NodeTy: Node;
-    type Result;
-
-    /// visit_down is called when a node is first encountered, in a pre-order traversal.
-    /// If the node's children are to be skipped, return Skip.
-    /// If the node should stop traversal, return Stop.
-    /// Otherwise, return Continue.
-    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
-        Ok(FoldDown::Continue)
-    }
-
-    /// visit_up is called when a node is last encountered, in a pre-order traversal.
-    /// If the node should stop traversal, return Stop.
-    /// Otherwise, return Continue.
-    fn visit_up(
-        &mut self,
-        _node: Self::NodeTy,
-        _children: Vec<Self::Result>,
-    ) -> VortexResult<FoldUp<Self::Result>>;
-}
-
-pub(crate) struct NodeFolderContextWrapper<'a, T>
-where
-    T: NodeFolder,
-{
-    pub inner: &'a mut T,
-}
-
-impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
-    type NodeTy = T::NodeTy;
-    type Result = T::Result;
-    type Context = ();
-
-    fn visit_down(
-        &mut self,
-        _ctx: &Self::Context,
-        _node: &Self::NodeTy,
-    ) -> VortexResult<FoldDownContext<Self::Context, Self::Result>> {
-        match self.inner.visit_down(_node)? {
-            FoldDown::Continue => Ok(FoldDownContext::Continue(())),
-            FoldDown::Stop(r) => Ok(FoldDownContext::Stop(r)),
-            FoldDown::Skip(r) => Ok(FoldDownContext::Skip(r)),
-        }
-    }
-
-    fn visit_up(
-        &mut self,
-        _node: Self::NodeTy,
-        _context: &Self::Context,
-        _children: Vec<Self::Result>,
-    ) -> VortexResult<FoldUp<Self::Result>> {
-        self.inner.visit_up(_node, _children)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexExpect;
@@ -154,11 +86,16 @@ mod tests {
     use crate::scalar_fn::fns::operators::Operator;
 
     struct AddFold;
-    impl NodeFolder for AddFold {
+    impl NodeFolderContext for AddFold {
         type NodeTy = Expression;
         type Result = i32;
+        type Context = ();
 
-        fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
+        fn visit_down(
+            &mut self,
+            _ctx: &Self::Context,
+            node: &Self::NodeTy,
+        ) -> VortexResult<FoldDownContext<Self::Context, Self::Result>> {
             if let Some(scalar) = node.as_opt::<Literal>() {
                 let v = scalar
                     .as_primitive()
@@ -166,22 +103,23 @@ mod tests {
                     .vortex_expect("i32");
 
                 if v == 5 {
-                    return Ok(FoldDown::Stop(5));
+                    return Ok(FoldDownContext::Stop(5));
                 }
             }
 
             if let Some(operator) = node.as_opt::<Binary>()
                 && *operator == Operator::Gt
             {
-                return Ok(FoldDown::Skip(0));
+                return Ok(FoldDownContext::Skip(0));
             }
 
-            Ok(FoldDown::Continue)
+            Ok(FoldDownContext::Continue(()))
         }
 
         fn visit_up(
             &mut self,
             node: Self::NodeTy,
+            _context: &Self::Context,
             children: Vec<Self::Result>,
         ) -> VortexResult<FoldUp<Self::Result>> {
             if let Some(scalar) = node.as_opt::<Literal>() {
@@ -207,7 +145,7 @@ mod tests {
         let expr = checked_add(checked_add(lit(1), lit(2)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap().value();
+        let result = expr.fold_context(&(), &mut folder).unwrap().value();
         assert_eq!(result, 6);
     }
 
@@ -216,7 +154,7 @@ mod tests {
         let expr = checked_add(checked_add(lit(1), lit(5)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap().value();
+        let result = expr.fold_context(&(), &mut folder).unwrap().value();
         assert_eq!(result, 5);
     }
 
@@ -225,7 +163,7 @@ mod tests {
         let expr = checked_add(gt(lit(1), lit(2)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap().value();
+        let result = expr.fold_context(&(), &mut folder).unwrap().value();
         assert_eq!(result, 3);
     }
 
@@ -234,7 +172,7 @@ mod tests {
         let expr = checked_add(gt(lit(1), lit(5)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap().value();
+        let result = expr.fold_context(&(), &mut folder).unwrap().value();
         assert_eq!(result, 3);
     }
 }

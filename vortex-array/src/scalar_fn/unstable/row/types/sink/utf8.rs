@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -31,12 +32,14 @@ use crate::validity::Validity;
 pub struct Utf8Sink {
     views: BufferMut<BinaryView>,
     buffers: Vec<ByteBufferMut>,
+    allocator: BufferAllocatorRef,
 }
 
 /// A borrowed view of all UTF-8 output rows.
 pub struct Utf8Rows<'a> {
     views: &'a mut [BinaryView],
     buffers: &'a mut Vec<ByteBufferMut>,
+    allocator: &'a BufferAllocatorRef,
 }
 
 impl ViewLen for Utf8Rows<'_> {
@@ -54,6 +57,7 @@ impl FillDefault for Utf8Rows<'_> {
 pub struct Utf8Writer<'a> {
     view: &'a mut BinaryView,
     buffers: &'a mut Vec<ByteBufferMut>,
+    allocator: &'a BufferAllocatorRef,
 }
 
 impl Utf8Writer<'_> {
@@ -70,7 +74,7 @@ impl Utf8Writer<'_> {
             .last()
             .is_none_or(|buffer| buffer.len().saturating_add(bytes.len()) > MAX_BUFFER_LEN);
         if needs_buffer {
-            self.buffers.push(ByteBufferMut::with_capacity(bytes.len()));
+            self.buffers.push(self.allocator.with_capacity(bytes.len()));
         }
 
         let buffer_index = u32::try_from(self.buffers.len() - 1)
@@ -102,13 +106,18 @@ unsafe impl OutputSink for Utf8Sink {
         DType::Utf8(Nullability::NonNullable)
     }
 
-    fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
-        let mut views = BufferMut::with_capacity(rows);
+    fn with_capacity(
+        rows: usize,
+        _params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
+        let mut views = allocator.with_capacity(rows);
         views.push_n(BinaryView::empty_view(), rows);
 
         Ok(Self {
             views,
             buffers: Vec::new(),
+            allocator: allocator.clone(),
         })
     }
 
@@ -116,6 +125,7 @@ unsafe impl OutputSink for Utf8Sink {
         Utf8Rows {
             views: self.views.as_mut_slice(),
             buffers: &mut self.buffers,
+            allocator: &self.allocator,
         }
     }
 
@@ -126,6 +136,7 @@ unsafe impl OutputSink for Utf8Sink {
         Utf8Writer {
             view,
             buffers: rows.buffers,
+            allocator: rows.allocator,
         }
     }
 
@@ -151,6 +162,7 @@ unsafe impl OutputSink for Utf8Sink {
 mod tests {
     use std::borrow::Cow;
 
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -163,7 +175,11 @@ mod tests {
     fn sink_writes_owned_borrowed_and_cow_values() -> VortexResult<()> {
         let expected = ["short", "a referenced string", "owned", "borrowed cow"];
         let referenced = String::from("a referenced string");
-        let mut sink = <Utf8Sink as OutputSink>::with_capacity(expected.len(), &())?;
+        let mut sink = <Utf8Sink as OutputSink>::with_capacity(
+            expected.len(),
+            &(),
+            BufferAllocatorRef::static_ref(),
+        )?;
 
         {
             let mut rows = <Utf8Sink as OutputSink>::rows(&mut sink);
@@ -195,12 +211,14 @@ mod tests {
 
     #[test]
     fn sink_finishes_empty_and_skipped_rows() -> VortexResult<()> {
-        let empty = <Utf8Sink as OutputSink>::with_capacity(0, &())?;
+        let empty =
+            <Utf8Sink as OutputSink>::with_capacity(0, &(), BufferAllocatorRef::static_ref())?;
         // SAFETY: a zero-row sink has no rows to initialize.
         let empty = unsafe { <Utf8Sink as OutputSink>::finish(empty) }?;
         assert!(empty.is_empty());
 
-        let mut skipped = <Utf8Sink as OutputSink>::with_capacity(2, &())?;
+        let mut skipped =
+            <Utf8Sink as OutputSink>::with_capacity(2, &(), BufferAllocatorRef::static_ref())?;
         <Utf8Sink as OutputSink>::initialize_skipped_rows(&mut <Utf8Sink as OutputSink>::rows(
             &mut skipped,
         ));

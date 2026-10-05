@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -112,12 +113,7 @@ impl VTable for FixedSizeList {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == FixedSizeListSlots::COUNT,
-            "FixedSizeListArray expected {} slots, found {}",
-            FixedSizeListSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), FixedSizeListSlots::COUNT);
         let DType::FixedSizeList(_, list_size, nullability) = dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {dtype:?}");
         };
@@ -137,11 +133,10 @@ impl VTable for FixedSizeList {
 
         let actual_dtype =
             DType::FixedSizeList(Arc::new(elements.dtype().clone()), *list_size, *nullability);
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "FixedSizeListArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
+        vortex_ensure_eq!(
+            &actual_dtype,
+            dtype,
+            "FixedSizeListArray dtype does not match outer dtype",
         );
 
         Ok(())

@@ -21,6 +21,9 @@ import json
 import sys
 import time
 from datetime import date
+from typing import TypeVar
+
+_T = TypeVar("_T")
 
 
 def synchronize() -> None:
@@ -37,7 +40,7 @@ def synchronize() -> None:
         pass
 
 
-def normalize(frame):
+def normalize(frame: _T) -> _T:
     """Collapses representation differences that are not value differences.
 
     A Parquet DATE column comes back from pyarrow as a column of `datetime.date`

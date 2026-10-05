@@ -4,18 +4,18 @@
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
+use vortex_array::flatbuffers::FlatBufferRoot;
+use vortex_array::flatbuffers::ReadFlatBuffer;
+use vortex_array::flatbuffers::WriteFlatBuffer;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::ReadFlatBuffer;
-use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::footer as fb;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::MAX_METADATA_KEY_BYTES;
 use super::MAX_METADATA_SEGMENTS;
+use crate::flatbuffers::footer as fb;
 
 /// The postscript captures the locations and compression for the initial segments required for
 /// reading a Vortex file.
@@ -274,10 +274,10 @@ impl ReadFlatBuffer for PostscriptSegment {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::flatbuffers::FlatBuffer;
+    use vortex_array::flatbuffers::ReadFlatBuffer;
+    use vortex_array::flatbuffers::WriteFlatBufferExt;
     use vortex_buffer::ByteBuffer;
-    use vortex_flatbuffers::FlatBuffer;
-    use vortex_flatbuffers::ReadFlatBuffer;
-    use vortex_flatbuffers::WriteFlatBufferExt;
 
     use super::*;
     use crate::MAX_POSTSCRIPT_SIZE;

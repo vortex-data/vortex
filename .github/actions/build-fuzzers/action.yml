@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: "Build fuzzers"
+description: "Restore exact-commit fuzz binaries or build and cache them"
+inputs:
+  toolchain:
+    description: "Pinned nightly toolchain"
+    required: true
+  runner:
+    description: "Runner configuration used for Rust setup"
+    default: "arm64-medium"
+  fuzz_target:
+    description: "Single target, or empty for all CPU fuzzers"
+    default: ""
+  extra_features:
+    description: "Extra Cargo features"
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Restore compiled fuzzers
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: fuzz-binaries
+        key: fuzz-binaries-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.toolchain }}-cargo-fuzz-0.13.2-${{ inputs.fuzz_target || 'cpu' }}-${{ inputs.extra_features || 'default' }}-${{ github.sha }}
+
+    - uses: ./.github/actions/setup-prebuild
+      if: >-
+        steps.cache.outputs.cache-hit != 'true' &&
+        github.repository == 'vortex-data/vortex' &&
+        contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ""
+        enable-sccache: "false"
+
+    - uses: ./.github/actions/setup-rust
+      if: >-
+        steps.cache.outputs.cache-hit != 'true' &&
+        (github.repository != 'vortex-data/vortex' ||
+        !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner))
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ""
+        enable-sccache: "false"
+
+    - name: Install cargo-fuzz
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+      with:
+        tool: cargo-fuzz@0.13.2
+
+    - name: Compile fuzzers
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        NIGHTLY_TOOLCHAIN: ${{ inputs.toolchain }}
+        FUZZ_TARGET: ${{ inputs.fuzz_target }}
+        EXTRA_FEATURES: ${{ inputs.extra_features }}
+      run: .github/scripts/build-fuzzers.sh
+
+    - name: Cache compiled fuzzers
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: fuzz-binaries
+        key: ${{ steps.cache.outputs.cache-primary-key }}

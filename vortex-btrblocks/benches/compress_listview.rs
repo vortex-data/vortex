@@ -4,6 +4,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use mimalloc::MiMalloc;
+
 #[cfg(not(codspeed))]
 mod benchmarks {
     use std::sync::LazyLock;
@@ -22,7 +24,7 @@ mod benchmarks {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::BtrBlocksCompressor;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
 
@@ -181,7 +183,9 @@ mod benchmarks {
     fn compress_listview(bencher: Bencher, layout: OffsetLayout) {
         let array = build_nested_listview(NUM_ROWS, layout);
         let nbytes = array.nbytes();
-        let compressor = BtrBlocksCompressor::default();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|_| ItemsCount::new(NUM_ROWS))
@@ -189,6 +193,9 @@ mod benchmarks {
             .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
     }
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main()

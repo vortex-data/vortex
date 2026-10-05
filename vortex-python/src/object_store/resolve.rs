@@ -35,7 +35,6 @@ pub(crate) fn resolve_store(
             object_path_from_literal(url_or_path),
         )),
         None => {
-            // If the URL does not parse
             match Url::parse(url_or_path) {
                 Ok(url) if url.scheme() == "file" => {
                     let path = url
@@ -43,14 +42,16 @@ pub(crate) fn resolve_store(
                         .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
                     Ok(ResolvedStore::Path(path))
                 }
-                Ok(url) => {
+                // `Url::parse` accepts a Windows absolute path like `C:\data` as a URL whose
+                // scheme is the drive letter. No real URL scheme is one character, so a
+                // single-letter scheme means this is a filesystem path, not a store. Same rule as
+                // `vortex_file::parse_uri_or_path`.
+                Ok(url) if url.scheme().len() > 1 => {
                     let (store, path) = REGISTRY.resolve(&url)?;
                     Ok(ResolvedStore::object_store(store, path))
                 }
-                Err(_) => {
-                    // Treat the input string as a local file system path, which may be
-                    Ok(ResolvedStore::Path(PathBuf::from(url_or_path)))
-                }
+                // Anything that does not parse as a URL is a local filesystem path.
+                _ => Ok(ResolvedStore::Path(PathBuf::from(url_or_path))),
             }
         }
     }
@@ -161,5 +162,18 @@ mod test {
             .unwrap()
             .unwrap_store();
         assert_eq!(path.as_ref(), key);
+    }
+
+    /// `Url::parse` reads a Windows drive letter as a scheme, so these must stay filesystem paths.
+    #[rstest]
+    #[case::backslashes(r"C:\data\file.vortex")]
+    #[case::forward_slashes("C:/data/file.vortex")]
+    #[case::lowercase(r"d:\data\file.vortex")]
+    #[case::drive_root(r"C:\")]
+    fn test_single_letter_scheme_is_path(#[case] path: &str) {
+        assert_eq!(
+            resolve_store(path, None).unwrap().unwrap_path(),
+            PathBuf::from(path)
+        );
     }
 }

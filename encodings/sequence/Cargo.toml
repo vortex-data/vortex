@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex run end encoded array"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -21,7 +20,6 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

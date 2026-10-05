@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT ss_customer_sk,
+       sum(act_sales) sumsales
+FROM
+  (SELECT ss_item_sk,
+          ss_ticket_number,
+          ss_customer_sk,
+          CASE
+              WHEN sr_return_quantity IS NOT NULL THEN (ss_quantity-sr_return_quantity)*ss_sales_price
+              ELSE (ss_quantity*ss_sales_price)
+          END act_sales
+   FROM store_sales
+   LEFT OUTER JOIN store_returns ON (sr_item_sk = ss_item_sk
+                                     AND sr_ticket_number = ss_ticket_number) ,reason
+   WHERE sr_reason_sk = r_reason_sk
+     AND r_reason_desc = 'reason 28') t
+GROUP BY ss_customer_sk
+ORDER BY sumsales NULLS FIRST,
+         ss_customer_sk NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: sumsales ASC NULLS FIRST, t.ss_customer_sk ASC NULLS FIRST, fetch=100
+02)--Projection: t.ss_customer_sk, sum(t.act_sales) AS sumsales
+03)----Aggregate: groupBy=[[t.ss_customer_sk]], aggr=[[sum(t.act_sales)]]
+04)------SubqueryAlias: t
+05)--------Projection: store_sales.ss_customer_sk, CASE WHEN store_returns.sr_return_quantity IS NOT NULL THEN CAST(store_sales.ss_quantity - store_returns.sr_return_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price ELSE CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price END AS act_sales
+06)----------Inner Join: store_returns.sr_reason_sk = reason.r_reason_sk
+07)------------Projection: store_sales.ss_customer_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_returns.sr_reason_sk, store_returns.sr_return_quantity
+08)--------------Left Join: store_sales.ss_item_sk = store_returns.sr_item_sk, store_sales.ss_ticket_number = store_returns.sr_ticket_number
+09)----------------TableScan: store_sales projection=[ss_item_sk, ss_customer_sk, ss_ticket_number, ss_quantity, ss_sales_price]
+10)----------------TableScan: store_returns projection=[sr_item_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity]
+11)------------Projection: reason.r_reason_sk
+12)--------------Filter: reason.r_reason_desc = Utf8View("reason 28")
+13)----------------TableScan: reason projection=[r_reason_sk, r_reason_desc], partial_filters=[reason.r_reason_desc = Utf8View("reason 28")]
+physical_plan
+01)SortPreservingMergeExec: [sumsales@1 ASC, ss_customer_sk@0 ASC], fetch=100
+02)--ProjectionExec: expr=[ss_customer_sk@0 as ss_customer_sk, sum(t.act_sales)@1 as sumsales]
+03)----SortExec: TopK(fetch=100), expr=[sum(t.act_sales)@1 ASC, ss_customer_sk@0 ASC], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[ss_customer_sk@0 as ss_customer_sk], aggr=[sum(t.act_sales)]
+05)--------RepartitionExec: partitioning=Hash([ss_customer_sk@0], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[ss_customer_sk@0 as ss_customer_sk], aggr=[sum(t.act_sales)]
+07)------------ProjectionExec: expr=[ss_customer_sk@0 as ss_customer_sk, CASE WHEN sr_return_quantity@1 IS NOT NULL THEN CAST(ss_quantity@2 - sr_return_quantity@1 AS Decimal128(20, 0)) * ss_sales_price@3 ELSE CAST(ss_quantity@2 AS Decimal128(20, 0)) * ss_sales_price@3 END as act_sales]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(r_reason_sk@0, sr_reason_sk@3)], projection=[ss_customer_sk@1, sr_return_quantity@5, ss_quantity@2, ss_sales_price@3]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/reason.vortex]]}, projection=[r_reason_sk], file_type=vortex, predicate: r_reason_desc@2 = reason 28
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(sr_item_sk@0, ss_item_sk@0), (sr_ticket_number@2, ss_ticket_number@2)], projection=[ss_customer_sk@5, ss_quantity@7, ss_sales_price@8, sr_reason_sk@1, sr_return_quantity@3]
+11)------------------CoalescePartitionsExec
+12)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity], file_type=vortex
+13)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_item_sk, ss_customer_sk, ss_ticket_number, ss_quantity, ss_sales_price], file_type=vortex

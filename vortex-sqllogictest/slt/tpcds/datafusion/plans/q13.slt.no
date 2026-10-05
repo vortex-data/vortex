@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT avg(ss_quantity) avg1,
+       avg(ss_ext_sales_price) avg2,
+       avg(ss_ext_wholesale_cost) avg3,
+       sum(ss_ext_wholesale_cost)
+FROM store_sales ,
+     store ,
+     customer_demographics ,
+     household_demographics ,
+     customer_address ,
+     date_dim
+WHERE s_store_sk = ss_store_sk
+  AND ss_sold_date_sk = d_date_sk
+  AND d_year = 2001 and((ss_hdemo_sk=hd_demo_sk
+                         AND cd_demo_sk = ss_cdemo_sk
+                         AND cd_marital_status = 'M'
+                         AND cd_education_status = 'Advanced Degree'
+                         AND ss_sales_price BETWEEN 100.00 AND 150.00
+                         AND hd_dep_count = 3)
+                        OR (ss_hdemo_sk=hd_demo_sk
+                            AND cd_demo_sk = ss_cdemo_sk
+                            AND cd_marital_status = 'S'
+                            AND cd_education_status = 'College'
+                            AND ss_sales_price BETWEEN 50.00 AND 100.00
+                            AND hd_dep_count = 1 )
+                        OR (ss_hdemo_sk=hd_demo_sk
+                            AND cd_demo_sk = ss_cdemo_sk
+                            AND cd_marital_status = 'W'
+                            AND cd_education_status = '2 yr Degree'
+                            AND ss_sales_price BETWEEN 150.00 AND 200.00
+                            AND hd_dep_count = 1)) and((ss_addr_sk = ca_address_sk
+                                                        AND ca_country = 'United States'
+                                                        AND ca_state IN ('TX', 'OH', 'TX')
+                                                        AND ss_net_profit BETWEEN 100 AND 200)
+                                                       OR (ss_addr_sk = ca_address_sk
+                                                           AND ca_country = 'United States'
+                                                           AND ca_state IN ('OR', 'NM', 'KY')
+                                                           AND ss_net_profit BETWEEN 150 AND 300)
+                                                       OR (ss_addr_sk = ca_address_sk
+                                                           AND ca_country = 'United States'
+                                                           AND ca_state IN ('VA', 'TX', 'MS')
+                                                           AND ss_net_profit BETWEEN 50 AND 250)) ;
+----
+logical_plan
+01)Projection: avg(store_sales.ss_quantity) AS avg1, avg(store_sales.ss_ext_sales_price) AS avg2, avg(store_sales.ss_ext_wholesale_cost) AS avg3, sum(store_sales.ss_ext_wholesale_cost)
+02)--Aggregate: groupBy=[[]], aggr=[[avg(CAST(store_sales.ss_quantity AS Float64)), avg(store_sales.ss_ext_sales_price), avg(store_sales.ss_ext_wholesale_cost), sum(store_sales.ss_ext_wholesale_cost)]]
+03)----Projection: store_sales.ss_quantity, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost
+04)------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+05)--------Projection: store_sales.ss_sold_date_sk, store_sales.ss_quantity, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost
+06)----------Inner Join: store_sales.ss_addr_sk = customer_address.ca_address_sk Filter: (customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("OH")) AND store_sales.ss_net_profit >= Decimal128(100.00,7,2) AND store_sales.ss_net_profit <= Decimal128(200.00,7,2) OR (customer_address.ca_state = Utf8View("OR") OR customer_address.ca_state = Utf8View("NM") OR customer_address.ca_state = Utf8View("KY")) AND store_sales.ss_net_profit >= Decimal128(150.00,7,2) AND store_sales.ss_net_profit <= Decimal128(300.00,7,2) OR (customer_address.ca_state = Utf8View("VA") OR customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("MS")) AND store_sales.ss_net_profit >= Decimal128(50.00,7,2) AND store_sales.ss_net_profit <= Decimal128(250.00,7,2)
+07)------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit
+08)--------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree") AND store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) AND household_demographics.hd_dep_count = Int64(3) OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") AND store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) AND household_demographics.hd_dep_count = Int64(1) OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree") AND store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2) AND household_demographics.hd_dep_count = Int64(1)
+09)----------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit, customer_demographics.cd_marital_status, customer_demographics.cd_education_status
+10)------------------Inner Join: store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree") AND store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") AND store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree") AND store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2)
+11)--------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_cdemo_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_quantity, store_sales.ss_sales_price, store_sales.ss_ext_sales_price, store_sales.ss_ext_wholesale_cost, store_sales.ss_net_profit
+12)----------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+13)------------------------Filter: (store_sales.ss_net_profit >= Decimal128(100.00,7,2) AND store_sales.ss_net_profit <= Decimal128(200.00,7,2) OR store_sales.ss_net_profit >= Decimal128(150.00,7,2) AND store_sales.ss_net_profit <= Decimal128(300.00,7,2) OR store_sales.ss_net_profit >= Decimal128(50.00,7,2) AND store_sales.ss_net_profit <= Decimal128(250.00,7,2)) AND (store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) OR store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) OR store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2))
+14)--------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_quantity, ss_sales_price, ss_ext_sales_price, ss_ext_wholesale_cost, ss_net_profit], partial_filters=[store_sales.ss_net_profit >= Decimal128(100.00,7,2) AND store_sales.ss_net_profit <= Decimal128(200.00,7,2) OR store_sales.ss_net_profit >= Decimal128(150.00,7,2) AND store_sales.ss_net_profit <= Decimal128(300.00,7,2) OR store_sales.ss_net_profit >= Decimal128(50.00,7,2) AND store_sales.ss_net_profit <= Decimal128(250.00,7,2), store_sales.ss_sales_price >= Decimal128(100.00,7,2) AND store_sales.ss_sales_price <= Decimal128(150.00,7,2) OR store_sales.ss_sales_price >= Decimal128(50.00,7,2) AND store_sales.ss_sales_price <= Decimal128(100.00,7,2) OR store_sales.ss_sales_price >= Decimal128(150.00,7,2) AND store_sales.ss_sales_price <= Decimal128(200.00,7,2)]
+15)------------------------TableScan: store projection=[s_store_sk]
+16)--------------------Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree") OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree")
+17)----------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree") OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree")]
+18)----------------Projection: household_demographics.hd_demo_sk, household_demographics.hd_dep_count
+19)------------------Filter: __common_expr_2 AND (__common_expr_2 OR household_demographics.hd_dep_count = Int64(1))
+20)--------------------Projection: household_demographics.hd_dep_count = Int64(3) OR household_demographics.hd_dep_count = Int64(1) AS __common_expr_2, household_demographics.hd_demo_sk, household_demographics.hd_dep_count
+21)----------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count], partial_filters=[household_demographics.hd_dep_count = Int64(3) OR household_demographics.hd_dep_count = Int64(1), household_demographics.hd_dep_count = Int64(3) OR household_demographics.hd_dep_count = Int64(1) OR household_demographics.hd_dep_count = Int64(1)]
+22)------------Projection: customer_address.ca_address_sk, customer_address.ca_state
+23)--------------Filter: customer_address.ca_country = Utf8View("United States") AND customer_address.ca_state IN ([Utf8View("TX"), Utf8View("OH"), Utf8View("OR"), Utf8View("NM"), Utf8View("KY"), Utf8View("VA"), Utf8View("MS")]) AND (customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("OR") OR customer_address.ca_state = Utf8View("NM") OR customer_address.ca_state = Utf8View("KY") OR customer_address.ca_state = Utf8View("VA") OR customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("MS"))
+24)----------------TableScan: customer_address projection=[ca_address_sk, ca_state, ca_country], partial_filters=[customer_address.ca_country = Utf8View("United States"), customer_address.ca_state IN ([Utf8View("TX"), Utf8View("OH"), Utf8View("OR"), Utf8View("NM"), Utf8View("KY"), Utf8View("VA"), Utf8View("MS")]), customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("OR") OR customer_address.ca_state = Utf8View("NM") OR customer_address.ca_state = Utf8View("KY") OR customer_address.ca_state = Utf8View("VA") OR customer_address.ca_state = Utf8View("TX") OR customer_address.ca_state = Utf8View("MS")]
+25)--------Projection: date_dim.d_date_sk
+26)----------Filter: date_dim.d_year = Int64(2001)
+27)------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+physical_plan
+01)ProjectionExec: expr=[avg(store_sales.ss_quantity)@0 as avg1, avg(store_sales.ss_ext_sales_price)@1 as avg2, avg(store_sales.ss_ext_wholesale_cost)@2 as avg3, sum(store_sales.ss_ext_wholesale_cost)@3 as sum(store_sales.ss_ext_wholesale_cost)]
+02)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_quantity), avg(store_sales.ss_ext_sales_price), avg(store_sales.ss_ext_wholesale_cost), sum(store_sales.ss_ext_wholesale_cost)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_quantity), avg(store_sales.ss_ext_sales_price), avg(store_sales.ss_ext_wholesale_cost), sum(store_sales.ss_ext_wholesale_cost)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_quantity@2, ss_ext_sales_price@3, ss_ext_wholesale_cost@4]
+06)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2001
+07)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@1)], filter=(ca_state@1 = TX OR ca_state@1 = OH) AND ss_net_profit@0 >= 100.00 AND ss_net_profit@0 <= 200.00 OR (ca_state@1 = OR OR ca_state@1 = NM OR ca_state@1 = KY) AND ss_net_profit@0 >= 150.00 AND ss_net_profit@0 <= 300.00 OR (ca_state@1 = VA OR ca_state@1 = TX OR ca_state@1 = MS) AND ss_net_profit@0 >= 50.00 AND ss_net_profit@0 <= 250.00, projection=[ss_sold_date_sk@2, ss_quantity@4, ss_ext_sales_price@5, ss_ext_wholesale_cost@6]
+08)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex, predicate: ca_country@10 = United States AND ca_state@8 IN (SET) ([TX, OH, OR, NM, KY, VA, MS]) AND (ca_state@8 = TX OR ca_state@8 = OH OR ca_state@8 = OR OR ca_state@8 = NM OR ca_state@8 = KY OR ca_state@8 = VA OR ca_state@8 = TX OR ca_state@8 = MS)
+09)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], filter=cd_marital_status@1 = M AND cd_education_status@2 = Advanced Degree AND ss_sales_price@0 >= 100.00 AND ss_sales_price@0 <= 150.00 AND hd_dep_count@3 = 3 OR cd_marital_status@1 = S AND cd_education_status@2 = College AND ss_sales_price@0 >= 50.00 AND ss_sales_price@0 <= 100.00 AND hd_dep_count@3 = 1 OR cd_marital_status@1 = W AND cd_education_status@2 = 2 yr Degree AND ss_sales_price@0 >= 150.00 AND ss_sales_price@0 <= 200.00 AND hd_dep_count@3 = 1, projection=[ss_sold_date_sk@2, ss_addr_sk@4, ss_quantity@5, ss_ext_sales_price@7, ss_ext_wholesale_cost@8, ss_net_profit@9]
+10)--------------CoalescePartitionsExec
+11)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk, hd_dep_count], file_type=vortex, predicate: (hd_dep_count@3 = 3 OR hd_dep_count@3 = 1) AND (hd_dep_count@3 = 3 OR hd_dep_count@3 = 1 OR hd_dep_count@3 = 1)
+13)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, ss_cdemo_sk@1)], filter=cd_marital_status@1 = M AND cd_education_status@2 = Advanced Degree AND ss_sales_price@0 >= 100.00 AND ss_sales_price@0 <= 150.00 OR cd_marital_status@1 = S AND cd_education_status@2 = College AND ss_sales_price@0 >= 50.00 AND ss_sales_price@0 <= 100.00 OR cd_marital_status@1 = W AND cd_education_status@2 = 2 yr Degree AND ss_sales_price@0 >= 150.00 AND ss_sales_price@0 <= 200.00, projection=[ss_sold_date_sk@3, ss_hdemo_sk@5, ss_addr_sk@6, ss_quantity@7, ss_sales_price@8, ss_ext_sales_price@9, ss_ext_wholesale_cost@10, ss_net_profit@11, cd_marital_status@1, cd_education_status@2]
+14)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], file_type=vortex, predicate: cd_marital_status@2 = M AND cd_education_status@3 = Advanced Degree OR cd_marital_status@2 = S AND cd_education_status@3 = College OR cd_marital_status@2 = W AND cd_education_status@3 = 2 yr Degree
+15)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@4)], projection=[ss_sold_date_sk@1, ss_cdemo_sk@2, ss_hdemo_sk@3, ss_addr_sk@4, ss_quantity@6, ss_sales_price@7, ss_ext_sales_price@8, ss_ext_wholesale_cost@9, ss_net_profit@10]
+16)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
+17)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_quantity, ss_sales_price, ss_ext_sales_price, ss_ext_wholesale_cost, ss_net_profit], file_type=vortex, predicate: (ss_net_profit@22 >= 100.00 AND ss_net_profit@22 <= 200.00 OR ss_net_profit@22 >= 150.00 AND ss_net_profit@22 <= 300.00 OR ss_net_profit@22 >= 50.00 AND ss_net_profit@22 <= 250.00) AND (ss_sales_price@13 >= 100.00 AND ss_sales_price@13 <= 150.00 OR ss_sales_price@13 >= 50.00 AND ss_sales_price@13 <= 100.00 OR ss_sales_price@13 >= 150.00 AND ss_sales_price@13 <= 200.00)

@@ -58,16 +58,12 @@ fn make_plan(layout: LayoutRef) -> VortexResult<PlanRef> {
 }
 
 fn make_eval(expression: Expression, child: PlanRef) -> VortexResult<EvalPlan> {
-    let expression = expression
-        .optimize_recursive(child.dtype())?
-        .bind(child.dtype())?;
+    let expression = expression.bind(child.dtype())?.optimize_recursive()?;
     EvalPlan::try_new(expression, child)
 }
 
 fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<PlanRef> {
-    let expression = expression
-        .optimize_recursive(child.dtype())?
-        .bind(child.dtype())?;
+    let expression = expression.bind(child.dtype())?.optimize_recursive()?;
     plan_row_idx_expression(expression, child)
 }
 

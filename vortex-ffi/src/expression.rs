@@ -40,7 +40,8 @@ box_wrapper!(
     /// Operations on expressions don't take ownership of input values, and so
     /// input values must be freed by the caller.
     Expression,
-    vx_expression);
+    vx_expression
+);
 
 /// Create a root expression. A root expression, applied to an array in
 /// vx_array_apply, takes the array itself as opposed to functions like

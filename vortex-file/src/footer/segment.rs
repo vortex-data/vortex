@@ -5,7 +5,8 @@ use std::ops::Range;
 
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
-use vortex_flatbuffers::footer as fb;
+
+use crate::flatbuffers::footer as fb;
 
 /// The location of a segment within a Vortex file.
 ///

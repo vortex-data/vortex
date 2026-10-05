@@ -6,7 +6,7 @@ import pyarrow as pa
 import vortex
 
 
-def test_struct():
+def test_struct() -> None:
     """
     Test struct-specific methods
     """
@@ -31,7 +31,7 @@ def test_struct():
     assert struct_array.names() == ["strings", "floats", "strings"]
 
 
-def test_chunked():
+def test_chunked() -> None:
     chunked_array = vortex.array(
         pa.chunked_array(
             [

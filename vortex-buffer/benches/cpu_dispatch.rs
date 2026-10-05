@@ -20,7 +20,11 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use divan::black_box;
 use divan::counter::ItemsCount;
+use mimalloc::MiMalloc;
 use vortex_buffer::CpuKernel;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     // Resolve every dispatcher and warm the std feature-detection cache so no

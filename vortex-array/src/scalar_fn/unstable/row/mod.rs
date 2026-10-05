@@ -37,6 +37,7 @@ pub use types::IndexedElementTuple;
 pub use types::InitializedElement;
 pub use types::InitializedRow;
 pub use types::InputElement;
+pub use types::OutputBuffer;
 pub use types::OutputElement;
 pub use types::OutputSink;
 pub use types::Preinitialized;

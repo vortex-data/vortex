@@ -10,17 +10,18 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 
 impl CastReduce for DecimalByteParts {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Check if this is just a nullability change
+        // Check if this is just a nullability change.
+        // TODO(mk): Support non-nullability changes as well, e.g. precision.
         if !dtype.eq_ignore_nullability(array.dtype()) {
             return Ok(None);
         }
-        // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
-        let DType::Decimal(target_decimal, target_nullability) = dtype else {
-            // Cannot cast decimal to non-decimal types - delegate to canonical form
+        // DecimalBytePartsArray can only have Decimal dtype.
+        let DType::Decimal(_, target_nullability) = dtype else {
             return Ok(None);
         };
 
@@ -29,9 +30,7 @@ impl CastReduce for DecimalByteParts {
             .msp()
             .cast(array.msp().dtype().with_nullability(*target_nullability))?;
 
-        Ok(Some(
-            DecimalByteParts::try_new(new_msp, *target_decimal)?.into_array(),
-        ))
+        array.with_msp(new_msp).map(|a| Some(a.into_array()))
     }
 }
 

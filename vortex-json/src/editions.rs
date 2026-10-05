@@ -40,9 +40,9 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
 #[cfg(test)]
 mod tests {
     use vortex_edition::ComponentKind;
-    use vortex_edition::EditionError;
     use vortex_edition::EditionSessionExt;
     use vortex_edition::test_harness::validate_edition;
+    use vortex_error::VortexResult;
 
     use super::*;
 
@@ -53,7 +53,7 @@ mod tests {
     }
 
     #[test]
-    fn json_edition_is_valid() -> Result<(), EditionError> {
+    fn json_edition_is_valid() -> VortexResult<()> {
         let session = json_session();
         validate_edition(&session.editions(), &JSON_2026_08)
     }

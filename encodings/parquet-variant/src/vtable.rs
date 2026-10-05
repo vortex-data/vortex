@@ -15,6 +15,7 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::proto::dtype as pb;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -25,7 +26,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -96,12 +96,7 @@ impl VTable for ParquetVariant {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == ParquetVariantSlots::COUNT,
-            "ParquetVariantArray expects {} slots, got {}",
-            ParquetVariantSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), ParquetVariantSlots::COUNT);
         let validity = child_to_validity(
             slots[ParquetVariantSlots::VALIDITY].as_ref(),
             dtype.nullability(),
@@ -337,7 +332,6 @@ mod tests {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_io::session::RuntimeSession;
-    use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
@@ -465,11 +459,6 @@ mod tests {
         Ok(session)
     }
 
-    #[fixture]
-    fn write_strategy() -> Arc<dyn LayoutStrategy> {
-        vortex_file::WriteStrategyBuilder::default().build()
-    }
-
     #[test]
     fn test_execute_exposes_typed_value_as_canonical_shredded() -> VortexResult<()> {
         let metadata =
@@ -544,10 +533,11 @@ mod tests {
     async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy(
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
         parquet_variant_file_session: VortexResult<VortexSession>,
-        write_strategy: Arc<dyn LayoutStrategy>,
     ) -> VortexResult<()> {
         let expected = expected?;
         let parquet_variant_file_session = parquet_variant_file_session?;
+        let write_strategy =
+            vortex_file::WriteStrategyBuilder::from_session(&parquet_variant_file_session).build();
 
         let mut bytes = ByteBufferMut::empty();
         parquet_variant_file_session

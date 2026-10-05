@@ -4,6 +4,7 @@
 #![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
@@ -16,6 +17,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

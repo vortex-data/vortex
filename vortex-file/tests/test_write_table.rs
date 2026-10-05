@@ -73,7 +73,7 @@ async fn test_file_roundtrip() {
     // the b and the a.raw columns uncompressed.
     let default_strategy = Arc::new(CompressingStrategy::new(
         FlatLayoutStrategy::default(),
-        BtrBlocksCompressor::default(),
+        BtrBlocksCompressor::from_session(&SESSION),
     ));
 
     let writer = Arc::new(

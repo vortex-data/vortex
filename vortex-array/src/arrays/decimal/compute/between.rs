@@ -10,7 +10,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
@@ -27,7 +26,7 @@ impl BetweenKernel for Decimal {
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // NOTE: We know that the precision and scale were already checked to be equal by the main
         // `between` entrypoint function.
@@ -41,7 +40,7 @@ impl BetweenKernel for Decimal {
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
         match_each_decimal_value_type!(arr.values_type(), |D| {
-            between_unpack::<D>(arr, lower, upper, nullability, options)
+            between_unpack::<D>(arr, lower, upper, nullability, options, ctx)
         })
     }
 }
@@ -52,6 +51,7 @@ fn between_unpack<T: NativeDecimalType>(
     upper: Scalar,
     nullability: Nullability,
     options: &BetweenOptions,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let Some(lower_dv) = lower.as_decimal().decimal_value() else {
         // Null lower bound — fall back to canonical path.
@@ -82,8 +82,9 @@ fn between_unpack<T: NativeDecimalType>(
         Some(v) => Some(v),
         None => {
             if lower_dv.as_i256() >= i256::ZERO {
+                let validity = arr.validity()?.union_nullability(nullability);
                 return Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                    BoolArray::new(BitBuffer::new_unset(arr.len()), validity).into_array(),
                 ));
             }
             None
@@ -94,8 +95,9 @@ fn between_unpack<T: NativeDecimalType>(
         Some(v) => Some(v),
         None => {
             if upper_dv.as_i256() < i256::ZERO {
+                let validity = arr.validity()?.union_nullability(nullability);
                 return Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                    BoolArray::new(BitBuffer::new_unset(arr.len()), validity).into_array(),
                 ));
             }
             None
@@ -119,6 +121,7 @@ fn between_unpack<T: NativeDecimalType>(
         nullability,
         lower_op,
         upper_op,
+        ctx,
     )))
 }
 
@@ -129,15 +132,20 @@ fn between_impl<T: NativeDecimalType>(
     nullability: Nullability,
     lower_op: impl Fn(T, T) -> bool,
     upper_op: impl Fn(T, T) -> bool,
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     let buffer = arr.buffer::<T>();
     BoolArray::new(
-        BitBuffer::collect_bool_multiversioned(buffer.len(), |idx| {
-            // SAFETY: `collect_bool_multiversioned` invokes the predicate with indices
-            // `0..buffer.len()` only.
-            let value = unsafe { *buffer.get_unchecked(idx) };
-            lower.is_none_or(|l| lower_op(l, value)) & upper.is_none_or(|u| upper_op(value, u))
-        }),
+        BitBuffer::collect_bool_multiversioned_in(
+            buffer.len(),
+            |idx| {
+                // SAFETY: `collect_bool_multiversioned` invokes the predicate with indices
+                // `0..buffer.len()` only.
+                let value = unsafe { *buffer.get_unchecked(idx) };
+                lower.is_none_or(|l| lower_op(l, value)) & upper.is_none_or(|u| upper_op(value, u))
+            },
+            ctx.allocator().clone(),
+        ),
         arr.validity()
             .vortex_expect("validity should be derivable")
             .union_nullability(nullability),

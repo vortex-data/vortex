@@ -65,8 +65,10 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let write_options = match compressor_strategy {
         CompressorStrategy::Default => SESSION.write_options(),
         CompressorStrategy::Compact => SESSION.write_options().with_strategy(
-            WriteStrategyBuilder::default()
-                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+            WriteStrategyBuilder::from_session(&SESSION)
+                .with_btrblocks_builder(
+                    BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
+                )
                 .build(),
         ),
     };
@@ -83,14 +85,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_expect("open_buffer should succeed in fuzz test");
     let projection = projection_expr
         .unwrap_or_else(root)
-        .optimize_recursive(file.dtype())
-        .and_then(|expr| expr.bind(file.dtype()))
+        .bind(file.dtype())
+        .and_then(|expr| expr.optimize_recursive())
         .vortex_expect("projection should bind in fuzz test");
     let filter = filter_expr
         .map(|filter| {
             filter
-                .optimize_recursive(file.dtype())
-                .and_then(|expr| expr.bind(file.dtype()))
+                .bind(file.dtype())
+                .and_then(|expr| expr.optimize_recursive())
         })
         .transpose()
         .vortex_expect("filter should bind in fuzz test");

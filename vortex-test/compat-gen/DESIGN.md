@@ -89,6 +89,8 @@ All fixtures are registered in `all_fixtures()` in `src/fixtures/mod.rs`.
 1. Create a struct implementing `Fixture` in `src/fixtures/`.
 2. Register it in `all_fixtures()` in `src/fixtures/mod.rs`.
 3. Run `cargo run -p vortex-compat --release -- generate --output /tmp/test` to verify.
+   Fixtures are written under the default session's enabled editions, so every
+   encoding a fixture emits must already be a member of one of them.
 4. Publish — the orchestrator merges the manifest so the new fixture gets
    `since` set to the current version.
 

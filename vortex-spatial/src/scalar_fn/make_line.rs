@@ -12,8 +12,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::union_child_validities;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -24,6 +22,7 @@ use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -42,10 +41,10 @@ use crate::scalar_fn::execute::dispatch_binary;
 
 /// Validate the two point operands accepted by `ST_MakeLine`.
 fn validate_make_line_operands(dtypes: &[DType]) -> VortexResult<()> {
-    vortex_ensure!(
-        dtypes.len() == 2,
-        "spatial: make_line requires exactly two point operands, got {}",
-        dtypes.len()
+    vortex_ensure_eq!(
+        dtypes.len(),
+        2,
+        "spatial: make_line requires exactly two point operands"
     );
     for dtype in dtypes {
         vortex_ensure!(
@@ -65,10 +64,10 @@ fn make_line_metadata(
 ) -> VortexResult<SpatialMetadata> {
     match (&left.crs, &right.crs) {
         (Some(left_crs), Some(right_crs)) => {
-            vortex_ensure!(
-                left_crs == right_crs,
-                "spatial: make_line operands have different coordinate reference systems: \
-                 {left_crs} and {right_crs}"
+            vortex_ensure_eq!(
+                left_crs,
+                right_crs,
+                "spatial: make_line operands have different coordinate reference systems"
             );
             Ok(left.clone())
         }
@@ -221,14 +220,6 @@ impl ScalarFnVTable for SpatialMakeLine {
             |execution, ctx| execute_make_line(execution, &output_dtype, ctx),
             ctx,
         )
-    }
-
-    fn validity(
-        &self,
-        _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        union_child_validities(expression)
     }
 
     fn is_strict(&self, _: &Self::Options) -> bool {

@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::scalar_fn::unstable::row::InputElement;
 use vortex_array::scalar_fn::unstable::row::OutputSink;
 use vortex_array::scalar_fn::unstable::row::Preinitialized;
@@ -18,6 +19,7 @@ use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::extension::build_polygon_storage;
 use crate::extension::coordinate::Dimension;
@@ -93,10 +95,10 @@ unsafe impl InputElement for GeometryRow {
 
     fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
         let mut geometries = Self::decode(array.slice(0..1)?, ctx)?;
-        vortex_ensure!(
-            geometries.len() == 1,
-            "a geometry batch constant must decode to one value, got {}",
+        vortex_ensure_eq!(
             geometries.len(),
+            1,
+            "a geometry batch constant must decode to one value",
         );
 
         Ok(geometries
@@ -136,6 +138,7 @@ unsafe impl InputElement for GeometryRow {
 /// Row output for native 2-D polygons.
 pub(crate) struct PolygonSink {
     polygons: Vec<GeoPolygon<f64>>,
+    allocator: BufferAllocatorRef,
 }
 
 fn empty_polygon() -> GeoPolygon<f64> {
@@ -156,9 +159,14 @@ unsafe impl OutputSink for PolygonSink {
         polygon_storage_dtype(Dimension::Xy, Nullability::NonNullable)
     }
 
-    fn with_capacity(rows: usize, (): &Self::Params) -> VortexResult<Self> {
+    fn with_capacity(
+        rows: usize,
+        (): &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
         Ok(Self {
             polygons: vec![empty_polygon(); rows],
+            allocator: allocator.clone(),
         })
     }
 
@@ -172,6 +180,6 @@ unsafe impl OutputSink for PolygonSink {
     }
 
     unsafe fn finish(self) -> VortexResult<ArrayRef> {
-        build_polygon_storage(&self.polygons)
+        build_polygon_storage(&self.polygons, &self.allocator)
     }
 }

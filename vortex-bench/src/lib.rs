@@ -250,30 +250,16 @@ pub enum CompactionStrategy {
 
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
-        let options = benchmark_write_options(options);
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&SESSION)
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
+                    )
                     .build(),
             ),
             CompactionStrategy::Default => options,
         }
-    }
-}
-
-/// Apply the write policy shared by Vortex benchmarks.
-///
-/// Benchmark builds that enable unstable encodings intentionally exercise all registered array
-/// encodings, including those that do not yet belong to an edition.
-pub fn benchmark_write_options(options: VortexWriteOptions) -> VortexWriteOptions {
-    #[cfg(feature = "unstable_encodings")]
-    {
-        options.disable_editions()
-    }
-    #[cfg(not(feature = "unstable_encodings"))]
-    {
-        options
     }
 }
 

@@ -11,6 +11,8 @@ use vortex_error::VortexResult;
 
 use super::Delta;
 impl OperationsVTable<Delta> for Delta {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Delta>,
         index: usize,

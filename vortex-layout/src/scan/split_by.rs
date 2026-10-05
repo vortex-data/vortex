@@ -166,6 +166,7 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
     use vortex_buffer::buffer;
+    use vortex_error::vortex_bail;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
@@ -290,7 +291,7 @@ mod test {
             _: &BoundExpression,
             _: Mask,
         ) -> VortexResult<MaskFuture> {
-            unimplemented!()
+            vortex_bail!("not needed for this test")
         }
 
         fn filter_evaluation(
@@ -299,7 +300,7 @@ mod test {
             _: &BoundExpression,
             _: MaskFuture,
         ) -> VortexResult<MaskFuture> {
-            unimplemented!()
+            vortex_bail!("not needed for this test")
         }
 
         fn projection_evaluation(
@@ -308,7 +309,7 @@ mod test {
             _: &BoundExpression,
             _: MaskFuture,
         ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-            unimplemented!()
+            vortex_bail!("not needed for this test")
         }
     }
 

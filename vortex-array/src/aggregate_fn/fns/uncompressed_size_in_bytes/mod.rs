@@ -38,6 +38,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -133,38 +134,53 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _input_dtype: &DType,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
         Ok(0)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let size = other
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Ok(scalar
             .as_primitive()
             .typed_value::<u64>()
-            .vortex_expect("uncompressed_size_in_bytes partial should not be null");
-        *partial = partial
-            .checked_add(size)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
-        Ok(())
+            .vortex_expect("uncompressed_size_in_bytes partial should not be null"))
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        first
+            .checked_add(second)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+    }
+
+    fn to_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
     }
 
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
-    }
-
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partial: &Self::Partial,
+    ) -> bool {
         false
     }
 
     fn accumulate(
         &self,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -181,12 +197,20 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         Ok(())
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(args, partial)
     }
 }
 
@@ -259,8 +283,9 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
 
 fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
     let views_size = checked_len_mul(len, size_of::<BinaryView>(), "binary view")?;
+    // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`.
     let data_size = match scalar_len {
-        Some(scalar_len) if scalar_len >= BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
+        Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
             .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
         _ => 0,
     };
@@ -341,6 +366,7 @@ mod tests {
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
@@ -686,19 +712,11 @@ mod tests {
     #[test]
     fn state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = UncompressedSizeInBytes.empty_partial(&EmptyOptions, &dtype)?;
+        let dtypes = AggregateDTypes::try_new(&UncompressedSizeInBytes, &EmptyOptions, dtype)?;
 
-        UncompressedSizeInBytes.combine_partials(
-            &mut state,
-            Scalar::primitive(5u64, Nullability::NonNullable),
-        )?;
-        UncompressedSizeInBytes.combine_partials(
-            &mut state,
-            Scalar::primitive(3u64, Nullability::NonNullable),
-        )?;
+        let state = UncompressedSizeInBytes.merge_partials(dtypes.args(&EmptyOptions), 5, 3)?;
 
-        let result = UncompressedSizeInBytes.to_scalar(&state)?;
-        UncompressedSizeInBytes.reset(&mut state);
+        let result = UncompressedSizeInBytes.to_scalar(dtypes.args(&EmptyOptions), &state)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

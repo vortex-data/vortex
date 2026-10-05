@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT sum(ss_net_profit) AS total_sum,
+       s_state,
+       s_county,
+       grouping(s_state)+grouping(s_county) AS lochierarchy,
+       rank() OVER (PARTITION BY grouping(s_state)+grouping(s_county),
+                                 CASE
+                                     WHEN grouping(s_county) = 0 THEN s_state
+                                 END
+                    ORDER BY sum(ss_net_profit) DESC) AS rank_within_parent
+FROM store_sales,
+     date_dim d1,
+     store
+WHERE d1.d_month_seq BETWEEN 1200 AND 1200+11
+  AND d1.d_date_sk = ss_sold_date_sk
+  AND s_store_sk = ss_store_sk
+  AND s_state IN
+    (SELECT s_state
+     FROM
+       (SELECT s_state AS s_state,
+               rank() OVER (PARTITION BY s_state
+                            ORDER BY sum(ss_net_profit) DESC) AS ranking
+        FROM store_sales,
+             store,
+             date_dim
+        WHERE d_month_seq BETWEEN 1200 AND 1200+11
+          AND d_date_sk = ss_sold_date_sk
+          AND s_store_sk = ss_store_sk
+        GROUP BY s_state) tmp1
+     WHERE ranking <= 5 )
+GROUP BY rollup(s_state,s_county)
+ORDER BY lochierarchy DESC ,
+         CASE
+             WHEN grouping(s_state)+grouping(s_county) = 0 THEN s_state
+         END ,
+         rank_within_parent
+LIMIT 100;
+----
+logical_plan
+01)Sort: lochierarchy DESC NULLS FIRST, CASE WHEN lochierarchy = Int32(0) THEN store.s_state END AS CASE WHEN lochierarchy = Int64(0) THEN store.s_state END ASC NULLS LAST, rank_within_parent ASC NULLS LAST, fetch=100
+02)--Projection: sum(store_sales.ss_net_profit) AS total_sum, store.s_state, store.s_county, grouping(store.s_state) + grouping(store.s_county) AS lochierarchy, rank() PARTITION BY [grouping(store.s_state) + grouping(store.s_county), CASE WHEN grouping(store.s_county) = Int64(0) THEN store.s_state END] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rank_within_parent
+03)----WindowAggr: windowExpr=[[rank() PARTITION BY [grouping(store.s_state) + grouping(store.s_county), CASE WHEN grouping(store.s_county) = Int32(0) THEN store.s_state END] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rank() PARTITION BY [grouping(store.s_state) + grouping(store.s_county), CASE WHEN grouping(store.s_county) = Int64(0) THEN store.s_state END] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+04)------Projection: store.s_state, store.s_county, sum(store_sales.ss_net_profit), CAST(__grouping_id & UInt8(2) >> UInt8(1) AS Int32) AS grouping(store.s_state), CAST(__grouping_id & UInt8(1) AS Int32) AS grouping(store.s_county)
+05)--------Aggregate: groupBy=[[ROLLUP (store.s_state, store.s_county)]], aggr=[[sum(store_sales.ss_net_profit)]]
+06)----------LeftSemi Join: store.s_state = __correlated_sq_1.s_state
+07)------------Projection: store_sales.ss_net_profit, store.s_county, store.s_state
+08)--------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+09)----------------Projection: store_sales.ss_store_sk, store_sales.ss_net_profit
+10)------------------Inner Join: store_sales.ss_sold_date_sk = d1.d_date_sk
+11)--------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_net_profit]
+12)--------------------SubqueryAlias: d1
+13)----------------------Projection: date_dim.d_date_sk
+14)------------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+15)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+16)----------------TableScan: store projection=[s_store_sk, s_county, s_state]
+17)------------SubqueryAlias: __correlated_sq_1
+18)--------------SubqueryAlias: tmp1
+19)----------------Projection: store.s_state
+20)------------------Filter: rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(5)
+21)--------------------Projection: store.s_state, rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+22)----------------------WindowAggr: windowExpr=[[rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+23)------------------------Aggregate: groupBy=[[store.s_state]], aggr=[[sum(store_sales.ss_net_profit)]]
+24)--------------------------Projection: store_sales.ss_net_profit, store.s_state
+25)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+26)------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_net_profit, store.s_state
+27)--------------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+28)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_net_profit]
+29)----------------------------------TableScan: store projection=[s_store_sk, s_state]
+30)------------------------------Projection: date_dim.d_date_sk
+31)--------------------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+32)----------------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+physical_plan
+01)SortPreservingMergeExec: [lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN s_state@1 END ASC NULLS LAST, rank_within_parent@4 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN s_state@1 END ASC NULLS LAST, rank_within_parent@4 ASC NULLS LAST], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[sum(store_sales.ss_net_profit)@2 as total_sum, s_state@0 as s_state, s_county@1 as s_county, grouping(store.s_state)@3 + grouping(store.s_county)@4 as lochierarchy, rank() PARTITION BY [grouping(store.s_state) + grouping(store.s_county), CASE WHEN grouping(store.s_county) = Int64(0) THEN store.s_state END] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@5 as rank_within_parent]
+04)------BoundedWindowAggExec: wdw=[rank() PARTITION BY [grouping(store.s_state) + grouping(store.s_county), CASE WHEN grouping(store.s_county) = Int64(0) THEN store.s_state END] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() PARTITION BY [grouping(store.s_state) + grouping(store.s_county), CASE WHEN grouping(store.s_county) = Int64(0) THEN store.s_state END] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+05)--------SortExec: expr=[grouping(store.s_state)@3 + grouping(store.s_county)@4 ASC NULLS LAST, CASE WHEN grouping(store.s_county)@4 = 0 THEN s_state@0 END ASC NULLS LAST, sum(store_sales.ss_net_profit)@2 DESC], preserve_partitioning=[true]
+06)----------RepartitionExec: partitioning=Hash([grouping(store.s_state)@3 + grouping(store.s_county)@4, CASE WHEN grouping(store.s_county)@4 = 0 THEN s_state@0 END], 4), input_partitions=4
+07)------------ProjectionExec: expr=[s_state@0 as s_state, s_county@1 as s_county, sum(store_sales.ss_net_profit)@3 as sum(store_sales.ss_net_profit), CAST(__grouping_id@2 & 2 >> 1 AS Int32) as grouping(store.s_state), CAST(__grouping_id@2 & 1 AS Int32) as grouping(store.s_county)]
+08)--------------AggregateExec: mode=FinalPartitioned, gby=[s_state@0 as s_state, s_county@1 as s_county, __grouping_id@2 as __grouping_id], aggr=[sum(store_sales.ss_net_profit)]
+09)----------------RepartitionExec: partitioning=Hash([s_state@0, s_county@1, __grouping_id@2], 4), input_partitions=4
+10)------------------AggregateExec: mode=Partial, gby=[(NULL as s_state, NULL as s_county), (s_state@2 as s_state, NULL as s_county), (s_state@2 as s_state, s_county@1 as s_county)], aggr=[sum(store_sales.ss_net_profit)]
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(s_state@2, s_state@0)]
+12)----------------------CoalescePartitionsExec
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[ss_net_profit@4, s_county@1, s_state@2]
+14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_county, s_state], file_type=vortex
+15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_store_sk@2, ss_net_profit@3]
+16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+17)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_store_sk, ss_net_profit], file_type=vortex
+18)----------------------FilterExec: rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@1 <= 5, projection=[s_state@0]
+19)------------------------ProjectionExec: expr=[s_state@0 as s_state, rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]
+20)--------------------------BoundedWindowAggExec: wdw=[rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() PARTITION BY [store.s_state] ORDER BY [sum(store_sales.ss_net_profit) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+21)----------------------------SortExec: expr=[s_state@0 ASC NULLS LAST, sum(store_sales.ss_net_profit)@1 DESC], preserve_partitioning=[true]
+22)------------------------------AggregateExec: mode=FinalPartitioned, gby=[s_state@0 as s_state], aggr=[sum(store_sales.ss_net_profit)]
+23)--------------------------------RepartitionExec: partitioning=Hash([s_state@0], 4), input_partitions=4
+24)----------------------------------AggregateExec: mode=Partial, gby=[s_state@1 as s_state], aggr=[sum(store_sales.ss_net_profit)]
+25)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_net_profit@2, s_state@3]
+26)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+27)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_sold_date_sk@2, ss_net_profit@4, s_state@1]
+28)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_state], file_type=vortex
+29)----------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_store_sk, ss_net_profit], file_type=vortex

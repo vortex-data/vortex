@@ -7,14 +7,15 @@ use flatbuffers::FlatBufferBuilder;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::flatbuffers::FlatBuffer;
+use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::WriteFlatBufferExt;
-use vortex_flatbuffers::message as fb;
 use vortex_session::VortexSession;
+
+use crate::flatbuffers::message as fb;
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {

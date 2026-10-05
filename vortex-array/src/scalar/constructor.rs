@@ -279,8 +279,7 @@ impl Scalar {
         vortex_ensure_eq!(
             child.dtype(),
             &expected_dtype,
-            "union type ID {type_id} selects child dtype {expected_dtype}, got {}",
-            child.dtype()
+            "union type ID {type_id} selects a different child dtype"
         );
 
         Self::try_new(

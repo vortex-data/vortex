@@ -40,6 +40,26 @@ pub enum VarBinExportLayout {
     VarBinView,
 }
 
+/// Controls whether Arrow Device exports keep dictionary encoding or fully decode it,
+/// including dictionaries nested inside structs and lists.
+///
+/// For example, indices `[0, 1, 0]` and dictionary values `["apple", "pear"]` export as:
+///
+/// - [`Preserve`](Self::Preserve): separate index and dictionary-value arrays, with an Arrow
+///   dictionary type.
+/// - [`Decode`](Self::Decode): the plain string array `["apple", "pear", "apple"]`, with no
+///   dictionary indices or dictionary child.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DictionaryExport {
+    /// Keep separate index and dictionary-value arrays rather than expanding repeated values.
+    /// The Arrow schema retains the dictionary type, including its index type.
+    #[default]
+    Preserve,
+    /// Expand dictionaries into plain values for a stable schema across batches.
+    /// May increase device memory use; device-resident inputs require CUDA decoding support.
+    Decode,
+}
+
 /// CUDA session for GPU accelerated execution.
 ///
 /// Maintains a registry of CUDA kernel implementations for array encodings.
@@ -50,6 +70,7 @@ pub struct CudaSession {
     kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
     export_device_array: Arc<dyn ExportDeviceArray>,
     varbin_export_layout: VarBinExportLayout,
+    dictionary_export: DictionaryExport,
     kernel_loader: Arc<KernelLoader>,
     stream_pool: Arc<VortexCudaStreamPool>,
     pinned_buffer_pool: Arc<PinnedByteBufferPool>,
@@ -77,6 +98,7 @@ impl CudaSession {
             kernel_loader: Arc::new(KernelLoader::new()),
             export_device_array: Arc::new(CanonicalDeviceArrayExport),
             varbin_export_layout: VarBinExportLayout::default(),
+            dictionary_export: DictionaryExport::default(),
             stream_pool,
             pinned_buffer_pool,
         }
@@ -91,6 +113,17 @@ impl CudaSession {
     /// Returns the Arrow Device layout used for variable-length UTF-8 and binary exports.
     pub fn varbin_export_layout(&self) -> VarBinExportLayout {
         self.varbin_export_layout
+    }
+
+    /// Selects whether Arrow Device exports preserve or decode dictionaries.
+    pub fn with_dictionary_export(mut self, policy: DictionaryExport) -> Self {
+        self.dictionary_export = policy;
+        self
+    }
+
+    /// Returns the dictionary policy used for Arrow Device exports.
+    pub fn dictionary_export(&self) -> DictionaryExport {
+        self.dictionary_export
     }
 
     /// Creates a default CUDA session using device 0, with all GPU array kernels preloaded.

@@ -197,13 +197,7 @@ fn random_array_chunk(
             .vortex_expect("operation should succeed in arbitrary impl")
             .into_array())
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => {
-            unimplemented!("Variant arrays are not implemented")
-        }
-        DType::Extension(..) => {
-            unimplemented!("Extension arrays are not implemented")
-        }
+        DType::Union(..) | DType::Variant(_) | DType::Extension(..) => Err(IncorrectFormat),
     }
 }
 

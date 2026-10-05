@@ -24,7 +24,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::Expression;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -98,14 +97,6 @@ impl ScalarFnVTable for ListLength {
         }
 
         list_length(&input, nullability, ctx)
-    }
-
-    fn validity(
-        &self,
-        _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(expression.child(0).validity()?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

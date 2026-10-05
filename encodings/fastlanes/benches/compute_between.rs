@@ -4,6 +4,7 @@
 
 use std::sync::LazyLock;
 
+use mimalloc::MiMalloc;
 use num_traits::NumCast;
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -19,6 +20,9 @@ use vortex_array::dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

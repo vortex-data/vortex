@@ -1293,8 +1293,8 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             };
             vec![DType::Struct(fields.clone(), opposite)]
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => unimplemented!(),
+        DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => vortex_panic!("Variant conformance casting is not implemented"),
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
 
@@ -1390,6 +1390,61 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 }
 
+/// Tests that a repeated probe agrees with one-off scalar reads.
+///
+/// # Invariant
+/// `array.repeated_probe().execute_scalar(i)` equals `array.execute_scalar(i)` for every `i`,
+/// whatever order the rows are visited in.
+///
+/// # Test Details
+/// - Reads every row one-off to build the expected values
+/// - Reads the same rows through a single retained probe, backwards, then forwards, then
+///   sparsely, so a probe that caches per-row state has to stay correct across jumps and
+///   revisits
+/// - Checks nullness through the probe as well as the value
+///
+/// # Why This Matters
+/// Encodings serve one-off and repeated reads from the same `probe_scalar` body, and a parent
+/// encoding passes its children's probes down. A retained cache that outlives the row it was
+/// built for, or a slot read through the wrong index, shows up here as a wrong value.
+fn test_repeated_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    // Long arrays are covered by their prefix; the three passes below already cost 3n reads.
+    let len = array.len().min(1024);
+    if len == 0 {
+        return;
+    }
+
+    let expected: Vec<_> = (0..len)
+        .map(|i| {
+            array
+                .execute_scalar(i, ctx)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        })
+        .collect();
+
+    let mut probe = array.repeated_probe();
+    let order = (0..len).rev().chain(0..len).chain((0..len).step_by(7));
+    for i in order {
+        let actual = probe
+            .execute_scalar(i, ctx)
+            .vortex_expect("repeated probe read should succeed in conformance test");
+        assert_eq!(
+            actual, expected[i],
+            "Repeated probe and one-off read disagree at index {i}. \
+             Probe value: {actual:?}, one-off value: {:?}",
+            expected[i]
+        );
+        let valid = probe
+            .execute_is_valid(i, ctx)
+            .vortex_expect("repeated probe validity read should succeed in conformance test");
+        assert_eq!(
+            valid,
+            !expected[i].is_null(),
+            "Repeated probe validity disagrees with the value read at index {i}"
+        );
+    }
+}
+
 /// Run all consistency tests on an array.
 ///
 /// This function executes a comprehensive suite of consistency tests that verify
@@ -1454,6 +1509,9 @@ pub fn test_array_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     test_mask_identity(array, ctx);
     test_take_preserves_properties(array, ctx);
 
+    // Row access
+    test_repeated_probe_consistency(array, ctx);
+
     // Ordering and correctness
     test_filter_preserves_order(array, ctx);
     test_take_repeated_indices(array, ctx);
@@ -1465,4 +1523,60 @@ pub fn test_array_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Edge cases
     test_empty_operations_consistency(array);
     test_large_array_consistency(array, ctx);
+
+    // Row access
+    test_probe_consistency(array, ctx);
+}
+
+/// Tests that one-off and repeated probes agree with each other and with validity.
+///
+/// # Invariant
+/// For every index `i`, on the array and a slice of it:
+/// - `probe().execute_scalar(i)` equals `repeated_probe().execute_scalar(i)`
+/// - `execute_is_valid(i)` equals `!execute_scalar(i).is_null()` on both probes
+fn test_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    check_probe_consistency(array, ctx);
+    if array.len() > 2 {
+        let sliced = array
+            .slice(1..array.len() - 1)
+            .vortex_expect("slice should succeed in conformance test");
+        check_probe_consistency(&sliced, ctx);
+    }
+}
+
+fn check_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    let len = array.len();
+    let stride = if len <= 1024 { 1 } else { 7 };
+    let indices: Vec<usize> = (0..len).step_by(stride).collect();
+
+    let mut once = array.probe();
+    let mut repeated = array.repeated_probe();
+    for &i in indices.iter().chain(indices.iter().rev()) {
+        let expected = once
+            .execute_scalar(i, ctx)
+            .vortex_expect("one-off probe should succeed in conformance test");
+        let valid = once
+            .execute_is_valid(i, ctx)
+            .vortex_expect("one-off validity should succeed in conformance test");
+        assert_eq!(
+            valid,
+            !expected.is_null(),
+            "One-off validity and scalar disagree at index {i}: valid {valid}, scalar {expected:?}"
+        );
+
+        let retained_valid = repeated
+            .execute_is_valid(i, ctx)
+            .vortex_expect("retained validity should succeed in conformance test");
+        assert_eq!(
+            retained_valid, valid,
+            "Retained and one-off validity disagree at index {i}"
+        );
+        let actual = repeated
+            .execute_scalar(i, ctx)
+            .vortex_expect("retained probe should succeed in conformance test");
+        assert_eq!(
+            actual, expected,
+            "Retained and one-off probes disagree at index {i}"
+        );
+    }
 }

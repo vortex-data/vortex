@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-# pyright: reportPrivateUsage=false
 
 import gc
 
@@ -34,39 +33,39 @@ def _assert_exported_device_array(
     return schema, device_array
 
 
-def test_debug_array_metadata_dtype_reads_base_vortex_array():
+def test_debug_array_metadata_dtype_reads_base_vortex_array() -> None:
     array = vortex.Array.from_range(range(0, 3))
 
     assert vortex_cuda._debug_array_metadata_dtype(array) == str(array.dtype)
 
 
-def test_metadata_bridge_primitive_array():
+def test_metadata_bridge_primitive_array() -> None:
     array = vortex.array([1, 2, 3])
 
     assert vortex_cuda._debug_array_metadata_dtype(array) == str(array.dtype)
     assert vortex_cuda._debug_array_metadata_display_values(array) == "[1i64, 2i64, 3i64]"
 
 
-def test_metadata_bridge_nullable_array():
+def test_metadata_bridge_nullable_array() -> None:
     array = vortex.array([1, None, 3])
 
     assert vortex_cuda._debug_array_metadata_dtype(array) == str(array.dtype)
     assert vortex_cuda._debug_array_metadata_display_values(array) == "[1i64, null, 3i64]"
 
 
-def test_metadata_bridge_bool_array():
+def test_metadata_bridge_bool_array() -> None:
     array = vortex.array([True, False, True])
 
     assert vortex_cuda._debug_array_metadata_dtype(array) == str(array.dtype)
     assert vortex_cuda._debug_array_metadata_display_values(array) == "[true, false, true]"
 
 
-def test_metadata_bridge_struct_with_children():
+def test_metadata_bridge_struct_with_children() -> None:
     import pyarrow as pa
 
     arrow_table = pa.table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
     struct_array = vortex.Array.from_arrow(
-        pa.StructArray.from_arrays(  # pyright: ignore[reportUnknownMemberType]
+        pa.StructArray.from_arrays(
             [arrow_table.column("a").combine_chunks(), arrow_table.column("b").combine_chunks()],
             names=["a", "b"],
         )
@@ -79,7 +78,7 @@ def test_metadata_bridge_struct_with_children():
     )
 
 
-def test_export_device_array_returns_capsules_or_clean_cuda_error():
+def test_export_device_array_returns_capsules_or_clean_cuda_error() -> None:
     array = vortex.Array.from_range(range(0, 3))
 
     if not vortex_cuda.cuda_available():
@@ -92,25 +91,25 @@ def test_export_device_array_returns_capsules_or_clean_cuda_error():
     assert type(device_array).__name__ == "PyCapsule"
 
 
-def test_arrow_device_export_primitive_array():
+def test_arrow_device_export_primitive_array() -> None:
     _require_cuda()
 
     _ = _assert_exported_device_array(vortex.array([1, 2, 3]), length=3, null_count=0, n_children=0)
 
 
-def test_arrow_device_export_nullable_primitive_array():
+def test_arrow_device_export_nullable_primitive_array() -> None:
     _require_cuda()
 
     _ = _assert_exported_device_array(vortex.array([1, None, 3]), length=3, null_count=1, n_children=0)
 
 
-def test_arrow_device_export_nullable_bool_array():
+def test_arrow_device_export_nullable_bool_array() -> None:
     _require_cuda()
 
     _ = _assert_exported_device_array(vortex.array([True, None, False]), length=3, null_count=1, n_children=0)
 
 
-def test_arrow_device_export_string_array():
+def test_arrow_device_export_string_array() -> None:
     _require_cuda()
 
     _ = _assert_exported_device_array(
@@ -121,14 +120,14 @@ def test_arrow_device_export_string_array():
     )
 
 
-def test_arrow_device_export_struct_array():
+def test_arrow_device_export_struct_array() -> None:
     import pyarrow as pa
 
     _require_cuda()
 
     arrow_table = pa.table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
     struct_array = vortex.Array.from_arrow(
-        pa.StructArray.from_arrays(  # pyright: ignore[reportUnknownMemberType]
+        pa.StructArray.from_arrays(
             [arrow_table.column("a").combine_chunks(), arrow_table.column("b").combine_chunks()],
             names=["a", "b"],
         )
@@ -137,7 +136,7 @@ def test_arrow_device_export_struct_array():
     _ = _assert_exported_device_array(struct_array, length=3, null_count=0, n_children=2)
 
 
-def test_arrow_device_capsules_drop_unconsumed():
+def test_arrow_device_capsules_drop_unconsumed() -> None:
     _require_cuda()
 
     schema, device_array = _assert_exported_device_array(vortex.array([1, 2, 3]), length=3, null_count=0, n_children=0)
@@ -145,7 +144,7 @@ def test_arrow_device_capsules_drop_unconsumed():
     _ = gc.collect()
 
 
-def test_arrow_device_capsules_consumer_release_and_used_names():
+def test_arrow_device_capsules_consumer_release_and_used_names() -> None:
     _require_cuda()
 
     schema, device_array = _assert_exported_device_array(vortex.array([1, 2, 3]), length=3, null_count=0, n_children=0)

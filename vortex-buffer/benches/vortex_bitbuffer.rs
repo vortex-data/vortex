@@ -6,8 +6,12 @@ use std::iter::Iterator;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::BooleanBufferBuilder;
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never

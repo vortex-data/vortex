@@ -1,0 +1,1261 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT *
+FROM
+  (SELECT avg(ss_list_price) B1_LP,
+          count(ss_list_price) B1_CNT,
+          count(DISTINCT ss_list_price) B1_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 0 AND 5
+     AND (ss_list_price BETWEEN 8 AND 8+10
+          OR ss_coupon_amt BETWEEN 459 AND 459+1000
+          OR ss_wholesale_cost BETWEEN 57 AND 57+20)) B1,
+  (SELECT avg(ss_list_price) B2_LP,
+          count(ss_list_price) B2_CNT,
+          count(DISTINCT ss_list_price) B2_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 6 AND 10
+     AND (ss_list_price BETWEEN 90 AND 90+10
+          OR ss_coupon_amt BETWEEN 2323 AND 2323+1000
+          OR ss_wholesale_cost BETWEEN 31 AND 31+20)) B2,
+  (SELECT avg(ss_list_price) B3_LP,
+          count(ss_list_price) B3_CNT,
+          count(DISTINCT ss_list_price) B3_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 11 AND 15
+     AND (ss_list_price BETWEEN 142 AND 142+10
+          OR ss_coupon_amt BETWEEN 12214 AND 12214+1000
+          OR ss_wholesale_cost BETWEEN 79 AND 79+20)) B3,
+  (SELECT avg(ss_list_price) B4_LP,
+          count(ss_list_price) B4_CNT,
+          count(DISTINCT ss_list_price) B4_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 16 AND 20
+     AND (ss_list_price BETWEEN 135 AND 135+10
+          OR ss_coupon_amt BETWEEN 6071 AND 6071+1000
+          OR ss_wholesale_cost BETWEEN 38 AND 38+20)) B4,
+  (SELECT avg(ss_list_price) B5_LP,
+          count(ss_list_price) B5_CNT,
+          count(DISTINCT ss_list_price) B5_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 21 AND 25
+     AND (ss_list_price BETWEEN 122 AND 122+10
+          OR ss_coupon_amt BETWEEN 836 AND 836+1000
+          OR ss_wholesale_cost BETWEEN 17 AND 17+20)) B5,
+  (SELECT avg(ss_list_price) B6_LP,
+          count(ss_list_price) B6_CNT,
+          count(DISTINCT ss_list_price) B6_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 26 AND 30
+     AND (ss_list_price BETWEEN 154 AND 154+10
+          OR ss_coupon_amt BETWEEN 7326 AND 7326+1000
+          OR ss_wholesale_cost BETWEEN 7 AND 7+20)) B6
+LIMIT 100;
+----
+logical_plan [
+    {
+        "name": "LIMIT",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "CROSS_PRODUCT",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "AGGREGATE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "FILTER",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "ss_sold_date_sk",
+                                                                                                "ss_sold_time_sk",
+                                                                                                "ss_item_sk",
+                                                                                                "ss_customer_sk",
+                                                                                                "ss_cdemo_sk",
+                                                                                                "ss_hdemo_sk",
+                                                                                                "ss_addr_sk",
+                                                                                                "ss_store_sk",
+                                                                                                "ss_promo_sk",
+                                                                                                "ss_ticket_number",
+                                                                                                "ss_quantity",
+                                                                                                "ss_wholesale_cost",
+                                                                                                "ss_list_price",
+                                                                                                "ss_sales_price",
+                                                                                                "ss_ext_discount_amt",
+                                                                                                "ss_ext_sales_price",
+                                                                                                "ss_ext_wholesale_cost",
+                                                                                                "ss_ext_list_price",
+                                                                                                "ss_ext_tax",
+                                                                                                "ss_coupon_amt",
+                                                                                                "ss_net_paid",
+                                                                                                "ss_net_paid_inc_tax",
+                                                                                                "ss_net_profit"
+                                                                                            ]
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "(ss_quantity >= CAST(0 AS BIGINT))",
+                                                                                        "(((CAST(ss_list_price AS DECIMAL(12,2)) >= CAST(8 AS DECIMAL(12,2))) AND (CAST(ss_list_price AS DECIMAL(12,2)) <= CAST((8 + 10) AS DECIMAL(12,2)))) OR ((CAST(ss_coupon_amt AS DECIMAL(12,2)) >= CAST(459 AS DECIMAL(12,2))) AND (CAST(ss_coupon_amt AS DECIMAL(12,2)) <= CAST((459 + 1000) AS DECIMAL(12,2)))) OR ((CAST(ss_wholesale_cost AS DECIMAL(12,2)) >= CAST(57 AS DECIMAL(12,2))) AND (CAST(ss_wholesale_cost AS DECIMAL(12,2)) <= CAST((57 + 20) AS DECIMAL(12,2)))))",
+                                                                                        "(ss_quantity <= CAST(5 AS BIGINT))"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": "",
+                                                                            "Expressions": [
+                                                                                "avg(ss_list_price)",
+                                                                                "count(ss_list_price)",
+                                                                                "count(DISTINCT ss_list_price)"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "B1_LP",
+                                                                        "B1_CNT",
+                                                                        "B1_CNTD"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "AGGREGATE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "FILTER",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "ss_sold_date_sk",
+                                                                                                "ss_sold_time_sk",
+                                                                                                "ss_item_sk",
+                                                                                                "ss_customer_sk",
+                                                                                                "ss_cdemo_sk",
+                                                                                                "ss_hdemo_sk",
+                                                                                                "ss_addr_sk",
+                                                                                                "ss_store_sk",
+                                                                                                "ss_promo_sk",
+                                                                                                "ss_ticket_number",
+                                                                                                "ss_quantity",
+                                                                                                "ss_wholesale_cost",
+                                                                                                "ss_list_price",
+                                                                                                "ss_sales_price",
+                                                                                                "ss_ext_discount_amt",
+                                                                                                "ss_ext_sales_price",
+                                                                                                "ss_ext_wholesale_cost",
+                                                                                                "ss_ext_list_price",
+                                                                                                "ss_ext_tax",
+                                                                                                "ss_coupon_amt",
+                                                                                                "ss_net_paid",
+                                                                                                "ss_net_paid_inc_tax",
+                                                                                                "ss_net_profit"
+                                                                                            ]
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "(ss_quantity >= CAST(6 AS BIGINT))",
+                                                                                        "(((CAST(ss_list_price AS DECIMAL(12,2)) >= CAST(90 AS DECIMAL(12,2))) AND (CAST(ss_list_price AS DECIMAL(12,2)) <= CAST((90 + 10) AS DECIMAL(12,2)))) OR ((CAST(ss_coupon_amt AS DECIMAL(12,2)) >= CAST(2323 AS DECIMAL(12,2))) AND (CAST(ss_coupon_amt AS DECIMAL(12,2)) <= CAST((2323 + 1000) AS DECIMAL(12,2)))) OR ((CAST(ss_wholesale_cost AS DECIMAL(12,2)) >= CAST(31 AS DECIMAL(12,2))) AND (CAST(ss_wholesale_cost AS DECIMAL(12,2)) <= CAST((31 + 20) AS DECIMAL(12,2)))))",
+                                                                                        "(ss_quantity <= CAST(10 AS BIGINT))"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": "",
+                                                                            "Expressions": [
+                                                                                "avg(ss_list_price)",
+                                                                                "count(ss_list_price)",
+                                                                                "count(DISTINCT ss_list_price)"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "B2_LP",
+                                                                        "B2_CNT",
+                                                                        "B2_CNTD"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "AGGREGATE",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "FILTER",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "ss_sold_date_sk",
+                                                                                        "ss_sold_time_sk",
+                                                                                        "ss_item_sk",
+                                                                                        "ss_customer_sk",
+                                                                                        "ss_cdemo_sk",
+                                                                                        "ss_hdemo_sk",
+                                                                                        "ss_addr_sk",
+                                                                                        "ss_store_sk",
+                                                                                        "ss_promo_sk",
+                                                                                        "ss_ticket_number",
+                                                                                        "ss_quantity",
+                                                                                        "ss_wholesale_cost",
+                                                                                        "ss_list_price",
+                                                                                        "ss_sales_price",
+                                                                                        "ss_ext_discount_amt",
+                                                                                        "ss_ext_sales_price",
+                                                                                        "ss_ext_wholesale_cost",
+                                                                                        "ss_ext_list_price",
+                                                                                        "ss_ext_tax",
+                                                                                        "ss_coupon_amt",
+                                                                                        "ss_net_paid",
+                                                                                        "ss_net_paid_inc_tax",
+                                                                                        "ss_net_profit"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "(ss_quantity >= CAST(11 AS BIGINT))",
+                                                                                "(((CAST(ss_list_price AS DECIMAL(12,2)) >= CAST(142 AS DECIMAL(12,2))) AND (CAST(ss_list_price AS DECIMAL(12,2)) <= CAST((142 + 10) AS DECIMAL(12,2)))) OR ((CAST(ss_coupon_amt AS DECIMAL(12,2)) >= CAST(12214 AS DECIMAL(12,2))) AND (CAST(ss_coupon_amt AS DECIMAL(12,2)) <= CAST((12214 + 1000) AS DECIMAL(12,2)))) OR ((CAST(ss_wholesale_cost AS DECIMAL(12,2)) >= CAST(79 AS DECIMAL(12,2))) AND (CAST(ss_wholesale_cost AS DECIMAL(12,2)) <= CAST((79 + 20) AS DECIMAL(12,2)))))",
+                                                                                "(ss_quantity <= CAST(15 AS BIGINT))"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Groups": "",
+                                                                    "Expressions": [
+                                                                        "avg(ss_list_price)",
+                                                                        "count(ss_list_price)",
+                                                                        "count(DISTINCT ss_list_price)"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "B3_LP",
+                                                                "B3_CNT",
+                                                                "B3_CNTD"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "AGGREGATE",
+                                                        "children": [
+                                                            {
+                                                                "name": "FILTER",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": "",
+                                                                                    "Function": "Vortex Scan"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "ss_sold_date_sk",
+                                                                                "ss_sold_time_sk",
+                                                                                "ss_item_sk",
+                                                                                "ss_customer_sk",
+                                                                                "ss_cdemo_sk",
+                                                                                "ss_hdemo_sk",
+                                                                                "ss_addr_sk",
+                                                                                "ss_store_sk",
+                                                                                "ss_promo_sk",
+                                                                                "ss_ticket_number",
+                                                                                "ss_quantity",
+                                                                                "ss_wholesale_cost",
+                                                                                "ss_list_price",
+                                                                                "ss_sales_price",
+                                                                                "ss_ext_discount_amt",
+                                                                                "ss_ext_sales_price",
+                                                                                "ss_ext_wholesale_cost",
+                                                                                "ss_ext_list_price",
+                                                                                "ss_ext_tax",
+                                                                                "ss_coupon_amt",
+                                                                                "ss_net_paid",
+                                                                                "ss_net_paid_inc_tax",
+                                                                                "ss_net_profit"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "(ss_quantity >= CAST(16 AS BIGINT))",
+                                                                        "(((CAST(ss_list_price AS DECIMAL(12,2)) >= CAST(135 AS DECIMAL(12,2))) AND (CAST(ss_list_price AS DECIMAL(12,2)) <= CAST((135 + 10) AS DECIMAL(12,2)))) OR ((CAST(ss_coupon_amt AS DECIMAL(12,2)) >= CAST(6071 AS DECIMAL(12,2))) AND (CAST(ss_coupon_amt AS DECIMAL(12,2)) <= CAST((6071 + 1000) AS DECIMAL(12,2)))) OR ((CAST(ss_wholesale_cost AS DECIMAL(12,2)) >= CAST(38 AS DECIMAL(12,2))) AND (CAST(ss_wholesale_cost AS DECIMAL(12,2)) <= CAST((38 + 20) AS DECIMAL(12,2)))))",
+                                                                        "(ss_quantity <= CAST(20 AS BIGINT))"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": "",
+                                                            "Expressions": [
+                                                                "avg(ss_list_price)",
+                                                                "count(ss_list_price)",
+                                                                "count(DISTINCT ss_list_price)"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "B4_LP",
+                                                        "B4_CNT",
+                                                        "B4_CNTD"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "FILTER",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "ss_sold_date_sk",
+                                                                        "ss_sold_time_sk",
+                                                                        "ss_item_sk",
+                                                                        "ss_customer_sk",
+                                                                        "ss_cdemo_sk",
+                                                                        "ss_hdemo_sk",
+                                                                        "ss_addr_sk",
+                                                                        "ss_store_sk",
+                                                                        "ss_promo_sk",
+                                                                        "ss_ticket_number",
+                                                                        "ss_quantity",
+                                                                        "ss_wholesale_cost",
+                                                                        "ss_list_price",
+                                                                        "ss_sales_price",
+                                                                        "ss_ext_discount_amt",
+                                                                        "ss_ext_sales_price",
+                                                                        "ss_ext_wholesale_cost",
+                                                                        "ss_ext_list_price",
+                                                                        "ss_ext_tax",
+                                                                        "ss_coupon_amt",
+                                                                        "ss_net_paid",
+                                                                        "ss_net_paid_inc_tax",
+                                                                        "ss_net_profit"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "(ss_quantity >= CAST(21 AS BIGINT))",
+                                                                "(((CAST(ss_list_price AS DECIMAL(12,2)) >= CAST(122 AS DECIMAL(12,2))) AND (CAST(ss_list_price AS DECIMAL(12,2)) <= CAST((122 + 10) AS DECIMAL(12,2)))) OR ((CAST(ss_coupon_amt AS DECIMAL(12,2)) >= CAST(836 AS DECIMAL(12,2))) AND (CAST(ss_coupon_amt AS DECIMAL(12,2)) <= CAST((836 + 1000) AS DECIMAL(12,2)))) OR ((CAST(ss_wholesale_cost AS DECIMAL(12,2)) >= CAST(17 AS DECIMAL(12,2))) AND (CAST(ss_wholesale_cost AS DECIMAL(12,2)) <= CAST((17 + 20) AS DECIMAL(12,2)))))",
+                                                                "(ss_quantity <= CAST(25 AS BIGINT))"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": "",
+                                                    "Expressions": [
+                                                        "avg(ss_list_price)",
+                                                        "count(ss_list_price)",
+                                                        "count(DISTINCT ss_list_price)"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "B5_LP",
+                                                "B5_CNT",
+                                                "B5_CNTD"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": ""
+                                }
+                            },
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "FILTER",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "ss_sold_date_sk",
+                                                                "ss_sold_time_sk",
+                                                                "ss_item_sk",
+                                                                "ss_customer_sk",
+                                                                "ss_cdemo_sk",
+                                                                "ss_hdemo_sk",
+                                                                "ss_addr_sk",
+                                                                "ss_store_sk",
+                                                                "ss_promo_sk",
+                                                                "ss_ticket_number",
+                                                                "ss_quantity",
+                                                                "ss_wholesale_cost",
+                                                                "ss_list_price",
+                                                                "ss_sales_price",
+                                                                "ss_ext_discount_amt",
+                                                                "ss_ext_sales_price",
+                                                                "ss_ext_wholesale_cost",
+                                                                "ss_ext_list_price",
+                                                                "ss_ext_tax",
+                                                                "ss_coupon_amt",
+                                                                "ss_net_paid",
+                                                                "ss_net_paid_inc_tax",
+                                                                "ss_net_profit"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "(ss_quantity >= CAST(26 AS BIGINT))",
+                                                        "(((CAST(ss_list_price AS DECIMAL(12,2)) >= CAST(154 AS DECIMAL(12,2))) AND (CAST(ss_list_price AS DECIMAL(12,2)) <= CAST((154 + 10) AS DECIMAL(12,2)))) OR ((CAST(ss_coupon_amt AS DECIMAL(12,2)) >= CAST(7326 AS DECIMAL(12,2))) AND (CAST(ss_coupon_amt AS DECIMAL(12,2)) <= CAST((7326 + 1000) AS DECIMAL(12,2)))) OR ((CAST(ss_wholesale_cost AS DECIMAL(12,2)) >= CAST(7 AS DECIMAL(12,2))) AND (CAST(ss_wholesale_cost AS DECIMAL(12,2)) <= CAST((7 + 20) AS DECIMAL(12,2)))))",
+                                                        "(ss_quantity <= CAST(30 AS BIGINT))"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Groups": "",
+                                            "Expressions": [
+                                                "avg(ss_list_price)",
+                                                "count(ss_list_price)",
+                                                "count(DISTINCT ss_list_price)"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "B6_LP",
+                                        "B6_CNT",
+                                        "B6_CNTD"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": ""
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "B1_LP",
+                        "B1_CNT",
+                        "B1_CNTD",
+                        "B2_LP",
+                        "B2_CNT",
+                        "B2_CNTD",
+                        "B3_LP",
+                        "B3_CNT",
+                        "B3_CNTD",
+                        "B4_LP",
+                        "B4_CNT",
+                        "B4_CNTD",
+                        "B5_LP",
+                        "B5_CNT",
+                        "B5_CNTD",
+                        "B6_LP",
+                        "B6_CNT",
+                        "B6_CNTD"
+                    ]
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": ""
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "LIMIT",
+                "children": [
+                    {
+                        "name": "CROSS_PRODUCT",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "AGGREGATE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": [
+                                                                                                "(((($.ss_list_price >= decimal128(12200, precision=7, scale=2)) and ($.ss_list_price <= decimal128(13200, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(83600, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(183600, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(1700, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(3700, precision=7, scale=2))))",
+                                                                                                "(21i64 <= $.ss_quantity <= 25i64)"
+                                                                                            ],
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Estimated Cardinality": "57692"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "ss_list_price",
+                                                                                    "Estimated Cardinality": "57692"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": "",
+                                                                            "Expressions": [
+                                                                                "avg(ss_list_price)",
+                                                                                "count(ss_list_price)",
+                                                                                "count(DISTINCT ss_list_price)"
+                                                                            ],
+                                                                            "Estimated Cardinality": "1"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "B5_LP",
+                                                                        "B5_CNT",
+                                                                        "B5_CNTD"
+                                                                    ],
+                                                                    "Estimated Cardinality": "1"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "AGGREGATE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": [
+                                                                                                "(((($.ss_list_price >= decimal128(15400, precision=7, scale=2)) and ($.ss_list_price <= decimal128(16400, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(732600, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(832600, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(700, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(2700, precision=7, scale=2))))",
+                                                                                                "(26i64 <= $.ss_quantity <= 30i64)"
+                                                                                            ],
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Estimated Cardinality": "57692"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "ss_list_price",
+                                                                                    "Estimated Cardinality": "57692"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": "",
+                                                                            "Expressions": [
+                                                                                "avg(ss_list_price)",
+                                                                                "count(ss_list_price)",
+                                                                                "count(DISTINCT ss_list_price)"
+                                                                            ],
+                                                                            "Estimated Cardinality": "1"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "B6_LP",
+                                                                        "B6_CNT",
+                                                                        "B6_CNTD"
+                                                                    ],
+                                                                    "Estimated Cardinality": "1"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "",
+                                                            "Estimated Cardinality": "1"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "AGGREGATE",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": [
+                                                                                        "(((($.ss_list_price >= decimal128(13500, precision=7, scale=2)) and ($.ss_list_price <= decimal128(14500, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(607100, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(707100, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(3800, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(5800, precision=7, scale=2))))",
+                                                                                        "(16i64 <= $.ss_quantity <= 20i64)"
+                                                                                    ],
+                                                                                    "Function": "Vortex Scan",
+                                                                                    "Estimated Cardinality": "57692"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "ss_list_price",
+                                                                            "Estimated Cardinality": "57692"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Groups": "",
+                                                                    "Expressions": [
+                                                                        "avg(ss_list_price)",
+                                                                        "count(ss_list_price)",
+                                                                        "count(DISTINCT ss_list_price)"
+                                                                    ],
+                                                                    "Estimated Cardinality": "1"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "B4_LP",
+                                                                "B4_CNT",
+                                                                "B4_CNTD"
+                                                            ],
+                                                            "Estimated Cardinality": "1"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "",
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "AGGREGATE",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": [
+                                                                                "(((($.ss_list_price >= decimal128(14200, precision=7, scale=2)) and ($.ss_list_price <= decimal128(15200, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(1221400, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(1321400, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(7900, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(9900, precision=7, scale=2))))",
+                                                                                "(11i64 <= $.ss_quantity <= 15i64)"
+                                                                            ],
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "57692"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "ss_list_price",
+                                                                    "Estimated Cardinality": "57692"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": "",
+                                                            "Expressions": [
+                                                                "avg(ss_list_price)",
+                                                                "count(ss_list_price)",
+                                                                "count(DISTINCT ss_list_price)"
+                                                            ],
+                                                            "Estimated Cardinality": "1"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "B3_LP",
+                                                        "B3_CNT",
+                                                        "B3_CNTD"
+                                                    ],
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": [
+                                                                        "(((($.ss_list_price >= decimal128(9000, precision=7, scale=2)) and ($.ss_list_price <= decimal128(10000, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(232300, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(332300, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(3100, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(5100, precision=7, scale=2))))",
+                                                                        "(6i64 <= $.ss_quantity <= 10i64)"
+                                                                    ],
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "57692"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "ss_list_price",
+                                                            "Estimated Cardinality": "57692"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": "",
+                                                    "Expressions": [
+                                                        "avg(ss_list_price)",
+                                                        "count(ss_list_price)",
+                                                        "count(DISTINCT ss_list_price)"
+                                                    ],
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "B2_LP",
+                                                "B2_CNT",
+                                                "B2_CNTD"
+                                            ],
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": "",
+                                    "Estimated Cardinality": "1"
+                                }
+                            },
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "(((($.ss_list_price >= decimal128(800, precision=7, scale=2)) and ($.ss_list_price <= decimal128(1800, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(45900, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(145900, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(5700, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(7700, precision=7, scale=2))))",
+                                                                "(0i64 <= $.ss_quantity <= 5i64)"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "57692"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "ss_list_price",
+                                                    "Estimated Cardinality": "57692"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Groups": "",
+                                            "Expressions": [
+                                                "avg(ss_list_price)",
+                                                "count(ss_list_price)",
+                                                "count(DISTINCT ss_list_price)"
+                                            ],
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "B1_LP",
+                                        "B1_CNT",
+                                        "B1_CNTD"
+                                    ],
+                                    "Estimated Cardinality": "1"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": "",
+                            "Estimated Cardinality": "1"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": ""
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": [
+                "B1_LP",
+                "B1_CNT",
+                "B1_CNTD",
+                "B2_LP",
+                "B2_CNT",
+                "B2_CNTD",
+                "B3_LP",
+                "B3_CNT",
+                "B3_CNTD",
+                "B4_LP",
+                "B4_CNT",
+                "B4_CNTD",
+                "B5_LP",
+                "B5_CNT",
+                "B5_CNTD",
+                "B6_LP",
+                "B6_CNT",
+                "B6_CNTD"
+            ],
+            "Estimated Cardinality": "0"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "STREAMING_LIMIT",
+                "children": [
+                    {
+                        "name": "CROSS_PRODUCT",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "UNGROUPED_AGGREGATE",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Function": "Vortex Scan",
+                                                                                    "Filters": [
+                                                                                        "(((($.ss_list_price >= decimal128(12200, precision=7, scale=2)) and ($.ss_list_price <= decimal128(13200, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(83600, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(183600, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(1700, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(3700, precision=7, scale=2))))",
+                                                                                        "(21i64 <= $.ss_quantity <= 25i64)"
+                                                                                    ],
+                                                                                    "Projections": "ss_list_price",
+                                                                                    "Estimated Cardinality": "57692"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Projections": [
+                                                                                "ss_list_price",
+                                                                                "ss_list_price",
+                                                                                "ss_list_price"
+                                                                            ],
+                                                                            "Estimated Cardinality": "57692"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Aggregates": [
+                                                                        "avg(#0)",
+                                                                        "count(#1)",
+                                                                        "count(DISTINCT #2)"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "UNGROUPED_AGGREGATE",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Function": "Vortex Scan",
+                                                                                    "Filters": [
+                                                                                        "(((($.ss_list_price >= decimal128(15400, precision=7, scale=2)) and ($.ss_list_price <= decimal128(16400, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(732600, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(832600, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(700, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(2700, precision=7, scale=2))))",
+                                                                                        "(26i64 <= $.ss_quantity <= 30i64)"
+                                                                                    ],
+                                                                                    "Projections": "ss_list_price",
+                                                                                    "Estimated Cardinality": "57692"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Projections": [
+                                                                                "ss_list_price",
+                                                                                "ss_list_price",
+                                                                                "ss_list_price"
+                                                                            ],
+                                                                            "Estimated Cardinality": "57692"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Aggregates": [
+                                                                        "avg(#0)",
+                                                                        "count(#1)",
+                                                                        "count(DISTINCT #2)"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {}
+                                                    },
+                                                    {
+                                                        "name": "UNGROUPED_AGGREGATE",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Function": "Vortex Scan",
+                                                                            "Filters": [
+                                                                                "(((($.ss_list_price >= decimal128(13500, precision=7, scale=2)) and ($.ss_list_price <= decimal128(14500, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(607100, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(707100, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(3800, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(5800, precision=7, scale=2))))",
+                                                                                "(16i64 <= $.ss_quantity <= 20i64)"
+                                                                            ],
+                                                                            "Projections": "ss_list_price",
+                                                                            "Estimated Cardinality": "57692"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Projections": [
+                                                                        "ss_list_price",
+                                                                        "ss_list_price",
+                                                                        "ss_list_price"
+                                                                    ],
+                                                                    "Estimated Cardinality": "57692"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Aggregates": [
+                                                                "avg(#0)",
+                                                                "count(#1)",
+                                                                "count(DISTINCT #2)"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {}
+                                            },
+                                            {
+                                                "name": "UNGROUPED_AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Filters": [
+                                                                        "(((($.ss_list_price >= decimal128(14200, precision=7, scale=2)) and ($.ss_list_price <= decimal128(15200, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(1221400, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(1321400, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(7900, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(9900, precision=7, scale=2))))",
+                                                                        "(11i64 <= $.ss_quantity <= 15i64)"
+                                                                    ],
+                                                                    "Projections": "ss_list_price",
+                                                                    "Estimated Cardinality": "57692"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Projections": [
+                                                                "ss_list_price",
+                                                                "ss_list_price",
+                                                                "ss_list_price"
+                                                            ],
+                                                            "Estimated Cardinality": "57692"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Aggregates": [
+                                                        "avg(#0)",
+                                                        "count(#1)",
+                                                        "count(DISTINCT #2)"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {}
+                                    },
+                                    {
+                                        "name": "UNGROUPED_AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": [
+                                                                "(((($.ss_list_price >= decimal128(9000, precision=7, scale=2)) and ($.ss_list_price <= decimal128(10000, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(232300, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(332300, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(3100, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(5100, precision=7, scale=2))))",
+                                                                "(6i64 <= $.ss_quantity <= 10i64)"
+                                                            ],
+                                                            "Projections": "ss_list_price",
+                                                            "Estimated Cardinality": "57692"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": [
+                                                        "ss_list_price",
+                                                        "ss_list_price",
+                                                        "ss_list_price"
+                                                    ],
+                                                    "Estimated Cardinality": "57692"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Aggregates": [
+                                                "avg(#0)",
+                                                "count(#1)",
+                                                "count(DISTINCT #2)"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {}
+                            },
+                            {
+                                "name": "UNGROUPED_AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": [
+                                                        "(((($.ss_list_price >= decimal128(800, precision=7, scale=2)) and ($.ss_list_price <= decimal128(1800, precision=7, scale=2))) or (($.ss_coupon_amt >= decimal128(45900, precision=7, scale=2)) and ($.ss_coupon_amt <= decimal128(145900, precision=7, scale=2)))) or (($.ss_wholesale_cost >= decimal128(5700, precision=7, scale=2)) and ($.ss_wholesale_cost <= decimal128(7700, precision=7, scale=2))))",
+                                                        "(0i64 <= $.ss_quantity <= 5i64)"
+                                                    ],
+                                                    "Projections": "ss_list_price",
+                                                    "Estimated Cardinality": "57692"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "ss_list_price",
+                                                "ss_list_price",
+                                                "ss_list_price"
+                                            ],
+                                            "Estimated Cardinality": "57692"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Aggregates": [
+                                        "avg(#0)",
+                                        "count(#1)",
+                                        "count(DISTINCT #2)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {}
+                    }
+                ],
+                "extra_info": {}
+            }
+        ],
+        "extra_info": {
+            "Projections": [
+                "B1_LP",
+                "B1_CNT",
+                "B1_CNTD",
+                "B2_LP",
+                "B2_CNT",
+                "B2_CNTD",
+                "B3_LP",
+                "B3_CNT",
+                "B3_CNTD",
+                "B4_LP",
+                "B4_CNT",
+                "B4_CNTD",
+                "B5_LP",
+                "B5_CNT",
+                "B5_CNTD",
+                "B6_LP",
+                "B6_CNT",
+                "B6_CNTD"
+            ],
+            "Estimated Cardinality": "0"
+        }
+    }
+]

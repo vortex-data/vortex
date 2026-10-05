@@ -122,7 +122,7 @@ class Store:
 class LocalStore(Store):
     """Fixture store backed by a local directory."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path) -> None:
         self.root = root
 
     def read(self, key: str) -> bytes | None:
@@ -164,7 +164,7 @@ class LocalStore(Store):
 class S3Store(Store):
     """Fixture store backed by an S3 bucket (public reads, aws cli writes)."""
 
-    def __init__(self, bucket: str):
+    def __init__(self, bucket: str) -> None:
         self.bucket = bucket
         self.https_base = f"https://{bucket}.s3.amazonaws.com"
 
@@ -219,7 +219,7 @@ class DryRunStore(Store):
     written.  For local stores, writes are silently skipped.
     """
 
-    def __init__(self, inner: Store):
+    def __init__(self, inner: Store) -> None:
         self.inner = inner
 
     def read(self, key: str) -> bytes | None:

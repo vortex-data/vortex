@@ -13,6 +13,7 @@ use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::BitPackedData;
 use crate::FL_CHUNK_SIZE;
@@ -190,20 +191,14 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         if let Some(initial) = self.initial() {
             local_idx = initial.len();
 
-            // TODO(connor): use maybe_uninit_write_slice when it gets stabilized.
-            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let init_initial: &[MaybeUninit<T>] = unsafe { mem::transmute(initial) };
-            output[..local_idx].copy_from_slice(init_initial);
+            output[..local_idx].write_copy_of_slice(initial);
         }
 
         local_idx = self.decode_full_chunks_into_at(output, local_idx);
 
         if let Some(trailer) = self.trailer() {
-            // TODO(connor): use maybe_uninit_write_slice when it gets stabilized.
-            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let init_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
-            output[local_idx..][..init_trailer.len()].copy_from_slice(init_trailer);
-            local_idx += init_trailer.len();
+            output[local_idx..][..trailer.len()].write_copy_of_slice(trailer);
+            local_idx += trailer.len();
         }
 
         debug_assert_eq!(local_idx, self.len);
@@ -354,11 +349,7 @@ fn validate_packed<T: PhysicalPType>(
     );
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-    vortex_ensure!(
-        packed_len == num_chunks * elems_per_chunk,
-        "Invalid packed length: got {packed_len}, expected {}",
-        num_chunks * elems_per_chunk
-    );
+    vortex_ensure_eq!(packed_len, num_chunks * elems_per_chunk);
     Ok((num_chunks, (offset + len) % CHUNK_SIZE))
 }
 

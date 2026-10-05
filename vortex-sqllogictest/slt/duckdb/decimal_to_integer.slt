@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT id, CAST(value AS DECIMAL(21,1)) AS value FROM (VALUES
+    (1, '0.0'),
+    (2, '1.0'),
+    (3, '-19.9'),
+    (4, '19.9'),
+    (5, '1786639777684000001.0'),
+    (6, '-9223372036854775808.0'),
+    (7, '9223372036854775807.0'),
+    (8, NULL)
+) AS t(id, value)) TO '${WORK_DIR}/decimal_to_integer.vortex';
+
+statement ok
+CREATE VIEW decimals AS SELECT * FROM '${WORK_DIR}/decimal_to_integer.vortex';
+
+# DuckDB rounds decimal fractions instead of truncating them. Decimal casts must
+# stay outside the Vortex scan even though Vortex now supports integer targets.
+query TT
+EXPLAIN SELECT CAST(value AS BIGINT) AS integer_value FROM decimals;
+----
+<REGEX>:.*PROJECTION.*
+
+query TT
+EXPLAIN SELECT CAST(value AS BIGINT) AS integer_value FROM decimals;
+----
+<!REGEX>:.*SELECT projections.*
+
+query I
+SELECT CAST(value AS BIGINT) FROM decimals ORDER BY id;
+----
+0
+1
+-20
+20
+1786639777684000001
+-9223372036854775808
+9223372036854775807
+NULL

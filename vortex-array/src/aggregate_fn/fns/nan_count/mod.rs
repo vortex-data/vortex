@@ -16,6 +16,7 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -117,36 +118,51 @@ impl AggregateFnVTable for NanCount {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _input_dtype: &DType,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
-        Ok(0u64)
+        Ok(0)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let val = other
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Ok(scalar
             .as_primitive()
             .typed_value::<u64>()
-            .vortex_expect("nan_count partial should not be null");
-        *partial += val;
-        Ok(())
+            .vortex_expect("nan_count partial should not be null"))
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        Ok(first + second)
+    }
+
+    fn to_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
     }
 
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
-    }
-
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partial: &Self::Partial,
+    ) -> bool {
         false
     }
 
     fn accumulate(
         &self,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -172,12 +188,20 @@ impl AggregateFnVTable for NanCount {
         }
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(args, partial)
     }
 }
 
@@ -189,6 +213,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
@@ -201,7 +226,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -247,16 +271,11 @@ mod tests {
     #[test]
     fn nan_count_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut state = NanCount.empty_partial(&EmptyOptions, &dtype)?;
+        let dtypes = AggregateDTypes::try_new(&NanCount, &EmptyOptions, dtype)?;
 
-        let scalar1 = Scalar::primitive(5u64, Nullability::NonNullable);
-        NanCount.combine_partials(&mut state, scalar1)?;
+        let state = NanCount.merge_partials(dtypes.args(&EmptyOptions), 5, 3)?;
 
-        let scalar2 = Scalar::primitive(3u64, Nullability::NonNullable);
-        NanCount.combine_partials(&mut state, scalar2)?;
-
-        let result = NanCount.to_scalar(&state)?;
-        NanCount.reset(&mut state);
+        let result = NanCount.to_scalar(dtypes.args(&EmptyOptions), &state)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

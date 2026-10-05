@@ -352,6 +352,21 @@ impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
             finish_failure,
         )
     }
+
+    fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        // TODO(connor): Benchmark packing valid-row outputs directly into a bitmap instead of
+        // collecting a byte per row and packing afterward. Keep invalid rows out of `apply`.
+        self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
+    }
 }
 
 /// The runtime visit that executes valid rows over inputs filtered to the valid row domain.
@@ -495,5 +510,20 @@ impl<F: RowFn> RowVisitor for ExecuteFilteredRows<'_, '_, F> {
             apply,
             finish_failure,
         )
+    }
+
+    fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        // TODO(connor): Benchmark writing filtered Boolean outputs directly into a bitmap at their
+        // original row indices, avoiding the byte-per-row allocation and subsequent packing pass.
+        self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
     }
 }

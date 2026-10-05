@@ -83,7 +83,7 @@ impl BufferAllocatorRef {
     }
 
     /// Copy values into a mutable buffer made by this allocator.
-    pub fn copy_from<T>(&self, values: impl AsRef<[T]>) -> BufferMut<T> {
+    pub fn copy_from<T: Copy>(&self, values: impl AsRef<[T]>) -> BufferMut<T> {
         BufferMut::copy_from_in(values, self.clone())
     }
 }
@@ -182,7 +182,7 @@ impl StaticBufferAllocator {
     }
 
     /// Copy values into a mutable buffer made by the static allocator.
-    pub fn copy_from<T>(values: impl AsRef<[T]>) -> BufferMut<T> {
+    pub fn copy_from<T: Copy>(values: impl AsRef<[T]>) -> BufferMut<T> {
         BufferMut::copy_from(values)
     }
 }

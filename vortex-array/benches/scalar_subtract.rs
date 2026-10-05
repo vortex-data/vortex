@@ -6,6 +6,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
@@ -21,6 +22,9 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);

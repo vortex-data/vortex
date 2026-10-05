@@ -10,6 +10,7 @@
 #
 # Datasets:
 #   tpch        TPC-H at scale factor 0.1.
+#   tpcds       TPC-DS at scale factor 0.1 from DuckDB's tpcds extension.
 #   clickbench  One shard (~1M rows) of the partitioned ClickBench `hits` table.
 #
 # With no arguments every dataset is generated.
@@ -17,7 +18,7 @@
 set -e -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALL_DATASETS=(tpch clickbench)
+ALL_DATASETS=(tpch tpcds clickbench)
 
 usage() {
   echo "Usage: $(basename "${BASH_SOURCE[0]}") [DATASET...]"
@@ -32,7 +33,7 @@ for arg in "$@"; do
       usage
       exit 0
       ;;
-    tpch|clickbench)
+    tpch|tpcds|clickbench)
       datasets+=("${arg}")
       ;;
     *)

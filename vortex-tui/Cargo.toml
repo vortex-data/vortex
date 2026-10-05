@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "a small but mighty tool for working with Vortex files"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -30,7 +28,6 @@ native = [
     "vortex/tokio",
     "vortex/zstd",
 ]
-unstable_encodings = ["vortex/unstable_encodings"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -55,6 +52,7 @@ serde_json = { workspace = true }
 taffy = { workspace = true }
 vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = [
     "files",
+    "parquet-variant",
     "wasm-bindgen",
 ] }
 vortex-arrow = { workspace = true }

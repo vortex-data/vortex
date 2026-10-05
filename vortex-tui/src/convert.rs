@@ -96,11 +96,11 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
             .boxed();
     }
 
-    let mut strategy = WriteStrategyBuilder::default();
+    let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
     if matches!(flags.strategy, Strategy::Compact) {
-        strategy =
-            strategy.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+        compressor = compressor.with_compact();
     }
+    let strategy = WriteStrategyBuilder::from_session(session).with_btrblocks_builder(compressor);
 
     let mut file = File::create(output_path).await?;
     session

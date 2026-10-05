@@ -26,8 +26,6 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::schemes::integer::DeltaScheme;
-use crate::schemes::integer::try_compress_delta;
 
 /// OnPair short-string compression (dict-12).
 ///
@@ -85,7 +83,7 @@ impl Scheme for OnPairScheme {
             return Ok(encoded);
         };
 
-        let dict_offsets = compress_offsets_child(
+        let dict_offsets = compress_primitive_child(
             compressor,
             onpair_array.dict_offsets(),
             &compress_ctx,
@@ -101,7 +99,7 @@ impl Scheme for OnPairScheme {
             1,
             exec_ctx,
         )?;
-        let codes_offsets = compress_offsets_child(
+        let codes_offsets = compress_primitive_child(
             compressor,
             onpair_array.codes_offsets(),
             &compress_ctx,
@@ -149,49 +147,6 @@ fn compress_primitive_child(
     compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)
 }
 
-/// Minimum child length before delta is even attempted. Delta carries fixed
-/// overhead (a separate `bases` array plus FastLanes' 1024-element lane
-/// packing), so on short children it can only lose.
-const OFFSETS_DELTA_MIN_LEN: usize = 2048;
-
-/// Compress a monotonic offsets child. For children of at least
-/// [`OFFSETS_DELTA_MIN_LEN`] it tries both the normal cascading path and a
-/// delta path and keeps whichever produces fewer bytes; shorter children
-/// skip delta entirely. `dict_offsets` and `codes_offsets` are cumulative
-/// (monotonic), so delta (per-entry deltas) usually packs much tighter than
-/// FoR+bitpacking over the full range.
-fn compress_offsets_child(
-    compressor: &CascadingCompressor,
-    child: &ArrayRef,
-    compress_ctx: &CompressorContext,
-    scheme_id: SchemeId,
-    child_idx: usize,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let narrowed = child
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?
-        .into_array();
-    let plain =
-        compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)?;
-    if narrowed.len() < OFFSETS_DELTA_MIN_LEN {
-        return Ok(plain);
-    }
-    if !compressor.has_scheme(DeltaScheme::default().id()) {
-        return Ok(plain);
-    }
-    let delta = try_compress_delta(
-        compressor,
-        &narrowed,
-        compress_ctx,
-        scheme_id,
-        child_idx,
-        exec_ctx,
-    )?;
-    if delta.nbytes() < plain.nbytes() {
-        Ok(delta)
-    } else {
-        Ok(plain)
-    }
-}
+// TODO(joe): re-apply Delta to the monotone `dict_offsets` / `codes_offsets` children once the
+// compressor can say whether a scheme is eligible for a given child; applying it by hand
+// bypassed the exclusion rules.

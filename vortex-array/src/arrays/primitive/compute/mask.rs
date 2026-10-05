@@ -12,6 +12,8 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Primitive {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, Primitive>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: validity and data buffer still have same length
         Ok(Some(unsafe {

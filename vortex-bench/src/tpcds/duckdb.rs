@@ -30,7 +30,7 @@ pub fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf
         "SET autoinstall_known_extensions=1;\
         SET autoload_known_extensions=1;\
         CALL dsdgen(sf={scale_factor});\
-        EXPORT DATABASE '{output_dir}' (FORMAT PARQUET);",
+        EXPORT DATABASE '{output_dir}' (FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 3);",
         scale_factor = scale_factor,
         output_dir = output_dir.to_string_lossy()
     );

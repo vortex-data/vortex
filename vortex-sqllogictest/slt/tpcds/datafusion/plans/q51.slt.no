@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH web_v1 AS
+  (SELECT ws_item_sk item_sk,
+          d_date,
+          sum(sum(ws_sales_price)) OVER (PARTITION BY ws_item_sk
+                                         ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) cume_sales
+   FROM web_sales,
+        date_dim
+   WHERE ws_sold_date_sk=d_date_sk
+     AND d_month_seq BETWEEN 1200 AND 1200+11
+     AND ws_item_sk IS NOT NULL
+   GROUP BY ws_item_sk,
+            d_date),
+     store_v1 AS
+  (SELECT ss_item_sk item_sk,
+          d_date,
+          sum(sum(ss_sales_price)) OVER (PARTITION BY ss_item_sk
+                                         ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) cume_sales
+   FROM store_sales,
+        date_dim
+   WHERE ss_sold_date_sk=d_date_sk
+     AND d_month_seq BETWEEN 1200 AND 1200+11
+     AND ss_item_sk IS NOT NULL
+   GROUP BY ss_item_sk,
+            d_date)
+SELECT *
+FROM
+  (SELECT item_sk,
+          d_date,
+          web_sales,
+          store_sales,
+          max(web_sales) OVER (PARTITION BY item_sk
+                               ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) web_cumulative,
+                              max(store_sales) OVER (PARTITION BY item_sk
+                                                     ORDER BY d_date ROWS BETWEEN unbounded preceding AND CURRENT ROW) store_cumulative
+   FROM
+     (SELECT CASE
+                 WHEN web.item_sk IS NOT NULL THEN web.item_sk
+                 ELSE store.item_sk
+             END item_sk,
+             CASE
+                 WHEN web.d_date IS NOT NULL THEN web.d_date
+                 ELSE store.d_date
+             END d_date,
+             web.cume_sales web_sales,
+             store.cume_sales store_sales
+      FROM web_v1 web
+      FULL OUTER JOIN store_v1 store ON (web.item_sk = store.item_sk
+                                         AND web.d_date = store.d_date))x)y
+WHERE web_cumulative > store_cumulative
+ORDER BY item_sk NULLS FIRST,
+         d_date NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: y.item_sk ASC NULLS FIRST, y.d_date ASC NULLS FIRST, fetch=100
+02)--SubqueryAlias: y
+03)----Projection: x.item_sk, x.d_date, x.web_sales, x.store_sales, max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS web_cumulative, max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS store_cumulative
+04)------Filter: max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW > max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+05)--------WindowAggr: windowExpr=[[max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+06)----------SubqueryAlias: x
+07)------------Projection: CASE WHEN web.item_sk IS NOT NULL THEN web.item_sk ELSE store.item_sk END AS item_sk, CASE WHEN web.d_date IS NOT NULL THEN web.d_date ELSE store.d_date END AS d_date, web.cume_sales AS web_sales, store.cume_sales AS store_sales
+08)--------------Full Join: web.item_sk = store.item_sk, web.d_date = store.d_date
+09)----------------SubqueryAlias: web
+10)------------------SubqueryAlias: web_v1
+11)--------------------Projection: web_sales.ws_item_sk AS item_sk, date_dim.d_date, sum(sum(web_sales.ws_sales_price)) PARTITION BY [web_sales.ws_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS cume_sales
+12)----------------------WindowAggr: windowExpr=[[sum(sum(web_sales.ws_sales_price)) PARTITION BY [web_sales.ws_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+13)------------------------Aggregate: groupBy=[[web_sales.ws_item_sk, date_dim.d_date]], aggr=[[sum(web_sales.ws_sales_price)]]
+14)--------------------------Projection: web_sales.ws_item_sk, web_sales.ws_sales_price, date_dim.d_date
+15)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+16)------------------------------Filter: web_sales.ws_item_sk IS NOT NULL
+17)--------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_sales_price], partial_filters=[web_sales.ws_item_sk IS NOT NULL]
+18)------------------------------Projection: date_dim.d_date_sk, date_dim.d_date
+19)--------------------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+20)----------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+21)----------------SubqueryAlias: store
+22)------------------SubqueryAlias: store_v1
+23)--------------------Projection: store_sales.ss_item_sk AS item_sk, date_dim.d_date, sum(sum(store_sales.ss_sales_price)) PARTITION BY [store_sales.ss_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS cume_sales
+24)----------------------WindowAggr: windowExpr=[[sum(sum(store_sales.ss_sales_price)) PARTITION BY [store_sales.ss_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+25)------------------------Aggregate: groupBy=[[store_sales.ss_item_sk, date_dim.d_date]], aggr=[[sum(store_sales.ss_sales_price)]]
+26)--------------------------Projection: store_sales.ss_item_sk, store_sales.ss_sales_price, date_dim.d_date
+27)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+28)------------------------------Filter: store_sales.ss_item_sk IS NOT NULL
+29)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_sales_price], partial_filters=[store_sales.ss_item_sk IS NOT NULL]
+30)------------------------------Projection: date_dim.d_date_sk, date_dim.d_date
+31)--------------------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+32)----------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+physical_plan
+01)SortPreservingMergeExec: [item_sk@0 ASC, d_date@1 ASC], fetch=100
+02)--ProjectionExec: expr=[item_sk@0 as item_sk, d_date@1 as d_date, web_sales@2 as web_sales, store_sales@3 as store_sales, max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@4 as web_cumulative, max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@5 as store_cumulative]
+03)----SortExec: TopK(fetch=100), expr=[item_sk@0 ASC, d_date@1 ASC], preserve_partitioning=[true]
+04)------FilterExec: max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@4 > max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@5
+05)--------BoundedWindowAggExec: wdw=[max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "max(x.web_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": nullable Decimal128(27, 2) }, frame: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "max(x.store_sales) PARTITION BY [x.item_sk] ORDER BY [x.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": nullable Decimal128(27, 2) }, frame: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+06)----------SortExec: expr=[item_sk@0 ASC NULLS LAST, d_date@1 ASC NULLS LAST], preserve_partitioning=[true]
+07)------------RepartitionExec: partitioning=Hash([item_sk@0], 4), input_partitions=4
+08)--------------ProjectionExec: expr=[CASE WHEN item_sk@0 IS NOT NULL THEN item_sk@0 ELSE item_sk@3 END as item_sk, CASE WHEN d_date@1 IS NOT NULL THEN d_date@1 ELSE d_date@4 END as d_date, cume_sales@2 as web_sales, cume_sales@5 as store_sales]
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Full, on=[(item_sk@0, item_sk@0), (d_date@1, d_date@1)]
+10)------------------CoalescePartitionsExec
+11)--------------------ProjectionExec: expr=[ws_item_sk@0 as item_sk, d_date@1 as d_date, sum(sum(web_sales.ws_sales_price)) PARTITION BY [web_sales.ws_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as cume_sales]
+12)----------------------BoundedWindowAggExec: wdw=[sum(sum(web_sales.ws_sales_price)) PARTITION BY [web_sales.ws_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "sum(sum(web_sales.ws_sales_price)) PARTITION BY [web_sales.ws_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": nullable Decimal128(27, 2) }, frame: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+13)------------------------SortExec: expr=[ws_item_sk@0 ASC NULLS LAST, d_date@1 ASC NULLS LAST], preserve_partitioning=[true]
+14)--------------------------RepartitionExec: partitioning=Hash([ws_item_sk@0], 4), input_partitions=4
+15)----------------------------AggregateExec: mode=FinalPartitioned, gby=[ws_item_sk@0 as ws_item_sk, d_date@1 as d_date], aggr=[sum(web_sales.ws_sales_price)]
+16)------------------------------RepartitionExec: partitioning=Hash([ws_item_sk@0, d_date@1], 4), input_partitions=4
+17)--------------------------------AggregateExec: mode=Partial, gby=[ws_item_sk@0 as ws_item_sk, d_date@2 as d_date], aggr=[sum(web_sales.ws_sales_price)]
+18)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@3, ws_sales_price@4, d_date@1]
+19)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+20)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_sales_price], file_type=vortex, predicate: ws_item_sk@3 IS NOT NULL
+21)------------------ProjectionExec: expr=[ss_item_sk@0 as item_sk, d_date@1 as d_date, sum(sum(store_sales.ss_sales_price)) PARTITION BY [store_sales.ss_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as cume_sales]
+22)--------------------BoundedWindowAggExec: wdw=[sum(sum(store_sales.ss_sales_price)) PARTITION BY [store_sales.ss_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "sum(sum(store_sales.ss_sales_price)) PARTITION BY [store_sales.ss_item_sk] ORDER BY [date_dim.d_date ASC NULLS LAST] ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": nullable Decimal128(27, 2) }, frame: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+23)----------------------SortExec: expr=[ss_item_sk@0 ASC NULLS LAST, d_date@1 ASC NULLS LAST], preserve_partitioning=[true]
+24)------------------------RepartitionExec: partitioning=Hash([ss_item_sk@0], 4), input_partitions=4
+25)--------------------------AggregateExec: mode=FinalPartitioned, gby=[ss_item_sk@0 as ss_item_sk, d_date@1 as d_date], aggr=[sum(store_sales.ss_sales_price)]
+26)----------------------------RepartitionExec: partitioning=Hash([ss_item_sk@0, d_date@1], 4), input_partitions=4
+27)------------------------------AggregateExec: mode=Partial, gby=[ss_item_sk@0 as ss_item_sk, d_date@2 as d_date], aggr=[sum(store_sales.ss_sales_price)]
+28)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@3, ss_sales_price@4, d_date@1]
+29)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+30)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_sales_price], file_type=vortex, predicate: ss_item_sk@2 IS NOT NULL

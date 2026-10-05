@@ -18,7 +18,31 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+#[test]
+fn test_repeated_probe_preserves_masked_nulls() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let array = MaskedArray::try_new(
+        PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+        Validity::from_iter([true, false, true]),
+    )?
+    .into_array();
+    let expected = [Some(1i32), None, Some(3)];
+    let mut probe = array.repeated_probe();
+    for index in [1, 2, 0, 1] {
+        assert_eq!(
+            probe.execute_scalar(index, &mut ctx)?,
+            Scalar::from(expected[index])
+        );
+        assert_eq!(
+            array.execute_scalar(index, &mut ctx)?,
+            Scalar::from(expected[index])
+        );
+    }
+    Ok(())
+}
 
 #[rstest]
 #[case(Validity::AllValid, Nullability::Nullable)]

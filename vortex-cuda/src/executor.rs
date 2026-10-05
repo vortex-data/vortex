@@ -37,9 +37,11 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 
 use crate::CudaSession;
+use crate::DictionaryExport;
 use crate::ExportDeviceArray;
 use crate::hybrid_dispatch;
 use crate::kernel::DefaultLaunchStrategy;
@@ -132,6 +134,12 @@ impl CudaExecutionCtx {
     /// standalone per-encoding kernels, or the automatic (default) strategy.
     pub fn with_dispatch_mode(mut self, dispatch_mode: CudaDispatchMode) -> Self {
         self.dispatch_mode = dispatch_mode;
+        self
+    }
+
+    /// Override the dictionary export policy for this context without changing its backing session.
+    pub fn with_dictionary_export(mut self, policy: DictionaryExport) -> Self {
+        self.cuda_session = self.cuda_session.with_dictionary_export(policy);
         self
     }
 
@@ -313,7 +321,6 @@ impl CudaExecutionCtx {
     }
 
     /// Returns the Vortex session backing this CUDA execution context.
-    #[cfg(feature = "unstable_encodings")]
     pub(crate) fn session(&self) -> &vortex::session::VortexSession {
         self.ctx.session()
     }
@@ -391,7 +398,7 @@ pub(crate) async fn execute_validity_cuda(
         return Ok(validity);
     };
 
-    vortex_ensure!(array.len() == len, "validity array length mismatch");
+    vortex_ensure_eq!(array.len(), len, "validity array length mismatch");
     vortex_ensure!(
         matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
         "validity array must be non-nullable boolean, got {}",

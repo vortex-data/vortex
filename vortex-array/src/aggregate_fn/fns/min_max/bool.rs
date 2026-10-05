@@ -9,12 +9,15 @@ use vortex_mask::AllOr;
 use super::MinMaxPartial;
 use super::MinMaxResult;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateArgs;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::Nullability::NonNullable;
 use crate::scalar::Scalar;
 
 pub(super) fn accumulate_bool(
+    args: AggregateArgs<'_, NumericalAggregateOpts>,
     partial: &mut MinMaxPartial,
     array: &BoolArray,
     ctx: &mut ExecutionCtx,
@@ -44,9 +47,12 @@ pub(super) fn accumulate_bool(
         (false, true)
     };
 
-    partial.merge(Some(MinMaxResult {
-        min: Scalar::bool(min, NonNullable),
-        max: Scalar::bool(max, NonNullable),
-    }));
+    partial.merge(
+        args,
+        Some(MinMaxResult {
+            min: Scalar::bool(min, NonNullable),
+            max: Scalar::bool(max, NonNullable),
+        }),
+    );
     Ok(())
 }

@@ -24,7 +24,6 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
     use super::fixtures;
     use crate::adapter;
@@ -36,9 +35,7 @@ mod tests {
     #[test]
     fn roundtrip_non_clickbench_fixtures_to_bytes() -> VortexResult<()> {
         let session = VortexSession::default();
-        session
-            .enable_edition(CORE_2026_08_3)
-            .map_err(|error| vortex_err!("{error}"))?;
+        session.enable_edition(CORE_2026_08_3)?;
         for dataset in fixtures()
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))
@@ -47,15 +44,17 @@ mod tests {
             let regular_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array.clone(),
-                WriteStrategyBuilder::default().build(),
+                WriteStrategyBuilder::from_session(&session).build(),
             )?;
             let _regular = adapter::read_file(regular_bytes)?;
 
             let compact_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array,
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )?;
             let _compact = adapter::read_file(compact_bytes)?;

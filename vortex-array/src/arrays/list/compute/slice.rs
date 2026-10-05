@@ -16,11 +16,13 @@ use crate::arrays::slice::SliceReduce;
 impl SliceReduce for List {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ListArray::new(
-                array.elements().clone(),
-                array.offsets().slice(range.start..range.end + 1)?,
-                array.validity()?.slice(range)?,
-            )
+            unsafe {
+                ListArray::new_unchecked(
+                    array.elements().clone(),
+                    array.offsets().slice(range.start..range.end + 1)?,
+                    array.validity()?.slice(range)?,
+                )
+            }
             .into_array(),
         ))
     }

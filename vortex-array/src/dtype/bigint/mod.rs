@@ -130,6 +130,20 @@ impl From<arrow_buffer::i256> for i256 {
     }
 }
 
+impl From<i64> for i256 {
+    #[inline]
+    fn from(value: i64) -> Self {
+        Self::from_i128(value.into())
+    }
+}
+
+impl From<u64> for i256 {
+    #[inline]
+    fn from(value: u64) -> Self {
+        Self::from_i128(value.into())
+    }
+}
+
 impl Display for i256 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -259,6 +273,7 @@ impl Shr<Self> for i256 {
 impl Shl<usize> for i256 {
     type Output = Self;
 
+    #[inline]
     fn shl(self, rhs: usize) -> Self::Output {
         use num_traits::ToPrimitive;
         Self(

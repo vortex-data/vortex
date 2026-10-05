@@ -76,7 +76,7 @@ def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cli_module, "drop_os_caches", lambda: None)
     monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1])
 
-    def fake_run(self, **kwargs):
+    def fake_run(self, **kwargs: object) -> list[str]:
         kwargs["on_result"](sample_line)
         return [sample_line]
 
@@ -126,7 +126,7 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
 
     seen_backend_paths = []
 
-    def fake_run(self, **kwargs):
+    def fake_run(self, **kwargs: object) -> list[str]:
         backend_output = kwargs["ingest_output"]
         assert backend_output is not None
         assert backend_output != output_path

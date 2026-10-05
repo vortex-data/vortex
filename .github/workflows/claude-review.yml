@@ -3,10 +3,12 @@ name: Claude Code (Review)
 # Setup
 # - This workflow does not need the GitHub App private key.
 # - Do not attach the `claude-automation` environment here.
-# - Store `CLAUDE_CODE_OAUTH_TOKEN` as a repository or organization Actions secret.
-# - Create a repository or organization Actions variable:
+# - Anthropic auth is workload identity federation, so there is no Anthropic secret.
+# - Create repository or organization Actions variables:
 #   - CLAUDE_APP_LOGIN
 #     Set this to the bot login for the GitHub App, usually `<app-slug>[bot]`.
+#   - ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_FEDERATION_RULE_CI
+#     Identifiers, not credentials.
 # - It may use the default GITHUB_TOKEN to read repository data and post review
 #   comments, but it must never be able to push commits or open branches.
 #
@@ -230,6 +232,8 @@ jobs:
       issues: write
       pull-requests: write
       actions: read
+      # Requests the OIDC token exchanged for an Anthropic one. No repo access.
+      id-token: write
     steps:
       - name: Checkout same-repo PR contents
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -244,7 +248,11 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@fbda2eb1bdc90d319b8d853f5deb53bca199a7c1  # v1.0.140
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The `vortex-claude-ci` rule refuses any run off the default branch.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+
           # This workflow deliberately uses the built-in token because it only needs
           # to read repository state and post review comments. It cannot write repo
           # contents, and it has no access to the GitHub App private key.

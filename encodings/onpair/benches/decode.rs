@@ -28,6 +28,7 @@ use std::mem::MaybeUninit;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use onpair::CompactDictionaryView;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -257,6 +258,9 @@ fn filter_share_dict(bencher: Bencher, case: (Shape, usize)) {
             divan::black_box(result);
         });
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

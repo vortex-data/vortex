@@ -19,10 +19,10 @@ pub mod plan;
 
 pub use children::*;
 pub use encoding::*;
-pub use flatbuffers::*;
 pub use layout::*;
 pub use reader::*;
 pub use reader_context::*;
+pub use serde::*;
 pub use strategy::*;
 use vortex_session::registry::Interner;
 pub use vtable::*;
@@ -30,13 +30,14 @@ pub mod aliases;
 mod children;
 pub mod display;
 mod encoding;
-mod flatbuffers;
+pub mod flatbuffers;
 mod layout;
 mod reader;
 mod reader_context;
 pub mod scan;
 pub mod segments;
 pub mod sequence;
+mod serde;
 pub mod session;
 mod strategy;
 #[cfg(test)]

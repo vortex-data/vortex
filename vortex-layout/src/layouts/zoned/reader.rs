@@ -16,6 +16,8 @@ use vortex_array::expr::BoundExpression;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -65,6 +67,18 @@ impl ZonedReader {
         let dtype = layout.dtype().clone();
         let row_count = layout.row_count();
         let zone_len = layout.zone_len;
+
+        // A zone count that disagrees with `row_count` / `zone_len` would index past the mask.
+        vortex_ensure!(
+            zone_len > 0,
+            "zoned layout reader requires a non-zero zone length"
+        );
+        let expected_zones = row_count.div_ceil(zone_len as u64);
+        vortex_ensure_eq!(
+            zone_count as u64,
+            expected_zones,
+            "zoned layout zone count must cover {row_count} rows of {zone_len}-row zones"
+        );
 
         Ok(Self {
             pruning: PruningState::new(
@@ -269,7 +283,9 @@ mod test {
     use crate::layouts::zoned::LegacyStats;
     use crate::layouts::zoned::LegacyStatsLayoutEncoding;
     use crate::layouts::zoned::LegacyStatsMetadata;
+    use crate::layouts::zoned::ZoneMapSchema;
     use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::ZonedLayout;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::SegmentSource;
@@ -513,5 +529,35 @@ mod test {
             );
             Ok(())
         })
+    }
+
+    /// A zone map whose zone count disagrees with `row_count` / `zone_len` is
+    /// rejected on open. The fixture has 9 rows and 3 zones, so zone lengths 2 and 5 are invalid.
+    #[rstest]
+    #[case::too_few_zones(2)]
+    #[case::too_many_zones(5)]
+    #[should_panic(expected = "zone count must cover 9 rows of")]
+    fn new_reader_rejects_mismatched_zone_count(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] zone_len: usize,
+    ) {
+        let zoned = layout.as_::<Zoned>();
+        let ZoneMapSchema::AggregateFns(aggregate_fns) = &zoned.zone_map_schema else {
+            unreachable!("ZonedStrategy writes aggregate functions")
+        };
+        let invalid_layout = ZonedLayout::try_new(
+            layout.slot(0).unwrap().vortex_expect("data child"),
+            layout.slot(1).unwrap().vortex_expect("zones child"),
+            NonZeroUsize::new(zone_len).vortex_expect("non zero"),
+            Arc::clone(aggregate_fns),
+        )
+        .unwrap()
+        .into_layout();
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            invalid_layout.new_reader("".into(), segments, &session, &Default::default())
+        })
+        .unwrap();
     }
 }

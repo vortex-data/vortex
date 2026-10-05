@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import collections
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,7 @@ def thread_matches(thread: dict[str, Any], thread_re: re.Pattern[str] | None, ti
     return bool(thread_re.search(str(thread.get("name", ""))) or thread_re.search(str(thread.get("tid", ""))))
 
 
-def frame_labels(thread: dict[str, Any], symbols: dict[str, str]) -> Any:
+def frame_labels(thread: dict[str, Any], symbols: dict[str, str]) -> Callable[[int], str]:
     cache: dict[int, str] = {}
 
     def label(frame_index: int) -> str:

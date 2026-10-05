@@ -6,6 +6,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
@@ -40,6 +41,9 @@ fn encode_generic(bencher: Bencher) {
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| dict_encode(array, ctx).unwrap());
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);

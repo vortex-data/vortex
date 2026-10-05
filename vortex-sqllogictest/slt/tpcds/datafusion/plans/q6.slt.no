@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT a.ca_state state,
+       count(*) cnt
+FROM customer_address a ,
+     customer c ,
+     store_sales s ,
+     date_dim d ,
+     item i
+WHERE a.ca_address_sk = c.c_current_addr_sk
+  AND c.c_customer_sk = s.ss_customer_sk
+  AND s.ss_sold_date_sk = d.d_date_sk
+  AND s.ss_item_sk = i.i_item_sk
+  AND d.d_month_seq =
+    (SELECT DISTINCT (d_month_seq)
+     FROM date_dim
+     WHERE d_year = 2001
+       AND d_moy = 1 )
+  AND i.i_current_price > 1.2 *
+    (SELECT avg(j.i_current_price)
+     FROM item j
+     WHERE j.i_category = i.i_category)
+GROUP BY a.ca_state
+HAVING count(*) >= 10
+ORDER BY cnt NULLS FIRST,
+         a.ca_state NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: cnt ASC NULLS FIRST, state ASC NULLS FIRST, fetch=100
+02)--Projection: a.ca_state AS state, count(Int64(1)) AS count(*) AS cnt
+03)----Filter: count(Int64(1)) >= Int64(10)
+04)------Aggregate: groupBy=[[a.ca_state]], aggr=[[count(Int64(1))]]
+05)--------Projection: a.ca_state
+06)----------LeftSemi Join: i.i_category = __scalar_sq_1.i_category Filter: CAST(i.i_current_price AS Decimal128(30, 15)) > CAST(Float64(1.2) * __scalar_sq_1.avg(j.i_current_price) AS Decimal128(30, 15))
+07)------------Projection: a.ca_state, i.i_current_price, i.i_category
+08)--------------Inner Join: s.ss_item_sk = i.i_item_sk
+09)----------------Projection: a.ca_state, s.ss_item_sk
+10)------------------Inner Join: s.ss_sold_date_sk = d.d_date_sk
+11)--------------------Projection: a.ca_state, s.ss_sold_date_sk, s.ss_item_sk
+12)----------------------Inner Join: c.c_customer_sk = s.ss_customer_sk
+13)------------------------Projection: a.ca_state, c.c_customer_sk
+14)--------------------------Inner Join: a.ca_address_sk = c.c_current_addr_sk
+15)----------------------------SubqueryAlias: a
+16)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_state]
+17)----------------------------SubqueryAlias: c
+18)------------------------------TableScan: customer projection=[c_customer_sk, c_current_addr_sk]
+19)------------------------SubqueryAlias: s
+20)--------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk]
+21)--------------------SubqueryAlias: d
+22)----------------------Projection: date_dim.d_date_sk
+23)------------------------Filter: date_dim.d_month_seq = (<subquery>)
+24)--------------------------Subquery:
+25)----------------------------Aggregate: groupBy=[[date_dim.d_month_seq]], aggr=[[]]
+26)------------------------------Projection: date_dim.d_month_seq
+27)--------------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(1)
+28)----------------------------------TableScan: date_dim projection=[d_month_seq, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(1)]
+29)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq]
+30)----------------SubqueryAlias: i
+31)------------------TableScan: item projection=[i_item_sk, i_current_price, i_category]
+32)------------SubqueryAlias: __scalar_sq_1
+33)--------------Projection: CAST(avg(j.i_current_price) AS Float64), j.i_category
+34)----------------Aggregate: groupBy=[[j.i_category]], aggr=[[avg(j.i_current_price)]]
+35)------------------SubqueryAlias: j
+36)--------------------TableScan: item projection=[i_current_price, i_category]
+physical_plan
+01)ScalarSubqueryExec: subqueries=1
+02)--SortPreservingMergeExec: [cnt@1 ASC, state@0 ASC], fetch=100
+03)----ProjectionExec: expr=[ca_state@0 as state, count(Int64(1))@1 as cnt]
+04)------SortExec: TopK(fetch=100), expr=[count(Int64(1))@1 ASC, ca_state@0 ASC], preserve_partitioning=[true]
+05)--------FilterExec: count(Int64(1))@1 >= 10
+06)----------AggregateExec: mode=FinalPartitioned, gby=[ca_state@0 as ca_state], aggr=[count(Int64(1))]
+07)------------RepartitionExec: partitioning=Hash([ca_state@0], 4), input_partitions=4
+08)--------------AggregateExec: mode=Partial, gby=[ca_state@0 as ca_state], aggr=[count(Int64(1))]
+09)----------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_category@1, i_category@2)], filter=CAST(i_current_price@0 AS Decimal128(30, 15)) > CAST(1.2 * avg(j.i_current_price)@1 AS Decimal128(30, 15)), projection=[ca_state@0]
+10)------------------CoalescePartitionsExec
+11)--------------------ProjectionExec: expr=[CAST(avg(j.i_current_price)@1 AS Float64) as avg(j.i_current_price), i_category@0 as i_category]
+12)----------------------AggregateExec: mode=FinalPartitioned, gby=[i_category@0 as i_category], aggr=[avg(j.i_current_price)]
+13)------------------------RepartitionExec: partitioning=Hash([i_category@0], 4), input_partitions=1
+14)--------------------------AggregateExec: mode=Partial, gby=[i_category@1 as i_category], aggr=[avg(j.i_current_price)]
+15)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_current_price, i_category], file_type=vortex
+16)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[ca_state@3, i_current_price@1, i_category@2]
+17)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_current_price, i_category], file_type=vortex
+18)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@1)], projection=[ca_state@1, ss_item_sk@3]
+19)----------------------CoalescePartitionsExec
+20)------------------------FilterExec: d_month_seq@1 = scalar_subquery(<pending>), projection=[d_date_sk@0]
+21)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_month_seq], file_type=vortex
+23)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@1, ss_customer_sk@2)], projection=[ca_state@0, ss_sold_date_sk@2, ss_item_sk@3]
+24)------------------------CoalescePartitionsExec
+25)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@1)], projection=[ca_state@1, c_customer_sk@2]
+26)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex
+27)----------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+28)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk], file_type=vortex
+29)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk], file_type=vortex
+30)--AggregateExec: mode=FinalPartitioned, gby=[d_month_seq@0 as d_month_seq], aggr=[]
+31)----RepartitionExec: partitioning=Hash([d_month_seq@0], 4), input_partitions=4
+32)------AggregateExec: mode=Partial, gby=[d_month_seq@0 as d_month_seq], aggr=[]
+33)--------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+34)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_month_seq], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 1

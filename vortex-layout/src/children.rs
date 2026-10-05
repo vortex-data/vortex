@@ -9,16 +9,16 @@ use flatbuffers::Follow;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use vortex_array::dtype::DType;
+use vortex_array::flatbuffers::FlatBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::layout as fbl;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutBuildContext;
 use crate::LayoutRef;
+use crate::flatbuffers::layout as fbl;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;

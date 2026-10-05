@@ -1,4 +1,5 @@
 condense_wildcard_suffixes = true
+format_generated_files = false
 format_macro_bodies = true
 format_macro_matchers = true
 group_imports = "StdExternalCrate"

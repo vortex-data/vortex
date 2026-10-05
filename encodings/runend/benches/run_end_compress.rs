@@ -36,6 +36,9 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+// (length, run_step). The (4_000, 1024) point is left out: it flipped by 20% between runs of
+// identical code on more than 40 pull requests, and (10_000, 1024) and (10_000, 4096) keep long
+// runs covered.
 const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 4),
     (1000, 16),
@@ -43,7 +46,6 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (4_000, 4),
     (4_000, 16),
     (4_000, 256),
-    (4_000, 1024),
     (10_000, 4),
     (10_000, 16),
     (10_000, 256),

@@ -48,7 +48,7 @@
 //! # fn example() -> vortex::error::VortexResult<()> {
 //! let session = VortexSession::default();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
-//! let compressed = BtrBlocksCompressor::default()
+//! let compressed = BtrBlocksCompressor::from_session(&session)
 //!     .compress(&array, &mut session.create_execution_ctx())?;
 //!
 //! assert_eq!(compressed.dtype(), array.dtype());
@@ -86,8 +86,8 @@
 //!     .open_options()
 //!     .open_buffer(bytes)?;
 //! let filter = gt(root(), lit(2u64))
-//!     .optimize_recursive(file.dtype())?
-//!     .bind(file.dtype())?;
+//!     .bind(file.dtype())?
+//!     .optimize_recursive()?;
 //! let filtered = file
 //!     .scan()?
 //!     .with_filter(filter)
@@ -114,6 +114,7 @@ pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::session::StatsSession;
+use vortex_btrblocks::CompressionSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -145,6 +146,8 @@ pub mod buffer {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::CompressionSession;
+    pub use vortex_btrblocks::CompressionSessionExt;
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeId;
 }
@@ -161,7 +164,7 @@ pub mod error {
     pub use vortex_error::*;
 }
 
-/// Built-in extension dtypes such as UUID and temporal types.
+/// Built-in temporal extension dtypes.
 pub mod extension {
     pub use vortex_array::extension::*;
 }
@@ -172,9 +175,13 @@ pub mod file {
     pub use vortex_file::*;
 }
 
-/// Generated flatbuffer bindings used by Vortex serialization.
+/// Traits for reading and writing Vortex types as flatbuffers, plus the generated bindings for the
+/// core array and dtype schemas.
+///
+/// Bindings for the other schemas live alongside the types they describe, in
+/// `layout::flatbuffers`, `file::flatbuffers` and `ipc::flatbuffers`.
 pub mod flatbuffers {
-    pub use vortex_flatbuffers::*;
+    pub use vortex_array::flatbuffers::*;
 }
 
 /// Async and blocking IO abstractions used by file readers and writers.
@@ -210,7 +217,7 @@ pub mod metrics {
 
 /// Generated protocol buffer bindings used by Vortex metadata.
 pub mod proto {
-    pub use vortex_proto::*;
+    pub use vortex_array::proto::*;
 }
 
 /// Scalar values and typed scalar views.
@@ -233,7 +240,7 @@ pub mod utils {
     pub use vortex_utils::*;
 }
 
-/// Maintained array encoding crates.
+/// Maintained array encoding and extension dtype crates.
 pub mod encodings {
     /// Adaptive Lossless floating-point encodings.
     pub mod alp {
@@ -265,6 +272,7 @@ pub mod encodings {
         pub use vortex_fsst::*;
     }
 
+    #[cfg(feature = "parquet-variant")]
     /// Parquet Variant array encoding.
     pub mod parquet_variant {
         pub use vortex_parquet_variant::*;
@@ -290,6 +298,11 @@ pub mod encodings {
         pub use vortex_sparse::*;
     }
 
+    /// UUID extension dtype, with Arrow canonical `arrow.uuid` interoperability.
+    pub mod uuid {
+        pub use vortex_uuid::*;
+    }
+
     /// Zig-zag integer transform encoding.
     pub mod zigzag {
         pub use vortex_zigzag::*;
@@ -305,7 +318,8 @@ pub mod encodings {
 /// Extension trait to create a default Vortex session.
 pub trait VortexSessionDefault {
     /// Creates a default Vortex session with standard arrays, layouts, scalar functions,
-    /// optimizer kernels, expressions, aggregate functions, and runtime support.
+    /// optimizer kernels, expressions, aggregate functions, compression schemes, and runtime
+    /// support.
     fn default() -> VortexSession;
 }
 
@@ -320,9 +334,12 @@ impl VortexSessionDefault for VortexSession {
             .with::<StatsSession>()
             .with::<AggregateFnSession>()
             .with::<MemorySession>()
+            .with::<CompressionSession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
+        #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
+        vortex_uuid::initialize(&session);
         editions::register_default_editions(&session);
         editions::enable_default_editions(&session);
 
@@ -418,7 +435,7 @@ mod test {
 
         // You can compress an array in-memory with the BtrBlocks compressor
         let session = VortexSession::default();
-        let compressed = BtrBlocksCompressor::default().compress(
+        let compressed = BtrBlocksCompressor::from_session(&session).compress(
             &array.clone().into_array(),
             &mut session.create_execution_ctx(),
         )?;
@@ -455,8 +472,8 @@ mod test {
         // [read]
         let file = session.open_options().open_path(path.clone()).await?;
         let filter = gt(root(), lit(2u64))
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+            .bind(file.dtype())?
+            .optimize_recursive()?;
         let array = file
             .scan()?
             .with_filter(filter)
@@ -485,8 +502,10 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )
             .write(
@@ -555,8 +574,8 @@ mod test {
         // Read the file back, but project down to just the "value" column.
         let file = session.open_options().open_path(path.clone()).await?;
         let projection = select(["value"], root())
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+            .bind(file.dtype())?
+            .optimize_recursive()?;
         let projected = file
             .scan()?
             .with_projection(projection)
@@ -569,6 +588,48 @@ mod test {
 
         std::fs::remove_file(&path)?;
 
+        Ok(())
+    }
+
+    /// `VortexSession::default()` must wire up the UUID extension dtype and its Arrow plugins,
+    /// which live in the separate `vortex-uuid` crate.
+    #[test]
+    fn default_session_initializes_uuid() -> VortexResult<()> {
+        use std::sync::Arc;
+
+        use arrow_array::Array as _;
+        use arrow_array::ArrayRef as ArrowArrayRef;
+        use arrow_array::FixedSizeBinaryArray;
+        use arrow_array::cast::AsArray as _;
+        use arrow_schema::DataType;
+        use arrow_schema::Field;
+        use arrow_schema::extension::Uuid as ArrowUuid;
+        use vortex_array::dtype::extension::ExtVTable;
+        use vortex_array::dtype::session::DTypeSessionExt;
+        use vortex_arrow::ArrowSessionExt;
+        use vortex_uuid::Uuid;
+
+        let session = VortexSession::default();
+
+        // The dtype resolves by id, as it must for a file carrying a `vortex.uuid` column.
+        assert!(session.dtypes().registry().get(&Uuid.id()).is_some());
+
+        // The Arrow importer and exporter are registered too, so `arrow.uuid` round-trips.
+        let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        field.try_with_extension_type(ArrowUuid)?;
+        let arrow_array: ArrowArrayRef = Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?);
+
+        let array = session.arrow().from_arrow_array(arrow_array, &field)?;
+        assert!(array.dtype().as_extension().is::<Uuid>());
+
+        let mut ctx = session.create_execution_ctx();
+        let exported = session.arrow().execute_arrow(array, None, &mut ctx)?;
+        let fsb = exported.as_fixed_size_binary();
+        assert_eq!(fsb.len(), 2);
+        assert_eq!(fsb.value(0), b"0123456789abcdef");
+        assert_eq!(fsb.value(1), b"fedcba9876543210");
         Ok(())
     }
 }

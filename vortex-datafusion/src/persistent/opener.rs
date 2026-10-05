@@ -11,10 +11,10 @@ use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
-use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -22,10 +22,10 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
-use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
@@ -159,13 +159,6 @@ impl FileOpener for VortexOpener {
             .zip(file.partition_values.clone())
             .collect::<std::collections::HashMap<String, ScalarValue>>();
 
-        let predicate_uses_partition_columns =
-            file_pruning_predicate.as_ref().is_some_and(|predicate| {
-                collect_columns(predicate)
-                    .iter()
-                    .any(|column| literal_value_cols.contains_key(column.name()))
-            });
-
         if !literal_value_cols.is_empty() {
             projection = projection.try_map_exprs(|expr| {
                 replace_columns_with_literals(Arc::clone(&expr), &literal_value_cols)
@@ -179,26 +172,15 @@ impl FileOpener for VortexOpener {
         }
 
         Ok(async move {
-            // FilePruner requires a statistics object even when the rewritten predicate
-            // only contains partition literals. Supply unknown file-column statistics in
-            // that case so static and dynamic partition predicates can still prune.
-            let synthetic_statistics = (!file.has_statistics() && predicate_uses_partition_columns)
-                .then(|| {
-                    file.clone()
-                        .with_statistics(Arc::new(Statistics::new_unknown(&unified_file_schema)))
-                });
-            let pruning_file = synthetic_statistics.as_ref().unwrap_or(&file);
-
-            let mut file_pruner = file_pruning_predicate
-                .filter(|_| file.has_statistics() || predicate_uses_partition_columns)
-                .and_then(|predicate| {
-                    FilePruner::try_new(
-                        Arc::clone(&predicate),
-                        &unified_file_schema,
-                        pruning_file,
-                        predicate_creation_errors,
-                    )
-                });
+            // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
+            let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
+                FilePruner::try_new(
+                    Arc::clone(&predicate),
+                    &unified_file_schema,
+                    &file,
+                    predicate_creation_errors,
+                )
+            });
 
             // Check if this file should be pruned based on statistics/partition values.
             // Returns empty stream if file can be skipped entirely.
@@ -282,6 +264,9 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
+            // TODO: support lambda pushdown.
+            let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
+
             let ProcessedProjection {
                 scan_projection,
                 leftover_projection,
@@ -300,8 +285,8 @@ impl FileOpener for VortexOpener {
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
             let scan_projection = scan_projection
-                .optimize_recursive(vxf.dtype())
-                .and_then(|projection| projection.bind(vxf.dtype()))
+                .bind(vxf.dtype())
+                .and_then(|projection| projection.optimize_recursive())
                 .map_err(|_e| {
                     exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
                 })?;
@@ -393,7 +378,7 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
             let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
@@ -550,6 +535,19 @@ impl NaturalSplits {
     }
 }
 
+/// Whether any expression in `projection` contains a lambda.
+fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
+    for projection_expr in projection.iter() {
+        if projection_expr
+            .expr
+            .exists(|node| Ok(node.downcast_ref::<LambdaExpr>().is_some()))?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
 fn natural_splits_for_file<A: 'static + Send>(
     natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
@@ -663,12 +661,12 @@ mod tests {
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
+    use datafusion_common::Statistics;
     use datafusion_common::stats::Precision;
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
-    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use insta::assert_snapshot;
     use itertools::Itertools;
@@ -1005,48 +1003,6 @@ mod tests {
             assert_eq!(batches.len(), 1);
             assert_eq!(batches[0].schema().as_ref(), expected_schema.as_ref());
         }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_file_pruning_replaces_partition_columns_without_file_statistics()
-    -> anyhow::Result<()> {
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
-        let table_schema = TableSchema::builder(Arc::clone(&file_schema))
-            .with_table_partition_cols(vec![Arc::new(Field::new("part", DataType::Int32, false))])
-            .build();
-
-        let partition_column = Arc::new(df_expr::Column::new("part", 1)) as PhysicalExprRef;
-        let predicate = Arc::new(df_expr::BinaryExpr::new(
-            Arc::clone(&partition_column),
-            Operator::Gt,
-            df_expr::lit(ScalarValue::Int32(Some(1))),
-        )) as PhysicalExprRef;
-        let dynamic_predicate = Arc::new(DynamicFilterPhysicalExpr::new(
-            vec![partition_column],
-            predicate,
-        )) as PhysicalExprRef;
-
-        let mut opener = make_opener(object_store, table_schema, None);
-        opener.file_pruning_predicate = Some(dynamic_predicate);
-        let df_metrics = opener.df_metrics.clone();
-
-        // The file does not exist and has no statistics. Replacing `part` with 1
-        // makes the predicate false, so pruning must happen before any file I/O.
-        let mut file = PartitionedFile::new("missing.vortex", 1);
-        file.partition_values = vec![ScalarValue::Int32(Some(1))];
-        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
-
-        assert!(batches.is_empty());
-        assert_eq!(
-            df_metrics
-                .clone_inner()
-                .sum_by_name("num_predicate_creation_errors")
-                .map(|metric| metric.as_usize()),
-            Some(0)
-        );
 
         Ok(())
     }

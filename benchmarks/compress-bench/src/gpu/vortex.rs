@@ -32,7 +32,6 @@ use vortex::layout::scan::split_by::SplitBy;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
-use vortex_bench::benchmark_write_options;
 use vortex_bench::compress::Compressed;
 use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
@@ -100,12 +99,13 @@ impl Compressor for GpuVortexCompressor {
         // partition rather than whatever the default strategy would regroup them into.
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
-            BtrBlocksCompressorBuilder::default()
+            BtrBlocksCompressorBuilder::from_session(&SESSION)
                 .only_cuda_compatible()
                 .build(),
         )));
         let start = Instant::now();
-        benchmark_write_options(SESSION.write_options())
+        SESSION
+            .write_options()
             .with_strategy(strategy)
             .write(&mut output, array.to_array_stream())
             .await?;

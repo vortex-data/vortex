@@ -5,12 +5,10 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Tasks for repo management"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
 publish = false
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -24,13 +22,26 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 git2 = { workspace = true }
 prost-build = { workspace = true }
+protox = { workspace = true }
 toml = { workspace = true }
-vortex-edition = { workspace = true }
-vortex-json = { workspace = true }
-vortex-spatial = { workspace = true }
-vortex-tensor = { workspace = true }
-vortex-zstd = { workspace = true }
-xshell = { workspace = true }
+vortex-edition = { workspace = true, optional = true }
+vortex-json = { workspace = true, optional = true }
+vortex-spatial = { workspace = true, optional = true }
+vortex-tensor = { workspace = true, optional = true }
+vortex-zstd = { workspace = true, optional = true }
+
+[features]
+# `generate-editions` reads the edition declarations from the Vortex crates, so it is the only
+# part of xtask that depends on `vortex-*`. Gating it behind a feature lets xtask build without
+# any Vortex dependency via `--no-default-features`; the other subcommands are always available.
+default = ["editions"]
+editions = [
+    "dep:vortex-edition",
+    "dep:vortex-json",
+    "dep:vortex-spatial",
+    "dep:vortex-tensor",
+    "dep:vortex-zstd",
+]
 
 [lints]
 workspace = true

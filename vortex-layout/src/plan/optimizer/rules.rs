@@ -8,6 +8,8 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
+#[cfg(debug_assertions)]
+use vortex_error::vortex_ensure_eq;
 
 use crate::plan::Plan;
 use crate::plan::PlanRef;
@@ -101,17 +103,15 @@ impl PlanRuleSet {
 
             #[cfg(debug_assertions)]
             {
-                vortex_error::vortex_ensure!(
-                    reduced.row_count() == plan.row_count(),
-                    "Plan rewrite from {rule:?} changed row count from {} to {}",
+                vortex_ensure_eq!(
+                    reduced.row_count(),
                     plan.row_count(),
-                    reduced.row_count()
+                    "Plan rewrite from {rule:?} changed row count"
                 );
-                vortex_error::vortex_ensure!(
-                    reduced.dtype() == plan.dtype(),
-                    "Plan rewrite from {rule:?} changed dtype from {} to {}",
+                vortex_ensure_eq!(
+                    reduced.dtype(),
                     plan.dtype(),
-                    reduced.dtype()
+                    "Plan rewrite from {rule:?} changed dtype"
                 );
             }
 
@@ -236,17 +236,15 @@ impl PlanParentRuleSet {
 
             #[cfg(debug_assertions)]
             {
-                vortex_error::vortex_ensure!(
-                    reduced.row_count() == parent.row_count(),
-                    "Plan rewrite from {rule:?} changed row count from {} to {}",
+                vortex_ensure_eq!(
+                    reduced.row_count(),
                     parent.row_count(),
-                    reduced.row_count()
+                    "Plan rewrite from {rule:?} changed row count"
                 );
-                vortex_error::vortex_ensure!(
-                    reduced.dtype() == parent.dtype(),
-                    "Plan rewrite from {rule:?} changed dtype from {} to {}",
+                vortex_ensure_eq!(
+                    reduced.dtype(),
                     parent.dtype(),
-                    reduced.dtype()
+                    "Plan rewrite from {rule:?} changed dtype"
                 );
             }
 

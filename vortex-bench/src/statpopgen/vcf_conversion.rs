@@ -19,6 +19,7 @@ use noodles_vcf::variant::record::samples::series::value::Array as EntryArray;
 use noodles_vcf::variant::record::samples::series::value::Value as EntryValue;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_panic;
 
 use crate::statpopgen::builder::InfoArrayBuilder;
 
@@ -27,12 +28,14 @@ pub fn builder_from_info(info: &Map<Info>) -> InfoArrayBuilder {
         (Number::Count(1), Type::Integer) => InfoArrayBuilder::Integer(Default::default()),
         (Number::Count(1), Type::Float) => InfoArrayBuilder::Float(Default::default()),
         (Number::Count(0), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
-        (Number::Count(1), Type::Character) => todo!(),
+        (Number::Count(1), Type::Character) => {
+            vortex_panic!("Character INFO fields are not supported")
+        }
         (Number::Count(1), Type::String) => InfoArrayBuilder::String(Default::default()),
         (_, Type::Integer) => InfoArrayBuilder::ListInteger(Default::default()),
         (_, Type::Float) => InfoArrayBuilder::ListFloat(Default::default()),
-        (_, Type::Flag) => todo!(),
-        (_, Type::Character) => todo!(),
+        (_, Type::Flag) => vortex_panic!("Flag INFO fields with a count are not supported"),
+        (_, Type::Character) => vortex_panic!("Character INFO fields are not supported"),
         (_, Type::String) => InfoArrayBuilder::ListString(Default::default()),
     }
 }
@@ -46,12 +49,14 @@ pub fn data_type_from_info(info: &Map<Info>) -> DataType {
         (Number::Count(1), Type::Integer) => Int32,
         (Number::Count(1), Type::Float) => Float32,
         (Number::Count(0), Type::Flag) => Boolean,
-        (Number::Count(1), Type::Character) => todo!(),
+        (Number::Count(1), Type::Character) => {
+            vortex_panic!("Character INFO fields are not supported")
+        }
         (Number::Count(1), Type::String) => Utf8,
         (_, Type::Integer) => list(Int32),
         (_, Type::Float) => list(Float32),
-        (_, Type::Flag) => todo!(),
-        (_, Type::Character) => todo!(),
+        (_, Type::Flag) => vortex_panic!("Flag INFO fields with a count are not supported"),
+        (_, Type::Character) => vortex_panic!("Character INFO fields are not supported"),
         (_, Type::String) => list(Utf8),
     }
 }

@@ -7,6 +7,7 @@ use vortex_error::vortex_bail;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::probe::ProbeState;
 use crate::scalar::Scalar;
 use crate::vtable::NotSupported;
 
@@ -17,6 +18,39 @@ use crate::vtable::NotSupported;
 /// [`ArrayRef`](crate::ArrayRef)
 /// methods perform common checks before dispatching here.
 pub trait OperationsVTable<V: VTable> {
+    /// Encoding-specific state retained by repeated scalar access.
+    ///
+    /// Built once per repeated probe and never for a one-off read. Preparation belongs in
+    /// [`Self::probe_scalar`]. State owns its preparation and may hold shared buffer or array
+    /// handles. Use `()` when no state is needed.
+    type ProbeState: Default + 'static;
+
+    /// Read the scalar at `index` of the array in `state`, including its nullness.
+    ///
+    /// Caller must guarantee `index < len`. The row may be null, and a null row must come back
+    /// as `Scalar::null` of the array's dtype. Check the array's own validity with
+    /// [`ProbeState::is_valid`].
+    ///
+    /// `state` carries the typed view of the array and, for a read through a
+    /// [`RepeatedArrayProbe`](crate::RepeatedArrayProbe), the state that probe keeps. Read
+    /// children through [`ProbeState::slot`], which follows the read's policy without the
+    /// encoding having to know it. Take encoding state from [`ProbeState::retained`]. The scalar
+    /// must retain the source's logical dtype, including nullability.
+    ///
+    /// The default checks validity and then reads through [`Self::scalar_at`].
+    fn probe_scalar(
+        state: &mut ProbeState<'_, V>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        // FIXME: Remove this default once all encodings have migrated to probe_scalar.
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(state.array().dtype().clone()));
+        }
+        Self::scalar_at(state.array(), index, ctx)
+    }
+
+    // FIXME: Deprecate scalar_at once encodings have migrated to probe_scalar.
     /// Fetch the scalar at the given index.
     ///
     /// ## Preconditions
@@ -35,6 +69,16 @@ pub trait OperationsVTable<V: VTable> {
 }
 
 impl<V: VTable> OperationsVTable<V> for NotSupported {
+    type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, V>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::scalar_at(state.array(), index, ctx)
+    }
+
     fn scalar_at(
         array: ArrayView<'_, V>,
         _index: usize,

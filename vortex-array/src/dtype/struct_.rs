@@ -511,8 +511,6 @@ mod test {
     use insta::assert_snapshot;
     use itertools::Itertools;
     use vortex_error::VortexResult;
-    use vortex_flatbuffers::FlatBuffer;
-    use vortex_flatbuffers::WriteFlatBufferExt;
 
     use super::FieldDTypeInner;
     use crate::dtype::DType;
@@ -521,6 +519,8 @@ mod test {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::dtype::test::SESSION;
+    use crate::flatbuffers::FlatBuffer;
+    use crate::flatbuffers::WriteFlatBufferExt;
 
     #[test]
     fn nullability() {

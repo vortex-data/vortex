@@ -630,3 +630,31 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
     }
     Ok(())
 }
+
+#[test]
+fn test_onpair_rejects_impossible_uncompressed_lengths() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let valid = compress_onpair(&sample_input().into_array(), &mut ctx)?;
+    let lengths = [
+        PrimitiveArray::from_iter([i32::MAX, 1, 1, 1, 1]).into_array(),
+        PrimitiveArray::from_iter([-1i32, 1, 1, 1, 1]).into_array(),
+        PrimitiveArray::from_iter([u64::MAX, 1, 1, 1, 1]).into_array(),
+        PrimitiveArray::from_iter([0u32; 5]).into_array(),
+    ];
+    for lengths in lengths {
+        let view = valid.as_view();
+        let invalid = OnPair::try_new(
+            view.dtype().clone(),
+            view.dict_bytes_handle().clone(),
+            view.dict_offsets().clone(),
+            view.codes().clone(),
+            view.codes_offsets().clone(),
+            lengths,
+            view.array_validity(),
+        )?;
+        let invalid = invalid.into_array();
+        assert!(invalid.execute_scalar(0, &mut ctx).is_err());
+        assert!(invalid.execute::<VarBinViewArray>(&mut ctx).is_err());
+    }
+    Ok(())
+}

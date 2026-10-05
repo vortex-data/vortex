@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::IntoArray;
@@ -21,6 +22,9 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
