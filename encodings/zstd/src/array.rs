@@ -67,6 +67,7 @@ use zstd::zstd_safe::WriteBuf;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
+use crate::decompressor::with_decompressor;
 use crate::validate_frame_content_size;
 
 // Zstd doesn't support training dictionaries on very few samples.
@@ -1372,27 +1373,33 @@ impl ZstdData {
         }
 
         // then we actually decompress those frames
-        let mut decompressor = if let Some(dictionary) = &self.dictionary {
-            zstd::bulk::Decompressor::with_dictionary(dictionary)?
-        } else {
-            zstd::bulk::Decompressor::new()?
-        };
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
         );
-        let mut uncompressed_start = 0;
-        for frame in frames_to_decompress {
-            // Decompress straight into the spare capacity. Each frame gets only the region after
-            // the ones before it, bounded by the size the metadata declared, so a frame that
-            // expands further than advertised is refused by zstd rather than overrunning.
-            let mut destination = UninitDestination::new(
-                &mut decompressed.spare_capacity_mut()
-                    [uncompressed_start..uncompressed_size_to_decompress],
-            );
-            uncompressed_start +=
-                decompressor.decompress_to_buffer(frame.as_slice(), &mut destination)?;
-        }
+        let mut decompress_frames =
+            |decompressor: &mut zstd::bulk::Decompressor<'_>| -> VortexResult<usize> {
+                let mut uncompressed_start = 0;
+                for frame in &frames_to_decompress {
+                    // Decompress straight into the spare capacity. Each frame gets only the region
+                    // after the ones before it, bounded by the size the metadata declared, so a
+                    // frame that expands further than advertised is refused by zstd rather than
+                    // overrunning.
+                    let mut destination = UninitDestination::new(
+                        &mut decompressed.spare_capacity_mut()
+                            [uncompressed_start..uncompressed_size_to_decompress],
+                    );
+                    uncompressed_start +=
+                        decompressor.decompress_to_buffer(frame.as_slice(), &mut destination)?;
+                }
+                Ok(uncompressed_start)
+            };
+        let uncompressed_start = match &self.dictionary {
+            Some(dictionary) => {
+                decompress_frames(&mut zstd::bulk::Decompressor::with_dictionary(dictionary)?)?
+            }
+            None => with_decompressor(|decompressor| decompress_frames(decompressor))?,
+        };
         if uncompressed_start != uncompressed_size_to_decompress {
             vortex_bail!(
                 "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",

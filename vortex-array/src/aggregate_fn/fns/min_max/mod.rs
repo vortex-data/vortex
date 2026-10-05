@@ -419,6 +419,10 @@ impl AggregateFnVTable for MinMax {
     ) -> VortexResult<()> {
         match batch {
             Columnar::Constant(c) => {
+                if c.is_empty() {
+                    return Ok(());
+                }
+
                 let scalar = c.scalar();
                 if scalar.is_null() {
                     return Ok(());
@@ -1078,6 +1082,19 @@ mod tests {
                 max: Scalar::bool(true, Nullability::NonNullable),
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn empty_constant_leaves_partial_empty() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = ConstantArray::new(Scalar::from(99i32), 0).into_array();
+        let options = NumericalAggregateOpts::default();
+        let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert!(acc.partial_scalar()?.is_null());
         Ok(())
     }
 

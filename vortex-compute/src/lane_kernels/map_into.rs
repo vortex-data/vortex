@@ -115,6 +115,90 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         Ok(())
     }
 
+    /// Infallible map that writes `f(value)` for valid lanes and `R::default()` for null lanes.
+    ///
+    /// Every lane is mapped exactly as [`map_into`] does, so the loop vectorizes the same way,
+    /// and the null lanes of each 64-lane chunk are then overwritten with the default by walking
+    /// the unset bits of the chunk's validity word. An all-valid chunk costs nothing beyond the
+    /// map. Use this when null lanes must hold a known value in the output, such as an encoding
+    /// that zeroes null slots so they cost no bits downstream.
+    ///
+    /// `f` must be total: a stored value at a null lane can never make it fail. For fallible
+    /// closures use [`try_map_masked_into`].
+    ///
+    /// [`map_into`]: IndexedSourceExt::map_into
+    /// [`try_map_masked_into`]: IndexedSourceExt::try_map_masked_into
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self.len() != mask.len()` or `out.len() != self.len()`.
+    #[inline]
+    fn map_masked_into<R, F>(self, mask: &BitBuffer, out: &mut [MaybeUninit<R>], f: F)
+    where
+        R: Copy + Default,
+        F: Fn(Self::Item) -> R,
+    {
+        #[allow(clippy::inline_always)]
+        #[inline(always)]
+        fn chunk<S, R, F>(
+            values: &S,
+            out: &mut [MaybeUninit<R>],
+            f: &F,
+            src_chunk: u64,
+            base: usize,
+            count: usize,
+        ) where
+            S: IndexedSource,
+            R: Copy + Default,
+            F: Fn(S::Item) -> R,
+        {
+            for bit_idx in 0..count {
+                let idx = base + bit_idx;
+                // SAFETY: caller guarantees base + count <= len.
+                let val = unsafe { values.get_unchecked(idx) };
+                // SAFETY: caller guarantees base + count <= out.len().
+                unsafe { out.get_unchecked_mut(idx).write(f(val)) };
+            }
+
+            // Bits at or above `count` are outside the chunk and must not be visited.
+            let in_chunk = if count == 64 {
+                u64::MAX
+            } else {
+                (1u64 << count) - 1
+            };
+            let mut nulls = !src_chunk & in_chunk;
+            while nulls != 0 {
+                let idx = base + nulls.trailing_zeros() as usize;
+                // SAFETY: the bit index is below `count`, so idx < base + count <= out.len().
+                unsafe { out.get_unchecked_mut(idx).write(R::default()) };
+                nulls &= nulls - 1;
+            }
+        }
+
+        let values = self;
+        let len = values.len();
+        assert_eq!(len, mask.len(), "values and mask must have the same length");
+        assert_eq!(out.len(), len, "out must have the same length as values");
+
+        let chunks = mask.chunks();
+        let chunks_count = len / 64;
+        let remainder = len % 64;
+
+        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
+            chunk(&values, out, &f, src_chunk, chunk_idx * 64, 64);
+        }
+        if remainder != 0 {
+            chunk(
+                &values,
+                out,
+                &f,
+                chunks.remainder_bits(),
+                chunks_count * 64,
+                remainder,
+            );
+        }
+    }
+
     /// Apply `f(value)` lane-by-lane with **no validity awareness at all** — every
     /// closure invocation is treated as "happened", regardless of whether the lane
     /// is null. Use this only when the input is known non-nullable.
@@ -416,6 +500,53 @@ mod tests {
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got, (0..200u32).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn map_masked_into_zeroes_null_lanes() {
+        let values: Vec<u32> = (0..200).collect();
+        let mut mask = BitBufferMut::new_set(200);
+        for idx in [0usize, 5, 63, 64, 130, 199] {
+            mask.unset(idx);
+        }
+        let mask = mask.freeze();
+        let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
+        values
+            .as_slice()
+            .map_masked_into(&mask, &mut out, |v| v.wrapping_sub(3));
+        let got = write_t(out);
+        let expected: Vec<u32> = (0..200u32)
+            .map(|v| {
+                if mask.value(v as usize) {
+                    v.wrapping_sub(3)
+                } else {
+                    0
+                }
+            })
+            .collect();
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn map_masked_into_sliced_mask_unaligned_offset() {
+        let values: Vec<u16> = (0..100).collect();
+        let mut full = BitBufferMut::new_set(140);
+        full.unset(40 + 7);
+        full.unset(40 + 99);
+        let mask = full.freeze().slice(40..140);
+        let mut out = vec![MaybeUninit::<u16>::uninit(); 100];
+        values
+            .as_slice()
+            .map_masked_into(&mask, &mut out, |v| v + 1);
+        let got = write_t(out);
+        for (idx, value) in got.iter().enumerate() {
+            let expected = if idx == 7 || idx == 99 {
+                0
+            } else {
+                idx as u16 + 1
+            };
+            assert_eq!(*value, expected, "lane {idx}");
+        }
     }
 
     #[test]

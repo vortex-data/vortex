@@ -85,3 +85,31 @@ def test_unsupported_arrow_type_raises_value_error(arrow_type: pa.DataType) -> N
     table = pa.table({"c0": pa.array([], type=arrow_type)})
     with pytest.raises(ValueError):
         _ = vortex.array(table)
+
+
+@pytest.mark.parametrize(
+    ("chunks", "arrow_type"),
+    [
+        ([[1, 2], [3, None]], None),
+        ([["a", "b"], ["c"]], pa.string()),
+        ([[{"x": 1}, {"x": 2}], [{"x": 3}]], None),
+    ],
+)
+def test_chunked_array_combine_chunks(chunks: list[list[object]], arrow_type: pa.DataType | None) -> None:
+    arr = vortex.array(pa.chunked_array(chunks))
+    assert isinstance(arr, vortex.ChunkedArray)
+
+    chunked = arr.to_arrow_array(arrow_type=arrow_type)
+    assert isinstance(chunked, pa.ChunkedArray)
+    assert chunked.num_chunks == len(chunks)
+
+    combined = arr.to_arrow_array(arrow_type=arrow_type, combine_chunks=True)
+    assert isinstance(combined, pa.Array)
+    assert combined.equals(chunked.combine_chunks())
+
+
+def test_chunked_struct_to_arrow_table_combine_chunks() -> None:
+    arr = vortex.array(pa.chunked_array([[{"x": 1}], [{"x": 2}, {"x": 3}]]))
+    table = arr.to_arrow_table(combine_chunks=True)
+    assert table.column("x").num_chunks == 1
+    assert table.column("x").to_pylist() == [1, 2, 3]

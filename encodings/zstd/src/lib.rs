@@ -34,6 +34,7 @@ pub use zstd_buffers::*;
 
 mod array;
 mod compute;
+mod decompressor;
 pub mod editions;
 mod rules;
 mod slice;

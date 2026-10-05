@@ -437,10 +437,17 @@ impl PyArray {
     /// arrow_type : :class:`pyarrow.DataType`, optional
     ///     The Arrow type to return. By default, UTF-8 data returns a ``StringViewArray`` and
     ///     binary data returns a ``BinaryViewArray``.
+    /// combine_chunks : :class:`bool`, optional
+    ///     If ``True``, a chunked Vortex array is exported as a single contiguous
+    ///     :class:`pyarrow.Array` instead of a :class:`pyarrow.ChunkedArray`. The chunks are
+    ///     concatenated natively during export, which is faster than calling
+    ///     :meth:`pyarrow.ChunkedArray.combine_chunks` on the result. Defaults to ``False``.
     ///
     /// Returns
     /// -------
-    /// :class:`pyarrow.Array`
+    /// :class:`pyarrow.Array` or :class:`pyarrow.ChunkedArray`
+    ///     A :class:`pyarrow.ChunkedArray` is returned only for chunked arrays when
+    ///     ``combine_chunks`` is ``False``.
     ///
     /// Examples
     /// --------
@@ -469,10 +476,26 @@ impl PyArray {
     ///   "world"
     /// ]
     /// ```
-    #[pyo3(signature = (*, arrow_type = None))]
+    ///
+    /// Export a chunked array as a single contiguous Arrow array:
+    ///
+    /// ```python
+    /// >>> import pyarrow
+    /// >>> import vortex as vx
+    /// >>> chunked = vx.array(pyarrow.chunked_array([[1, 2], [3]]))
+    /// >>> chunked.to_arrow_array(combine_chunks=True)
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///   1,
+    ///   2,
+    ///   3
+    /// ]
+    /// ```
+    #[pyo3(signature = (*, arrow_type = None, combine_chunks = false))]
     fn to_arrow_array<'py>(
         self_: &'py Bound<'py, Self>,
         arrow_type: Option<&Bound<'py, PyAny>>,
+        combine_chunks: bool,
     ) -> PyVortexResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
@@ -482,7 +505,9 @@ impl PyArray {
             .transpose()?
             .map(|data_type| Field::new("", data_type, array.dtype().is_nullable()));
 
-        if let Some(chunked_array) = array.as_opt::<Chunked>() {
+        if let Some(chunked_array) = array.as_opt::<Chunked>()
+            && !combine_chunks
+        {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let inferred_field;

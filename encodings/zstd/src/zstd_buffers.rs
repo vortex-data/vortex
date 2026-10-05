@@ -40,6 +40,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ZstdBuffersMetadata;
+use crate::decompressor::with_decompressor;
 use crate::validate_frame_content_size;
 
 /// A [`ZstdBuffers`]-encoded Vortex array.
@@ -243,49 +244,51 @@ impl ZstdBuffersData {
     fn decompress_buffers(&self) -> VortexResult<Vec<BufferHandle>> {
         // CPU decode path: zstd::bulk works on host bytes, so compressed buffers are
         // materialized on the host via `try_to_host_sync`.
-        let mut decompressor = zstd::bulk::Decompressor::new()?;
-        let mut result = Vec::with_capacity(self.compressed_buffers.len());
-        for (i, (buf, &uncompressed_size)) in self
-            .compressed_buffers
-            .iter()
-            .zip(&self.uncompressed_sizes)
-            .enumerate()
-        {
-            let size = usize::try_from(uncompressed_size)?;
-            let alignment = self.buffer_alignments.get(i).copied().unwrap_or(1);
+        with_decompressor(|decompressor| {
+            let mut result = Vec::with_capacity(self.compressed_buffers.len());
+            for (i, (buf, &uncompressed_size)) in self
+                .compressed_buffers
+                .iter()
+                .zip(&self.uncompressed_sizes)
+                .enumerate()
+            {
+                let size = usize::try_from(uncompressed_size)?;
+                let alignment = self.buffer_alignments.get(i).copied().unwrap_or(1);
 
-            let aligned = Alignment::try_from(alignment)?;
-            let compressed = buf.clone().try_to_host_sync()?;
-            validate_frame_content_size(compressed.as_slice(), uncompressed_size, i)?;
-            let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
-            let spare = output.spare_capacity_mut();
+                let aligned = Alignment::try_from(alignment)?;
+                let compressed = buf.clone().try_to_host_sync()?;
+                validate_frame_content_size(compressed.as_slice(), uncompressed_size, i)?;
+                let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
+                let spare = output.spare_capacity_mut();
 
-            // This is currently guaranteed, but still good to check because
-            // of the unsafe calls below.
-            if spare.len() < size {
-                return Err(vortex_err!(
-                    "Insufficient output capacity: expected at least {}, got {}",
-                    size,
-                    spare.len()
-                ));
+                // This is currently guaranteed, but still good to check because
+                // of the unsafe calls below.
+                if spare.len() < size {
+                    return Err(vortex_err!(
+                        "Insufficient output capacity: expected at least {}, got {}",
+                        size,
+                        spare.len()
+                    ));
+                }
+                // SAFETY: we only expose the first `size` bytes and mark them initialized via
+                // `set_len(size)` after zstd reports how many bytes were written.
+                let dst = unsafe {
+                    std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size)
+                };
+                let written = decompressor.decompress_to_buffer(compressed.as_slice(), dst)?;
+                if written != size {
+                    return Err(vortex_err!(
+                        "Decompressed size mismatch: expected {}, got {}",
+                        size,
+                        written
+                    ));
+                }
+                // SAFETY: zstd wrote exactly `size` initialized bytes into `dst`.
+                unsafe { output.set_len(size) };
+                result.push(BufferHandle::new_host(output.freeze()));
             }
-            // SAFETY: we only expose the first `size` bytes and mark them initialized via
-            // `set_len(size)` after zstd reports how many bytes were written.
-            let dst =
-                unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size) };
-            let written = decompressor.decompress_to_buffer(compressed.as_slice(), dst)?;
-            if written != size {
-                return Err(vortex_err!(
-                    "Decompressed size mismatch: expected {}, got {}",
-                    size,
-                    written
-                ));
-            }
-            // SAFETY: zstd wrote exactly `size` initialized bytes into `dst`.
-            unsafe { output.set_len(size) };
-            result.push(BufferHandle::new_host(output.freeze()));
-        }
-        Ok(result)
+            Ok(result)
+        })
     }
 
     /// Build a decode plan for external or device decompression.
