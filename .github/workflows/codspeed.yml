@@ -40,14 +40,14 @@ jobs:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
       - name: Record environment and materialize the unmodified PR kernel
         run: |
           mkdir -p results encodings/runend/benches/ci_support
-          git show "${PR_SHA}:encodings/runend/src/fill.rs" > encodings/runend/benches/ci_support/pr.rs
+          python3 scripts/runend-ci-variants.py
           lscpu > results/cpu.txt
           rustc -vV > results/rustc.txt
           git diff "$PR_SHA" -- encodings/runend/src/fill.rs > results/candidate.patch
@@ -67,7 +67,7 @@ jobs:
       - name: Measure on one pinned core
         run: |
           cpu=$(python3 -c 'import os; print(sorted(os.sched_getaffinity(0))[-1])')
-          taskset -c "$cpu" "$(cat results/executable.txt)" > results/timings.csv
+          taskset -c "$cpu" "$(cat results/executable.txt)" > results/timings.csv 2> results/decisions.csv
           python3 scripts/runend-ci-summary.py results/timings.csv > results/summary.md
           cat results/summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
