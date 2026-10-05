@@ -5,6 +5,7 @@ use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::records::take_byte_records;
@@ -44,13 +45,50 @@ fn take_eight_byte_values() {
 }
 
 #[rstest]
+#[case(2)]
+#[case(4)]
+#[case(8)]
+#[case(16)]
+#[case(17)]
+#[case(31)]
+#[case(32)]
+#[case(33)]
+#[case(63)]
 #[case(64)]
-#[case(65)]
-#[case(79)]
-#[case(128)]
-fn take_small_byte_table(#[case] len: usize) {
-    let values = [10u8, 20, 30, 40];
-    let indices = (0u8..4).cycle().take(len).collect::<Vec<_>>();
+fn take_small_byte_table(#[case] cardinality: usize) {
+    let values = (0..cardinality)
+        .map(|value| {
+            u8::try_from(value)
+                .vortex_expect("cardinality is at most 64")
+                .wrapping_mul(37)
+                .wrapping_add(11)
+        })
+        .collect::<Vec<_>>();
+    for len in [64, 65, 79, 128, 129] {
+        let indices = (0..len)
+            .map(|index| {
+                u8::try_from((index * 37) % cardinality).vortex_expect("cardinality is at most 64")
+            })
+            .collect::<Vec<_>>();
+        let expected = indices
+            .iter()
+            .map(|index| values[usize::from(*index)])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            take_values(&values, &indices, &allocator()).as_slice(),
+            expected.as_slice()
+        );
+    }
+}
+
+#[test]
+fn take_small_signed_byte_table() {
+    let values = [-128i8, -1, 0, 127];
+    let indices = [3u8, 0, 1, 2, 3, 1, 0]
+        .into_iter()
+        .cycle()
+        .take(129)
+        .collect::<Vec<_>>();
     let expected = indices
         .iter()
         .map(|index| values[usize::from(*index)])
