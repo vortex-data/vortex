@@ -3,11 +3,15 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::fmt;
 use std::sync::LazyLock;
 
 use divan::Bencher;
 use itertools::repeat_n;
 use mimalloc::MiMalloc;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -135,6 +139,175 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
+
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut execution_ctx)| {
+            array
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .unwrap()
+        });
+}
+
+// (length, max_run_len). Run lengths are drawn uniformly from `1..=max_run_len`, so the
+// per-run fill length is unpredictable, unlike the fixed `run_step` cases above.
+const RANDOM_RUN_ARGS: &[(usize, usize)] = &[
+    (10_000, 4),
+    (10_000, 8),
+    (10_000, 16),
+    (10_000, 32),
+    (10_000, 128),
+];
+
+#[divan::bench(types = [u8, u32, u64], args = RANDOM_RUN_ARGS)]
+fn decompress_random_runs<T: IntegerPType>(
+    bencher: Bencher,
+    (length, max_run_len): (usize, usize),
+) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut ends = Vec::new();
+    let mut end = 0;
+    while end < length {
+        end = (end + rng.random_range(1..=max_run_len)).min(length);
+        ends.push(end as u64);
+    }
+
+    let values = (0..ends.len())
+        .map(|x| T::from(x % T::max_value().to_usize().unwrap()).unwrap())
+        .collect::<Buffer<_>>()
+        .into_array();
+    let ends = Buffer::from(ends).into_array();
+
+    let array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx()).into_array();
+
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut execution_ctx)| {
+            array
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .unwrap()
+        });
+}
+
+// (max_run_len, valid_density). Like `decompress_random_runs`, but each run is null with
+// probability `1 - valid_density`.
+const NULLABLE_RANDOM_RUN_ARGS: &[(usize, f64)] =
+    &[(4, 0.5), (4, 0.9), (16, 0.5), (16, 0.9), (128, 0.5)];
+
+#[divan::bench(types = [u8, u32, u64], args = NULLABLE_RANDOM_RUN_ARGS)]
+fn decompress_random_runs_nullable<T: IntegerPType>(
+    bencher: Bencher,
+    (max_run_len, valid_density): (usize, f64),
+) {
+    const LENGTH: usize = 10_000;
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut ends = Vec::new();
+    let mut end = 0;
+    while end < LENGTH {
+        end = (end + rng.random_range(1..=max_run_len)).min(LENGTH);
+        ends.push(end as u64);
+    }
+
+    let values = PrimitiveArray::from_option_iter((0..ends.len()).map(|x| {
+        rng.random_bool(valid_density)
+            .then(|| T::from(x % T::max_value().to_usize().unwrap()).unwrap())
+    }))
+    .into_array();
+    let ends = Buffer::from(ends).into_array();
+
+    let array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx()).into_array();
+
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut execution_ctx)| {
+            array
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .unwrap()
+        });
+}
+
+/// Run length distributions shaped like real columns, where short and long runs interleave.
+#[derive(Clone, Copy, Debug)]
+enum RunDistribution {
+    /// Geometric run lengths with the given mean.
+    Geometric(u32),
+    /// Half single-element runs, half runs of 64 to 512.
+    Bimodal,
+    /// Heavy-tailed: `floor(1 / u^2)` for uniform `u`, capped at 10k.
+    Zipf,
+    /// Half single-element runs, the rest uniform in 2 to 200, like many ClickBench columns.
+    ClickbenchLike,
+}
+
+impl RunDistribution {
+    // Samples are small positive floats, so truncating them to usize is the intent.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn sample(self, rng: &mut StdRng) -> usize {
+        match self {
+            RunDistribution::Geometric(mean) => {
+                let p = 1.0 / f64::from(mean);
+                let u: f64 = rng.random_range(f64::EPSILON..1.0);
+                (u.ln() / (1.0 - p).ln()).floor() as usize + 1
+            }
+            RunDistribution::Bimodal => {
+                if rng.random_bool(0.5) {
+                    1
+                } else {
+                    rng.random_range(64..=512)
+                }
+            }
+            RunDistribution::Zipf => {
+                let u: f64 = rng.random_range(0.0001..1.0);
+                ((1.0 / (u * u)).floor() as usize).min(10_000)
+            }
+            RunDistribution::ClickbenchLike => {
+                if rng.random_bool(0.5) {
+                    1
+                } else {
+                    rng.random_range(2..=200)
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Display for RunDistribution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RunDistribution::Geometric(mean) => write!(f, "geometric_{mean}"),
+            RunDistribution::Bimodal => write!(f, "bimodal"),
+            RunDistribution::Zipf => write!(f, "zipf"),
+            RunDistribution::ClickbenchLike => write!(f, "clickbench_like"),
+        }
+    }
+}
+
+const RUN_DISTRIBUTIONS: &[RunDistribution] = &[
+    RunDistribution::Geometric(4),
+    RunDistribution::Geometric(16),
+    RunDistribution::Bimodal,
+    RunDistribution::Zipf,
+    RunDistribution::ClickbenchLike,
+];
+
+#[divan::bench(types = [u8, u32, u64], args = RUN_DISTRIBUTIONS)]
+fn decompress_distribution<T: IntegerPType>(bencher: Bencher, distribution: RunDistribution) {
+    const LENGTH: usize = 100_000;
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut ends = Vec::new();
+    let mut end = 0;
+    while end < LENGTH {
+        end = (end + distribution.sample(&mut rng)).min(LENGTH);
+        ends.push(end as u64);
+    }
+
+    let values = (0..ends.len())
+        .map(|x| T::from(x % T::max_value().to_usize().unwrap()).unwrap())
+        .collect::<Buffer<_>>()
+        .into_array();
+    let ends = Buffer::from(ends).into_array();
+
+    let array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx()).into_array();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))

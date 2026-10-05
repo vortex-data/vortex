@@ -12,6 +12,7 @@ mod array;
 pub mod compress;
 mod compute;
 pub mod decompress_bool;
+mod fill;
 mod iter;
 mod kernel;
 pub mod ops;
