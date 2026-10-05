@@ -795,6 +795,7 @@ impl SessionVar for ArrowSession {
 }
 
 /// An [`ArrowSession`] bound to [`ArrowExportOptions`], created by [`ArrowSession::with_options`].
+#[derive(Clone, Copy, Debug)]
 pub struct ArrowExporter<'a> {
     session: &'a ArrowSession,
     options: &'a ArrowExportOptions,
