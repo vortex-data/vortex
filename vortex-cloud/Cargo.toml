@@ -57,7 +57,7 @@ cos = [
     "dep:opendal",
     "dep:object_store_opendal",
     "dep:tracing",
-    "object_store/cloud",
+    "object_store/cloud-base",
     "opendal/services-cos",
 ]
 # Alibaba Cloud OSS, the `oss://` scheme.
@@ -65,7 +65,7 @@ oss = [
     "dep:opendal",
     "dep:object_store_opendal",
     "dep:tracing",
-    "object_store/cloud",
+    "object_store/cloud-base",
     "opendal/services-oss",
 ]
 # Tencent Cloud GooseFS, the `goosefs://` scheme.
