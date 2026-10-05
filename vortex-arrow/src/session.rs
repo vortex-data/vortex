@@ -534,6 +534,9 @@ impl ArrowSession {
     ///
     /// With `target = None` the fallback path picks the array's preferred Arrow physical type
     /// and executes directly into that, ignoring extension types.
+    ///
+    /// Uses the default [`ArrowExportOptions`]; see [`with_options`](Self::with_options) to
+    /// change them.
     pub fn execute_arrow(
         &self,
         array: ArrayRef,
