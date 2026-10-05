@@ -274,7 +274,7 @@ impl BitPacked {
             s
         };
         let data = BitPackedData::try_new_blocked(packed, patches, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
     }
 
     /// Split the array into its parts.
