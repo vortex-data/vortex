@@ -87,13 +87,9 @@ where
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Unsupported operators are normal kernel misses, so avoid constructing an error and
-        // capturing its backtrace before falling back to another kernel.
-        if !parent.options.is_comparison() {
-            return Ok(None);
-        }
-
-        let Ok(cmp_op) = CompareOperator::try_from(*parent.options) else {
+        // Non-comparison operators are normal kernel misses, so decline them without constructing
+        // an error (which would capture a backtrace, or panic under `VORTEX_PANIC_ON_ERR`).
+        let Some(cmp_op) = parent.options.to_compare_operator() else {
             return Ok(None);
         };
 
