@@ -33,6 +33,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
+use crate::match_decimal_unary;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::scalar::DecimalToIntegerCast;
@@ -461,13 +462,9 @@ pub fn upcast_decimal_values(
     }
     let validity = array.validity()?;
 
-    // Use match_each_decimal_value_type to dispatch based on source and target types
-    match_each_decimal_value_type!(from_values_type, |F| {
-        let from_buffer = array.buffer::<F>();
-        match_each_decimal_value_type!(to_values_type, |T| {
-            let to_buffer = upcast_decimal_buffer::<F, T>(from_buffer);
-            Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
-        })
+    match_decimal_unary!(from_values_type, to_values_type, |F, T| {
+        let to_buffer = upcast_decimal_buffer::<F, T>(array.buffer::<F>());
+        Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
     })
 }
 
