@@ -31,6 +31,7 @@ bytes = { workspace = true }
 cfg-if = { workspace = true }
 cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
+fearless_simd = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 goldenfile = { workspace = true, optional = true }
@@ -317,4 +318,8 @@ harness = false
 
 [[bench]]
 name = "probe"
+harness = false
+
+[[bench]]
+name = "filter_u8_simd"
 harness = false

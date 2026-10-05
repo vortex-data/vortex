@@ -32,6 +32,8 @@ use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
 #[cfg(all(target_arch = "aarch64", not(miri)))]
+mod fearless;
+#[cfg(all(target_arch = "aarch64", not(miri)))]
 mod neon;
 #[cfg(test)]
 mod tests;

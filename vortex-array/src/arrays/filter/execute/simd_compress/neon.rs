@@ -5,12 +5,9 @@
 //!
 //! Byte-index lookup tables drive `tbl` shuffles for 1-, 2-, 4-, and 8-byte elements.
 
-use core::arch::aarch64::vld1_u8;
 use core::arch::aarch64::vld1q_u8;
 use core::arch::aarch64::vqtbl1q_u8;
-use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
-use core::arch::aarch64::vtbl1_u8;
 
 use vortex_mask::MaskValues;
 
@@ -38,7 +35,7 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
     }
 
     match size_of::<T>() {
-        1 => Some(compress_neon_8::<IN_PLACE> as Kernel),
+        1 => Some(super::fearless::compress_fearless_8::<IN_PLACE> as Kernel),
         2 => Some(compress_neon_16::<IN_PLACE> as Kernel),
         4 => Some(compress_neon_32::<IN_PLACE> as Kernel),
         8 => Some(compress_neon_64::<IN_PLACE> as Kernel),
@@ -46,7 +43,6 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
     }
 }
 
-static IDX_LUT_8: [[u8; 8]; 256] = compress_lut::<256, 8>(8, 1);
 static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
 static IDX_LUT_32: [[u8; 16]; 16] = compress_lut::<16, 16>(4, 4);
 static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(2, 8);
@@ -146,16 +142,6 @@ macro_rules! neon_compress_kernel {
         }
     };
 }
-
-neon_compress_kernel!(
-    compress_word_neon_8, compress_neon_8,
-    elem_size: 1,
-    lanes: 8,
-    idx_lut: IDX_LUT_8,
-    load: vld1_u8,
-    tbl: vtbl1_u8,
-    store: vst1_u8
-);
 
 neon_compress_kernel!(
     compress_word_neon_16, compress_neon_16,
