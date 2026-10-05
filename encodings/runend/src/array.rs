@@ -481,21 +481,21 @@ pub(super) fn run_end_canonicalize(
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_primitive(pends, pvalues, array.offset(), array.len(), ctx)?.into_array()
+            runend_decode_primitive(pends, pvalues, array.offset(), array.len(), ctx)?
         }
         DType::Decimal(..) => {
             let values = array
                 .values()
                 .clone()
                 .execute_as::<DecimalArray>("values", ctx)?;
-            runend_decode_decimal(pends, values, array.offset(), array.len(), ctx)?.into_array()
+            runend_decode_decimal(pends, values, array.offset(), array.len(), ctx)?
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let values = array
                 .values()
                 .clone()
                 .execute_as::<VarBinViewArray>("values", ctx)?;
-            runend_decode_varbinview(pends, values, array.offset(), array.len(), ctx)?.into_array()
+            runend_decode_varbinview(pends, values, array.offset(), array.len(), ctx)?
         }
         DType::List(..) => {
             let values = array
