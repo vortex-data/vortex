@@ -345,6 +345,10 @@ pub struct ValidityRef<'a> {
 }
 
 impl ValidityRef<'_> {
+    pub fn entries(&self) -> Option<&[u64]> {
+        self.validity
+    }
+
     #[inline]
     pub fn is_valid(&self, row: usize) -> bool {
         let Some(validity) = self.validity else {
