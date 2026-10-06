@@ -121,7 +121,11 @@ mod benchmarks {
         } else {
             Validity::NonNullable
         };
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION).build();
+        // This session registers no encodings, so allow every scheme, as a writer's session that
+        // registers every encoding does.
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
 
         // Record the compressed size once, to check that every build compresses alike.
         let array = PrimitiveArray::new(values.clone(), validity.clone()).into_array();
