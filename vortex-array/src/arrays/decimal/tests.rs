@@ -26,8 +26,12 @@ use crate::validity::Validity;
 fn construction_bounds_storage_by_precision(
     #[values(1, 2, 3, 4, 5, 9, 10, 18, 19, 38, 39, 76)] precision: u8,
     #[values(
-        DecimalType::I8, DecimalType::I16, DecimalType::I32,
-        DecimalType::I64, DecimalType::I128, DecimalType::I256
+        DecimalType::I8,
+        DecimalType::I16,
+        DecimalType::I32,
+        DecimalType::I64,
+        DecimalType::I128,
+        DecimalType::I256
     )]
     storage: DecimalType,
 ) -> VortexResult<()> {
@@ -88,7 +92,7 @@ fn empty_oversized_storage_is_narrowed() {
 #[should_panic(expected = "decimal storage i16 exceeds")]
 fn unchecked_construction_asserts_storage_bound() {
     // Deliberately violate the width contract to exercise its debug assertion.
-    let _ = unsafe { DecimalData::new_unchecked(buffer![1i16], DecimalDType::new(2, 0)) };
+    drop(unsafe { DecimalData::new_unchecked(buffer![1i16], DecimalDType::new(2, 0)) });
 }
 
 #[test]
