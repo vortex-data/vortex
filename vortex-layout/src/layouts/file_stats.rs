@@ -659,7 +659,10 @@ mod tests {
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         let mut acc = StatsAccumulator::new(&dtype, &[Stat::Sum], 12);
         for chunk in chunks {
-            acc.push_chunk(&PrimitiveArray::from_option_iter(chunk).into_array(), &mut ctx)?;
+            acc.push_chunk(
+                &PrimitiveArray::from_option_iter(chunk).into_array(),
+                &mut ctx,
+            )?;
         }
 
         let stats = acc.as_stats_set(&[Stat::Sum], &mut ctx)?;

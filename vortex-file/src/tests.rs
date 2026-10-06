@@ -2154,7 +2154,9 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
     assert!(footer_stats.stats_sets()[0].get(Stat::Sum).is_absent());
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let file_stats = file.file_stats().vortex_expect("file statistics were written");
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
     assert!(file_stats.stats_sets()[0].get(Stat::Sum).is_absent());
 
     Ok(())
