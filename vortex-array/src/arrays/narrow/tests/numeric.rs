@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Arithmetic matches canonical integers and keeps sufficient stored widths.
+//!
+//! Canonical execution provides the reference for signed and unsigned results, including overflow,
+//! null payloads, and operand order. Storage assertions check width selection separately.
 
 use rstest::rstest;
 use vortex_buffer::Buffer;
@@ -36,7 +39,7 @@ use crate::validity::Validity;
 #[case::divide_min(vec![-128, 127], vec![-1, 2], Operator::Div, PType::I16)]
 #[case::divide_cross_zero(vec![-128, 127], vec![2, -2], Operator::Div, PType::I16)]
 #[case::overestimated_interval(vec![0, 1], vec![i64::MAX, 0], Operator::Add, PType::I64)]
-fn signed_arithmetic(
+fn test_signed_arithmetic(
     #[case] lhs: Vec<i64>,
     #[case] rhs: Vec<i64>,
     #[case] operator: Operator,
@@ -71,7 +74,7 @@ fn signed_arithmetic(
 #[case::subtract(Operator::Sub)]
 #[case::multiply(Operator::Mul)]
 #[case::divide(Operator::Div)]
-fn signed_domain(#[case] operator: Operator) -> VortexResult<()> {
+fn test_signed_domain(#[case] operator: Operator) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let lhs = PrimitiveArray::from_iter((-128i64..=127).flat_map(|value| [value; 4]));
     let rhs = PrimitiveArray::from_iter([-2i64, -1, 1, 2].into_iter().cycle().take(1024));
@@ -92,7 +95,7 @@ fn signed_domain(#[case] operator: Operator) -> VortexResult<()> {
 #[case::multiply(vec![u64::from(u32::MAX), 2], vec![u64::from(u32::MAX), 3], Operator::Mul)]
 #[case::subtract_interval(vec![0u64, 1], vec![0, 1], Operator::Sub)]
 #[case::divide(vec![255u64, 200], vec![2, 3], Operator::Div)]
-fn unsigned_arithmetic(
+fn test_unsigned_arithmetic(
     #[case] lhs: Vec<u64>,
     #[case] rhs: Vec<u64>,
     #[case] operator: Operator,
@@ -117,7 +120,7 @@ fn unsigned_arithmetic(
 #[case::subtract(Operator::Sub, i64::MIN)]
 #[case::multiply(Operator::Mul, i64::MAX)]
 #[case::zero_divisor(Operator::Div, 0)]
-fn logical_errors(#[case] operator: Operator, #[case] rhs: i64) -> VortexResult<()> {
+fn test_logical_errors(#[case] operator: Operator, #[case] rhs: i64) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = PrimitiveArray::from_iter([2i64, 3]);
     let encoded = NarrowArray::encode(input.clone(), &mut ctx)?;
@@ -141,7 +144,7 @@ fn logical_errors(#[case] operator: Operator, #[case] rhs: i64) -> VortexResult<
 }
 
 #[test]
-fn unsigned_underflow() -> VortexResult<()> {
+fn test_unsigned_underflow() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let array = NarrowArray::try_new(buffer![0u8, 1].into_array(), PType::U64.into())?.into_array();
     let rhs = ConstantArray::new(1u64, 2).into_array();
@@ -159,7 +162,7 @@ fn unsigned_underflow() -> VortexResult<()> {
 #[case::empty(PrimitiveArray::new(Buffer::<i8>::empty(), Validity::NonNullable))]
 #[case::all_null(PrimitiveArray::new(buffer![-128i8, 127], Validity::AllInvalid))]
 #[case::null_payload_overflow(PrimitiveArray::new(buffer![-128i8, 127], Validity::from_iter([false, true])))]
-fn nulls_and_empty(#[case] values: PrimitiveArray) -> VortexResult<()> {
+fn test_nulls_and_empty(#[case] values: PrimitiveArray) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::I64, values.dtype().nullability());
     let input = values.clone().into_array().cast(dtype.clone())?;
@@ -176,7 +179,7 @@ fn nulls_and_empty(#[case] values: PrimitiveArray) -> VortexResult<()> {
 }
 
 #[test]
-fn encoded_child_and_operand_order() -> VortexResult<()> {
+fn test_encoded_child_and_operand_order() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let child = DictArray::try_new(
         buffer![0u8, 1, 0].into_array(),
@@ -200,7 +203,10 @@ fn encoded_child_and_operand_order() -> VortexResult<()> {
 #[case::i16(PType::I16, i64::from(i16::MAX))]
 #[case::i32(PType::I32, i64::from(i32::MAX))]
 #[case::i64(PType::I64, i64::MAX)]
-fn overflow_at_each_logical_width(#[case] logical: PType, #[case] max: i64) -> VortexResult<()> {
+fn test_overflow_at_each_logical_width(
+    #[case] logical: PType,
+    #[case] max: i64,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let array = NarrowArray::try_new(buffer![2i8, 3].into_array(), logical.into())?.into_array();
     let rhs = ConstantArray::new(Scalar::from(max).cast(&logical.into())?, 2).into_array();
@@ -215,7 +221,7 @@ fn overflow_at_each_logical_width(#[case] logical: PType, #[case] max: i64) -> V
 }
 
 #[test]
-fn logical_overflow_behind_null() -> VortexResult<()> {
+fn test_logical_overflow_behind_null() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let child =
         PrimitiveArray::new(buffer![2i8, 3], Validity::from_iter([false, true])).into_array();

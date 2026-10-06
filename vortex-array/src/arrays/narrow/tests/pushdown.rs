@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Selection and predicates retain the logical dtype and narrow children.
+//!
+//! These cases exercise child rewrites across scalar functions, concatenation, and interleave.
+//! Results are checked against canonical values, including nullable masks and bounds.
 
 use rstest::rstest;
 use vortex_buffer::buffer;
@@ -34,7 +37,7 @@ use crate::scalar_fn::fns::between::StrictComparison;
 #[case::same_width(2i64, PType::I8)]
 #[case::next_width(1000i64, PType::I16)]
 #[case::full_width(i64::MAX, PType::I64)]
-fn fill_width(#[case] fill: i64, #[case] storage: PType) -> VortexResult<()> {
+fn test_fill_width(#[case] fill: i64, #[case] storage: PType) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = PrimitiveArray::from_option_iter([Some(1i64), None, Some(-2)]);
     let array = NarrowArray::encode(input, &mut ctx)?;
@@ -53,7 +56,7 @@ fn fill_width(#[case] fill: i64, #[case] storage: PType) -> VortexResult<()> {
 #[rstest]
 #[case::constant(false)]
 #[case::other_narrow(true)]
-fn zip_width(#[case] other_narrow: bool) -> VortexResult<()> {
+fn test_zip_width(#[case] other_narrow: bool) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = PrimitiveArray::from_option_iter([Some(-128i64), None, Some(127)]);
     let array = NarrowArray::encode(input.clone(), &mut ctx)?;
@@ -75,7 +78,7 @@ fn zip_width(#[case] other_narrow: bool) -> VortexResult<()> {
 }
 
 #[rstest]
-fn between_bounds(
+fn test_between_bounds(
     #[values(-129i64, -128, 0, 128)] lower: i64,
     #[values(-128i64, 0, 127, 128)] upper: i64,
     #[values(StrictComparison::Strict, StrictComparison::NonStrict)] lower_strict: StrictComparison,
@@ -102,7 +105,7 @@ fn between_bounds(
 }
 
 #[test]
-fn between_nullable_bounds() -> VortexResult<()> {
+fn test_between_nullable_bounds() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = buffer![-128i64, 0, 127].into_array();
     let array = NarrowArray::encode(input.clone().execute::<PrimitiveArray>(&mut ctx)?, &mut ctx)?;
@@ -123,7 +126,7 @@ fn between_nullable_bounds() -> VortexResult<()> {
 }
 
 #[test]
-fn zip_false_branch_and_null_mask() -> VortexResult<()> {
+fn test_zip_false_branch_and_null_mask() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = buffer![-128i64, 0, 127].into_array();
     let array = NarrowArray::encode(input.execute::<PrimitiveArray>(&mut ctx)?, &mut ctx)?;
@@ -141,7 +144,7 @@ fn zip_false_branch_and_null_mask() -> VortexResult<()> {
 }
 
 #[test]
-fn narrowed_take_indices() -> VortexResult<()> {
+fn test_narrowed_take_indices() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let codes =
         NarrowArray::try_new(buffer![2u8, 0, 1].into_array(), PType::U64.into())?.into_array();
@@ -158,7 +161,7 @@ fn narrowed_take_indices() -> VortexResult<()> {
 #[case::unsigned_to_signed(buffer![0u8, 255].into_array(), PType::U64, PType::I32, Some(PType::I16))]
 #[case::signed_to_unsigned(buffer![0i8, 127].into_array(), PType::I64, PType::U32, Some(PType::U8))]
 #[case::float(buffer![-128i8, 127].into_array(), PType::I64, PType::F64, None)]
-fn cast_child(
+fn test_cast_child(
     #[case] values: crate::ArrayRef,
     #[case] logical: PType,
     #[case] target: PType,
@@ -177,7 +180,7 @@ fn cast_child(
 }
 
 #[test]
-fn signedness_cast_checks_values_and_nulls() -> VortexResult<()> {
+fn test_signedness_cast_checks_values_and_nulls() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let values = PrimitiveArray::from_option_iter([Some(-1i8), None]).into_array();
     let array = NarrowArray::try_new(values, DType::Primitive(PType::I64, Nullability::Nullable))?
@@ -203,7 +206,7 @@ fn signedness_cast_checks_values_and_nulls() -> VortexResult<()> {
 }
 
 #[test]
-fn concat_stored_widths() -> VortexResult<()> {
+fn test_concat_stored_widths() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let first =
         NarrowArray::try_new(buffer![-128i8, 127].into_array(), PType::I64.into())?.into_array();
@@ -227,7 +230,7 @@ fn concat_stored_widths() -> VortexResult<()> {
 }
 
 #[test]
-fn interleave_stored_widths() -> VortexResult<()> {
+fn test_interleave_stored_widths() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let first =
         NarrowArray::try_new(buffer![-128i8, 127].into_array(), PType::I64.into())?.into_array();
@@ -255,7 +258,7 @@ fn interleave_stored_widths() -> VortexResult<()> {
 }
 
 #[test]
-fn interleave_stored_selectors() -> VortexResult<()> {
+fn test_interleave_stored_selectors() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let arrays =
         NarrowArray::try_new(buffer![0u8, 1, 0].into_array(), PType::U64.into())?.into_array();

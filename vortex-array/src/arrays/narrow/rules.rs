@@ -78,6 +78,7 @@ pub(super) fn rewrap(
     if values.dtype() == &dtype {
         return Ok(Some(values));
     }
+
     Ok(Some(NarrowArray::try_new(values, dtype)?.into_array()))
 }
 
@@ -113,9 +114,11 @@ impl CastReduce for Narrow {
         ) else {
             return Ok(None);
         };
+
         if target.is_float() {
             return array.values().cast(dtype.clone()).map(Some);
         }
+
         // A same-width unsigned value may exceed the signed range. The next signed width can
         // represent every source value, while narrowing casts still use the checked cast kernel.
         let storage_type = if storage.is_unsigned_int() && target.is_signed_int() {
@@ -131,7 +134,9 @@ impl CastReduce for Narrow {
         if target.byte_width() <= storage_type.byte_width() {
             return array.values().cast(dtype.clone()).map(Some);
         }
+
         let storage_dtype = DType::Primitive(storage_type, dtype.nullability());
+
         Ok(Some(
             NarrowArray::try_new(array.values().cast(storage_dtype)?, dtype.clone())?.into_array(),
         ))
@@ -146,8 +151,10 @@ impl FillNullReduce for Narrow {
         let Some(ptype) = scalar_storage_type(array, fill_value)? else {
             return Ok(None);
         };
+
         let storage_dtype = DType::Primitive(ptype, array.dtype().nullability());
         let fill_dtype = DType::Primitive(ptype, fill_value.dtype().nullability());
+
         rewrap(
             array,
             array
@@ -169,6 +176,7 @@ pub(super) fn scalar_storage_type(
     ) else {
         return Ok(None);
     };
+
     let required = if scalar.is_null() {
         storage
     } else if logical.is_signed_int() {
@@ -181,6 +189,7 @@ pub(super) fn scalar_storage_type(
     } else {
         required
     };
+
     Ok((ptype.byte_width() <= logical.byte_width()).then_some(ptype))
 }
 
@@ -190,7 +199,7 @@ impl ZipReduce for Narrow {
         if_false: &ArrayRef,
         mask: &ArrayRef,
     ) -> VortexResult<Option<ArrayRef>> {
-        zip_values(array, if_false, mask, true)
+        zip_values(array, if_false, mask, ZipBranch::IfTrue)
     }
 }
 
@@ -209,18 +218,30 @@ impl ArrayParentReduceRule<Narrow> for ZipFalseReduce {
         if child_idx != 1 {
             return Ok(None);
         }
+
         let Some(parent) = parent.as_opt::<ScalarFn>() else {
             return Ok(None);
         };
-        zip_values(array, parent.get_child(0), parent.get_child(2), false)
+
+        zip_values(
+            array,
+            parent.get_child(0),
+            parent.get_child(2),
+            ZipBranch::IfFalse,
+        )
     }
+}
+
+enum ZipBranch {
+    IfTrue,
+    IfFalse,
 }
 
 fn zip_values(
     array: ArrayView<'_, Narrow>,
     other: &ArrayRef,
     mask: &ArrayRef,
-    is_true: bool,
+    branch: ZipBranch,
 ) -> VortexResult<Option<ArrayRef>> {
     let (values, ptype) = if let Some(other) = other.as_opt::<Narrow>() {
         let (Ok(lhs), Ok(rhs)) = (
@@ -247,11 +268,11 @@ fn zip_values(
     let rhs_dtype = DType::Primitive(ptype, other.dtype().nullability());
     let array_values = array.values().cast(lhs_dtype)?;
     let other_values = values.cast(rhs_dtype)?;
-    let values = if is_true {
-        mask.zip(array_values, other_values)?
-    } else {
-        mask.zip(other_values, array_values)?
+    let values = match branch {
+        ZipBranch::IfTrue => mask.zip(array_values, other_values)?,
+        ZipBranch::IfFalse => mask.zip(other_values, array_values)?,
     };
+
     rewrap(array, values)
 }
 
@@ -270,6 +291,7 @@ impl ArrayParentReduceRule<Narrow> for TakeIndicesReduce {
         if child_idx != 0 {
             return Ok(None);
         }
+
         // Dictionary codes are internal indices. Their integer width does not determine the
         // result dtype, so the dictionary can consume the stored child directly.
         Ok(Some(
@@ -316,6 +338,7 @@ impl BetweenReduce for Narrow {
                 )
                 .map(Some);
         }
+
         two_compares(array, lower, upper, options).map(Some)
     }
 }
@@ -338,5 +361,6 @@ fn two_compares(
     };
     let lhs = array.as_ref().binary(lower.clone(), lower_op)?;
     let rhs = array.as_ref().binary(upper.clone(), upper_op)?;
+
     lhs.binary(rhs, Operator::And)
 }

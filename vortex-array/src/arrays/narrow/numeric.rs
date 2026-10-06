@@ -65,13 +65,16 @@ impl ExecuteParentKernel<Narrow> for NumericExecute {
             Operator::Div => NumericOperator::Div,
             _ => return Ok(None),
         };
+
         // Primitive arithmetic must not reinterpret an extension's storage as an integer buffer.
         let Ok(logical_ptype) = PType::try_from(array.dtype()) else {
             return Ok(None);
         };
+
         let Some(parent_array) = parent.as_opt::<ScalarFn>() else {
             return Ok(None);
         };
+
         let (lhs, rhs) = match child_idx {
             0 => (
                 array.values().clone(),
@@ -83,10 +86,12 @@ impl ExecuteParentKernel<Narrow> for NumericExecute {
             ),
             _ => return Ok(None),
         };
+
         let result_dtype = parent.dtype();
         if parent.is_empty() {
             return Ok(Some(Canonical::empty(result_dtype).into_array()));
         }
+
         let (Some(lhs_bounds), Some(rhs_bounds)) = (bounds(&lhs, ctx)?, bounds(&rhs, ctx)?) else {
             return Ok(Some(
                 ConstantArray::new(Scalar::null(result_dtype.clone()), parent.len()).into_array(),
@@ -173,6 +178,7 @@ fn result_bounds(lhs: Bounds, rhs: Bounds, operator: NumericOperator) -> Option<
                 lhs.max.checked_mul(rhs.min)?,
                 lhs.max.checked_mul(rhs.max)?,
             ];
+
             Some(Bounds {
                 min: *products.iter().min()?,
                 max: *products.iter().max()?,
@@ -183,10 +189,12 @@ fn result_bounds(lhs: Bounds, rhs: Bounds, operator: NumericOperator) -> Option<
             // when the interval crosses zero. Actual zero divisors are left to the checked kernel.
             let divisors = [rhs.min, rhs.max, -1, 1];
             let mut result: Option<Bounds> = None;
+
             for divisor in divisors {
                 if divisor == 0 || divisor < rhs.min || divisor > rhs.max {
                     continue;
                 }
+
                 for dividend in [lhs.min, lhs.max] {
                     let quotient = dividend.checked_div(divisor)?;
                     result = Some(result.map_or(
@@ -201,6 +209,7 @@ fn result_bounds(lhs: Bounds, rhs: Bounds, operator: NumericOperator) -> Option<
                     ));
                 }
             }
+
             result
         }
     }

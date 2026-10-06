@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Narrow preserves primitive semantics through storage changes.
+//!
+//! Construction, selection, aggregates, and serialization keep the logical dtype. Separate
+//! arithmetic and pushdown cases check when operations can retain a smaller stored width.
 
 mod numeric;
 mod pushdown;

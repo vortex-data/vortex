@@ -43,13 +43,17 @@ impl ArrayParentReduceRule<Narrow> for ChunkedInputsReduce {
         if child_idx < ChunkedSlots::CHUNKS_OFFSET {
             return Ok(None);
         }
+
         let Some(values) = stored_inputs(array, parent.chunks())? else {
             return Ok(None);
         };
+
         let Some(first) = values.first() else {
             return Ok(None);
         };
+
         let dtype = first.dtype().clone();
+
         rewrap(array, ChunkedArray::try_new(values, dtype)?.into_array())
     }
 }
@@ -87,6 +91,7 @@ impl ArrayParentReduceRule<Narrow> for InterleaveInputsReduce {
         let Some(values) = stored_inputs(array, values)? else {
             return Ok(None);
         };
+
         rewrap(
             array,
             InterleaveArray::try_new(
@@ -107,6 +112,7 @@ fn stored_inputs(
     let Ok(mut ptype) = PType::try_from(array.values().dtype()) else {
         return Ok(None);
     };
+
     let mut values = Vec::with_capacity(inputs.len());
     for input in inputs {
         let (stored, width) = if let Some(narrow) = input.as_opt::<Narrow>() {
@@ -122,11 +128,13 @@ fn stored_inputs(
         } else {
             return Ok(None);
         };
+
         if width.byte_width() > ptype.byte_width() {
             ptype = width;
         }
         values.push(stored);
     }
+
     values
         .into_iter()
         .map(|values| values.cast(DType::Primitive(ptype, values.dtype().nullability())))
