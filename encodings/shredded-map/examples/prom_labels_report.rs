@@ -24,6 +24,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_shredded_map::ShreddedMapArrayExt;
 use vortex_shredded_map::ShreddedMapArraySlotsExt;
 use vortex_shredded_map::ops;
 
@@ -89,8 +90,8 @@ fn main() {
         .data()
         .columns()
         .iter()
-        .zip(data.shredded.columns().iter())
-        .zip(data.shredded_compressed.columns().iter())
+        .zip(data.shredded.column_arrays().iter())
+        .zip(data.shredded_compressed.column_arrays().iter())
     {
         let valid = array.valid_count(&mut ctx).unwrap();
         println!(

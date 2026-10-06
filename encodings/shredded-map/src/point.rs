@@ -29,6 +29,7 @@ use vortex_sparse::SparseExt;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ShreddedMapArray;
+use crate::array::ShreddedMapArrayExt;
 use crate::array::ShreddedMapArraySlotsExt;
 use crate::flat::to_usize_vec;
 use crate::labels::values_to_utf8;
@@ -154,7 +155,7 @@ pub fn label_at(
         .binary_search_by(|c| c.key.as_ref().cmp(key))
         .ok();
     match column {
-        Some(k) => match column_value(&array.columns()[k], row, ctx)? {
+        Some(k) => match column_value(&array.column_array(k), row, ctx)? {
             Some(value) => scalar_to_string(&value, ctx),
             // A shredded key absent from its column may still have a null-valued residual entry,
             // which reads as null too.
@@ -623,7 +624,7 @@ impl ShreddedProbe {
             Some(k) => {
                 let probe = match &mut self.columns[k] {
                     Some(probe) => probe,
-                    slot @ None => slot.insert(Probe::new(&self.array.columns()[k], ctx)?),
+                    slot @ None => slot.insert(Probe::new(&self.array.column_array(k), ctx)?),
                 };
                 probe.scalar(row, ctx)?
             }

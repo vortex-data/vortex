@@ -45,6 +45,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::ShreddedColumn;
 use crate::ShreddedMap;
 use crate::ShreddedMapArray;
+use crate::array::ShreddedMapArrayExt;
 use crate::array::ShreddedMapArraySlotsExt;
 use crate::decode::ShreddedParts;
 use crate::decode::decode_keys;
@@ -367,7 +368,12 @@ pub mod shredded {
         let mut names: BTreeSet<String> = map::distinct_label_names(array.residual(), ctx)?
             .into_iter()
             .collect();
-        for (column, values) in array.data().columns().iter().zip(array.columns().iter()) {
+        for (column, values) in array
+            .data()
+            .columns()
+            .iter()
+            .zip(array.column_arrays().iter())
+        {
             if values.valid_count(ctx)? > 0 {
                 names.insert(column.key.to_string());
             }
@@ -384,7 +390,7 @@ pub mod shredded {
         match find_column(array, key) {
             // The shredder only moves a key's first entry, and only when it is non-null, so a null
             // column row means the first entry is absent or null.
-            Some(c) => values_to_utf8(&array.columns()[c], ctx),
+            Some(c) => values_to_utf8(&array.column_array(c), ctx),
             None => map::get_label_utf8(array.residual(), key, ctx),
         }
     }
@@ -410,7 +416,7 @@ pub mod shredded {
             })
             .collect();
         let column_arrays = array
-            .columns()
+            .column_arrays()
             .iter()
             .map(|c| values_to_utf8(c, ctx)?.cast(value_dtype.as_nullable()))
             .collect::<VortexResult<Vec<_>>>()?;
@@ -442,10 +448,7 @@ pub mod shredded {
             .iter()
             .map(|&c| array.data().columns()[c].clone())
             .collect();
-        let column_arrays = selected
-            .iter()
-            .map(|&c| array.columns()[c].clone())
-            .collect();
+        let column_arrays = selected.iter().map(|&c| array.column_array(c)).collect();
         // Equal rows stay equal after projection, so the repeats hint carries over.
         ShreddedMap::try_new_with_repeats(
             residual.into_array(),
@@ -666,7 +669,7 @@ pub mod query {
             .map(|key| {
                 let label = match shredded::find_column(array, key) {
                     Some(c) => {
-                        values_to_utf8(&filter_column(&array.columns()[c], &mask, ctx)?, ctx)?
+                        values_to_utf8(&filter_column(&array.column_array(c), &mask, ctx)?, ctx)?
                     }
                     None => {
                         let residual = match &residual {

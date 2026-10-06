@@ -9,8 +9,8 @@ the rest stay in a residual map.
 `ShreddedMap` keeps the logical dtype of the map it encodes (UTF-8 keys, `keys_sorted = true`) and
 stores:
 
-- one row-aligned nullable **column per shredded key**. A non-null value at row `i` means row `i`
-  contains `(key, value)`;
+- a non-nullable **`fields` struct** with one row-aligned nullable field per shredded key, in key
+  order. A non-null value at row `i` means row `i` contains `(key, value)`;
 - a **residual** `Map` of the same dtype holding every other entry, which also carries the outer
   validity;
 - an optional **repeat hint**, a bit per row marking rows equal to their predecessor.
@@ -39,6 +39,30 @@ sparse layers. A generic compressor would canonicalize its input and undo the la
 
 For union values, `labels` defines `Union<str: Utf8, int: I64, float: F64, bool: Bool>`, and a
 column whose values all select one variant stores that variant directly ("typed" shredding).
+
+## Shredding contract
+
+A `ShreddedMap` is one node of a shredding contract meant to be shared with variant shredding:
+
+```text
+Node {
+  fields:   Struct { k1: Child, k2: Child, ... }   // nullable fields, any encoding
+  residual: Map<Utf8, V>                           // entries of this node that were not shredded
+}
+Child = Utf8 column | Struct column (a nested Node)
+```
+
+- **Exclusive.** For every shredded key `k`, a row's first non-null value of `k` lives only in
+  `fields.k`. A null in `fields.k` means `k` is absent or null in that row, so readers never consult
+  the residual for a shredded key. The residual holds unshredded keys, null-valued entries and later
+  duplicates of a key.
+- **Selection** per node, configurable through `ShredOptions`: a key needs `min_frequency` of the
+  rows to be shredded, is dense at `sparse_below` presence and sparse below it, and at most
+  `max_sparse_columns` sparse keys are kept.
+- **Version 1** shreds string leaves only. Nested objects (struct-column children), a depth limit
+  and a key whose value is an object in some rows and a string in others (an error) apply once
+  nested inputs are shredded; a `Map<Utf8, Utf8>` has one level and can never conflict. Typed
+  leaves (narrowest integer or float) are deferred.
 
 ## Operations
 

@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 use arrow_array::Array as _;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
+use vortex_shredded_map::ShreddedMapArrayExt;
 use vortex_shredded_map::ShreddedMapArraySlotsExt;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt;
@@ -61,8 +62,8 @@ fn main() {
         kib(s.as_ref().nbytes()),
         kib(s.residual().nbytes()),
         kib(s.repeats().map_or(0, |r| r.nbytes())),
-        s.columns().len(),
-        kib(s.columns().iter().map(|c| c.nbytes()).sum()),
+        s.column_arrays().len(),
+        kib(s.column_arrays().iter().map(|c| c.nbytes()).sum()),
     );
     println!(
         "map+btr {} KiB, arrow MapArray {} KiB\n",
@@ -75,7 +76,7 @@ fn main() {
         "{:<44} {:>7} {:>10} {:>11}  layout",
         "column", "present", "KiB", "chunk offs B"
     );
-    for (column, array) in s.data().columns().iter().zip(s.columns().iter()) {
+    for (column, array) in s.data().columns().iter().zip(s.column_arrays().iter()) {
         let (present, offsets) = match array.as_opt::<Sparse>() {
             Some(sp) => {
                 let patches = sp.patches();

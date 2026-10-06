@@ -21,7 +21,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ShreddedMap;
+use crate::array::ShreddedMapArrayExt;
 use crate::array::ShreddedMapArraySlotsExt;
+use crate::array::fields_struct;
 use crate::array::make_parts;
 
 pub(crate) static RULES: ParentRuleSet<ShreddedMap> = ParentRuleSet::new(&[
@@ -37,17 +39,19 @@ fn map_children(
 ) -> VortexResult<ArrayRef> {
     let residual = f(array.residual())?;
     let columns = array
-        .columns()
+        .column_arrays()
         .iter()
         .map(&f)
         .collect::<VortexResult<Vec<_>>>()?;
+    // Rebuild the struct from the selected fields so it stays a struct array.
+    let fields = fields_struct(array.data().columns(), columns, residual.len())?;
     let parts = make_parts(
         residual.dtype().clone(),
         residual.len(),
         array.data().columns().into(),
         residual,
         repeats,
-        columns,
+        fields,
     );
     // SAFETY: applying the same row selection to every child preserves the layout invariants.
     Ok(unsafe { vortex_array::Array::from_parts_unchecked(parts) }.into_array())

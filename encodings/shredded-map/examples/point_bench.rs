@@ -16,6 +16,7 @@ use arrow_array::Array as _;
 use arrow_array::StringArray;
 use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
+use vortex_shredded_map::ShreddedMapArrayExt;
 use vortex_shredded_map::ShreddedMapArraySlotsExt;
 use vortex_shredded_map::point;
 
@@ -84,7 +85,7 @@ fn main() {
         .iter()
         .position(|c| *c.key == *key)
     {
-        Some(k) => shredded.columns()[k].clone(),
+        Some(k) => shredded.column_array(k),
         None => shredded.residual().clone(),
     };
     let mut stock = target.repeated_probe();

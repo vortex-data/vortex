@@ -29,6 +29,7 @@ use vortex_sparse::SparseExt;
 
 use crate::ShreddedColumn;
 use crate::ShreddedMap;
+use crate::array::ShreddedMapArrayExt;
 use crate::array::ShreddedMapArraySlotsExt;
 use crate::columnar::decode_columnar;
 use crate::flat::FlatMap;
@@ -61,7 +62,7 @@ impl<'a> ShreddedParts<'a> {
         Self {
             map_dtype,
             columns: array.data().columns(),
-            column_arrays: array.columns().to_vec(),
+            column_arrays: array.column_arrays(),
             residual: array.residual().clone(),
             repeats: array.repeats().cloned(),
         }

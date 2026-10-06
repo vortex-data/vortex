@@ -28,6 +28,7 @@ use vortex_mask::Mask;
 
 use crate::ShredOptions;
 use crate::ShreddedMapArray;
+use crate::array::ShreddedMapArrayExt;
 use crate::array::ShreddedMapArraySlotsExt;
 use crate::labels::LabelMapBuilder;
 use crate::labels::LabelValue;
@@ -423,7 +424,8 @@ fn check_case(case: &Case, projection: &[&str], selection: &[usize]) -> VortexRe
     assert_eq!(read_rows(&map, ctx)?, case.rows, "builder round trip");
 
     let shredded: ShreddedMapArray = shred(&map, &case.options, ctx)?;
-    let sparse = ShreddedMapArraySlotsExt::columns(&shredded)
+    let sparse = shredded
+        .column_arrays()
         .iter()
         .filter(|c| c.is::<vortex_sparse::Sparse>())
         .count();
@@ -838,5 +840,65 @@ fn probes_read_compressed_columns() -> VortexResult<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// The shredded layout, including its `fields` struct, sparse and dictionary columns and the
+/// repeats hint, survives serialization.
+#[test]
+fn serde_roundtrip_keeps_layout() -> VortexResult<()> {
+    let session = array_session();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+    let mut builder = Utf8MapBuilder::new(Nullability::Nullable, Nullability::Nullable);
+    for i in 0..2_000usize {
+        if i % 97 == 0 {
+            builder.push_null();
+            continue;
+        }
+        if i % 5 == 1 {
+            builder.repeat_last_row();
+            continue;
+        }
+        let mut row = vec![("host".to_string(), Some(format!("h{}", i % 13)))];
+        if i % 10 == 3 {
+            row.push(("err".to_string(), None));
+            row.push(("zone".to_string(), Some(format!("z{}", i % 3))));
+        }
+        if i % 400 == 0 {
+            row.push(("rare".to_string(), Some(format!("r{i}"))));
+        }
+        row.sort();
+        builder.push_row(row.iter().map(|(k, v)| (k, v.as_ref())));
+    }
+    let map = builder.finish()?.into_array();
+    let shredded = shred(&map, &ShredOptions::default(), &mut ctx)?;
+    assert!(shredded.repeats().is_some());
+    assert!(
+        shredded
+            .column_arrays()
+            .iter()
+            .any(|c| c.is::<vortex_sparse::Sparse>())
+    );
+
+    let array = shredded.into_array();
+    let expected = read_rows(&array, &mut ctx)?;
+    let array_ctx = vortex_array::ArrayContext::empty();
+    let mut bytes = vortex_buffer::ByteBufferMut::empty();
+    for buffer in array.serialize(
+        &array_ctx,
+        &session,
+        &vortex_array::serde::SerializeOptions::default(),
+    )? {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+    let decoded = vortex_array::serde::SerializedArray::try_from(bytes.freeze())?.decode(
+        array.dtype(),
+        array.len(),
+        &vortex_session::registry::ReadContext::new(array_ctx.to_ids()),
+        &session,
+    )?;
+    assert!(decoded.is::<crate::ShreddedMap>());
+    assert_eq!(read_rows(&decoded, &mut ctx)?, expected);
     Ok(())
 }

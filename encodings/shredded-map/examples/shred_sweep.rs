@@ -17,7 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_shredded_map::ShredOptions;
-use vortex_shredded_map::ShreddedMapArraySlotsExt;
+use vortex_shredded_map::ShreddedMapArrayExt;
 use vortex_shredded_map::ops;
 use vortex_shredded_map::shred;
 
@@ -88,7 +88,8 @@ fn main() {
                 let start = Instant::now();
                 let shredded = shred(&data.map, &options, &mut ctx).unwrap();
                 let shred_ms = start.elapsed().as_secs_f64() * 1e3;
-                let n_sparse = ShreddedMapArraySlotsExt::columns(&shredded)
+                let n_sparse = shredded
+                    .column_arrays()
                     .iter()
                     .filter(|c| c.is::<vortex_sparse::Sparse>())
                     .count();

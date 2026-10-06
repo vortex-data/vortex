@@ -53,6 +53,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -276,10 +277,15 @@ impl VTable for Sparse {
         let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
         let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
+        // Serialization writes every present slot, so patches with chunk offsets have a third
+        // child, recorded in the patches metadata.
+        let chunk_offsets_dtype = metadata.patches.chunk_offsets_dtype()?;
+        let expected_children = 2 + usize::from(chunk_offsets_dtype.is_some());
         vortex_ensure_eq!(
             children.len(),
-            2,
-            "SparseArray expects 2 children for sparse encoding, found {}",
+            expected_children,
+            "SparseArray expects {} children for sparse encoding, found {}",
+            expected_children,
             children.len()
         );
 
@@ -289,13 +295,20 @@ impl VTable for Sparse {
             metadata.patches.len()?,
         )?;
         let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
+        let chunk_offsets = chunk_offsets_dtype
+            .map(|dtype| {
+                let len = usize::try_from(metadata.patches.chunk_offsets_len())
+                    .map_err(|_| vortex_err!("chunk offsets length does not fit in usize"))?;
+                children.get(2, &dtype, len)
+            })
+            .transpose()?;
 
         let patches = Patches::new(
             len,
             metadata.patches.offset()?,
             patch_indices,
             patch_values,
-            None,
+            chunk_offsets,
         )?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches(&patches, fill_value)?;
@@ -774,6 +787,44 @@ mod test {
         Sparse::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()
             .into_array()
+    }
+
+    /// Patches with chunk offsets serialize them as a third child and read them back.
+    #[test]
+    fn serde_roundtrip_with_chunk_offsets() -> VortexResult<()> {
+        use vortex_array::ArrayContext;
+        use vortex_array::serde::SerializeOptions;
+        use vortex_array::serde::SerializedArray;
+        use vortex_buffer::ByteBufferMut;
+        use vortex_session::registry::ReadContext;
+
+        let patches = Patches::new(
+            3000,
+            0,
+            buffer![5u64, 1500, 2900].into_array(),
+            buffer![1i32, 2, 3]
+                .into_array()
+                .cast(nullable_fill().dtype().clone())?,
+            Some(buffer![0u64, 1, 2].into_array()),
+        )?;
+        let array = Sparse::try_new_from_patches(patches, nullable_fill())?.into_array();
+
+        let ctx = ArrayContext::empty();
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in array.serialize(&ctx, &SESSION, &SerializeOptions::default())? {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
+
+        let sparse = decoded.as_::<Sparse>();
+        assert!(sparse.patches().chunk_offsets().is_some());
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]

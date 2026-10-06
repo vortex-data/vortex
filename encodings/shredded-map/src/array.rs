@@ -25,12 +25,20 @@ use vortex_array::array_slots;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::MapDType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -53,9 +61,12 @@ pub type ShreddedMapArray = Array<ShreddedMap>;
 /// A map encoding that stores frequently occurring keys in dedicated columns.
 ///
 /// The logical dtype is a [`DType::Map`] with non-nullable UTF-8 keys and `keys_sorted = true`.
-/// Each shredded key owns one nullable column that is row-aligned with the map. A non-null value
-/// at row `i` means the map at row `i` contains `(key, value)`. Every other entry lives in the
-/// `residual` child, a map of the same dtype that also carries the outer validity.
+/// The shredded keys are the fields of one non-nullable `fields` struct, in key order. Each field
+/// is a nullable column row-aligned with the map: a non-null value at row `i` means the map at row
+/// `i` contains `(key, value)`. Every other entry lives in the `residual` child, a map of the same
+/// dtype that also carries the outer validity. This is one node of the shredding contract: a
+/// null field value means the key is absent or null in that row, never that its value lives in
+/// the residual.
 ///
 /// A row's entries decode as the sorted merge of its present shredded keys and its residual
 /// entries, with the shredded entry first on equal keys. The shredder therefore only moves the
@@ -77,9 +88,9 @@ pub struct ShreddedMapSlots {
     /// entries instead of proving the equality itself.
     #[slot(1)]
     pub repeats: Option<ArrayRef>,
-    /// One row-aligned nullable column per shredded key, in key order.
-    #[slot(2..)]
-    pub columns: Vec<ArrayRef>,
+    /// A non-nullable struct with one row-aligned nullable field per shredded key, in key order.
+    #[slot(2)]
+    pub fields: ArrayRef,
 }
 
 /// Describes one shredded column.
@@ -187,9 +198,9 @@ fn validate_parts(
         "ShreddedMap requires keys_sorted maps so decoding can merge entries in order"
     );
     vortex_ensure!(
-        slots.len() == ShreddedMapSlots::COLUMNS_OFFSET + columns.len(),
+        slots.len() == ShreddedMapSlots::COUNT,
         "ShreddedMap expected {} slots, found {}",
-        ShreddedMapSlots::COLUMNS_OFFSET + columns.len(),
+        ShreddedMapSlots::COUNT,
         slots.len()
     );
     vortex_ensure!(
@@ -206,13 +217,24 @@ fn validate_parts(
     vortex_ensure!(view.residual.len() == len, "residual length mismatch");
     if let Some(repeats) = view.repeats {
         vortex_ensure!(
-            repeats.dtype() == &DType::Bool(vortex_array::dtype::Nullability::NonNullable),
+            repeats.dtype() == &DType::Bool(Nullability::NonNullable),
             "repeats must be non-nullable booleans, got {}",
             repeats.dtype()
         );
         vortex_ensure!(repeats.len() == len, "repeats length mismatch");
     }
-    for (column, array) in columns.iter().zip(view.columns.iter()) {
+    let expected = fields_dtype(map_dtype, columns)?;
+    vortex_ensure!(
+        view.fields.dtype() == &expected,
+        "fields have dtype {}, expected {expected}",
+        view.fields.dtype()
+    );
+    vortex_ensure!(view.fields.len() == len, "fields length mismatch");
+    let fields = view
+        .fields
+        .as_opt::<Struct>()
+        .ok_or_else(|| vortex_err!("ShreddedMap fields must be a struct array"))?;
+    for (column, array) in columns.iter().zip(fields.iter_unmasked_fields()) {
         let expected = column_dtype(map_dtype, column)?;
         vortex_ensure!(
             array.dtype() == &expected,
@@ -225,18 +247,60 @@ fn validate_parts(
     Ok(())
 }
 
+/// The dtype of the `fields` struct: one nullable field per shredded column, named by its key.
+pub(crate) fn fields_dtype(
+    map_dtype: &MapDType,
+    columns: &[ShreddedColumn],
+) -> VortexResult<DType> {
+    let dtypes = columns
+        .iter()
+        .map(|column| column_dtype(map_dtype, column))
+        .collect::<VortexResult<Vec<_>>>()?;
+    Ok(DType::Struct(
+        StructFields::new(field_names(columns), dtypes),
+        Nullability::NonNullable,
+    ))
+}
+
+fn field_names(columns: &[ShreddedColumn]) -> FieldNames {
+    FieldNames::from_iter(columns.iter().map(|c| FieldName::from(c.key.as_ref())))
+}
+
+/// Gathers row-aligned column arrays into the `fields` struct.
+pub(crate) fn fields_struct(
+    columns: &[ShreddedColumn],
+    column_arrays: Vec<ArrayRef>,
+    len: usize,
+) -> VortexResult<ArrayRef> {
+    Ok(StructArray::try_new(
+        field_names(columns),
+        column_arrays,
+        len,
+        Validity::NonNullable,
+    )?
+    .into_array())
+}
+
+/// The columns of a `fields` struct.
+pub(crate) fn struct_columns(fields: &ArrayRef) -> Vec<ArrayRef> {
+    fields
+        .as_opt::<Struct>()
+        .map(|s| s.iter_unmasked_fields().cloned().collect())
+        .unwrap_or_default()
+}
+
 pub(crate) fn make_parts(
     dtype: DType,
     len: usize,
     columns: Arc<[ShreddedColumn]>,
     residual: ArrayRef,
     repeats: Option<ArrayRef>,
-    column_arrays: impl IntoIterator<Item = ArrayRef>,
+    fields: ArrayRef,
 ) -> ArrayParts<ShreddedMap> {
-    let mut slots = ArraySlots::with_capacity(ShreddedMapSlots::COLUMNS_OFFSET + columns.len());
+    let mut slots = ArraySlots::with_capacity(ShreddedMapSlots::COUNT);
     slots.push(Some(residual));
     slots.push(repeats);
-    slots.extend(column_arrays.into_iter().map(Some));
+    slots.push(Some(fields));
     ArrayParts::new(ShreddedMap, dtype, len, ShreddedMapData { columns }).with_slots(slots)
 }
 
@@ -272,13 +336,14 @@ impl ShreddedMap {
             columns.len() == column_arrays.len(),
             "column metadata and arrays differ in length"
         );
+        let fields = fields_struct(&columns, column_arrays, len)?;
         Array::try_from_parts(make_parts(
             dtype,
             len,
             columns.into(),
             residual,
             repeats,
-            column_arrays,
+            fields,
         ))
     }
 }
@@ -298,7 +363,7 @@ pub fn compress_shredded(
 ) -> VortexResult<ShreddedMapArray> {
     let residual = compress(array.residual())?;
     let columns = array
-        .columns()
+        .column_arrays()
         .iter()
         .map(|column| compress_column(column, &mut compress))
         .collect::<VortexResult<Vec<_>>>()?;
@@ -362,6 +427,20 @@ pub trait ShreddedMapArrayExt: ShreddedMapArraySlotsExt {
             .dtype()
             .as_map_opt()
             .vortex_expect("ShreddedMap requires a map dtype")
+    }
+
+    /// The shredded columns, the fields of [`fields`](ShreddedMapSlots::fields) in key order.
+    fn column_arrays(&self) -> Vec<ArrayRef> {
+        struct_columns(self.fields())
+    }
+
+    /// The column of the `index`-th shredded key.
+    fn column_array(&self, index: usize) -> ArrayRef {
+        self.fields()
+            .as_opt::<Struct>()
+            .vortex_expect("ShreddedMap fields must be a struct array")
+            .unmasked_field(index)
+            .clone()
     }
 }
 impl<T: TypedArrayRef<ShreddedMap>> ShreddedMapArrayExt for T {}
@@ -449,53 +528,32 @@ impl VTable for ShreddedMap {
                 variant: c.variant.map(|v| v as usize),
             })
             .collect();
-        // Children are the present slots in order, so the columns follow the optional repeats.
-        let first_column = 1 + usize::from(proto.has_repeats);
+        // Children are the present slots in order, so the fields follow the optional repeats.
+        let fields_child = 1 + usize::from(proto.has_repeats);
         vortex_ensure!(
-            children.len() == first_column + columns.len(),
+            children.len() == fields_child + 1,
             "ShreddedMapArray expected {} children, found {}",
-            first_column + columns.len(),
+            fields_child + 1,
             children.len()
         );
         let residual = children.get(0, dtype, len)?;
         let repeats = proto
             .has_repeats
-            .then(|| {
-                children.get(
-                    1,
-                    &DType::Bool(vortex_array::dtype::Nullability::NonNullable),
-                    len,
-                )
-            })
+            .then(|| children.get(1, &DType::Bool(Nullability::NonNullable), len))
             .transpose()?;
-        let column_arrays = columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                children.get(first_column + i, &column_dtype(map_dtype, column)?, len)
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
+        let fields = children.get(fields_child, &fields_dtype(map_dtype, &columns)?, len)?;
         Ok(make_parts(
             dtype.clone(),
             len,
             columns,
             residual,
             repeats,
-            column_arrays,
+            fields,
         ))
     }
 
-    fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == ShreddedMapSlots::RESIDUAL {
-            "residual".to_string()
-        } else if idx == ShreddedMapSlots::REPEATS {
-            "repeats".to_string()
-        } else {
-            format!(
-                "column[{}]",
-                array.data().columns[idx - ShreddedMapSlots::COLUMNS_OFFSET].key
-            )
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ShreddedMapSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
