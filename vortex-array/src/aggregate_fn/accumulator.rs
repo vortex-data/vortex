@@ -155,8 +155,30 @@ impl dyn DynAccumulator {
     }
 }
 
-impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
-    fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+impl<V: AggregateFnVTable> Accumulator<V> {
+    /// Caches the state of this accumulator on `batch` as its legacy [`Stat`], if the state
+    /// describes exactly `batch`.
+    ///
+    /// An aggregate computed once over an array is then reused by every later aggregate over the
+    /// same array (see the legacy stats bridge in [`DynAccumulator::accumulate`]), for example by
+    /// the file statistics, the zone maps and the compressor of a write.
+    fn cache_batch_stat(&self, stat: Stat, batch: &ArrayRef) -> VortexResult<()> {
+        let Some(stat_dtype) = stat.dtype(batch.dtype()) else {
+            return Ok(());
+        };
+
+        // Only a partial that is the statistic itself can be read back as a partial.
+        if !self.dtypes.partial_dtype.eq_ignore_nullability(&stat_dtype) {
+            return Ok(());
+        }
+
+        if let Some(value) = self.partial_scalar()?.into_value() {
+            batch.statistics().set(stat, Precision::Exact(value));
+        }
+        Ok(())
+    }
+
+    fn accumulate_batch(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         if self.is_saturated() {
             return Ok(());
         }
@@ -256,6 +278,27 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         let partial = self.partial.as_mut().vortex_expect("partial materialized");
         self.vtable
             .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)
+    }
+}
+
+impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
+    fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        // A batch accumulated into an empty state leaves the state of exactly that batch.
+        let batch_stat = self
+            .partial
+            .is_none()
+            .then(|| Stat::from_aggregate_fn(&self.aggregate_fn))
+            .flatten();
+
+        self.accumulate_batch(batch, ctx)?;
+
+        if let Some(stat) = batch_stat
+            && self.partial.is_some()
+            && !batch.statistics().get(stat).is_exact()
+        {
+            self.cache_batch_stat(stat, batch)?;
+        }
+        Ok(())
     }
 
     fn merge_from(&mut self, other: &mut dyn DynAccumulator) -> VortexResult<()> {

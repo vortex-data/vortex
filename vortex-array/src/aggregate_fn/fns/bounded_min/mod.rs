@@ -250,6 +250,20 @@ impl AggregateFnVTable for BoundedMin {
         false
     }
 
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // `min_max` reads and caches the extrema on the array it is given. Giving it the batch
+        // itself, rather than its canonical form, lets every other aggregate over the batch (for
+        // example `BoundedMax`, and the zone maps and file statistics of a write) reuse them.
+        accumulate_bounded_min(args, partial, batch, ctx)?;
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -257,19 +271,11 @@ impl AggregateFnVTable for BoundedMin {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Delegate to the existing min_max implementation for now. A dedicated bounded-min
-        // aggregate would avoid computing max when only min is needed.
         let array = match batch {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        let Some(result) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
-            return Ok(());
-        };
-        if let Some((bound, truncated)) = truncate_min(result.min, args.options.max_bytes.get())? {
-            partial.merge(bound, !truncated);
-        }
-        Ok(())
+        accumulate_bounded_min(args, partial, &array, ctx)
     }
 
     fn finalize(
@@ -287,6 +293,24 @@ impl AggregateFnVTable for BoundedMin {
     ) -> VortexResult<Scalar> {
         self.to_scalar(args, partial)
     }
+}
+
+/// Merges the bounded minimum of `array` into `partial`.
+fn accumulate_bounded_min(
+    args: AggregateArgs<'_, BoundedMinOptions>,
+    partial: &mut BoundedMinPartial,
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    // Delegate to the existing min_max implementation for now. A dedicated bounded-min
+    // aggregate would avoid computing max when only min is needed.
+    let Some(result) = min_max(array, ctx, NumericalAggregateOpts::default())? else {
+        return Ok(());
+    };
+    if let Some((bound, truncated)) = truncate_min(result.min, args.options.max_bytes.get())? {
+        partial.merge(bound, !truncated);
+    }
+    Ok(())
 }
 
 fn supported_dtype<'a>(_options: &BoundedMinOptions, input_dtype: &'a DType) -> Option<&'a DType> {

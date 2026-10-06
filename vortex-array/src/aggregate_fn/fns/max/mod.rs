@@ -176,12 +176,17 @@ impl AggregateFnVTable for Max {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        // NaN-aware shortcircuits only apply to the NaN-including float maximum; everything else
-        // takes the default dispatch path.
+        // Without NaNs to include, the maximum is the one `min_max` reads and caches on the array
+        // it is given. Giving it the batch itself, rather than its canonical form, lets every
+        // other aggregate over the batch (for example `Min`, and the zone maps and file statistics of
+        // a write) reuse it.
         if args.options.skip_nans || !args.dtype.is_float() {
-            return Ok(false);
+            if let Some(result) = min_max(batch, ctx, *args.options)? {
+                partial.merge(args, result.max);
+            }
+            return Ok(true);
         }
         match batch.statistics().get_as::<u64>(Stat::NaNCount) {
             Precision::Exact(0) => {

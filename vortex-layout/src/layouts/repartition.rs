@@ -14,6 +14,8 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
+use vortex_array::expr::stats::Stat;
+use vortex_array::stats::StatsSet;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -111,7 +113,8 @@ impl LayoutStrategy for RepartitionStrategy {
                 stream.map(move |chunk| {
                     let (sequence_id, chunk) = chunk?;
                     let mut ctx = canonicalize_session.create_execution_ctx();
-                    let canonical = chunk.execute::<Canonical>(&mut ctx)?.into_array();
+                    let canonical = chunk.clone().execute::<Canonical>(&mut ctx)?.into_array();
+                    inherit_exact_stats(&canonical, chunk.statistics().to_owned());
                     VortexResult::Ok((sequence_id, canonical))
                 }),
             )
@@ -149,10 +152,12 @@ impl LayoutStrategy for RepartitionStrategy {
                     if chunks.have_enough() {
                         let output_chunks = chunks.collect_exact_blocks()?;
                         assert!(!output_chunks.is_empty());
+                        let stats = concatenated_stats(&output_chunks, &dtype_clone);
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                         if !chunked.is_empty() {
                             let canonical = chunked.into_array().execute::<Canonical>(&mut ctx)?.into_array();
+                            inherit_exact_stats(&canonical, stats);
                             yield (
                                 sequence_pointer.advance(),
                                 canonical,
@@ -161,12 +166,12 @@ impl LayoutStrategy for RepartitionStrategy {
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).map(|(arr, _)| arr),
-                        dtype_clone.clone(),
-                    )?;
+                    let parts: Vec<ArrayRef> = chunks.data.drain(..).map(|(arr, _)| arr).collect();
+                    let stats = concatenated_stats(&parts, &dtype_clone);
+                    let to_flush = ChunkedArray::try_new(parts, dtype_clone.clone())?;
                     if !to_flush.is_empty() {
                         let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
+                        inherit_exact_stats(&canonical, stats);
                         yield (
                             sequence_pointer.advance(),
                             canonical,
@@ -186,6 +191,51 @@ impl LayoutStrategy for RepartitionStrategy {
             )
             .await
     }
+}
+
+/// The statistics that later steps of a write compute for each chunk, and that are thus worth
+/// carrying over to the chunks that repartitioning builds.
+const REUSED_STATS: [Stat; 5] = [
+    Stat::Min,
+    Stat::Max,
+    Stat::Sum,
+    Stat::NullCount,
+    Stat::NaNCount,
+];
+
+/// Returns the statistics of the concatenation of `parts`, merged from the statistics cached on
+/// each part. A statistic that a part does not have is absent from the result.
+fn concatenated_stats(parts: &[ArrayRef], dtype: &DType) -> StatsSet {
+    parts
+        .iter()
+        .map(reused_stats)
+        .reduce(|stats, part_stats| stats.merge_ordered(&part_stats, dtype))
+        .unwrap_or_default()
+}
+
+/// Returns the exact [`REUSED_STATS`] cached on `array`.
+fn reused_stats(array: &ArrayRef) -> StatsSet {
+    let mut stats = StatsSet::default();
+    array.statistics().with_iter(|iter| {
+        for (stat, value) in iter {
+            if value.is_exact() && REUSED_STATS.contains(stat) {
+                stats.set(*stat, value.clone());
+            }
+        }
+    });
+    stats
+}
+
+/// Caches the exact statistics in `stats` on `array`, which must hold the same values as the
+/// array that `stats` describe.
+///
+/// Repartitioning builds new arrays from the chunks it receives. Without this, the statistics
+/// already computed for those chunks (e.g. by the file statistics) would be computed again for
+/// the new arrays by the zone maps and the compressor.
+fn inherit_exact_stats(array: &ArrayRef, stats: StatsSet) {
+    array
+        .statistics()
+        .inherit(stats.iter().filter(|(_, value)| value.is_exact()));
 }
 
 struct ChunksBuffer {

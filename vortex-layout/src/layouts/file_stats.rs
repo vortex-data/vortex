@@ -201,6 +201,12 @@ fn non_null(value: Precision<Scalar>) -> Precision<Scalar> {
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
     aggregates: Vec<(AggregateFnRef, AccumulatorRef)>,
+
+    /// An empty accumulator for each aggregate in `aggregates` that has a legacy [`Stat`], used
+    /// to compute the aggregate of a single chunk. The accumulator caches that value on the
+    /// chunk, thus the zone maps and the compressor, which see the same chunk later in the
+    /// write, read it instead of computing it again.
+    chunk_aggregates: Vec<Option<AccumulatorRef>>,
 }
 
 impl StatsAccumulator {
@@ -208,6 +214,7 @@ impl StatsAccumulator {
         if !supports_file_stats(dtype) {
             return Self {
                 aggregates: Vec::new(),
+                chunk_aggregates: Vec::new(),
             };
         }
 
@@ -224,20 +231,36 @@ impl StatsAccumulator {
         };
 
         let mut aggregates = Vec::new();
+        let mut chunk_aggregates = Vec::new();
         for aggregate_fn in stats {
             // A dtype that doesn't support a given aggregate simply fails to build an
             // accumulator, which is silently skipped, matching this stat's absence from the
             // result.
             if let Ok(accumulator) = aggregate_fn.accumulator(dtype) {
+                let chunk_accumulator = Stat::from_aggregate_fn(aggregate_fn)
+                    .and_then(|_| aggregate_fn.accumulator(dtype).ok());
+
                 aggregates.push((aggregate_fn.clone(), accumulator));
+                chunk_aggregates.push(chunk_accumulator);
             }
         }
 
-        Self { aggregates }
+        Self {
+            aggregates,
+            chunk_aggregates,
+        }
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        for (_, accumulator) in &mut self.aggregates {
+        for ((_, accumulator), chunk_accumulator) in
+            self.aggregates.iter_mut().zip_eq(&mut self.chunk_aggregates)
+        {
+            // Computing the chunk aggregate in an empty accumulator caches it on the chunk. The
+            // file accumulator then reads the cached value.
+            if let Some(chunk_accumulator) = chunk_accumulator {
+                chunk_accumulator.accumulate(array, ctx)?;
+                chunk_accumulator.reset();
+            }
             accumulator.accumulate(array, ctx)?;
         }
         Ok(())
@@ -302,6 +325,12 @@ fn is_varlen_dtype(dtype: &DType) -> bool {
 /// for variable-length columns, and exact min/max otherwise. Callers wanting a different bound pass
 /// their own `BoundedMax`/`BoundedMin` instead.
 fn default_pruning_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
+    // The extrema of a list are not computed yet. Accumulating them would only convert each chunk
+    // to compute nothing, thus the default records only the null count.
+    if matches!(dtype, DType::List(..) | DType::FixedSizeList(..)) {
+        return vec![NullCount.bind(EmptyOptions)];
+    }
+
     let (max, min) = if is_varlen_dtype(dtype) {
         let max_bytes = default_bounded_stat_max_bytes();
         (
