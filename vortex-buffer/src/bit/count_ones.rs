@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(all(target_arch = "x86_64", not(miri)))]
+use std::sync::LazyLock;
+
+use fearless_simd::Level;
 use fearless_simd::Simd;
-#[cfg(all(target_arch = "x86_64", not(miri)))]
 use fearless_simd::prelude::*;
-#[cfg(all(target_arch = "x86_64", not(miri)))]
 use fearless_simd::u8x64;
-#[cfg(all(target_arch = "x86_64", not(miri)))]
 use fearless_simd::u64x8;
-#[cfg(all(target_arch = "x86_64", not(miri)))]
 use vortex_error::VortexExpect;
 
 #[inline]
@@ -82,25 +80,16 @@ fn mask_byte(byte: u8, bit_offset: usize, bit_len: usize) -> u8 {
 fn count_ones_aligned(bytes: &[u8]) -> usize {
     // SIMD kernels only pay off from 32 bytes. Below that, call the scalar kernel
     // directly: it stays inlinable and skips the dispatch, which would otherwise
-    // dominate the couple of word popcounts.
-    if bytes.len() < 32 {
+    // dominate the couple of word popcounts. Miri can't interpret the SIMD intrinsics.
+    if cfg!(miri) || bytes.len() < 32 {
         return count_ones_aligned_scalar(bytes);
     }
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
-    {
-        fearless_simd::dispatch!(*SIMD_LEVEL, simd => count_ones_aligned_simd(simd, bytes))
-    }
-    #[cfg(not(all(target_arch = "x86_64", not(miri))))]
-    {
-        count_ones_aligned_scalar(bytes)
-    }
+    fearless_simd::dispatch!(*SIMD_LEVEL, simd => count_ones_aligned_simd(simd, bytes))
 }
 
 /// Detected once: `Level::new` probes every feature of its widest level on each call.
-#[cfg(all(target_arch = "x86_64", not(miri)))]
-static SIMD_LEVEL: std::sync::LazyLock<fearless_simd::Level> =
-    std::sync::LazyLock::new(fearless_simd::Level::new);
+static SIMD_LEVEL: LazyLock<Level> = LazyLock::new(Level::new);
 
 #[inline]
 fn count_ones_aligned_scalar(bytes: &[u8]) -> usize {
@@ -118,8 +107,7 @@ fn count_ones_aligned_scalar(bytes: &[u8]) -> usize {
 }
 
 /// Lane-wise `u64` popcount over 64-byte vectors: VPOPCNTQ on Ice Lake-class AVX-512, a nibble
-/// lookup with `vpsadbw` on AVX2. The total is independent of lane byte order.
-#[cfg(all(target_arch = "x86_64", not(miri)))]
+/// lookup with `vpsadbw` on AVX2, `vcnt` on NEON. The total is independent of lane byte order.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 fn count_ones_aligned_simd<S: Simd>(simd: S, bytes: &[u8]) -> usize {
