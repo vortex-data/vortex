@@ -41,6 +41,7 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
+num-traits = { workspace = true }
 divan = { workspace = true }
 insta = { workspace = true }
 mimalloc = { workspace = true }
@@ -61,5 +62,10 @@ test = false
 
 [[bench]]
 name = "compress_listview"
+harness = false
+test = false
+
+[[bench]]
+name = "compress_int"
 harness = false
 test = false
