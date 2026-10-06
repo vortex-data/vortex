@@ -5,9 +5,9 @@ name: PR SQL Benchmarks
 
 concurrency:
   group: >-
-    ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
-      github.head_ref || github.run_id
-    }}
+    ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}${{
+      inputs.segment_cache && '-mem' || ''
+    }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -17,6 +17,13 @@ on:
         required: false
         type: string
         default: "pr"
+      segment_cache:
+        description: >-
+          Run with a process-wide in-memory segment cache so repeated query runs measure
+          in-memory performance instead of IO.
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       matrix_preset:
@@ -29,6 +36,11 @@ on:
           - "pr-compact"
           - "pr-all"
           - "pr-full"
+      segment_cache:
+        description: "Run with an in-memory segment cache"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,3 +54,4 @@ jobs:
     with:
       mode: "pr"
       matrix_preset: ${{ inputs.matrix_preset }}
+      segment_cache: ${{ inputs.segment_cache }}

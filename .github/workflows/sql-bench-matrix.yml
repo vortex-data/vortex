@@ -14,6 +14,11 @@ on:
         required: false
         type: string
         default: c8gd.metal-24xl
+      segment_cache:
+        description: "Run with a process-wide in-memory segment cache (see VORTEX_SEGMENT_CACHE_BYTES)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   resolve-matrix:
@@ -103,6 +108,8 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
       COLUMNS: 120
+      # 64 GiB in-memory segment cache, so runs after the first skip IO entirely.
+      VORTEX_SEGMENT_CACHE_BYTES: ${{ inputs.segment_cache && '68719476736' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -248,7 +255,8 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
+            "${{ matrix.name }}${{ inputs.segment_cache && ' (in-memory segment cache)' || '' }}" \
             > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -261,7 +269,7 @@ jobs:
           # this action will *update* the comment instead of posting a new comment. The preset is
           # part of the tag because presets overlap on benchmark ids (`pr` and `pr-compact` share
           # nine) and can run concurrently, so a preset-less tag would let them clobber each other.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}${{ inputs.segment_cache && '-mem' || '' }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -270,8 +278,8 @@ jobs:
           message: |
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
-            Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+            Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}${{ inputs.segment_cache && ', in-memory' || '' }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}${{ inputs.segment_cache && '-mem' || '' }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'

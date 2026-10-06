@@ -37,6 +37,7 @@ use crate::footer::Footer;
 use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
+use crate::segments::global_segment_cache;
 use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
@@ -59,6 +60,8 @@ pub struct VortexOpenOptions {
     session: VortexSession,
     /// Cache to use for file segments.
     segment_cache: Option<Arc<dyn SegmentCache>>,
+    /// Whether to fall back to the process-wide segment cache when no cache is configured.
+    use_global_segment_cache: bool,
     /// The number of bytes to read when parsing the footer.
     initial_read_size: usize,
     /// An optional, externally provided, file size.
@@ -86,6 +89,7 @@ pub trait OpenOptionsSessionExt:
         VortexOpenOptions {
             session: self.session(),
             segment_cache: None,
+            use_global_segment_cache: true,
             initial_read_size: INITIAL_READ_SIZE,
             file_size: None,
             dtype: None,
@@ -131,17 +135,22 @@ impl VortexOpenOptions {
     ///
     /// The cache is checked before the underlying file segment source. Segments covered by the
     /// initial footer read are also inserted into an internal first-read cache.
+    ///
+    /// Without a configured cache, files whose reader has a URI use the process-wide in-memory
+    /// cache when the `VORTEX_SEGMENT_CACHE_BYTES` environment variable is set.
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
         self.segment_cache = Some(segment_cache);
         self
     }
 
-    /// Disable the configured segment cache.
+    /// Disable the configured segment cache, including the process-wide cache enabled by the
+    /// `VORTEX_SEGMENT_CACHE_BYTES` environment variable.
     ///
     /// This is useful when deriving an opener for a source whose buffers have different memory
     /// placement requirements from the configured host cache.
     pub fn without_segment_cache(mut self) -> Self {
         self.segment_cache = None;
+        self.use_global_segment_cache = false;
         self
     }
 
@@ -284,6 +293,12 @@ impl VortexOpenOptions {
         let segment_cache = self
             .segment_cache
             .clone()
+            .or_else(|| {
+                reader
+                    .uri()
+                    .filter(|_| self.use_global_segment_cache)
+                    .and_then(global_segment_cache)
+            })
             .unwrap_or_else(|| Arc::new(NoOpSegmentCache));
 
         let metrics_registry = self

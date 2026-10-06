@@ -266,6 +266,10 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **SQL** -- `action/bench-sql` runs the `pr` preset, a quick core subset of the SQL benchmarks
   that excludes `vortex-compact`, Clickbench Sorted, Appian, statpopgen, FineWeb on S3, TPC-H SF=10
   on S3, and Vortex queries.
+- **SQL in-memory** -- `action/bench-sql-mem` runs the same `pr` preset as `action/bench-sql`
+  with a 64 GiB process-wide in-memory segment cache (`VORTEX_SEGMENT_CACHE_BYTES`), so every run
+  after the first reads Vortex segments from memory and measures in-memory query performance. The
+  PR comment still compares against the regular on-disk `develop` baseline.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
   benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
