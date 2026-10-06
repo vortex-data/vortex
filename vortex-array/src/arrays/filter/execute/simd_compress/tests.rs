@@ -105,7 +105,7 @@ fn declines_sparse_and_short_masks() {
     assert!(filter_slice_by_bitmap(&values[..32], short).is_none());
 }
 
-// AVX-512 machines need direct coverage of the otherwise-unselected AVX2 tier.
+// AVX-512 machines need direct coverage of the otherwise-unselected AVX2-tier kernels.
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 #[test]
 fn avx2_kernels_match_scalar() {
@@ -152,14 +152,14 @@ fn avx2_kernels_match_scalar() {
                 let u32_values: Vec<u32> = (0..len as u32).collect();
                 let u64_values: Vec<u64> = (0..len as u64).collect();
                 check_kernel(
-                    x86::compress_pshufb_epi8::<false>,
-                    x86::compress_pshufb_epi8::<true>,
+                    fearless::compress_fearless_8::<false>,
+                    fearless::compress_fearless_8::<true>,
                     &u8_values,
                     mask,
                 );
                 check_kernel(
-                    x86::compress_pshufb_epi16::<false>,
-                    x86::compress_pshufb_epi16::<true>,
+                    fearless::compress_fearless_16::<false>,
+                    fearless::compress_fearless_16::<true>,
                     &u16_values,
                     mask,
                 );
@@ -170,8 +170,8 @@ fn avx2_kernels_match_scalar() {
                     mask,
                 );
                 check_kernel(
-                    x86::compress_avx2_epi64::<false>,
-                    x86::compress_avx2_epi64::<true>,
+                    fearless::compress_fearless_64::<false>,
+                    fearless::compress_fearless_64::<true>,
                     &u64_values,
                     mask,
                 );
