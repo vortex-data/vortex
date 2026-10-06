@@ -16,6 +16,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_error::VortexResult;
@@ -24,6 +25,7 @@ use vortex_error::vortex_ensure;
 use vortex_layout::LayoutRef;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutWriterContext;
+use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::segments::SegmentSinkRef;
 use vortex_layout::sequence::SendableSequentialStream;
 use vortex_layout::sequence::SequencePointer;
@@ -40,19 +42,20 @@ use crate::ParquetVariantArraySlotsExt;
 use crate::arrow::parquet_variant_for_export;
 
 /// Writes Variant columns as a [`ParquetVariantLayout`], decomposing each chunk into its Parquet
-/// Variant storage struct and writing that through `storage`.
+/// Variant storage struct and writing that through a table writer, so every shredded path lands in
+/// its own column.
+///
+/// Residual `value` columns, which hold whatever was not shredded, go to the table's
+/// [`variant_residual_strategy`][TableStrategy::variant_residual_strategy] when it has one.
 ///
 /// Every chunk must decompose to the same storage dtype, i.e. use the same shredding schema.
 pub struct ParquetVariantLayoutStrategy {
-    storage: Arc<dyn LayoutStrategy>,
+    storage: TableStrategy,
 }
 
 impl ParquetVariantLayoutStrategy {
     /// Creates a writer whose storage struct is written with `storage`.
-    ///
-    /// `storage` should split structs into columns (e.g. a table writer) so every shredded path
-    /// lands in its own column.
-    pub fn new(storage: Arc<dyn LayoutStrategy>) -> Self {
+    pub fn new(storage: TableStrategy) -> Self {
         Self { storage }
     }
 }
@@ -108,13 +111,21 @@ impl LayoutStrategy for ParquetVariantLayoutStrategy {
             Ok((sequence_id, storage))
         });
         let storage_stream = SequentialStreamAdapter::new(
-            storage_dtype,
+            storage_dtype.clone(),
             stream::iter(first.map(Ok)).chain(rest).boxed(),
         )
         .sendable();
 
-        let storage = self
-            .storage
+        let mut storage_writer = self.storage.clone();
+        if let Some(residual) = self.storage.variant_residual_strategy() {
+            let residual = Arc::clone(residual);
+            storage_writer = storage_writer.with_field_writers(
+                residual_paths(&storage_dtype)
+                    .into_iter()
+                    .map(|path| (path, Arc::clone(&residual))),
+            );
+        }
+        let storage = storage_writer
             .write_stream(ctx, segment_sink, storage_stream, eof, session)
             .await?;
         let typed_paths = residuals.lock().typed_paths();
@@ -144,6 +155,37 @@ fn storage_struct(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Array
         parquet.parquet_variant_validity(),
     )?
     .into_array())
+}
+
+/// The paths of every residual `value` column in a Parquet Variant storage struct.
+fn residual_paths(storage_dtype: &DType) -> Vec<FieldPath> {
+    fn visit(dtype: &DType, path: FieldPath, out: &mut Vec<FieldPath>) {
+        let Some(fields) = dtype.as_struct_fields_opt() else {
+            return;
+        };
+        if fields.field("value").is_some_and(|value| value.is_binary()) {
+            out.push(path.clone().push("value"));
+        }
+        let Some(typed_value) = fields.field("typed_value") else {
+            return;
+        };
+        let Some(typed_fields) = typed_value.as_struct_fields_opt() else {
+            return;
+        };
+        for (name, field) in typed_fields.names().iter().zip(typed_fields.fields()) {
+            if is_wrapper(&field) {
+                visit(
+                    &field,
+                    path.clone().push("typed_value").push(name.clone()),
+                    out,
+                );
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    visit(storage_dtype, FieldPath::root(), &mut paths);
+    paths
 }
 
 fn empty_storage_dtype(dtype: &DType) -> DType {

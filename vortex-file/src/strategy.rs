@@ -188,6 +188,36 @@ impl WriteStrategyBuilder {
         };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 
+        // Variant residual columns hold whatever was not shredded: opaque binary that structured
+        // queries rarely read, so they trade decode speed for size with the compact preset.
+        let residual_compressor: Option<Arc<dyn CompressorPlugin>> = match &compressor {
+            CompressorConfig::BtrBlocks(builder) => Some(Arc::new(
+                builder
+                    .clone()
+                    .with_compact()
+                    .exclude_schemes([IntDictScheme.id()])
+                    .build(),
+            )),
+            CompressorConfig::Opaque(_) => None,
+        };
+        let residual_coalescing = residual_compressor.map(|residual_compressor| {
+            RepartitionStrategy::new(
+                CompressingStrategy::new(
+                    BufferedStrategy::new(
+                        ChunkedLayoutStrategy::new(Arc::clone(&flat)),
+                        2 * ONE_MEG,
+                    ),
+                    residual_compressor,
+                ),
+                RepartitionWriterOptions {
+                    block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: self.data_block_target_bytes,
+                    canonicalize: true,
+                },
+            )
+        });
+
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
             compressing,
@@ -258,6 +288,27 @@ impl WriteStrategyBuilder {
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
                 .with_field_writers(self.field_writers);
+
+        if let Some(residual_coalescing) = residual_coalescing {
+            let residual_stats = ZonedStrategy::new(
+                residual_coalescing,
+                compress_then_flat.clone(),
+                ZonedLayoutOptions {
+                    block_size: row_block_size,
+                    ..Default::default()
+                },
+            );
+            table_strategy =
+                table_strategy.with_variant_residual_strategy(Arc::new(RepartitionStrategy::new(
+                    residual_stats,
+                    RepartitionWriterOptions {
+                        block_size_minimum: 0,
+                        block_len_multiple: self.row_block_size,
+                        block_size_target: None,
+                        canonicalize: false,
+                    },
+                )));
+        }
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.

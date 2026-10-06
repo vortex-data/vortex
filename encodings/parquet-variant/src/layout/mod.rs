@@ -88,7 +88,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     session
         .layouts()
         .register_variant_strategy(Arc::new(|storage| {
-            Arc::new(ParquetVariantLayoutStrategy::new(storage))
+            Arc::new(ParquetVariantLayoutStrategy::new(storage)) as _
         }));
 }
 

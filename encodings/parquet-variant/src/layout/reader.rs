@@ -25,6 +25,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::ParquetVariantLayout;
 use super::expr::rewrite_variant_expr;
+use super::expr::storage_field_masks;
 
 /// Reads a [`ParquetVariantLayout`] by rewriting expressions over the Variant column into
 /// expressions over its storage struct, and evaluating those with the storage reader.
@@ -88,13 +89,17 @@ impl LayoutReader for ParquetVariantReader {
 
     fn register_splits(
         &self,
-        _field_mask: &[FieldMask],
+        field_mask: &[FieldMask],
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        // Field masks address the Variant column as a whole, not its storage children.
+        let storage_masks = storage_field_masks(
+            field_mask,
+            self.layout.storage_dtype(),
+            self.layout.typed_paths(),
+        );
         self.storage
-            .register_splits(&[FieldMask::All], split_range, splits)
+            .register_splits(&storage_masks, split_range, splits)
     }
 
     fn pruning_evaluation(

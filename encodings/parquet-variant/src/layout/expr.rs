@@ -11,7 +11,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
@@ -288,4 +291,57 @@ fn struct_field(dtype: &DType, name: &str) -> Option<DType> {
 
 fn has_field(dtype: &DType, name: &str) -> bool {
     struct_field(dtype, name).is_some()
+}
+
+/// Translates field masks over a Variant column into field masks over its storage struct.
+///
+/// A mask's field path below the Variant column is the object path a `variant_get` extracts (see
+/// `referenced_field_paths`). It selects the same storage columns that [`rewrite_variant_expr`]
+/// reads for that path: the typed column of a fully typed shredded path, or the shared metadata
+/// and the wrapper of the longest shredded prefix.
+pub(crate) fn storage_field_masks(
+    masks: &[FieldMask],
+    storage_dtype: &DType,
+    typed_paths: &[ShreddedPath],
+) -> Vec<FieldMask> {
+    let mut storage_masks = Vec::with_capacity(masks.len());
+    for mask in masks {
+        let path = match mask {
+            FieldMask::All => return vec![FieldMask::All],
+            FieldMask::Prefix(path) | FieldMask::Exact(path) => path,
+        };
+
+        let mut storage_path = FieldPath::root();
+        let mut wrapper = storage_dtype.clone();
+        let mut consumed: ShreddedPath = Vec::new();
+        for field in path.parts() {
+            let Field::Name(name) = field else {
+                break;
+            };
+            let Some(child) = struct_field(&wrapper, TYPED_VALUE)
+                .and_then(|typed_value| struct_field(&typed_value, name.as_ref()))
+                .filter(is_wrapper)
+            else {
+                break;
+            };
+            wrapper = child;
+            storage_path = storage_path.push(TYPED_VALUE).push(name.clone());
+            consumed.push(name.clone());
+        }
+
+        if consumed.is_empty() {
+            return vec![FieldMask::All];
+        }
+        let fully_typed = consumed.len() == path.parts().len()
+            && struct_field(&wrapper, TYPED_VALUE)
+                .is_some_and(|typed| !typed.is_struct() && !typed.is_list())
+            && (!has_field(&wrapper, VALUE) || typed_paths.contains(&consumed));
+        if fully_typed {
+            storage_masks.push(FieldMask::Prefix(storage_path.push(TYPED_VALUE)));
+        } else {
+            storage_masks.push(FieldMask::Prefix(FieldPath::from_name(METADATA)));
+            storage_masks.push(FieldMask::Prefix(storage_path));
+        }
+    }
+    storage_masks
 }

@@ -60,12 +60,13 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
 /// - **variant** → the Variant writer registered with the session's
-///   [`LayoutSession`][crate::session::LayoutSession], with storage children written by a
-///   descended copy of this dispatcher. Without a registered writer, a Variant falls through to the
+///   [`LayoutSession`][crate::session::LayoutSession], handed a descended copy of this dispatcher
+///   to write its storage children. Without a registered writer, a Variant falls through to the
 ///   leaf strategy.
 /// - **anything else** → the leaf strategy.
 ///
 /// [`write_stream`]: LayoutStrategy::write_stream
+#[derive(Clone)]
 pub struct TableStrategy {
     /// A set of field-path overrides, e.g. to force one column to be compact-compressed. Keys are
     /// paths relative to the level this dispatcher sits at.
@@ -79,6 +80,9 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
+    /// Optional writer for the residual (unshredded) binary columns of Variant storage. These
+    /// columns are opaque and rarely read, so they suit a compact compressor.
+    variant_residual: Option<Arc<dyn LayoutStrategy>>,
 }
 
 impl TableStrategy {
@@ -106,6 +110,7 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
+            variant_residual: None,
         }
     }
 
@@ -171,6 +176,21 @@ impl TableStrategy {
     pub fn with_validity_strategy(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
         self.validity = validity;
         self
+    }
+
+    /// Override the writer for the residual (unshredded) binary columns of Variant storage.
+    ///
+    /// Variant writers registered with the session receive this through
+    /// [`variant_residual_strategy`][Self::variant_residual_strategy]; without one, residual
+    /// columns are written like any other leaf.
+    pub fn with_variant_residual_strategy(mut self, residual: Arc<dyn LayoutStrategy>) -> Self {
+        self.variant_residual = Some(residual);
+        self
+    }
+
+    /// The writer for the residual binary columns of Variant storage, if one is configured.
+    pub fn variant_residual_strategy(&self) -> Option<&Arc<dyn LayoutStrategy>> {
+        self.variant_residual.as_ref()
     }
 
     /// Enable writing list fields with [`ListLayoutStrategy`].
@@ -262,6 +282,7 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            variant_residual: self.variant_residual.clone(),
         }
     }
 
@@ -273,6 +294,7 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            variant_residual: self.variant_residual.clone(),
         }
     }
 
@@ -320,7 +342,7 @@ impl LayoutStrategy for TableStrategy {
         {
             // The Variant writer decomposes its storage into children written by a clean
             // descended dispatcher, so they are split, zoned, and compressed like any column.
-            return variant_strategy(Arc::new(self.descend_clean()))
+            return variant_strategy(self.descend_clean())
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }

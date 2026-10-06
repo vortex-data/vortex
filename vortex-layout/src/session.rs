@@ -20,17 +20,19 @@ use crate::layouts::dict::Dict;
 use crate::layouts::flat::Flat;
 use crate::layouts::list::List;
 use crate::layouts::struct_::Struct;
+use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 
 /// Registry of layout encodings.
 pub type LayoutRegistry = ArcSwapMap<Id, LayoutEncodingRef>;
 
-/// Builds the writer for a Variant column, given the writer to use for its storage children.
+/// Builds the writer for a Variant column, given the table writer to use for its storage
+/// children.
 ///
 /// See [`LayoutSession::register_variant_strategy`].
 pub type VariantStrategyFactory =
-    Arc<dyn Fn(Arc<dyn LayoutStrategy>) -> Arc<dyn LayoutStrategy> + Send + Sync>;
+    Arc<dyn Fn(TableStrategy) -> Arc<dyn LayoutStrategy> + Send + Sync>;
 
 /// Session state for layout encodings.
 #[derive(Clone)]
@@ -74,7 +76,9 @@ impl LayoutSession {
     ///
     /// A Variant encoding that can decompose its storage registers a factory here. The factory
     /// receives the table writer for the storage children (so they are split into columns,
-    /// zoned, and compressed like any other field) and returns the writer for the Variant column.
+    /// zoned, and compressed like any other field, with any residual columns routed to
+    /// [`TableStrategy::variant_residual_strategy`]) and returns the writer for the Variant
+    /// column.
     /// Without a registered factory, Variant columns are written by the leaf strategy.
     pub fn register_variant_strategy(&self, factory: VariantStrategyFactory) {
         *self.variant_strategy.write() = Some(factory);

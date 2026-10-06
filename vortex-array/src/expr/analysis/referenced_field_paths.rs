@@ -14,14 +14,18 @@ use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeFolderContext;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::variant_get::VariantGet;
+use crate::scalar_fn::fns::variant_get::VariantPathElement;
 
 /// Returns the rooted field paths referenced by an expression.
 ///
 /// Iterating the returned set (via [`IntoIterator`]) yields the prefix-minimal covering set: when
 /// one referenced path is a prefix of another, only the prefix is kept. A standalone root
 /// expression is represented by [`FieldPath::root`], which conservatively selects all fields.
-/// Scalar functions other than `GetItem` and `Select` conservatively reference each complete child
-/// output.
+/// A `variant_get` of an object-field path references that path below the Variant child, so that
+/// layouts storing Variant paths separately can plan reads for just the extracted path. Scalar
+/// functions other than `GetItem`, `Select`, and `variant_get` conservatively reference each
+/// complete child output.
 pub fn referenced_field_paths(expr: &BoundExpression) -> VortexResult<FieldPathSet> {
     let mut collector = ReferencedFieldPaths {
         field_paths: FieldPathSet::default(),
@@ -107,6 +111,27 @@ impl NodeFolderContext for ReferencedFieldPaths {
                 return Ok(FoldDownContext::Skip(()));
             }
             return Ok(FoldDownContext::Continue(narrowed));
+        }
+
+        // `variant_get` reads its path below the Variant child. Its output is not a struct, so
+        // nothing below it can narrow the request further.
+        if let Some(options) = node
+            .as_scalar()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<VariantGet>())
+        {
+            let fields: Option<Vec<Field>> = options
+                .path()
+                .elements()
+                .iter()
+                .rev()
+                .map(|element| match element {
+                    VariantPathElement::Field(name) => Some(Field::Name(name.clone())),
+                    VariantPathElement::Index(_) => None,
+                })
+                .collect();
+            if let Some(fields) = fields {
+                return Ok(FoldDownContext::Continue(vec![FieldPath::from(fields)]));
+            }
         }
 
         // Any other function conservatively references each child's complete output.

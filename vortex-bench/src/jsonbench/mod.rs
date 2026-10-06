@@ -36,8 +36,10 @@ use parquet::file::properties::WriterProperties;
 use parquet::variant::VariantArray;
 use parquet::variant::json_to_variant;
 use parquet::variant::shred_variant;
+use serde::de::IgnoredAny;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
+use tracing::warn;
 use url::Url;
 
 use crate::Benchmark;
@@ -233,7 +235,22 @@ fn json_to_parquet(
         }
 
         let strings: ArrayRef = Arc::new(StringArray::from_iter_values(&batch));
-        let variant = json_to_variant(&strings)?;
+        let variant = match json_to_variant(&strings) {
+            Ok(variant) => variant,
+            Err(_) => {
+                // A few source documents contain raw control characters, which split them
+                // across lines. Like the JSONBench loaders, skip lines that are not valid JSON.
+                let before = batch.len();
+                batch.retain(|line| serde_json::from_str::<IgnoredAny>(line).is_ok());
+                warn!(
+                    "Skipping {} invalid JSON lines in {}",
+                    before - batch.len(),
+                    json_path.display()
+                );
+                let strings: ArrayRef = Arc::new(StringArray::from_iter_values(&batch));
+                json_to_variant(&strings)?
+            }
+        };
         let variant: VariantArray = match shredding {
             Some(dtype) => shred_variant(&variant, dtype)?,
             None => variant,
