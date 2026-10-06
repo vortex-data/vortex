@@ -4,6 +4,8 @@
 #[cfg(target_arch = "aarch64")]
 use fearless_simd::prelude::*;
 #[cfg(target_arch = "aarch64")]
+use fearless_simd_macros::simd;
+#[cfg(target_arch = "aarch64")]
 use vortex_error::VortexExpect;
 
 use super::count_ones::align_offset_len;
@@ -124,8 +126,7 @@ fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usi
 }
 
 #[cfg(target_arch = "aarch64")]
-#[allow(clippy::inline_always)]
-#[inline(always)]
+#[simd]
 fn scan_chunks_fearless<S: Simd>(
     simd: S,
     chunks: &[[u8; 64]],
@@ -313,8 +314,7 @@ fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
 }
 
 #[cfg(target_arch = "aarch64")]
-#[allow(clippy::inline_always)]
-#[inline(always)]
+#[simd]
 fn select_in_chunk_fearless<S: Simd>(simd: S, chunk: &[u8; 64], mut nth: usize) -> usize {
     let words: [u64; 8] = std::array::from_fn(|i| u64::from_le_bytes(chunk.as_chunks::<8>().0[i]));
     let counts = fearless_simd::u64x8::from_slice(simd, &words)
