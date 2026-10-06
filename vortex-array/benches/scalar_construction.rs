@@ -5,7 +5,7 @@
 
 //! Scalar construction and validation, stats reads and merges, and accumulator creation.
 //!
-//! Every benchmark does `N` operations per iteration.
+//! Every benchmark does `N` operations per iteration, except the stats merge, which does `MERGES`.
 
 use std::hint::black_box;
 use std::sync::LazyLock;
@@ -40,6 +40,8 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 const N: usize = 1024;
+/// A merge costs about 300ns, so it runs fewer times to keep the CodSpeed simulation under 1ms.
+const MERGES: usize = 64;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
@@ -177,8 +179,8 @@ fn stats_merge_ordered(bencher: Bencher) {
     let left = i64_stats(0);
     let right = i64_stats(1000);
     bencher
-        .counter(ItemsCount::new(N))
-        .with_inputs(|| vec![left.clone(); N])
+        .counter(ItemsCount::new(MERGES))
+        .with_inputs(|| vec![left.clone(); MERGES])
         .bench_local_values(|sets| {
             for set in sets {
                 black_box(set.merge_ordered(&right, &dtype));
