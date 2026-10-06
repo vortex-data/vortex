@@ -23,8 +23,8 @@ use crate::dtype::DType;
 use crate::executor::max_iterations;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// Reference-counted type-erased accumulator.
 pub type AccumulatorRef = Box<dyn DynAccumulator>;
@@ -96,6 +96,24 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             .partial_from_scalar(self.dtypes.args(&self.options), scalar)?;
         self.fold_partial(other)
     }
+}
+
+/// Returns the exact value of `stat` cached on `array`, if any.
+///
+/// This reads the raw value, without building the [`Scalar`] that
+/// [`StatsProvider::get`](crate::expr::stats::StatsProvider::get) builds.
+fn exact_stat_value(array: &ArrayRef, stat: Stat) -> Option<ScalarValue> {
+    array.statistics().with_iter(|iter| {
+        for (cached, value) in iter {
+            if *cached == stat {
+                return match value {
+                    Precision::Exact(value) => Some(value.clone()),
+                    _ => None,
+                };
+            }
+        }
+        None
+    })
 }
 
 /// A trait object for type-erased accumulators, used for dynamic dispatch when the aggregate
@@ -178,9 +196,17 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         Ok(())
     }
 
-    fn accumulate_batch(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    /// Accumulates `batch` into the state.
+    ///
+    /// Returns `true` if the state was computed from the data of `batch`, and `false` if it came
+    /// from an exact statistic cached on `batch` or the state was already saturated.
+    fn accumulate_batch(
+        &mut self,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
         if self.is_saturated() {
-            return Ok(());
+            return Ok(false);
         }
 
         vortex_ensure_eq!(batch.dtype(), &self.dtypes.dtype, "Input DType mismatch");
@@ -188,25 +214,25 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
         //    consume that exact stat before kernel dispatch or decode.
         if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
-            && let Precision::Exact(partial) = batch.statistics().get(stat)
+            && let Some(value) = exact_stat_value(batch, stat)
         {
-            let partial = if partial.dtype() == &self.dtypes.partial_dtype {
-                partial
-            } else {
-                vortex_ensure!(
-                    partial
-                        .dtype()
-                        .eq_ignore_nullability(&self.dtypes.partial_dtype),
-                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                    self.aggregate_fn,
-                    stat,
-                    partial.dtype(),
-                    self.dtypes.partial_dtype,
-                );
-                partial.cast(&self.dtypes.partial_dtype)?
-            };
+            let stat_dtype = stat
+                .dtype(batch.dtype())
+                .vortex_expect("a cached statistic has a dtype");
+            vortex_ensure!(
+                stat_dtype.eq_ignore_nullability(&self.dtypes.partial_dtype),
+                "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                self.aggregate_fn,
+                stat,
+                stat_dtype,
+                self.dtypes.partial_dtype,
+            );
+
+            // The dtypes differ at most in nullability, thus the cached value is built directly
+            // as the partial instead of as the statistic and then cast.
+            let partial = Scalar::try_new(self.dtypes.partial_dtype.clone(), Some(value))?;
             self.fold_partial_scalar(partial)?;
-            return Ok(());
+            return Ok(false);
         }
 
         let session = ctx.session().clone();
@@ -229,7 +255,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
                     "Aggregate kernel returned the wrong partial dtype",
                 );
                 self.fold_partial_scalar(result)?;
-                return Ok(());
+                return Ok(true);
             }
         }
 
@@ -240,7 +266,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             .vtable
             .try_accumulate(self.dtypes.args(&self.options), partial, batch, ctx)?
         {
-            return Ok(());
+            return Ok(true);
         }
 
         // 3. Iteratively check the registry against each intermediate encoding, executing one
@@ -265,7 +291,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
                     "Aggregate kernel returned the wrong partial dtype",
                 );
                 self.fold_partial_scalar(result)?;
-                return Ok(());
+                return Ok(true);
             }
 
             batch = batch.execute(ctx)?;
@@ -277,7 +303,8 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         self.ensure_partial()?;
         let partial = self.partial.as_mut().vortex_expect("partial materialized");
         self.vtable
-            .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)
+            .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)?;
+        Ok(true)
     }
 }
 
@@ -290,12 +317,9 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             .then(|| Stat::from_aggregate_fn(&self.aggregate_fn))
             .flatten();
 
-        self.accumulate_batch(batch, ctx)?;
+        let computed = self.accumulate_batch(batch, ctx)?;
 
-        if let Some(stat) = batch_stat
-            && self.partial.is_some()
-            && !batch.statistics().get(stat).is_exact()
-        {
+        if computed && let Some(stat) = batch_stat {
             self.cache_batch_stat(stat, batch)?;
         }
         Ok(())
