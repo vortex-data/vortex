@@ -66,6 +66,11 @@ pub fn stable_digest(domain: &str, value: &impl Serialize) -> anyhow::Result<Str
     Ok(hex(&hasher.finalize()))
 }
 
+/// Hashes bytes.
+pub fn bytes_digest(bytes: &[u8]) -> String {
+    hex(&Sha256::digest(bytes))
+}
+
 /// Hashes a file's contents.
 pub fn file_digest(path: &Path) -> anyhow::Result<String> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;

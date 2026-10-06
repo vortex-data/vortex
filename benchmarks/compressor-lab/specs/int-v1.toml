@@ -1,0 +1,66 @@
+# Integer scheme selection, default encodings. Paths are relative to this file's directory, so
+# place (or symlink) the Parquet files under `data/` next to it, or copy this spec next to them.
+name = "int-v1"
+chunk_rows = 65536
+dtypes = ["int"]
+max_chunks_per_column = 16
+
+[schemes]
+# Default encodings only: Pco and the Zstd schemes are compact-mode.
+exclude = ["vortex.int.pco"]
+
+[search]
+strategy = "forced_root"
+
+[measure]
+reps = 7
+compress_reps = 3
+
+[[sources]]
+kind = "parquet"
+name = "clickbench"
+path = "data/hits_*.parquet"
+
+[[sources]]
+kind = "parquet"
+name = "nyc-taxi"
+path = "data/*_2023_11.parquet"
+
+[[sources]]
+kind = "tpch"
+name = "tpch-sf1"
+scale_factor = 1.0
+tables = ["lineitem", "orders", "partsupp", "customer"]
+
+[[sources]]
+kind = "synthetic"
+name = "synthetic-runs"
+generator = "runs"
+ptype = "i64"
+rows = 65536
+seeds = [1, 2]
+[sources.params]
+mean_run = [1, 2, 4, 16, 64]
+bits = [8, 24]
+
+[[sources]]
+kind = "synthetic"
+name = "synthetic-sparse"
+generator = "sparse"
+ptype = "i32"
+rows = 65536
+seeds = [1, 2]
+[sources.params]
+top_frac = [0.5, 0.8, 0.9, 0.95, 0.99]
+bits = 16
+
+[[sources]]
+kind = "synthetic"
+name = "synthetic-zipf"
+generator = "zipf"
+ptype = "u32"
+rows = 65536
+seeds = [1, 2]
+[sources.params]
+distinct = [16, 1024, 65536]
+skew = [0.5, 1.2]

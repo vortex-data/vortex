@@ -9,14 +9,14 @@
 
 use std::fmt;
 
-use vortex_array::ArrayId;
-use vortex_array::Canonical;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::ExecutionCtx;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -70,7 +70,8 @@ pub struct SamplePolicy {
 }
 
 /// The session used to measure serialized sizes inside estimates.
-pub static SESSION: std::sync::OnceLock<vortex::session::VortexSession> = std::sync::OnceLock::new();
+pub static SESSION: std::sync::OnceLock<vortex::session::VortexSession> =
+    std::sync::OnceLock::new();
 
 /// A scheme with a changed estimate.
 pub struct Wrapped {
@@ -193,11 +194,9 @@ impl Scheme for Wrapped {
             Mode::Spy => {
                 let root = compress_ctx.cascade_history().is_empty() && !compress_ctx.is_sample();
                 let name = self.base_name();
-                let estimate = self.inner.expected_compression_ratio(
-                    data,
-                    compress_ctx.clone(),
-                    exec_ctx,
-                );
+                let estimate =
+                    self.inner
+                        .expected_compression_ratio(data, compress_ctx.clone(), exec_ctx);
                 if !root {
                     return estimate;
                 }
@@ -277,7 +276,8 @@ impl Scheme for Wrapped {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        self.inner.compress(compressor, data, compress_ctx, exec_ctx)
+        self.inner
+            .compress(compressor, data, compress_ctx, exec_ctx)
     }
 }
 
@@ -359,9 +359,12 @@ fn estimate_with(inner: &'static dyn Scheme, policy: SamplePolicy) -> Compressio
                 take_sample(array, policy, exec_ctx)?
             };
             let sample_data = ArrayAndStats::new(sample, inner.stats_options());
-            let Ok(compressed) =
-                inner.compress(compressor, &sample_data, compress_ctx.with_sampling(), exec_ctx)
-            else {
+            let Ok(compressed) = inner.compress(
+                compressor,
+                &sample_data,
+                compress_ctx.with_sampling(),
+                exec_ctx,
+            ) else {
                 return Ok(EstimateVerdict::Skip);
             };
             let (before, after) = if policy.serialized {
@@ -390,7 +393,12 @@ fn sample_ratio(
     let sample = take_sample(data.array(), policy, exec_ctx).ok()?;
     let sample_data = ArrayAndStats::new(sample, inner.stats_options());
     let compressed = inner
-        .compress(compressor, &sample_data, compress_ctx.with_sampling(), exec_ctx)
+        .compress(
+            compressor,
+            &sample_data,
+            compress_ctx.with_sampling(),
+            exec_ctx,
+        )
         .ok()?;
     let after = compressed.nbytes();
     (after > 0).then(|| sample_data.array().nbytes() as f64 / after as f64)
@@ -426,7 +434,11 @@ fn size_of(array: &ArrayRef) -> u64 {
         return array.nbytes();
     };
     array
-        .serialize(&ArrayContext::empty(), session, &SerializeOptions::default())
+        .serialize(
+            &ArrayContext::empty(),
+            session,
+            &SerializeOptions::default(),
+        )
         .map(|buffers| buffers.iter().map(|b| b.len() as u64).sum())
         .unwrap_or_else(|_| array.nbytes())
 }
@@ -436,7 +448,11 @@ fn size_of(array: &ArrayRef) -> u64 {
 /// RunEnd stores one value and one end per run: values bit-packed at the value range's width,
 /// ends frame-of-reference packed at roughly the width of the array length. Sparse stores the
 /// non-top values and their positions. Both are compared against the canonical width.
-fn size_model(name: &str, data: &ArrayAndStats, exec_ctx: &mut ExecutionCtx) -> CompressionEstimate {
+fn size_model(
+    name: &str,
+    data: &ArrayAndStats,
+    exec_ctx: &mut ExecutionCtx,
+) -> CompressionEstimate {
     let width = f64::from(data.array_as_primitive().ptype().bit_width() as u32);
     let len = data.array_len() as f64;
     let stats = data.integer_stats(exec_ctx);

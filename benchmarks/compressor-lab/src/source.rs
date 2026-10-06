@@ -35,6 +35,15 @@ pub enum ResolvedSource {
         /// The matched files.
         files: Vec<ResolvedFile>,
     },
+    /// Generated TPC-H tables (each recorded as a file named `tpch/<table>`).
+    Tpch {
+        /// The source name.
+        name: String,
+        /// The TPC-H scale factor.
+        scale_factor: f64,
+        /// The tables and their selected columns.
+        tables: Vec<ResolvedFile>,
+    },
     /// A synthetic grid.
     Synthetic {
         /// The source name.
@@ -108,6 +117,25 @@ pub enum ChunkInput {
         /// The last row, exclusive.
         row_end: u64,
     },
+    /// A row range of one generated TPC-H column.
+    Tpch {
+        /// The source name.
+        source: String,
+        /// The table.
+        table: String,
+        /// The TPC-H scale factor.
+        scale_factor: f64,
+        /// The column name.
+        column: String,
+        /// The Arrow type, as displayed by Arrow.
+        arrow_type: String,
+        /// The dtype class.
+        dtype: DTypeClass,
+        /// The first row, inclusive.
+        row_start: u64,
+        /// The last row, exclusive.
+        row_end: u64,
+    },
     /// One seeded draw from a synthetic generator.
     Synthetic {
         /// The source name.
@@ -131,14 +159,26 @@ impl ChunkInput {
     /// The chunk's dtype class.
     pub fn dtype(&self) -> DTypeClass {
         match self {
-            Self::Parquet { dtype, .. } | Self::Synthetic { dtype, .. } => *dtype,
+            Self::Parquet { dtype, .. }
+            | Self::Tpch { dtype, .. }
+            | Self::Synthetic { dtype, .. } => *dtype,
+        }
+    }
+
+    /// The column name, or the generator name for synthetic chunks.
+    pub fn column(&self) -> &str {
+        match self {
+            Self::Parquet { column, .. } | Self::Tpch { column, .. } => column,
+            Self::Synthetic { generator, .. } => generator,
         }
     }
 
     /// The source name.
     pub fn source(&self) -> &str {
         match self {
-            Self::Parquet { source, .. } | Self::Synthetic { source, .. } => source,
+            Self::Parquet { source, .. }
+            | Self::Tpch { source, .. }
+            | Self::Synthetic { source, .. } => source,
         }
     }
 }
@@ -155,9 +195,24 @@ pub(crate) fn resolve_source(
     spec: &SourceSpec,
     spec_dir: &Path,
     chunk_rows: u64,
+    max_chunks: Option<u64>,
     dtypes: &[DTypeClass],
 ) -> anyhow::Result<Resolution> {
     match spec {
+        SourceSpec::Tpch {
+            name,
+            scale_factor,
+            tables,
+            columns,
+        } => resolve_tpch(
+            name,
+            *scale_factor,
+            tables,
+            &patterns(columns)?,
+            chunk_rows,
+            max_chunks,
+            dtypes,
+        ),
         SourceSpec::Parquet {
             name,
             path,
@@ -170,6 +225,7 @@ pub(crate) fn resolve_source(
             &patterns(exclude_columns)?,
             spec_dir,
             chunk_rows,
+            max_chunks,
             dtypes,
         ),
         SourceSpec::Synthetic {
@@ -219,6 +275,103 @@ fn patterns(globs: &[String]) -> anyhow::Result<Vec<Pattern>> {
         .collect()
 }
 
+/// Row ranges of `chunk_rows`, keeping at most `max` of them spread evenly through the column.
+fn chunk_ranges(num_rows: u64, chunk_rows: u64, max: Option<u64>) -> Vec<(u64, u64)> {
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    while start < num_rows {
+        let end = start.saturating_add(chunk_rows).min(num_rows);
+        ranges.push((start, end));
+        start = end;
+    }
+    match max {
+        Some(max) if (ranges.len() as u64) > max => {
+            let total = ranges.len() as u64;
+            (0..max)
+                .map(|i| ranges[usize::try_from(i * total / max).unwrap_or(0)])
+                .collect()
+        }
+        _ => ranges,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_tpch(
+    name: &str,
+    scale_factor: f64,
+    tables: &[String],
+    include: &[Pattern],
+    chunk_rows: u64,
+    max_chunks: Option<u64>,
+    dtypes: &[DTypeClass],
+) -> anyhow::Result<Resolution> {
+    let mut resolved = Vec::new();
+    let mut chunks = Vec::new();
+    let mut skipped = Vec::new();
+    for table in tables {
+        let batches = crate::tpch::table(table, scale_factor)?;
+        let Some(first) = batches.first() else {
+            continue;
+        };
+        let num_rows: u64 = batches.iter().map(|b| b.num_rows() as u64).sum();
+        let mut columns = Vec::new();
+        for field in first.schema().fields() {
+            let column = field.name();
+            if !(include.is_empty() || include.iter().any(|p| p.matches(column))) {
+                continue;
+            }
+            let arrow_type = field.data_type().to_string();
+            match classify(field.data_type()) {
+                Some(dtype) if dtypes.contains(&dtype) => columns.push(ResolvedColumn {
+                    name: column.clone(),
+                    arrow_type,
+                    dtype,
+                }),
+                other => skipped.push(SkippedColumn {
+                    source: name.to_string(),
+                    file: format!("tpch/{table}"),
+                    column: column.clone(),
+                    arrow_type,
+                    reason: other.map_or_else(
+                        || "nested or unsupported type".to_string(),
+                        |d| format!("dtype `{}` is not in the plan", d.as_str()),
+                    ),
+                }),
+            }
+        }
+        for column in &columns {
+            for (row_start, row_end) in chunk_ranges(num_rows, chunk_rows, max_chunks) {
+                chunks.push(ChunkInput::Tpch {
+                    source: name.to_string(),
+                    table: table.clone(),
+                    scale_factor,
+                    column: column.name.clone(),
+                    arrow_type: column.arrow_type.clone(),
+                    dtype: column.dtype,
+                    row_start,
+                    row_end,
+                });
+            }
+        }
+        resolved.push(ResolvedFile {
+            path: format!("tpch/{table}"),
+            fingerprint: format!("tpch:{table}:sf={scale_factor}"),
+            num_rows,
+            columns,
+        });
+    }
+    Ok(Resolution {
+        source: ResolvedSource::Tpch {
+            name: name.to_string(),
+            scale_factor,
+            tables: resolved,
+        },
+        chunks,
+        skipped,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn resolve_parquet(
     name: &str,
     path_glob: &str,
@@ -226,6 +379,7 @@ fn resolve_parquet(
     exclude: &[Pattern],
     spec_dir: &Path,
     chunk_rows: u64,
+    max_chunks: Option<u64>,
     dtypes: &[DTypeClass],
 ) -> anyhow::Result<Resolution> {
     let full_glob = spec_dir.join(path_glob);
@@ -298,9 +452,7 @@ fn resolve_parquet(
         }
 
         for column in &columns {
-            let mut row_start = 0;
-            while row_start < num_rows {
-                let row_end = row_start.saturating_add(chunk_rows).min(num_rows);
+            for (row_start, row_end) in chunk_ranges(num_rows, chunk_rows, max_chunks) {
                 chunks.push(ChunkInput::Parquet {
                     source: name.to_string(),
                     file: relative.clone(),
@@ -311,7 +463,6 @@ fn resolve_parquet(
                     row_start,
                     row_end,
                 });
-                row_start = row_end;
             }
         }
 

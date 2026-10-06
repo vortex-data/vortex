@@ -23,7 +23,10 @@ impl Shard {
     /// Creates shard `index` of `count`.
     pub fn new(index: u64, count: u64) -> anyhow::Result<Self> {
         ensure!(count > 0, "shard count must be greater than zero");
-        ensure!(index < count, "shard index {index} must be less than the count {count}");
+        ensure!(
+            index < count,
+            "shard index {index} must be less than the count {count}"
+        );
         Ok(Self { index, count })
     }
 

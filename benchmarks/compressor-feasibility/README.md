@@ -1,5 +1,11 @@
 # Compressor selection feasibility study
 
+> Data generation for training now lives in [`vx-lab`](../compressor-lab/README.md): deterministic
+> plans, sharded and resumable runs, per-machine timing observations, and `materialize` into the
+> CSVs `train.py` reads. This harness remains the place for one-off experiments: estimator
+> variants, the spy, and the model-driven compressor evaluation. Both share `compressor-lab`'s
+> features, scheme wrappers and model.
+
 Checks whether a learned scheme-selection system (see `benchmarks/compressor-lab/README.md`) is
 worth building before building it. Integers only.
 

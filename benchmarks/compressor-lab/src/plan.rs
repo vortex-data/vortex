@@ -38,8 +38,11 @@ pub const PLAN_FILE: &str = "plan.json";
 /// The task list file name, one JSON task per line.
 pub const TASKS_FILE: &str = "tasks.jsonl";
 
-/// The compressor preset the baseline tasks record.
-const BASELINE_PRESET: &str = "btrblocks-default";
+/// Bumped whenever feature computation changes, so only feature tasks re-run.
+pub const FEATURES_VERSION: u32 = 1;
+
+/// Bumped whenever how candidates are built or recorded changes.
+pub const CANDIDATES_VERSION: u32 = 1;
 
 /// The kinds of task a plan lists up front. Later stages expand from these tasks' outputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -47,10 +50,10 @@ const BASELINE_PRESET: &str = "btrblocks-default";
 pub enum TaskKind {
     /// Read a row range and store it as a canonical chunk.
     Chunk,
-    /// Search encoding trees for one chunk and store every candidate encoding.
-    Search,
-    /// Compress one chunk with today's compressor and store its encoding.
-    Baseline,
+    /// Compute a chunk's features.
+    Features,
+    /// Compress a chunk with every candidate and store each encoding.
+    Candidates,
 }
 
 impl TaskKind {
@@ -58,8 +61,8 @@ impl TaskKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Chunk => "chunk",
-            Self::Search => "search",
-            Self::Baseline => "baseline",
+            Self::Features => "features",
+            Self::Candidates => "candidates",
         }
     }
 
@@ -67,7 +70,7 @@ impl TaskKind {
     pub fn wave(self) -> u32 {
         match self {
             Self::Chunk => 1,
-            Self::Search | Self::Baseline => 2,
+            Self::Features | Self::Candidates => 2,
         }
     }
 }
@@ -87,35 +90,39 @@ pub struct Task {
     pub input: TaskInput,
 }
 
+impl Task {
+    /// The key shards are assigned by: the chunk a task depends on, or its own key.
+    ///
+    /// Grouping a chunk's tasks into one shard keeps their dependencies local, so one shard never
+    /// waits on another.
+    pub fn shard_key(&self) -> &TaskKey {
+        self.deps.first().unwrap_or(&self.key)
+    }
+}
+
 /// A task's input.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskInput {
     /// Where a chunk's rows come from.
     Chunk(ChunkInput),
-    /// A search over one chunk.
-    Search {
+    /// Features of one chunk.
+    Features {
+        /// The chunk task.
+        chunk: TaskKey,
+        /// The feature version.
+        version: u32,
+    },
+    /// Every candidate on one chunk.
+    Candidates {
         /// The chunk task.
         chunk: TaskKey,
         /// The chunk's dtype class.
         dtype: DTypeClass,
-        /// The source name, for provenance.
-        source: String,
+        /// The candidates, by name.
+        candidates: Vec<String>,
         /// The search parameters.
         search: SearchParams,
-        /// The digest of the plan's scheme list.
-        schemes_digest: String,
-    },
-    /// Today's compressor on one chunk.
-    Baseline {
-        /// The chunk task.
-        chunk: TaskKey,
-        /// The chunk's dtype class.
-        dtype: DTypeClass,
-        /// The source name, for provenance.
-        source: String,
-        /// The compressor preset.
-        preset: String,
     },
 }
 
@@ -181,19 +188,40 @@ fn stages() -> Vec<Stage> {
         stage: name.to_string(),
     };
     vec![
-        stage("chunk", 1, Expansion::Static, Parallelism::Full, Output::Fact),
-        stage("search", 2, Expansion::Static, Parallelism::Full, Output::Fact),
-        stage("baseline", 2, Expansion::Static, Parallelism::Full, Output::Fact),
-        stage("features", 3, after("search"), Parallelism::Full, Output::Fact),
-        stage("probes", 3, after("search"), Parallelism::Full, Output::Fact),
-        stage("verify", 4, after("search"), Parallelism::Full, Output::Fact),
-        stage("timing_plan", 5, after("verify"), Parallelism::Single, Output::Fact),
+        stage(
+            "chunk",
+            1,
+            Expansion::Static,
+            Parallelism::Full,
+            Output::Fact,
+        ),
+        stage(
+            "features",
+            2,
+            Expansion::Static,
+            Parallelism::Full,
+            Output::Fact,
+        ),
+        stage(
+            "candidates",
+            2,
+            Expansion::Static,
+            Parallelism::Full,
+            Output::Fact,
+        ),
         stage(
             "time",
-            6,
-            after("timing_plan"),
+            3,
+            after("candidates"),
             Parallelism::SequentialPerMachine,
             Output::Observation,
+        ),
+        stage(
+            "materialize",
+            4,
+            after("time"),
+            Parallelism::Single,
+            Output::Fact,
         ),
     ]
 }
@@ -211,10 +239,10 @@ pub struct Plan {
     pub identity: CodeIdentity,
     /// The spec, as parsed.
     pub spec: PlanSpec,
-    /// The scheme ids the search may use, in registration order.
+    /// The integer scheme ids the search may force at the root, in registration order.
     pub schemes: Vec<String>,
-    /// The digest of `schemes`.
-    pub schemes_digest: String,
+    /// The candidates every chunk is compressed with.
+    pub candidates: Vec<String>,
     /// The sources, resolved and fingerprinted.
     pub sources: Vec<ResolvedSource>,
     /// Columns that matched but were not planned, and why.
@@ -286,6 +314,14 @@ enum ChunkIdentity<'a> {
         row_start: u64,
         row_end: u64,
     },
+    Tpch {
+        source: &'a str,
+        table: &'a str,
+        scale_factor: f64,
+        column: &'a str,
+        row_start: u64,
+        row_end: u64,
+    },
     Synthetic {
         source: &'a str,
         generator: &'a str,
@@ -312,6 +348,22 @@ impl<'a> From<&'a ChunkInput> for ChunkIdentity<'a> {
                 file_fingerprint,
                 column,
                 arrow_type,
+                row_start: *row_start,
+                row_end: *row_end,
+            },
+            ChunkInput::Tpch {
+                source,
+                table,
+                scale_factor,
+                column,
+                row_start,
+                row_end,
+                ..
+            } => Self::Tpch {
+                source,
+                table,
+                scale_factor: *scale_factor,
+                column,
                 row_start: *row_start,
                 row_end: *row_end,
             },
@@ -342,18 +394,19 @@ struct ChunkKeyMaterial<'a> {
 }
 
 #[derive(Serialize)]
-struct SearchKeyMaterial<'a> {
+struct FeaturesKeyMaterial<'a> {
     identity: &'a CodeIdentity,
     chunk: &'a TaskKey,
-    schemes: &'a [String],
-    search: &'a SearchParams,
+    version: u32,
 }
 
 #[derive(Serialize)]
-struct BaselineKeyMaterial<'a> {
+struct CandidatesKeyMaterial<'a> {
     identity: &'a CodeIdentity,
     chunk: &'a TaskKey,
-    preset: &'a str,
+    candidates: &'a [String],
+    search: &'a SearchParams,
+    version: u32,
 }
 
 #[derive(Serialize)]
@@ -362,6 +415,7 @@ struct PlanIdMaterial<'a> {
     identity: &'a CodeIdentity,
     spec: &'a PlanSpec,
     schemes: &'a [String],
+    candidates: &'a [String],
     sources: &'a [ResolvedSource],
     skipped: &'a [SkippedColumn],
 }
@@ -377,14 +431,27 @@ pub fn build_plan(
     registered_schemes: &[String],
 ) -> anyhow::Result<PlannedRun> {
     let schemes = select_schemes(registered_schemes, &spec.schemes)?;
-    let schemes_digest = stable_digest("schemes", &schemes)?;
+    let candidates: Vec<String> = ["production".to_string(), "sizemodel".to_string()]
+        .into_iter()
+        .chain(
+            schemes
+                .iter()
+                .map(|s| format!("forced/{}", s.rsplit('.').next().unwrap_or(s))),
+        )
+        .collect();
 
     let mut sources = Vec::with_capacity(spec.sources.len());
     let mut skipped = Vec::new();
     let mut tasks: BTreeMap<(u32, TaskKind, TaskKey), Task> = BTreeMap::new();
 
     for source_spec in &spec.sources {
-        let resolution = resolve_source(source_spec, spec_dir, spec.chunk_rows, &spec.dtypes)?;
+        let resolution = resolve_source(
+            source_spec,
+            spec_dir,
+            spec.chunk_rows,
+            spec.max_chunks_per_column,
+            &spec.dtypes,
+        )?;
         sources.push(resolution.source);
         skipped.extend(resolution.skipped);
 
@@ -396,30 +463,30 @@ pub fn build_plan(
                     chunk: ChunkIdentity::from(&chunk),
                 },
             )?;
-            let search_key = TaskKey::derive(
-                TaskKind::Search.as_str(),
-                &SearchKeyMaterial {
+            let features_key = TaskKey::derive(
+                TaskKind::Features.as_str(),
+                &FeaturesKeyMaterial {
                     identity,
                     chunk: &chunk_key,
-                    schemes: &schemes,
-                    search: &spec.search,
+                    version: FEATURES_VERSION,
                 },
             )?;
-            let baseline_key = TaskKey::derive(
-                TaskKind::Baseline.as_str(),
-                &BaselineKeyMaterial {
+            let candidates_key = TaskKey::derive(
+                TaskKind::Candidates.as_str(),
+                &CandidatesKeyMaterial {
                     identity,
                     chunk: &chunk_key,
-                    preset: BASELINE_PRESET,
+                    candidates: &candidates,
+                    search: &spec.search,
+                    version: CANDIDATES_VERSION,
                 },
             )?;
 
             let dtype = chunk.dtype();
-            let source = chunk.source().to_string();
             let mut insert = |kind: TaskKind, key: TaskKey, deps: Vec<TaskKey>, input| {
                 tasks
                     .entry((kind.wave(), kind, key.clone()))
-                    .or_insert(Task {
+                    .or_insert_with(|| Task {
                         key,
                         kind,
                         wave: kind.wave(),
@@ -428,26 +495,23 @@ pub fn build_plan(
                     });
             };
             insert(
-                TaskKind::Search,
-                search_key,
+                TaskKind::Features,
+                features_key,
                 vec![chunk_key.clone()],
-                TaskInput::Search {
+                TaskInput::Features {
                     chunk: chunk_key.clone(),
-                    dtype,
-                    source: source.clone(),
-                    search: spec.search.clone(),
-                    schemes_digest: schemes_digest.clone(),
+                    version: FEATURES_VERSION,
                 },
             );
             insert(
-                TaskKind::Baseline,
-                baseline_key,
+                TaskKind::Candidates,
+                candidates_key,
                 vec![chunk_key.clone()],
-                TaskInput::Baseline {
+                TaskInput::Candidates {
                     chunk: chunk_key.clone(),
                     dtype,
-                    source,
-                    preset: BASELINE_PRESET.to_string(),
+                    candidates: candidates.clone(),
+                    search: spec.search.clone(),
                 },
             );
             insert(
@@ -462,7 +526,9 @@ pub fn build_plan(
     let tasks: Vec<Task> = tasks.into_values().collect();
     let mut task_counts = BTreeMap::new();
     for task in &tasks {
-        *task_counts.entry(task.kind.as_str().to_string()).or_default() += 1;
+        *task_counts
+            .entry(task.kind.as_str().to_string())
+            .or_default() += 1;
     }
 
     let plan_id = stable_digest(
@@ -472,6 +538,7 @@ pub fn build_plan(
             identity,
             spec,
             schemes: &schemes,
+            candidates: &candidates,
             sources: &sources,
             skipped: &skipped,
         },
@@ -485,7 +552,7 @@ pub fn build_plan(
             identity: identity.clone(),
             spec: spec.clone(),
             schemes,
-            schemes_digest,
+            candidates,
             sources,
             skipped,
             stages: stages(),
@@ -507,8 +574,8 @@ impl PlannedRun {
         let tasks_path = dir.join(TASKS_FILE);
 
         let outcome = if plan_path.exists() {
-            let existing = fs::read(&plan_path)
-                .with_context(|| format!("reading {}", plan_path.display()))?;
+            let existing =
+                fs::read(&plan_path).with_context(|| format!("reading {}", plan_path.display()))?;
             let existing_tasks = fs::read(&tasks_path).unwrap_or_default();
             if existing == plan_bytes && existing_tasks == task_bytes {
                 return Ok(WriteOutcome::Unchanged);
@@ -590,16 +657,4 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         .with_context(|| format!("writing {}", temp.display()))?;
     file.sync_all()?;
     fs::rename(&temp, path).with_context(|| format!("renaming into {}", path.display()))
-}
-
-/// The path of a task's done marker in a store.
-///
-/// A runner writes the marker after the task's outputs are durable, so a task is done exactly
-/// when its marker exists.
-pub fn ledger_path(store: &Path, key: &TaskKey) -> PathBuf {
-    let fan_out = key.as_str().get(..2).unwrap_or("00");
-    store
-        .join("ledger")
-        .join(fan_out)
-        .join(format!("{key}.json"))
 }

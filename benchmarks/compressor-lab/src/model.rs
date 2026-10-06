@@ -12,6 +12,8 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use anyhow::Context;
 use serde::Deserialize;
@@ -99,8 +101,10 @@ impl Prediction {
 impl Model {
     /// Loads a model exported by `train.py`.
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        serde_json::from_slice(&fs::read(path).with_context(|| format!("reading {}", path.display()))?)
-            .with_context(|| format!("parsing {}", path.display()))
+        serde_json::from_slice(
+            &fs::read(path).with_context(|| format!("reading {}", path.display()))?,
+        )
+        .with_context(|| format!("parsing {}", path.display()))
     }
 
     /// Predicts every feasible candidate for a chunk.
@@ -147,21 +151,17 @@ pub struct Outcome {
 /// Compresses with production, plus the model's proposal when it promises enough, and keeps the
 /// cheaper by real size and predicted decode time.
 /// Cumulative nanoseconds spent in features, canonical sizing, inference and production compression.
-pub static PROFILE: [std::sync::atomic::AtomicU64; 4] = [
-    std::sync::atomic::AtomicU64::new(0),
-    std::sync::atomic::AtomicU64::new(0),
-    std::sync::atomic::AtomicU64::new(0),
-    std::sync::atomic::AtomicU64::new(0),
+pub static PROFILE: [AtomicU64; 4] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
 ];
 
 fn record(slot: usize, start: std::time::Instant) {
-    PROFILE[slot].fetch_add(
-        start.elapsed().as_nanos() as u64,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    PROFILE[slot].fetch_add(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
 }
 
-///
 /// The objective per chunk is `compress time / reads + bytes / bandwidth + decode time`. Production
 /// is always compressed; an alternative is only tried when `reads` times its predicted serving
 /// saving outweighs its predicted compression time, and its serving cost is at least `gate` lower.
@@ -203,7 +203,7 @@ pub fn compress(
     let base = features::from_primitive(&primitive, ctx)?;
     record(0, t);
     let t = std::time::Instant::now();
-    let canonical_bytes = crate::serialized_size(input, session)? as f64;
+    let canonical_bytes = crate::blob::serialized_size(input, session)? as f64;
     record(1, t);
     let t = std::time::Instant::now();
     let predictions = model.predict(&base, canonical_bytes);
@@ -239,7 +239,9 @@ pub fn compress(
         });
     };
     // Predicted savings are optimistic, so the saving must cover the extra compression twice over.
-    if benefit(best) <= best.compress_ns / 1e9 || best.cost(bandwidth) > prod_pred.cost(bandwidth) * (1.0 - gate) {
+    if benefit(best) <= best.compress_ns / 1e9
+        || best.cost(bandwidth) > prod_pred.cost(bandwidth) * (1.0 - gate)
+    {
         return Ok(Outcome {
             array: prod_array,
             proposed: best.name.clone(),
@@ -267,7 +269,10 @@ pub fn compress(
             std::hint::black_box(array.clone().execute::<vortex_array::Canonical>(ctx)?);
             decode_ns = decode_ns.min(start.elapsed().as_nanos());
         }
-        Ok(crate::serialized_size(array, session)? as f64 / bandwidth + decode_ns as f64 / 1e9)
+        Ok(
+            crate::blob::serialized_size(array, session)? as f64 / bandwidth
+                + decode_ns as f64 / 1e9,
+        )
     };
     if real(&alt_array)? < real(&prod_array)? {
         Ok(Outcome {

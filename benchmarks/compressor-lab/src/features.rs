@@ -66,7 +66,7 @@ const WINDOWS: usize = 8;
 /// The position ranges features are computed over: evenly spaced contiguous windows.
 fn windows(len: usize) -> Vec<std::ops::Range<usize>> {
     if len <= WINDOW * WINDOWS {
-        return vec![0..len];
+        return std::iter::once(0..len).collect();
     }
     let stride = len / WINDOWS;
     (0..WINDOWS)
@@ -210,20 +210,58 @@ pub fn compute(array: &ArrayRef) -> anyhow::Result<String> {
     };
     let ranges = windows(len);
     let (ptype_bits, signed, values): (u32, bool, Vec<Option<i128>>) = match array.data_type() {
-        DataType::Int8 => (8, true, collect(array.as_primitive::<Int8Type>().iter(), &ranges)),
-        DataType::Int16 => (16, true, collect(array.as_primitive::<Int16Type>().iter(), &ranges)),
-        DataType::Int32 => (32, true, collect(array.as_primitive::<Int32Type>().iter(), &ranges)),
-        DataType::Int64 => (64, true, collect(array.as_primitive::<Int64Type>().iter(), &ranges)),
-        DataType::UInt8 => (8, false, collect(array.as_primitive::<UInt8Type>().iter(), &ranges)),
-        DataType::UInt16 => (16, false, collect(array.as_primitive::<UInt16Type>().iter(), &ranges)),
-        DataType::UInt32 => (32, false, collect(array.as_primitive::<UInt32Type>().iter(), &ranges)),
-        DataType::UInt64 => (64, false, collect(array.as_primitive::<UInt64Type>().iter(), &ranges)),
+        DataType::Int8 => (
+            8,
+            true,
+            collect(array.as_primitive::<Int8Type>().iter(), &ranges),
+        ),
+        DataType::Int16 => (
+            16,
+            true,
+            collect(array.as_primitive::<Int16Type>().iter(), &ranges),
+        ),
+        DataType::Int32 => (
+            32,
+            true,
+            collect(array.as_primitive::<Int32Type>().iter(), &ranges),
+        ),
+        DataType::Int64 => (
+            64,
+            true,
+            collect(array.as_primitive::<Int64Type>().iter(), &ranges),
+        ),
+        DataType::UInt8 => (
+            8,
+            false,
+            collect(array.as_primitive::<UInt8Type>().iter(), &ranges),
+        ),
+        DataType::UInt16 => (
+            16,
+            false,
+            collect(array.as_primitive::<UInt16Type>().iter(), &ranges),
+        ),
+        DataType::UInt32 => (
+            32,
+            false,
+            collect(array.as_primitive::<UInt32Type>().iter(), &ranges),
+        ),
+        DataType::UInt64 => (
+            64,
+            false,
+            collect(array.as_primitive::<UInt64Type>().iter(), &ranges),
+        ),
         other => bail!("not an integer type: {other}"),
     };
     let values: Vec<i128> = values.into_iter().flatten().collect();
     let f = from_values(ptype_bits, signed, len, null_frac, &values);
     Ok(f.iter()
-        .map(|v| if v.is_nan() { String::new() } else { format!("{v}") })
+        .map(|v| {
+            if v.is_nan() {
+                String::new()
+            } else {
+                format!("{v}")
+            }
+        })
         .collect::<Vec<_>>()
         .join(","))
 }
@@ -274,14 +312,19 @@ pub fn from_primitive(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> anyhow:
 /// Must match `add_estimates` in `train.py`.
 pub fn with_derived(base: &[f64; 20]) -> Vec<(&'static str, f64)> {
     let get = |name: &str| base[NAMES.iter().position(|n| *n == name).unwrap_or(0)];
-    let mut out: Vec<(&'static str, f64)> = NAMES.iter().copied().zip(base.iter().copied()).collect();
+    let mut out: Vec<(&'static str, f64)> =
+        NAMES.iter().copied().zip(base.iter().copied()).collect();
     let len = get("len");
     let w = get("ptype_bits");
     let n = len * (1.0 - get("null_frac"));
     let pos = len.log2().max(1.0);
     let runs = (n / get("avg_run").max(1.0)).max(1.0);
     let patches = (n * (1.0 - get("top1_frac"))).max(1.0);
-    let bits_bp = if get("bits_bp") >= 0.0 { get("bits_bp") } else { w };
+    let bits_bp = if get("bits_bp") >= 0.0 {
+        get("bits_bp")
+    } else {
+        w
+    };
     let distinct = get("distinct");
     let estimates = [
         ("est_bp", n * bits_bp),
