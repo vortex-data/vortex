@@ -69,7 +69,7 @@ impl BytesOperand {
     }
 }
 
-fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
+pub(super) fn constant_bytes(scalar: &Scalar) -> VortexResult<Vec<u8>> {
     let value = match scalar.dtype() {
         DType::Utf8(_) => scalar
             .as_utf8()

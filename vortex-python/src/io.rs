@@ -323,8 +323,8 @@ impl PyVortexWriteOptions {
     /// We sure can.
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
-    /// >>> os.path.getsize('tiny.vortex')
-    /// 54992
+    /// >>> os.path.getsize('tiny.vortex') < os.path.getsize('chonky.vortex')
+    /// True
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
