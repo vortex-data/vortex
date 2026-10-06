@@ -187,6 +187,7 @@ impl Projection {
     }
 }
 
+#[derive(Clone)]
 pub struct Filter {
     pub filter: Option<BoundExpression>,
     pub row_selection: Selection,

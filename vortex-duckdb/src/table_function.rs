@@ -51,6 +51,7 @@ use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
+use crate::file_prefetch::FilePrefetch;
 use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
@@ -137,6 +138,7 @@ impl<'a> TableInitInput<'a> {
 }
 
 pub struct GlobalState {
+    pub file_prefetch: Option<FilePrefetch>,
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
@@ -292,6 +294,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
+        file_prefetch: FilePrefetch::new(projection.clone(), filter.clone())?,
         projection,
         filter,
         aggregates: bind_data.aggregates.clone(),

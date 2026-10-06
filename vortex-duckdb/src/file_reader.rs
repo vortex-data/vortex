@@ -14,6 +14,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
+use vortex::expr::BoundExpression;
 use vortex::file::Footer;
 use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
@@ -108,10 +109,11 @@ pub struct OpenFileReader {
     pub splits: Vec<Split>,
     pub cache: ConversionCache,
     total_splits: usize,
+    prepared_skip: Option<bool>,
 }
 
 impl OpenFileReader {
-    async fn open(path: String) -> VortexResult<Self> {
+    pub(crate) async fn open(path: String) -> VortexResult<Self> {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
@@ -121,6 +123,7 @@ impl OpenFileReader {
             cache: ConversionCache::default(),
             splits: vec![],
             total_splits: 0,
+            prepared_skip: None,
         })
     }
 
@@ -169,26 +172,36 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 }
 
 /// Called once per file by one thread under file-local lock. Determines
-/// whether the opened file should be skipped. If this function returns false,
+/// whether the opened file should be skipped. If this function returns true,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    if file.can_skip(&global.filter)? {
+    if let Some(skip) = file.prepared_skip {
+        return Ok(skip);
+    }
+    RUNTIME.block_on(prepare_reader(file, &global.projection, &global.filter))
+}
+
+pub(crate) async fn prepare_reader(
+    file: &mut OpenFileReader,
+    projection: &BoundExpression,
+    filter: &Filter,
+) -> VortexResult<bool> {
+    if file.can_skip(filter)? {
+        file.prepared_skip = Some(true);
         return Ok(true);
     }
 
     // Getting splits is non-trivial work so we prefer doing it here under file
     // lock and not in reader_try_initialize_scan under global lock.
     let reader = Arc::clone(&file.reader);
-    let filter = &global.filter;
     let builder = ScanBuilder::new(SESSION.clone(), reader)
-        .with_projection(global.projection.clone())
+        .with_projection(projection.clone())
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
     let mut splits = if scan::v2::enabled() {
-        RUNTIME.block_on(
-            scan::v2::prepare(builder, planning::scan_file(&file.file))?
-                .execute_pruned(filter.row_range.clone()),
-        )?
+        scan::v2::prepare(builder, planning::scan_file(&file.file))?
+            .execute_pruned(filter.row_range.clone())
+            .await?
     } else {
         builder.prepare()?.execute(filter.row_range.clone())?
     };
@@ -197,6 +210,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     splits.reverse();
     file.total_splits = splits.len();
     file.splits = splits;
+    file.prepared_skip = Some(false);
     Ok(false)
 }
 
