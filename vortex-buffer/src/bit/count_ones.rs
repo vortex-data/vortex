@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::LazyLock;
-
 use fearless_simd::Level;
 use fearless_simd::Simd;
 use fearless_simd::prelude::*;
@@ -86,11 +84,8 @@ fn count_ones_aligned(bytes: &[u8]) -> usize {
         return count_ones_aligned_scalar(bytes);
     }
 
-    fearless_simd::dispatch!(*SIMD_LEVEL, simd => count_ones_aligned_simd(simd, bytes))
+    fearless_simd::dispatch!(Level::new(), simd => count_ones_aligned_simd(simd, bytes))
 }
-
-/// Detected once: `Level::new` probes every feature of its widest level on each call.
-static SIMD_LEVEL: LazyLock<Level> = LazyLock::new(Level::new);
 
 #[inline]
 fn count_ones_aligned_scalar(bytes: &[u8]) -> usize {
