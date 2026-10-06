@@ -5,6 +5,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
@@ -198,6 +199,8 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
+    /// Shared physical Arrow schemas of each file, keyed by path.
+    file_schemas: Arc<DashMap<Path, SchemaRef>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -231,6 +234,7 @@ impl VortexSource {
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
+            file_schemas: Arc::new(DashMap::default()),
             expression_convertor,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -355,6 +359,7 @@ impl VortexSource {
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
             natural_splits: Arc::clone(&self.natural_splits),
+            file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_convertor: Arc::clone(&self.expression_convertor),
             file_metadata_cache: self.file_metadata_cache.clone(),

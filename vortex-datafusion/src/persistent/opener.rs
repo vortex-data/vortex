@@ -8,6 +8,7 @@ use std::sync::Weak;
 use arrow_array::RecordBatchOptions;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -97,6 +98,8 @@ pub(crate) struct VortexOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
+    /// Shared physical Arrow schemas of each file, keyed by file path.
+    pub file_schemas: Arc<DashMap<Path, SchemaRef>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -138,6 +141,7 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
         let natural_splits = Arc::clone(&self.natural_splits);
+        let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
@@ -238,12 +242,20 @@ impl FileOpener for VortexOpener {
             }
 
             // This is the expected arrow types of the actual columns in the file, which might have different types
-            // from the unified logical schema or miss
-            let this_file_schema = Arc::new(calculate_physical_schema(
-                vxf.dtype(),
-                &unified_file_schema,
-                &session.arrow(),
-            )?);
+            // from the unified logical schema or miss. Every partition opening this file computes
+            // the same schema, so it is shared across them.
+            let this_file_schema = match file_schemas.get(&file.object_meta.location) {
+                Some(schema) => Arc::clone(schema.value()),
+                None => {
+                    let schema = Arc::new(calculate_physical_schema(
+                        vxf.dtype(),
+                        &unified_file_schema,
+                        &session.arrow(),
+                    )?);
+                    file_schemas.insert(file.object_meta.location.clone(), Arc::clone(&schema));
+                    schema
+                }
+            };
 
             let expr_adapter = expr_adapter_factory.create(
                 Arc::clone(&unified_file_schema),
@@ -865,6 +877,7 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_splits: Default::default(),
+            file_schemas: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1148,6 +1161,7 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_splits: Default::default(),
+            file_schemas: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1235,6 +1249,7 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_splits: Default::default(),
+            file_schemas: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1389,6 +1404,7 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_splits: Default::default(),
+            file_schemas: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1449,6 +1465,7 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_splits: Default::default(),
+            file_schemas: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1656,6 +1673,7 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_splits: Default::default(),
+            file_schemas: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,

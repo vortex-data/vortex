@@ -58,9 +58,9 @@ pub struct StructReader {
     lazy_children: LazyReaderChildren,
     session: VortexSession,
 
-    /// A `pack` expression that holds each individual field of the root DType. This expansion
-    /// ensures we can correctly partition expressions over the fields of the struct.
-    expanded_root_expr: BoundExpression,
+    /// The root scope expanded into the individual fields of the struct, which ensures we can
+    /// correctly partition expressions over the fields of the struct.
+    expanded_root: ExpandedRoot,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
@@ -107,8 +107,7 @@ impl StructReader {
             ctx,
         );
 
-        // Create an expanded root expression that contains all fields of the struct.
-        let expanded_root_expr = expanded_struct_root(layout.dtype(), struct_dt)?;
+        let expanded_root = ExpandedRoot::new(layout.dtype(), struct_dt.nfields());
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
@@ -116,7 +115,7 @@ impl StructReader {
             layout,
             name,
             session,
-            expanded_root_expr,
+            expanded_root,
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
@@ -188,8 +187,7 @@ impl StructReader {
     fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
         // First, we expand the root scope into the fields of the struct to ensure
         // that partitioning works correctly.
-        let expr =
-            expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
+        let expr = expand_struct_root(expr.clone(), &self.expanded_root, self.struct_fields())?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
         let mut partitioned = partition_bound(
@@ -234,32 +232,60 @@ impl StructReader {
     }
 }
 
-fn expanded_struct_root(
-    root_dtype: &DType,
-    fields: &StructFields,
-) -> VortexResult<BoundExpression> {
-    let root = BoundExpression::new_root(root_dtype.clone());
-    let children = fields
-        .names()
-        .iter()
-        .map(|name| get_item(name.clone(), root.clone()))
-        .collect::<Vec<_>>();
-    Ok(pack(
-        fields.names().iter().cloned().zip(children),
-        Nullability::NonNullable,
-    ))
+/// The root scope of a struct expanded into a `pack` of `get_item` expressions, one per field.
+///
+/// Each field expression is built on first use, so opening a reader over a wide struct does not
+/// bind every field up front. Once built, an expression is reused, keeping the expanded trees'
+/// identity stable for the `ExactBoundExpr`-keyed caches downstream.
+struct ExpandedRoot {
+    root: BoundExpression,
+    fields: Box<[OnceLock<BoundExpression>]>,
+    packed: OnceLock<BoundExpression>,
+}
+
+impl ExpandedRoot {
+    fn new(root_dtype: &DType, nfields: usize) -> Self {
+        Self {
+            root: BoundExpression::new_root(root_dtype.clone()),
+            fields: (0..nfields).map(|_| OnceLock::new()).collect(),
+            packed: OnceLock::new(),
+        }
+    }
+
+    /// The `get_item` expression for the field at `idx` of `fields`.
+    fn field(&self, idx: usize, fields: &StructFields) -> &BoundExpression {
+        self.fields[idx].get_or_init(|| {
+            let name = fields
+                .field_name(idx)
+                .vortex_expect("expanded root field index is within the struct");
+            get_item(name.clone(), self.root.clone())
+        })
+    }
+
+    /// The `pack` of every field of `fields`.
+    fn packed(&self, fields: &StructFields) -> &BoundExpression {
+        self.packed.get_or_init(|| {
+            let children = (0..fields.nfields())
+                .map(|idx| self.field(idx, fields).clone())
+                .collect::<Vec<_>>();
+            pack(
+                fields.names().iter().cloned().zip(children),
+                Nullability::NonNullable,
+            )
+        })
+    }
 }
 
 fn expand_struct_root(
     expr: BoundExpression,
-    expanded_root: &BoundExpression,
+    expanded_root: &ExpandedRoot,
     fields: &StructFields,
 ) -> VortexResult<BoundExpression> {
     Ok(expr
         .transform_down(|node| {
             if node.is_root() {
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: expanded_root.packed(fields).clone(),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -281,7 +307,7 @@ fn expand_struct_root(
                     vortex_err!("Field {field_name} not found while expanding struct root")
                 })?;
                 return Ok(Transformed {
-                    value: expanded_root.children()[idx].clone(),
+                    value: expanded_root.field(idx, fields).clone(),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -295,7 +321,7 @@ fn expand_struct_root(
                         let idx = fields.find(name).vortex_expect(
                             "normalized selection fields must exist in the struct root",
                         );
-                        expanded_root.children()[idx].clone()
+                        expanded_root.field(idx, fields).clone()
                     })
                     .collect();
                 return Ok(Transformed {
