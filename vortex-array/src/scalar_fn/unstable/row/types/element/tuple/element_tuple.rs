@@ -247,12 +247,7 @@ impl ElementTuple for () {
     const DECODE_INFALLIBLE: bool = true;
 
     fn validate(dtypes: &[DType]) -> VortexResult<()> {
-        vortex_ensure_eq!(
-            dtypes.len(),
-            0,
-            "expected 0 argument dtypes, got {}",
-            dtypes.len(),
-        );
+        vortex_ensure_eq!(dtypes.len(), 0);
         Ok(())
     }
 
@@ -311,13 +306,7 @@ macro_rules! element_tuple {
             const DECODE_INFALLIBLE: bool = $($t::DECODE_INFALLIBLE &&)+ true;
 
             fn validate(dtypes: &[DType]) -> VortexResult<()> {
-                vortex_ensure_eq!(
-                    dtypes.len(),
-                    $arity,
-                    "expected {} argument dtypes, got {}",
-                    $arity,
-                    dtypes.len(),
-                );
+                vortex_ensure_eq!(dtypes.len(), $arity);
 
                 $($t::validate(&dtypes[$idx])?;)+
                 Ok(())

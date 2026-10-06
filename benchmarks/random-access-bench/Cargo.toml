@@ -4,7 +4,6 @@ description = "Random access benchmarks for Vortex and other formats"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
-homepage.workspace = true
 include.workspace = true
 keywords.workspace = true
 license.workspace = true
@@ -23,6 +22,7 @@ rand = { workspace = true }
 rand_distr = { workspace = true }
 tabled = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
 vortex-bench = { workspace = true }
 
 [features]

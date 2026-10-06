@@ -2,24 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Chunked;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::ChunkedSlots;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Chunked> for Chunked {
     type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Chunked>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let (chunk_index, chunk_offset) = state.array().find_chunk_idx(index)?;
+        let slot = ChunkedSlots::CHUNKS_OFFSET + chunk_index;
+        state
+            .slot(slot)?
+            .ok_or_else(|| vortex_err!("Chunked chunk slot {slot} is missing"))?
+            .execute_scalar(chunk_offset, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, Chunked>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
-        array.chunk(chunk_index).execute_scalar(chunk_offset, ctx)
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

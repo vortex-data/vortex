@@ -14,7 +14,7 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -71,8 +71,9 @@ impl VTable for Dict {
         args: &LayoutDeserializeArgs<'_>,
         metadata: &DictLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
-        vortex_ensure!(
-            args.children.nchildren() == 2,
+        vortex_ensure_eq!(
+            args.children.nchildren(),
+            2,
             "DictLayout expects exactly 2 children"
         );
         let codes_nullable = metadata
@@ -82,8 +83,9 @@ impl VTable for Dict {
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
         args.children.child(0, args.dtype)?;
         let codes = args.children.child(1, &codes_dtype)?;
-        vortex_ensure!(
-            codes.row_count() == args.row_count,
+        vortex_ensure_eq!(
+            codes.row_count(),
+            args.row_count,
             "Dictionary codes row count does not match parent"
         );
         Ok(DictData {

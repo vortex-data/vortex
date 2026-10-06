@@ -7,7 +7,7 @@ use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::mask::Mask;
 
 use crate::duckdb::VectorRef;
@@ -44,11 +44,10 @@ pub(crate) fn new_exporter(
         .execute::<Canonical>(ctx)?
         .into_primitive()
         .to_buffer::<u8>();
-    vortex_ensure!(
-        bytes.len() == len * UUID_BYTE_LEN,
-        "UUID storage has {} bytes, expected {}",
+    vortex_ensure_eq!(
         bytes.len(),
-        len * UUID_BYTE_LEN
+        len * UUID_BYTE_LEN,
+        "UUID storage byte length mismatch"
     );
 
     Ok(validity::new_exporter(

@@ -17,11 +17,12 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 use crate::unpack_iter::BitUnpackedChunks;
@@ -114,18 +115,19 @@ where
     }
 
     let len = array.len();
+    let mut scratch = [const { MaybeUninit::<F>::uninit() }; FL_CHUNK_SIZE];
+    let mut chunks = array.unpacked_chunks::<F>(&mut scratch)?;
+    let validity = array.validity()?.execute_mask(len, ctx)?;
     let mut uninit_range = builder.uninit_range(len);
 
     // SAFETY: We initialize all `len` values below via `decode` and the patch loop.
     unsafe {
-        uninit_range.append_mask(&array.validity()?.execute_mask(len, ctx)?);
+        uninit_range.append_mask(&validity);
     }
 
     // SAFETY: `decode` writes a value to every slot in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
-    let mut scratch = [const { MaybeUninit::<F>::uninit() }; FL_CHUNK_SIZE];
-    let mut chunks = array.unpacked_chunks::<F>(&mut scratch)?;
     decode(&mut chunks, uninit_slice, &map);
 
     if let Some(patches) = array.patches() {
@@ -164,8 +166,11 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
     Ok(())
 }
 
-pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
-    let bit_width = array.bit_width() as usize;
+pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> VortexResult<Scalar> {
+    let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+        vortex_bail!("BitPacked array has per-block bit widths");
+    };
+    let bit_width = bit_width as usize;
     let ptype = array.dtype().as_ptype();
     // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
@@ -176,7 +181,7 @@ pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
         }
     });
     // Cast to fix signedness and nullability
-    scalar.cast(array.dtype()).vortex_expect("cast failure")
+    scalar.cast(array.dtype())
 }
 
 /// # Safety
@@ -227,6 +232,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -259,7 +265,7 @@ mod tests {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                let scalar: u16 = (&unpack_single(compressed.as_view(), i))
+                let scalar: u16 = (&unpack_single(compressed.as_view(), i).unwrap())
                     .try_into()
                     .unwrap();
                 assert_eq!(scalar, *v);

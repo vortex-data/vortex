@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fs::File as StdFile;
 use std::iter::once;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,6 +21,8 @@ use parking_lot::Mutex;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
+use parquet::arrow::async_reader;
+use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::PageIndexPolicy;
 use stream::StreamExt;
 use tokio::fs::File;
@@ -38,6 +41,7 @@ use crate::SESSION;
 use crate::random_access::ARROW_ROW_OFFSETS_METADATA_KEY;
 use crate::random_access::RandomAccessor;
 use crate::random_access::RandomAccessorRet;
+use crate::random_access::RemoteDataDir;
 
 /// Random accessor for uncompressed Arrow IPC files.
 pub struct ArrowIpcRandomAccessor {
@@ -134,7 +138,7 @@ pub struct VortexRandomAccessor {
 impl VortexRandomAccessor {
     /// Open a Vortex file and return a ready-to-use accessor.
     pub async fn open(
-        path: impl AsRef<std::path::Path>,
+        path: impl AsRef<Path>,
         name: impl Into<String>,
         format: Format,
     ) -> anyhow::Result<Self> {
@@ -142,6 +146,25 @@ impl VortexRandomAccessor {
             .open_options()
             .with_layout_reader_cache()
             .open_path(path.as_ref())
+            .await?;
+        Ok(Self {
+            name: name.into(),
+            format,
+            file,
+        })
+    }
+
+    /// Open a Vortex file stored in an object store and return a ready-to-use accessor.
+    pub async fn open_object_store(
+        remote: &RemoteDataDir,
+        path: &Path,
+        name: impl Into<String>,
+        format: Format,
+    ) -> anyhow::Result<Self> {
+        let file = SESSION
+            .open_options()
+            .with_layout_reader_cache()
+            .open_object_store(remote.store(), remote.key(path)?)
             .await?;
         Ok(Self {
             name: name.into(),
@@ -188,17 +211,64 @@ pub struct ParquetRandomAccessor {
     row_group_offsets: Vec<i64>,
     /// Cached Arrow reader metadata (footer) to avoid re-parsing on each take.
     arrow_metadata: ArrowReaderMetadata,
-    /// Path to the Parquet file (for re-opening on each take).
-    path: PathBuf,
+    /// Where to re-open the file from on each take.
+    source: ParquetSource,
+}
+
+/// Reader for a Parquet file held in an object store.
+#[expect(
+    deprecated,
+    reason = "arrow-rs deprecated this in favour of a hand-rolled AsyncFileReader; \
+        keeping it holds the measured I/O path fixed (arrow-rs#10308)"
+)]
+type ObjectReader = async_reader::ParquetObjectReader;
+
+/// Backing store of a [`ParquetRandomAccessor`].
+enum ParquetSource {
+    /// Path to a local Parquet file.
+    Local(PathBuf),
+    /// Reader for a Parquet file held in an object store.
+    Object(ObjectReader),
+}
+
+impl ParquetSource {
+    /// Open a fresh reader on the file, so each take pays the open cost like a cold reader.
+    async fn open(&self) -> anyhow::Result<Box<dyn AsyncFileReader>> {
+        Ok(match self {
+            ParquetSource::Local(path) => Box::new(File::open(path).await?),
+            ParquetSource::Object(reader) => Box::new(reader.clone()),
+        })
+    }
 }
 
 impl ParquetRandomAccessor {
     /// Open a Parquet file, parse the footer, and return a ready-to-use accessor.
     pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
         let mut file = File::open(&path).await?;
-        let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
-        let arrow_metadata = ArrowReaderMetadata::load_async(&mut file, options).await?;
+        let arrow_metadata = load_metadata(&mut file).await?;
+        Ok(Self::new(name, arrow_metadata, ParquetSource::Local(path)))
+    }
 
+    /// Open a Parquet file stored in an object store and return a ready-to-use accessor.
+    pub async fn open_object_store(
+        remote: &RemoteDataDir,
+        path: &Path,
+        name: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        let mut reader = ObjectReader::new(Arc::clone(remote.store()), remote.key(path)?);
+        let arrow_metadata = load_metadata(&mut reader).await?;
+        Ok(Self::new(
+            name,
+            arrow_metadata,
+            ParquetSource::Object(reader),
+        ))
+    }
+
+    fn new(
+        name: impl Into<String>,
+        arrow_metadata: ArrowReaderMetadata,
+        source: ParquetSource,
+    ) -> Self {
         let row_group_offsets = once(0)
             .chain(
                 arrow_metadata
@@ -213,13 +283,21 @@ impl ParquetRandomAccessor {
             })
             .collect::<Vec<_>>();
 
-        Ok(Self {
+        Self {
             name: name.into(),
             row_group_offsets,
             arrow_metadata,
-            path,
-        })
+            source,
+        }
     }
+}
+
+/// Parse the Parquet footer, including the page index, from any async reader.
+async fn load_metadata<T: AsyncFileReader + Send>(
+    reader: &mut T,
+) -> anyhow::Result<ArrowReaderMetadata> {
+    let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
+    Ok(ArrowReaderMetadata::load_async(reader, options).await?)
 }
 
 #[async_trait]
@@ -253,7 +331,7 @@ impl RandomAccessor for ParquetRandomAccessor {
             .collect_vec();
 
         // Re-open the file but reuse cached metadata (avoids re-parsing the footer).
-        let file = File::open(&self.path).await?;
+        let file = self.source.open().await?;
         let builder =
             ParquetRecordBatchStreamBuilder::new_with_metadata(file, self.arrow_metadata.clone());
 

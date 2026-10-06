@@ -33,6 +33,7 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -86,6 +87,7 @@ impl ArrowExportVTable for Uuid {
         &self,
         array: ArrayRef,
         _target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let is_uuid = array
@@ -96,7 +98,7 @@ impl ArrowExportVTable for Uuid {
         if !is_uuid {
             return Ok(ArrowExport::Unsupported(array));
         }
-        Ok(ArrowExport::Exported(try_fsl_to_fsb(array, ctx)?))
+        Ok(ArrowExport::Exported(try_fsl_to_fsb(array, options, ctx)?))
     }
 }
 
@@ -165,7 +167,11 @@ impl ArrowImportVTable for Uuid {
 
 /// Reinterpret a Vortex UUID extension array's `FixedSizeList<u8; 16>` storage as an Arrow
 /// `FixedSizeBinary[16]` array, sharing the underlying byte buffer.
-fn try_fsl_to_fsb(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrowArrayRef> {
+fn try_fsl_to_fsb(
+    array: ArrayRef,
+    options: &ArrowExportOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
     let executed = array.execute::<ExtensionArray>(ctx)?;
     let storage = executed.storage_array().clone();
     let storage_arrow_type = DataType::FixedSizeList(
@@ -180,9 +186,11 @@ fn try_fsl_to_fsb(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Arrow
     );
 
     let session = ctx.session().clone();
-    let arrow_storage = session
-        .arrow()
-        .execute_arrow(storage, Some(&storage_field), ctx)?;
+    let arrow_storage =
+        session
+            .arrow()
+            .exporter(options)
+            .execute_arrow(storage, Some(&storage_field), ctx)?;
 
     let fsl = arrow_storage.as_fixed_size_list();
     let bytes = fsl

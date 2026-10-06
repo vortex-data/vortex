@@ -56,7 +56,7 @@ jobs:
           - { shard: 3, name: "Array dictionaries", packages: "vortex-array", array-group: "dictionary", features: "--features _test-harness" }
           - { shard: 4, name: "Array builders & views", packages: "vortex-array", array-group: "builders", features: "--features _test-harness" }
           - { shard: 5, name: "Core & encodings", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 6, name: "Main library & storage", packages: "vortex vortex-btrblocks vortex-row" }
+          - { shard: 6, name: "Main library & storage", packages: "vortex vortex-btrblocks vortex-compressor vortex-row" }
           - { shard: 7, name: "FastLanes & decimals", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
           - { shard: 8, name: "Encodings & layout", packages: "vortex-pco vortex-runend vortex-sequence vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
           - { shard: 9, name: "Strings, tensor & spatial", packages: "vortex-fsst vortex-tensor vortex-spatial", features: "--features _test-harness" }

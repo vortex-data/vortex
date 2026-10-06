@@ -180,8 +180,7 @@ impl ScalarFnVTable for BloomContains {
                 // Bloom filter length is never larger than a `u32`. This is intentional
                 // and a property of the implementation.
                 u32::try_from(partial.len()).vortex_expect("valid u32 size"),
-                options.blocks_count().get(),
-                "expected equal blocks count"
+                options.blocks_count().get()
             );
             partial.contains_scalar(&needle)
         };
@@ -447,7 +446,7 @@ mod tests {
             .execute(&options, &args, &mut ctx)
             .expect_err("the Bloom filter block count should not match the options");
         assert!(
-            error.to_string().contains("expected equal blocks count"),
+            error.to_string().contains("options.blocks_count().get()"),
             "unexpected error: {error}"
         );
     }
@@ -482,7 +481,7 @@ mod tests {
             ConstantArray::new(Scalar::primitive(42_i64, Nullability::Nullable), 1).into_array();
         let mut ctx = array_session().create_execution_ctx();
 
-        let planned = ScalarFnArray::try_new(BloomContains.bind(options), vec![filters, needle])?;
+        let planned = ScalarFnArray::try_new(BloomContains.bind(options), [filters, needle])?;
         let expected_dtype = planned.dtype().clone();
 
         // If the validity types are wrong (e.g. `bool? != bool`), `execute` will raise an error.

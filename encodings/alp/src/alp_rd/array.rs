@@ -45,7 +45,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -228,7 +228,13 @@ impl VTable for ALPRD {
             })?,
             left_parts_patches,
         );
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -375,7 +381,7 @@ impl ALPRD {
         let len = left_parts.len();
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
-        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data, slots))
     }
 
     /// # Safety
@@ -393,9 +399,7 @@ impl ALPRD {
         let data = unsafe {
             ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
         };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data, slots)) }
     }
 }
 
@@ -475,16 +479,8 @@ fn validate_parts(
         vortex_bail!("ALPRDArray given invalid DType ({dtype})");
     }
 
-    vortex_ensure!(
-        left_parts.len() == len,
-        "left_parts len {} != outer len {len}",
-        left_parts.len(),
-    );
-    vortex_ensure!(
-        right_parts.len() == len,
-        "right_parts len {} != outer len {len}",
-        right_parts.len(),
-    );
+    vortex_ensure_eq!(left_parts.len(), len);
+    vortex_ensure_eq!(right_parts.len(), len);
 
     if !left_parts.dtype().is_unsigned_int() {
         vortex_bail!("left_parts dtype must be uint");
@@ -502,29 +498,19 @@ fn validate_parts(
         DType::Primitive(PType::F64, _) => DType::Primitive(PType::U64, Nullability::NonNullable),
         _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
     };
-    vortex_ensure!(
-        right_parts.dtype() == &expected_right_parts_dtype,
-        "right_parts dtype {} does not match expected {}",
-        right_parts.dtype(),
-        expected_right_parts_dtype,
-    );
+    vortex_ensure_eq!(right_parts.dtype(), &expected_right_parts_dtype);
 
     if let Some(patches) = left_parts_patches {
-        vortex_ensure!(
-            patches.array_len() == len,
-            "patches array_len {} != outer len {len}",
-            patches.array_len(),
-        );
+        vortex_ensure_eq!(patches.array_len(), len);
         // Left-parts exceptions are always all-valid and are stored as the non-nullable left-parts
         // dtype. Requiring that exact dtype (rather than ignoring nullability) means each
         // construction path must produce correct patches, removing the need to normalize them.
         // Non-nullable also implies all-valid, so no separate validity check is required.
         let expected = left_parts.dtype().as_nonnullable();
-        vortex_ensure!(
-            patches.dtype() == &expected,
-            "patches dtype {} must be the non-nullable left_parts dtype {}",
+        vortex_ensure_eq!(
             patches.dtype(),
-            expected,
+            &expected,
+            "patches dtype must be the non-nullable left_parts dtype"
         );
     }
 

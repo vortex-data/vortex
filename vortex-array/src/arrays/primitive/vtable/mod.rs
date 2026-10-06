@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayParts;
 use crate::ArrayRef;
@@ -87,10 +88,13 @@ impl VTable for Primitive {
     ) -> VortexResult<ArrayParts<Self>> {
         let mut data = array.data().clone();
         data.buffer = fixed_width::single_buffer(buffers)?;
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -110,20 +114,18 @@ impl VTable for Primitive {
         let DType::Primitive(_, nullability) = dtype else {
             vortex_bail!("Expected primitive dtype, got {dtype:?}");
         };
-        vortex_ensure!(
-            data.len() == len,
-            "PrimitiveArray length {} does not match outer length {}",
+        vortex_ensure_eq!(
             data.len(),
-            len
+            len,
+            "PrimitiveArray length does not match outer length",
         );
         let validity =
             crate::array::child_to_validity(slots[PrimitiveSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "PrimitiveArray validity len {} does not match outer length {}",
+            vortex_ensure_eq!(
                 validity_len,
-                len
+                len,
+                "PrimitiveArray validity len does not match outer length",
             );
         }
 
@@ -170,7 +172,13 @@ impl VTable for Primitive {
         // SAFETY: the buffer length and alignment are checked above.
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

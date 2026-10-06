@@ -49,6 +49,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -179,11 +180,10 @@ impl Interleave {
             }
         }
 
-        vortex_ensure!(
-            array_indices.len() == row_indices.len(),
-            "interleave selectors must have equal length, got array_indices {} and row_indices {}",
+        vortex_ensure_eq!(
             array_indices.len(),
-            row_indices.len()
+            row_indices.len(),
+            "interleave selectors must have equal length",
         );
 
         let base_dtype = values[0].dtype();
@@ -273,10 +273,13 @@ impl Array<Interleave> {
             .len();
 
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Interleave, dtype, len, InterleaveData { num_values })
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Interleave,
+                dtype,
+                len,
+                InterleaveData { num_values },
+                slots,
+            ))
         }
     }
 }
@@ -298,11 +301,10 @@ impl VTable for Interleave {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == data.num_values + 2,
-            "InterleaveArray expected {} slots (values + array_indices + row_indices), got {}",
+        vortex_ensure_eq!(
+            slots.len(),
             data.num_values + 2,
-            slots.len()
+            "InterleaveArray expects values + array_indices + row_indices slots",
         );
         vortex_ensure!(
             slots.iter().all(|s| s.is_some()),
@@ -321,17 +323,15 @@ impl VTable for Interleave {
         // All semantic invariants live in `check`; here we only confirm the array's cached `dtype`
         // and `len` agree with what the children imply.
         let expected_dtype = Interleave::check(&values, &array_indices, &row_indices)?;
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "InterleaveArray dtype {} does not match the dtype implied by its children {}",
+        vortex_ensure_eq!(
             dtype,
-            expected_dtype
+            &expected_dtype,
+            "InterleaveArray dtype does not match the dtype implied by its children",
         );
-        vortex_ensure!(
-            len == array_indices.len(),
-            "InterleaveArray length {} does not match array_indices length {}",
+        vortex_ensure_eq!(
             len,
-            array_indices.len()
+            array_indices.len(),
+            "InterleaveArray length does not match array_indices length",
         );
         Ok(())
     }

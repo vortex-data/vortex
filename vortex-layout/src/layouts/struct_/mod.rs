@@ -16,7 +16,7 @@ use vortex_array::dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
@@ -67,8 +67,9 @@ impl VTable for Struct {
 
         for idx in 0..args.children.nchildren() {
             let child_row_count = args.children.child_row_count(idx);
-            vortex_ensure!(
-                child_row_count == args.row_count,
+            vortex_ensure_eq!(
+                child_row_count,
+                args.row_count,
                 "Struct child {idx} row count does not match parent"
             );
         }
@@ -179,10 +180,7 @@ impl Layout<Struct> {
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
         let expected = fields.nfields() + usize::from(dtype.is_nullable());
-        vortex_ensure!(
-            nchildren == expected,
-            "Struct layout has {nchildren} children, expected {expected}"
-        );
+        vortex_ensure_eq!(nchildren, expected);
         Ok(())
     }
 

@@ -11,6 +11,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
@@ -295,7 +296,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
             let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(view)?;
             if let Validity::Array(array) = &validity {
-                vortex_ensure!(array.len() == this.len(), "Validity array length mismatch");
+                vortex_ensure_eq!(array.len(), this.len(), "Validity array length mismatch");
                 vortex_ensure!(
                     matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
                     "Validity array is not non-nullable boolean: {}",
@@ -392,15 +393,13 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let stats = this.statistics().to_owned();
-        Ok(Array::<V>::try_from_parts(
-            ArrayParts::new(
-                self.vtable.clone(),
-                this.dtype().clone(),
-                this.len(),
-                self.data.clone(),
-            )
-            .with_slots(slots),
-        )?
+        Ok(Array::<V>::try_from_parts(ArrayParts::new(
+            self.vtable.clone(),
+            this.dtype().clone(),
+            this.len(),
+            self.data.clone(),
+            slots,
+        ))?
         .with_stats_set(stats)
         .into_array())
     }
@@ -418,17 +417,21 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.
-        let store = unsafe {
-            ArrayInner::<ArrayData<V>>::new_unchecked(
-                self.vtable.clone(),
-                this.len(),
-                this.dtype().clone(),
-                self.data.clone(),
-                slots,
-                this.statistics().to_array_stats(),
-            )
-        };
-        ArrayRef::from_inner(Arc::new(store))
+        let parts = ArrayParts::new(
+            self.vtable.clone(),
+            this.dtype().clone(),
+            this.len(),
+            self.data.clone(),
+            slots,
+        );
+        let encoding_id = self.vtable.id();
+        let stats = this.statistics().share_existing();
+        let uninit = Arc::new_uninit();
+
+        // SAFETY: `uninit` is new.
+        let store = unsafe { ArrayInner::init_arc(uninit, parts, encoding_id, stats) };
+
+        ArrayRef::from_inner(store)
     }
 
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -436,8 +439,9 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         let Some(reduced) = V::reduce(view)? else {
             return Ok(None);
         };
-        vortex_ensure!(
-            reduced.len() == this.len(),
+        vortex_ensure_eq!(
+            reduced.len(),
+            this.len(),
             "Reduced array length mismatch from {} to {}",
             this.encoding_id(),
             reduced.encoding_id()
@@ -467,14 +471,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             return Ok(None);
         };
 
-        vortex_ensure!(
-            reduced.len() == parent.len(),
+        vortex_ensure_eq!(
+            reduced.len(),
+            parent.len(),
             "Reduced array length mismatch from {} to {}",
             parent.encoding_id(),
             reduced.encoding_id()
         );
-        vortex_ensure!(
-            reduced.dtype() == parent.dtype(),
+        vortex_ensure_eq!(
+            reduced.dtype(),
+            parent.dtype(),
             "Reduced array dtype mismatch from {} to {}",
             parent.encoding_id(),
             reduced.encoding_id()
@@ -486,27 +492,26 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_array_stats();
+        let stats = this.statistics().to_owned();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
-                vortex_ensure!(
-                    result.array().len() == len,
+                vortex_ensure_eq!(
+                    result.array().len(),
+                    len,
                     "Result length mismatch for {:?}",
                     self.vtable
                 );
-                vortex_ensure!(
-                    result.array().dtype() == &dtype,
+                vortex_ensure_eq!(
+                    result.array().dtype(),
+                    &dtype,
                     "Executed canonical dtype mismatch for {:?}",
                     self.vtable
                 );
             }
 
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+            result.array().statistics().set_iter(stats.into_iter());
         }
 
         Ok(result)

@@ -46,7 +46,7 @@ impl FillNull {
     ///
     /// Returns an error if the children have different lengths or incompatible dtypes.
     pub fn try_new(input: ArrayRef, fill_value: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), vec![input, fill_value])
+        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), [input, fill_value])
     }
 }
 

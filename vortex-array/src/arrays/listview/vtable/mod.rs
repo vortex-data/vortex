@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -124,12 +125,7 @@ impl VTable for ListView {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == ListViewSlots::COUNT,
-            "ListViewArray expected {} slots, found {}",
-            ListViewSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), ListViewSlots::COUNT);
         let elements = slots[ListViewSlots::ELEMENTS]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
@@ -147,11 +143,10 @@ impl VTable for ListView {
         );
 
         let actual_dtype = DType::List(Arc::new(elements.dtype().clone()), dtype.nullability());
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "ListViewArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
+        vortex_ensure_eq!(
+            &actual_dtype,
+            dtype,
+            "ListViewArray dtype does not match outer dtype",
         );
 
         Ok(())
@@ -213,7 +208,13 @@ impl VTable for ListView {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

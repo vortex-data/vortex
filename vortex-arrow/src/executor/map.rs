@@ -17,7 +17,9 @@ use vortex_array::arrays::map::MapArrayExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
+use crate::ArrowExporter;
 use crate::executor::list::to_arrow_list;
 
 /// Converts a Vortex Map array into an Arrow [`MapArray`](ArrowMapArray).
@@ -29,6 +31,7 @@ pub(super) fn to_arrow_map(
     array: ArrayRef,
     entries_field: &FieldRef,
     keys_sorted: bool,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let array = match array.try_downcast::<Map>() {
@@ -43,11 +46,11 @@ pub(super) fn to_arrow_map(
 
     let entries = array.entries().clone();
     let entries_list_type = DataType::List(Arc::clone(entries_field));
-    let entries_list = to_arrow_list::<i32>(entries, entries_field, ctx)?;
-    vortex_ensure!(
-        entries_list.data_type() == &entries_list_type,
-        "Arrow Map entries converted to {}, expected {entries_list_type}",
-        entries_list.data_type()
+    let entries_list = to_arrow_list::<i32>(entries, entries_field, exporter, ctx)?;
+    vortex_ensure_eq!(
+        entries_list.data_type(),
+        &entries_list_type,
+        "Arrow Map entries converted to an unexpected type"
     );
 
     let entries_list = entries_list.as_list::<i32>();

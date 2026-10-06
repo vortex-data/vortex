@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex in memory columnar data format"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 
@@ -26,7 +24,6 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-lock = { workspace = true }
@@ -153,6 +150,10 @@ harness = false
 
 [[bench]]
 name = "like"
+harness = false
+
+[[bench]]
+name = "list_contains_set"
 harness = false
 
 [[bench]]

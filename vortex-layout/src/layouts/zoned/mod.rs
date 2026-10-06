@@ -422,10 +422,10 @@ impl DeserializeMetadata for ZonedMetadata {
             vortex_bail!("Zoned metadata missing protobuf version");
         };
 
-        vortex_ensure!(
-            version == ZONED_METADATA_PROTO_VERSION,
-            "Unsupported zoned metadata version: {}",
-            version
+        vortex_ensure_eq!(
+            version,
+            ZONED_METADATA_PROTO_VERSION,
+            "Unsupported zoned metadata version"
         );
         vortex_ensure!(!proto_bytes.is_empty(), "Zoned metadata missing protobuf");
 

@@ -39,7 +39,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
@@ -179,11 +179,10 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if !input.is_root() {
             return Ok(None);
         }
-        vortex_ensure!(
-            input.dtype() == &self.zone_map.column_dtype,
-            "Stats predicate root dtype {} does not match zone-map column dtype {}",
+        vortex_ensure_eq!(
             input.dtype(),
-            self.zone_map.column_dtype
+            &self.zone_map.column_dtype,
+            "Stats predicate root dtype does not match zone-map column dtype"
         );
 
         if let Some(stat_expr) = self.zone_map.aggregate_field_expr(aggregate_fn) {

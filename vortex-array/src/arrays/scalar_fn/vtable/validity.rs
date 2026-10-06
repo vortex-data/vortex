@@ -44,10 +44,13 @@ impl Array<ScalarFnValidity> {
     pub(crate) fn new(child: ArrayRef) -> Self {
         let len = child.len();
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ScalarFnValidity, Validity::DTYPE, len, EmptyArrayData)
-                    .with_slots(ValiditySlots { child }.into_slots()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                ScalarFnValidity,
+                Validity::DTYPE,
+                len,
+                EmptyArrayData,
+                ValiditySlots { child }.into_slots(),
+            ))
         }
     }
 }

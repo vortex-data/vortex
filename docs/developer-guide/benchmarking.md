@@ -257,17 +257,24 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on every
   commit to `develop`, with results uploaded for historical tracking.
 - **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
+- **Random access (S3)** -- `action/bench-random-access-s3` runs the random-access benchmark
+  against data uploaded to S3 instead of local disk.
 - **Compression** -- `action/bench-compress` runs only the compression benchmark.
 - **String encoding** -- `action/bench-string` runs only the string encoding benchmark.
 - **GPU compression** -- `action/bench-gpu-compress` runs the allow-listed Vortex decompression
   cases on a GPU runner.
-- **SQL** -- `action/bench-sql` runs the `pr` preset, which excludes `vortex-compact`.
+- **SQL** -- `action/bench-sql` runs the `pr` preset, a quick core subset of the SQL benchmarks
+  that excludes `vortex-compact`, Clickbench Sorted, Appian, statpopgen, FineWeb on S3, TPC-H SF=10
+  on S3, and Vortex queries.
+- **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
+  benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,
-  and the `pr-all` SQL preset, which combines the `pr` and `pr-compact` coverage without
-  repeating shared jobs. Do not combine it with other benchmark labels; GPU compression is the
-  only exception.
+  and the `pr-all` SQL preset, which combines the `pr` and `pr-compact` coverage, plus the
+  default targets of Clickbench Sorted, statpopgen, and FineWeb on S3, without repeating shared
+  jobs. Do not combine it with other benchmark labels;
+  GPU compression is the only exception.
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.

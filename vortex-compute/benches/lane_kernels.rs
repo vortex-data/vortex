@@ -195,6 +195,20 @@ fn try_map_masked_into_widen_u16_u32(bencher: Bencher, n: usize) {
 }
 
 #[divan::bench(args = SIZES)]
+fn map_masked_into_widen_u16_u32(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+
+    bencher
+        .with_inputs(|| (f.values_u16.clone(), f.mask.clone(), uninit_out::<u32>(n)))
+        .bench_values(|(values, mask, mut out)| {
+            values
+                .as_slice()
+                .map_masked_into(&mask, out.as_mut_slice(), |v| v.as_());
+            out
+        });
+}
+
+#[divan::bench(args = SIZES)]
 fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
     let f = cast_fixture(n);
 

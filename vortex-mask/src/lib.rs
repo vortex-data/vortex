@@ -483,22 +483,7 @@ impl Mask {
                     return slices.last().map(|(_, end)| end - 1);
                 }
 
-                if values.true_count == 0 {
-                    return None;
-                }
-
-                Some(
-                    values
-                        .buffer
-                        .select(values.true_count - 1)
-                        .unwrap_or_else(|| {
-                            vortex_panic!(
-                                "Rank {} out of bounds for mask with true count {}",
-                                values.true_count - 1,
-                                values.true_count
-                            )
-                        }),
-                )
+                values.buffer.last_set_index()
             }
         }
     }

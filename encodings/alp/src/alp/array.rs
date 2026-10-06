@@ -42,6 +42,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -168,7 +169,13 @@ impl VTable for ALP {
             },
             patches,
         );
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -288,12 +295,7 @@ impl ALPData {
 
         // Validate patches
         if let Some(patches) = patches {
-            vortex_ensure!(
-                patches.array_len() == encoded.len(),
-                "patches array_len != encoded len: {} != {}",
-                patches.array_len(),
-                encoded.len()
-            );
+            vortex_ensure_eq!(patches.array_len(), encoded.len());
 
             // Verify that the patches DType are of the proper DType.
         }
@@ -318,19 +320,10 @@ impl ALPData {
         patches: &Patches,
         encoded: &ArrayRef,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            patches.array_len() == encoded.len(),
-            "patches array_len != encoded len: {} != {}",
-            patches.array_len(),
-            encoded.len()
-        );
+        vortex_ensure_eq!(patches.array_len(), encoded.len());
 
         let expected_type = DType::Primitive(T::PTYPE, encoded.dtype().nullability());
-        vortex_ensure!(
-            patches.dtype() == &expected_type,
-            "Expected patches type {expected_type}, actual {}",
-            patches.dtype(),
-        );
+        vortex_ensure_eq!(patches.dtype(), &expected_type);
 
         Ok(())
     }
@@ -370,10 +363,13 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ALP, dtype, len, ALPData::new(exponents, patches))
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                ALP,
+                dtype,
+                len,
+                ALPData::new(exponents, patches),
+                slots,
+            ))
         }
     }
 
@@ -386,7 +382,7 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = ALPData::new(exponents, patches);
-        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data, slots))
     }
 
     /// # Safety
@@ -400,9 +396,7 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = unsafe { ALPData::new_unchecked(exponents, patches) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data, slots)) }
     }
 }
 
@@ -443,16 +437,11 @@ fn validate_parts(
 ) -> VortexResult<()> {
     let logical_dtype = ALPData::logical_dtype(encoded)?;
     ALPData::validate_components(encoded, exponents, patches.as_ref())?;
-    vortex_ensure!(
-        encoded.len() == len,
-        "ALP encoded len {} != outer len {len}",
-        encoded.len(),
-    );
-    vortex_ensure!(
-        &logical_dtype == dtype,
-        "ALP dtype {} does not match encoded logical dtype {}",
+    vortex_ensure_eq!(encoded.len(), len, "ALP encoded len must match outer len");
+    vortex_ensure_eq!(
+        &logical_dtype,
         dtype,
-        logical_dtype,
+        "ALP dtype does not match encoded logical dtype"
     );
     Ok(())
 }

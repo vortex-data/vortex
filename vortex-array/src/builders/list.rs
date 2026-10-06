@@ -9,7 +9,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -137,12 +137,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == self.element_dtype(),
-            "Array dtype {:?} does not match list element dtype {:?}",
-            array.dtype(),
-            self.element_dtype()
-        );
+        vortex_ensure_eq!(array.dtype(), self.element_dtype());
 
         self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
@@ -392,11 +387,10 @@ impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == self.dtype(),
-            "ListBuilder expected scalar with dtype {}, got {}",
+        vortex_ensure_eq!(
+            scalar.dtype(),
             self.dtype(),
-            scalar.dtype()
+            "ListBuilder received a scalar with the wrong dtype"
         );
 
         self.append_value(scalar.as_list())

@@ -22,7 +22,7 @@ use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -77,11 +77,10 @@ impl CudaExecute for ListExecutor {
             .execute_cuda(ctx)
             .await?
             .into_primitive();
-        vortex_ensure!(
-            offsets.len() == list_len + 1,
-            "ListArray must have {} offsets, got {}",
+        vortex_ensure_eq!(
+            offsets.len(),
             list_len + 1,
-            offsets.len()
+            "ListArray must have one more offset than lists"
         );
 
         let offsets_ptype = offsets.ptype();

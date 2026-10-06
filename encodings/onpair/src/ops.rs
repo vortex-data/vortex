@@ -10,6 +10,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
@@ -61,10 +62,7 @@ impl OperationsVTable<OnPair> for OnPair {
                 Ok(written) => written,
                 Err(_) => vortex_bail!("OnPair row {index} exceeds its recorded length"),
             };
-        vortex_ensure!(
-            written == len,
-            "OnPair row {index} decoded {written} bytes, recorded {len}"
-        );
+        vortex_ensure_eq!(written, len, "OnPair row {index} decoded length mismatch");
         // SAFETY: `try_decode_into` initialised exactly `written` bytes.
         unsafe { buf.set_len(written) };
         Ok(varbin_scalar(ByteBuffer::from(buf), array.dtype()))

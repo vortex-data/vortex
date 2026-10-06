@@ -16,6 +16,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
@@ -32,7 +33,8 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -65,15 +67,8 @@ impl VTable for ZigZag {
     ) -> VortexResult<()> {
         let encoded = ZigZagSlotsView::from_slots(slots).encoded;
         let expected_dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "expected dtype {expected_dtype}, got {dtype}"
-        );
-        vortex_ensure!(
-            encoded.len() == len,
-            "expected len {len}, got {}",
-            encoded.len()
-        );
+        vortex_ensure_eq!(dtype, &expected_dtype);
+        vortex_ensure_eq!(encoded.len(), len);
         Ok(())
     }
 
@@ -129,7 +124,13 @@ impl VTable for ZigZag {
         let encoded = children.get(0, &encoded_type, len)?;
         let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -197,9 +198,11 @@ impl ZigZag {
         let len = encoded.len();
         let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data).with_slots(slots))
-        })
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data, slots))
+            },
+        )
     }
 }
 
@@ -233,12 +236,16 @@ impl Default for ZigZagData {
 impl OperationsVTable<ZigZag> for ZigZag {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, ZigZag>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, ZigZag>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let scalar = array.encoded().execute_scalar(index, ctx)?;
+        let array = state.array();
+        let scalar = state
+            .slot(ZigZagSlots::ENCODED)?
+            .ok_or_else(|| vortex_err!("ZigZag encoded slot is missing"))?
+            .execute_scalar(index, ctx)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));
         }
@@ -254,6 +261,14 @@ impl OperationsVTable<ZigZag> for ZigZag {
                 array.dtype().nullability(),
             )
         }))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, ZigZag>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

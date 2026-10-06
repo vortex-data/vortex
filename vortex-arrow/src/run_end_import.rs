@@ -13,7 +13,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_runend::RunEnd;
 
 /// Build a Vortex run-end array from an Arrow [`RunArray`] and its already-converted `values`.
@@ -33,11 +33,10 @@ where
         .reinterpret_cast(R::Native::PTYPE.to_unsigned())
         .into_array();
 
-    vortex_ensure!(
-        ends.len() == values.len(),
-        "Arrow run-end array has {} run ends but {} values",
+    vortex_ensure_eq!(
         ends.len(),
-        values.len()
+        values.len(),
+        "Arrow run-end array must have one value per run end"
     );
 
     // Arrow slices a RunArray by adjusting the logical offset/length while keeping the full

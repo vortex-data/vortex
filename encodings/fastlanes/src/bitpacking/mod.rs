@@ -7,6 +7,8 @@ pub use array::BitPackedArraySlotsExt;
 pub use array::BitPackedData;
 pub use array::BitPackedDataParts;
 pub use array::BitPackedSlots;
+pub use array::BitWidths;
+pub use array::BitWidthsView;
 pub use array::bitpack_compress;
 pub use array::bitpack_decompress;
 pub use array::unpack_iter;

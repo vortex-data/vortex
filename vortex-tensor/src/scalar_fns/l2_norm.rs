@@ -57,7 +57,7 @@ impl L2Norm {
     /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
     /// [`Vector`]: crate::vector::Vector
     pub fn try_new(child: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(L2Norm.bind(EmptyOptions), vec![child])
+        ScalarFnArray::try_new(L2Norm.bind(EmptyOptions), [child])
     }
 }
 

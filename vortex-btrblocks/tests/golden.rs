@@ -136,6 +136,10 @@ fn golden_snapshots(
 fn corpus() -> VortexResult<Vec<(&'static str, ArrayRef)>> {
     Ok(vec![
         ("int_monotone_jitter", int_monotone_jitter()),
+        (
+            "int_monotone_jitter_nullable",
+            int_monotone_jitter_nullable(),
+        ),
         ("int_arithmetic_sequence", int_arithmetic_sequence()),
         ("int_low_cardinality", int_low_cardinality()),
         ("int_runs", int_runs()),
@@ -169,6 +173,27 @@ fn int_monotone_jitter() -> ArrayRef {
         })
         .collect();
     PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+/// [`int_monotone_jitter`] with a tenth of the slots null: covers the nullable Delta tree, whose
+/// validity is a top-level child rather than part of the deltas, once Delta rejoins
+/// [`ALL_SCHEMES`](vortex_btrblocks::ALL_SCHEMES).
+fn int_monotone_jitter_nullable() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(101);
+    let mut value = 1_700_000_000_000u64;
+    let mut validity: Vec<bool> = Vec::with_capacity(N);
+    let values: Buffer<u64> = (0..N)
+        .map(|_| {
+            value += 900 + rng.random_range(0..200);
+            validity.push(rng.random_range(0..10) != 0);
+            value
+        })
+        .collect();
+    PrimitiveArray::new(
+        values,
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
+    )
+    .into_array()
 }
 
 /// Exact arithmetic sequence: Sequence habitat (distinct == len, no nulls).

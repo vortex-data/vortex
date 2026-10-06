@@ -20,7 +20,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::registry::CachedId;
 
 /// Zero-argument placeholder for the row count of the current evaluation scope.
@@ -119,17 +119,15 @@ pub fn contains_row_count(array: &ArrayRef) -> bool {
 /// [`ScalarFnArray`]: vortex_array::arrays::ScalarFnArray
 pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexResult<ArrayRef> {
     if array.is::<ExactScalarFn<RowCount>>() {
-        vortex_ensure!(
-            replacement.len() == array.len(),
-            "RowCount replacement length {} does not match scope length {}",
+        vortex_ensure_eq!(
             replacement.len(),
             array.len(),
+            "RowCount replacement length does not match scope length",
         );
-        vortex_ensure!(
-            replacement.dtype() == array.dtype(),
-            "RowCount replacement dtype {} does not match scope dtype {}",
+        vortex_ensure_eq!(
             replacement.dtype(),
             array.dtype(),
+            "RowCount replacement dtype does not match scope dtype",
         );
         return Ok(replacement.clone());
     }

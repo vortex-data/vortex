@@ -190,7 +190,7 @@ mod tests {
                     ConstantArray::new(7i32, 100).into_array()
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
         let array = ScalarFnArray::try_new(
             TypedScalarFnInstance::new(Binary, Operator::Add).erased(),
             children,

@@ -22,13 +22,15 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
+use crate::ArrowExporter;
 use crate::executor::validity::to_arrow_null_buffer;
-use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ArrayRef,
     elements_field: &FieldRef,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -66,12 +68,13 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         array
     };
 
-    list_view_to_list_view::<O>(array, elements_field, ctx)
+    list_view_to_list_view::<O>(array, elements_field, exporter, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ListViewArray,
     elements_field: &FieldRef,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     let ListViewDataParts {
@@ -83,21 +86,17 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     } = array.into_data_parts();
 
     let n_elements = elements.len();
-    let elements = ctx.session().clone().arrow().execute_arrow(
-        elements,
-        Some(elements_field.as_ref()),
-        ctx,
-    )?;
+    let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"
     );
     // The unchecked construction below needs the views in bounds of the *exported* elements, so
     // confirm the export preserved the length the Vortex invariant was checked against.
-    vortex_ensure!(
-        elements.len() == n_elements,
-        "Arrow export changed the elements length: {n_elements} became {}",
-        elements.len()
+    vortex_ensure_eq!(
+        elements.len(),
+        n_elements,
+        "Arrow export changed the elements length"
     );
 
     let offsets = offsets

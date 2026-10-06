@@ -19,6 +19,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
@@ -37,6 +38,7 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::scalar::DecimalToIntegerCast;
 use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::validity::Validity;
@@ -146,6 +148,11 @@ impl CastKernel for Decimal {
         }
 
         let valid_values = validity.execute_mask(array.len(), ctx)?;
+        if !array.is_empty() && matches!(valid_values, Mask::AllFalse(_)) {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(dtype.clone()), array.len()).into_array(),
+            ));
+        }
         let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
 
         match_each_decimal_value_type!(array.values_type(), |F| {
@@ -171,6 +178,13 @@ fn cast_to_integer<T: IntegerPType + BigCast>(
     let source_validity = array.validity()?;
     let mask = source_validity.execute_mask(array.len(), ctx)?;
     let validity = source_validity.cast_nullability(nullability, array.len(), ctx)?;
+    if !array.is_empty() && matches!(mask, Mask::AllFalse(_)) {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Primitive(T::PTYPE, nullability)),
+            array.len(),
+        )
+        .into_array());
+    }
     let cast = DecimalToIntegerCast::<T>::new(array.decimal_dtype().scale());
     let buffer = match_each_decimal_value_type!(array.values_type(), |F| {
         let values = array.buffer::<F>();
@@ -192,6 +206,12 @@ fn cast_to_f64(
     let n = array.len();
     let mask = source_validity.execute_mask(n, ctx)?;
     let validity = source_validity.cast_nullability(nullability, n, ctx)?;
+    if n > 0 && matches!(mask, Mask::AllFalse(_)) {
+        return Ok(
+            ConstantArray::new(Scalar::null(DType::Primitive(PType::F64, nullability)), n)
+                .into_array(),
+        );
+    }
 
     let scale: i32 = scale.as_();
     let inv_factor: f64 = 10f64.powi(-scale);

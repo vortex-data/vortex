@@ -26,7 +26,7 @@ use std::sync::atomic::Ordering;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -45,7 +45,6 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
-use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::trace_op;
 
@@ -268,7 +267,7 @@ impl ArrayRef {
 
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_array_stats();
+            let stats = current_array.statistics().to_owned();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -592,7 +591,7 @@ fn finalize_done(
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
     expected_dtype: DType,
-    stats: ArrayStats,
+    stats: StatsSet,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
@@ -602,21 +601,21 @@ fn finalize_done(
     };
 
     if cfg!(debug_assertions) {
-        vortex_ensure!(
-            output.len() == expected_len,
+        vortex_ensure_eq!(
+            output.len(),
+            expected_len,
             "Result length mismatch for {:?}",
             encoding_id
         );
-        vortex_ensure!(
-            output.dtype() == &expected_dtype,
+        vortex_ensure_eq!(
+            output.dtype(),
+            &expected_dtype,
             "Executed canonical dtype mismatch for {:?}",
             encoding_id
         );
     }
 
-    output
-        .statistics()
-        .set_iter(StatsSet::from(stats).into_iter());
+    output.statistics().set_iter(stats.into_iter());
     Ok((output, None))
 }
 
@@ -634,12 +633,14 @@ fn execute_parent_for_child(
         for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
-                    vortex_ensure!(
-                        result.len() == parent.len(),
+                    vortex_ensure_eq!(
+                        result.len(),
+                        parent.len(),
                         "Executed parent canonical length mismatch"
                     );
-                    vortex_ensure!(
-                        result.dtype() == parent.dtype(),
+                    vortex_ensure_eq!(
+                        result.dtype(),
+                        parent.dtype(),
                         "Executed parent canonical dtype mismatch"
                     );
                 }

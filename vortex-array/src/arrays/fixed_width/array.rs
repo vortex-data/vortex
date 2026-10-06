@@ -55,8 +55,7 @@ pub(crate) fn with_values<V: FixedWidthArray>(
     vortex_ensure_eq!(
         values.len(),
         expected_len,
-        "Fixed-width values buffer length {} does not match expected length {expected_len}",
-        values.len(),
+        "Fixed-width values buffer length does not match expected length",
     );
     V::with_values(array, values, len, validity)
 }

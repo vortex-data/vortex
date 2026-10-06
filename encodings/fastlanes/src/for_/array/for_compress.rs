@@ -11,6 +11,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
@@ -19,9 +20,11 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
@@ -53,21 +56,29 @@ impl FoRData {
     }
 }
 
+/// Subtracts `min` from every valid value. Null slots are written as zero so they cost no bits in
+/// a downstream bit-packing, and the validity bit selects the zero without a branch per value.
 fn encode_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    // Set null values to the min value, ensuring that decompress into a value in the primitive
-    // range (and stop them wrapping around).
-    let encoded = parray.map_each_with_validity::<T, _, _>(ctx, |(v, bool)| {
-        if bool {
-            v.wrapping_sub(&min)
-        } else {
-            T::zero()
-        }
-    })?;
-    Ok(encoded)
+    let validity = parray.validity()?;
+    let len = parray.len();
+    let values = parray.as_slice::<T>();
+    let subtract = |v: T| v.wrapping_sub(&min);
+
+    let mut encoded = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+    let out = &mut encoded.spare_capacity_mut()[..len];
+    match validity.execute_mask(len, ctx)? {
+        Mask::AllTrue(_) => values.map_into(out, subtract),
+        Mask::AllFalse(_) => out.fill(MaybeUninit::new(T::zero())),
+        Mask::Values(mask) => values.map_masked_into(mask.bit_buffer(), out, subtract),
+    }
+    // SAFETY: each branch writes every lane of `out`, which spans exactly `len` items.
+    unsafe { encoded.set_len(len) };
+
+    Ok(PrimitiveArray::new(encoded.freeze(), validity))
 }
 
 fn encode_chunked_typed<T: NativePType + WrappingSub + PrimInt>(
@@ -329,6 +340,30 @@ mod test {
 
         let encoded = compressed.encoded().execute_scalar(0, &mut ctx).unwrap();
         assert_eq!(encoded, Scalar::from(0i32));
+    }
+
+    #[test]
+    fn test_compress_nullable_zeroes_null_slots() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_option_iter(
+            (0..200i32).map(|i| (i % 3 != 0).then_some(1_000 + i)),
+        );
+        let compressed = FoRData::encode(array.clone(), &mut ctx)?;
+        let reference = compressed
+            .constant_reference()
+            .ok_or_else(|| vortex_err!("expected a constant reference"))?;
+        assert_eq!(i32::try_from(&reference)?, 1_001);
+
+        let encoded = compressed
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let expected: Vec<i32> = (0..200i32)
+            .map(|i| if i % 3 != 0 { i - 1 } else { 0 })
+            .collect();
+        assert_eq!(encoded.as_slice::<i32>(), expected.as_slice());
+        assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
     }
 
     #[test]

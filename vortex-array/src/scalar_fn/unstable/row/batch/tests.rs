@@ -1444,7 +1444,7 @@ fn test_declared_output_dtype_rejects_mismatched_storage() -> VortexResult<()> {
         .to_string();
 
     assert!(
-        error.contains("must store"),
+        error.contains("has the wrong storage dtype"),
         "the label error must report the expected storage dtype, got {error}",
     );
     Ok(())

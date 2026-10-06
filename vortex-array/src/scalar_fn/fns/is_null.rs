@@ -33,7 +33,7 @@ impl IsNull {
     /// Creates a lazy null check over `input`.
     #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
     pub fn new(input: ArrayRef) -> ScalarFnArray {
-        ScalarFnArray::try_new(IsNull.bind(EmptyOptions), vec![input])
+        ScalarFnArray::try_new(IsNull.bind(EmptyOptions), [input])
             .vortex_expect("IsNull has one child and an infallible return dtype")
     }
 }
