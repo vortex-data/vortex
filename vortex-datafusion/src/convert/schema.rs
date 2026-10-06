@@ -33,12 +33,20 @@ pub fn calculate_physical_schema(
         ));
     };
 
+    let reference_fields = reference_logical_schema.fields();
     let fields: Vec<Field> = struct_dtype
         .names()
         .iter()
         .zip(struct_dtype.fields())
-        .map(|(name, field_dtype)| {
-            let logical_field = reference_logical_schema.field_with_name(name.as_ref()).ok();
+        .enumerate()
+        .map(|(idx, (name, field_dtype))| {
+            // Files usually share the table's column order, so try the field at the same position
+            // before searching by name, which would make wide schemas quadratic.
+            let logical_field = reference_fields
+                .get(idx)
+                .filter(|field| field.name() == name.as_ref())
+                .map(|field| field.as_ref())
+                .or_else(|| reference_logical_schema.field_with_name(name.as_ref()).ok());
             match logical_field {
                 Some(logical_field) => {
                     let arrow_type = calculate_physical_field_type(
