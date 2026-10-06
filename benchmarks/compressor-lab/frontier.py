@@ -39,12 +39,18 @@ def main() -> None:
           f"their source")
     print(f"production: ratio {canon / prod.bytes.sum():.2f}x, decode {canon / prod.decode_ns.sum():.2f} GB/s\n")
     print("cost = bytes / bandwidth + decode time (compression time not counted)\n")
-    print(f"{'bandwidth':>10}  {'model cost':>10} {'best root':>10}  {'ratio':>15} {'decode GB/s':>15}  "
+    print(f"{'policy':>26}  {'model cost':>10} {'best root':>10}  {'ratio':>15} {'decode GB/s':>15}  "
           f"{'tried':>5} {'kept':>5}  {'compress':>8}  worst source")
 
-    for variant in [v for v in ev.variant.unique() if v.startswith("model@")]:
-        label = variant.split("@", 1)[1]
-        bw = bandwidth(label)
+    def order(v):
+        kind, bw_label, k = v.split("@")
+        rank = 999 if k == "kall" else int(k[1:]) if k.startswith("k") else 500
+        return (bandwidth(bw_label), kind, rank, k)
+
+    policies = (v for v in ev.variant.unique() if v.startswith(("model@", "trial@")))
+    for variant in sorted(policies, key=order):
+        label = variant
+        bw = bandwidth(variant.split("@")[1])
         model = ev[ev.variant == variant].set_index(KEY)
 
         def cost(df):
@@ -58,13 +64,13 @@ def main() -> None:
         oracle = best.loc[dprod.index].sum() / dprod.sum() - 1
         per_src = (m.groupby(level="source").sum() / p.groupby(level="source").sum() - 1)
         worst = per_src.idxmax()
-        print(f"{label:>10}  {m.sum() / p.sum() - 1:>+10.1%} {oracle:>+10.1%}  "
+        print(f"{label:>26}  {m.sum() / p.sum() - 1:>+10.1%} {oracle:>+10.1%}  "
               f"{canon / prod.bytes.sum():>6.2f}→{canon / model.bytes.sum():<6.2f}x "
               f"{canon / prod.decode_ns.sum():>6.2f}→{canon / model.decode_ns.sum():<6.2f}  "
               f"{model.tried.mean():>5.0%} {model.kept.ne('production').mean():>5.0%}  "
               f"{model.compress_ns.sum() / prod.compress_ns.sum():>7.2f}x  {worst} {per_src[worst]:+.1%}")
         kept = model.kept[model.kept != "production"].value_counts().head(4)
-        print(f"{'':>10}  kept: {', '.join(f'{k} {v}' for k, v in kept.items())}")
+        print(f"{'':>26}  kept: {', '.join(f'{k} {v}' for k, v in kept.items())}")
 
 
 if __name__ == "__main__":

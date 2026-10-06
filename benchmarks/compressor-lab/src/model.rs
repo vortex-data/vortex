@@ -172,6 +172,7 @@ pub fn compress(
     bandwidth: f64,
     reads: f64,
     gate: f64,
+    top_k: usize,
     input: &ArrayRef,
     session: &VortexSession,
     ctx: &mut ExecutionCtx,
@@ -226,67 +227,71 @@ pub fn compress(
     let benefit = |p: &Prediction| {
         reads * (prod_pred.cost(bandwidth) - p.cost(bandwidth)) - p.compress_ns / 1e9
     };
-    let best = predictions
+    // Rank alternatives by predicted net benefit. `top_k = usize::MAX` tries every candidate, which
+    // finds the best measured encoding at the price of compressing with all of them.
+    let mut ranked: Vec<&Prediction> = predictions
         .iter()
         .filter(|p| p.name != "production" && candidates.contains_key(&p.name))
-        .max_by(|a, b| benefit(a).total_cmp(&benefit(b)));
-    let Some(best) = best else {
-        return Ok(Outcome {
-            array: prod_array,
-            proposed: "production".to_string(),
-            tried: false,
-            kept: "production".to_string(),
-        });
-    };
+        .collect();
+    ranked.sort_by(|a, b| benefit(b).total_cmp(&benefit(a)));
+    let proposed = ranked
+        .first()
+        .map_or_else(|| "production".to_string(), |p| p.name.clone());
+    let exhaustive = top_k == usize::MAX;
     // Predicted savings are optimistic, so the saving must cover the extra compression twice over.
-    if benefit(best) <= best.compress_ns / 1e9
-        || best.cost(bandwidth) > prod_pred.cost(bandwidth) * (1.0 - gate)
-    {
-        return Ok(Outcome {
-            array: prod_array,
-            proposed: best.name.clone(),
-            tried: false,
-            kept: "production".to_string(),
-        });
-    }
+    let worth_trying = |p: &Prediction| {
+        exhaustive
+            || (benefit(p) > p.compress_ns / 1e9
+                && p.cost(bandwidth) <= prod_pred.cost(bandwidth) * (1.0 - gate))
+    };
+    let to_try: Vec<&Prediction> = ranked
+        .into_iter()
+        .filter(|p| worth_trying(p))
+        .take(top_k)
+        .collect();
 
-    let alternative = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        candidates[&best.name].compress(input, ctx)
-    }));
-    let Ok(Ok(alt_array)) = alternative else {
-        return Ok(Outcome {
-            array: prod_array,
-            proposed: best.name.clone(),
-            tried: true,
-            kept: "production".to_string(),
-        });
-    };
-    // Decoding is ~20x cheaper than compressing, so verify with a measured decode time.
-    let mut real = |array: &ArrayRef| -> anyhow::Result<f64> {
-        let mut decode_ns = u128::MAX;
-        for _ in 0..2 {
-            let start = std::time::Instant::now();
-            std::hint::black_box(array.clone().execute::<vortex_array::Canonical>(ctx)?);
-            decode_ns = decode_ns.min(start.elapsed().as_nanos());
-        }
-        Ok(
-            crate::blob::serialized_size(array, session)? as f64 / bandwidth
-                + decode_ns as f64 / 1e9,
-        )
-    };
-    if real(&alt_array)? < real(&prod_array)? {
-        Ok(Outcome {
-            array: alt_array,
-            proposed: best.name.clone(),
-            tried: true,
-            kept: best.name.clone(),
-        })
+    let tried = !to_try.is_empty();
+    let mut best_cost = if tried {
+        measured_cost(&prod_array, bandwidth, session, ctx)?
     } else {
-        Ok(Outcome {
-            array: prod_array,
-            proposed: best.name.clone(),
-            tried: true,
-            kept: "production".to_string(),
-        })
+        f64::INFINITY
+    };
+    let mut best = (prod_array, "production".to_string());
+    for candidate in to_try {
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            candidates[&candidate.name].compress(input, ctx)
+        }));
+        let Ok(Ok(array)) = attempt else {
+            continue;
+        };
+        let cost = measured_cost(&array, bandwidth, session, ctx)?;
+        if cost < best_cost {
+            best_cost = cost;
+            best = (array, candidate.name.clone());
+        }
     }
+    Ok(Outcome {
+        array: best.0,
+        proposed,
+        tried,
+        kept: best.1,
+    })
+}
+
+/// Real serving cost of an encoding: its serialized bytes over the bandwidth plus a measured
+/// decode time. Decoding is ~20x cheaper than compressing, so measuring it during verification is
+/// affordable; the minimum of three decodes damps timing noise.
+pub fn measured_cost(
+    array: &ArrayRef,
+    bandwidth: f64,
+    session: &VortexSession,
+    ctx: &mut ExecutionCtx,
+) -> anyhow::Result<f64> {
+    let mut decode_ns = u128::MAX;
+    for _ in 0..3 {
+        let start = std::time::Instant::now();
+        std::hint::black_box(array.clone().execute::<vortex_array::Canonical>(ctx)?);
+        decode_ns = decode_ns.min(start.elapsed().as_nanos());
+    }
+    Ok(crate::blob::serialized_size(array, session)? as f64 / bandwidth + decode_ns as f64 / 1e9)
 }

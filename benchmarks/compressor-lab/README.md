@@ -51,6 +51,53 @@ store/
 `vx-lab plan show --store` reports progress per stage and timing runs per machine.
 `vx-lab plan tasks --kind candidates --shard 3/16 --pending --store` lists work to hand out.
 
+## Evaluating policies: `vx-lab eval`
+
+`vx-lab eval` compresses every chunk of a plan with production and with each policy, measuring
+real bytes, compression and decode time in one process. `frontier.py` reports:
+
+- cost: `bytes / bandwidth + decode time`;
+- compression ratio and decode throughput;
+- the per-chunk best root from the dataset, for comparison.
+
+There are two kinds of policy:
+
+- **`model@<bw>@k<k>`** is the model-driven compressor. It uses the model trained without the
+  chunk's source, compresses its top `k` proposals, and keeps the cheapest measured encoding.
+- **`trial@<bw>@<set>`** compresses with production plus a fixed set of candidates and keeps the
+  cheapest measured encoding. No model is involved.
+
+### Result: optimising compression ratio and decode speed together (int-v1, default encodings)
+
+On 1,582 integer chunks, everything here is measured. Cost is relative to production at the same
+bandwidth; compression time is not part of the objective.
+
+| Bandwidth | Best policy | Cost | Best possible | Ratio | Decode | Compress time |
+|---|---|---|---|---|---|---|
+| 100 MB/s | production + size model | **−6.3%** | −7.0% | 5.51 → 5.90× | 8.1 → 8.3 GB/s | 2.4× |
+| 2 GB/s | production + forced FOR | **−20.7%** | −25.4% | 5.51 → 4.48× | 8.1 → 17.1 GB/s | 1.9× |
+| 2 GB/s | production + FOR + Sparse | −22.2% | −25.4% | 5.51 → 4.56× | 8.1 → 17.6 GB/s | 4.4× |
+| 8 GB/s | production + forced FOR | **−44.9%** | −48.6% | 5.51 → 3.54× | 8.1 → 22.1 GB/s | 1.9× |
+| 32 GB/s | production + forced FOR | **−59.5%** | −62.9% | 5.51 → 3.16× | 8.1 → 23.6 GB/s | 1.9× |
+
+No source is worse by more than 0.9% under these policies.
+
+- **The trial sets were chosen on held-out sources and are stable.** The size model wins at low
+  bandwidth; FOR (or plain bit-packing) wins at 8 GB/s and above. At 2 GB/s a single trial is
+  not stable across sources, but FOR + Sparse is.
+- **The learned model with one verified proposal does far worse:** −2.0% / −5.8% / −8.0% /
+  −14.3%. It mostly proposes the size model, and its 10% gate skips about half the chunks.
+- **Verifying more proposals doesn't fix that** (k = 2 or 3 is about the same as k = 1). Trying
+  every candidate reaches the best possible (−6.8% / −24.0% / −47.5% / −62.0%) at 14.6×
+  compression time.
+- **Why FOR wins at high bandwidth:** forcing FOR at the root makes the child plain bit-packing,
+  which FastLanes decodes at 22–24 GB/s. Production's Dict, RunEnd and Sparse cascades decode at
+  about 8 GB/s. The price is compression ratio (5.5× → 3.2–4.5×), which only pays off when
+  bytes are cheap to move.
+- **Caveat:** decode here means full decompression to canonical form. Cascaded encodings such as
+  Dict and RunEnd can serve filters without decompressing, which these numbers don't credit.
+  Timings come from a single shared 4-core cloud machine.
+
 ## Extending it
 
 | To add… | Change | What re-runs |

@@ -114,6 +114,12 @@ enum Command {
         /// Candidates the model may not use, e.g. `pco`.
         #[arg(long, value_delimiter = ',')]
         exclude: Vec<String>,
+        /// How many proposals to compress and verify per chunk; `all` tries every candidate.
+        #[arg(long, value_delimiter = ',', default_value = "1")]
+        top_k: Vec<String>,
+        /// Fixed trial sets to compare, e.g. `sizemodel,for,for+sparse` (no model involved).
+        #[arg(long, value_delimiter = ',')]
+        trial_sets: Vec<String>,
         #[arg(long)]
         shard: Option<Shard>,
     },
@@ -361,16 +367,28 @@ fn main() -> anyhow::Result<()> {
             reads,
             gate,
             exclude,
+            top_k,
+            trial_sets,
             shard,
         } => {
+            let top_k = top_k
+                .iter()
+                .map(|k| {
+                    if k == "all" {
+                        Ok(usize::MAX)
+                    } else {
+                        k.parse::<usize>()
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let run = PlannedRun::read(&plan)?;
             let store = Store::open(store)?;
             let bandwidths = bandwidths
                 .iter()
                 .map(|b| {
-                    let (label, value) = b
-                        .split_once('=')
-                        .ok_or_else(|| anyhow::anyhow!("bandwidths look like label=bytes_per_sec"))?;
+                    let (label, value) = b.split_once('=').ok_or_else(|| {
+                        anyhow::anyhow!("bandwidths look like label=bytes_per_sec")
+                    })?;
                     Ok((label.to_string(), value.parse::<f64>()?))
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
@@ -383,6 +401,8 @@ fn main() -> anyhow::Result<()> {
                     reads,
                     gate,
                     exclude,
+                    top_k,
+                    trial_sets,
                     compress_reps: run.plan.spec.measure.compress_reps,
                     decode_reps: run.plan.spec.measure.reps,
                     shard,
