@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Read decimal scalars through their signed integer child.
+//!
+//! Scalar lookup delegates decoding to the child and restores decimal precision and scale
+//! without materializing the full values buffer.
+
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;

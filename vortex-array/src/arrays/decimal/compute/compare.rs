@@ -32,6 +32,7 @@ impl CompareKernel for Decimal {
         if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
             return Ok(None);
         }
+
         let rhs = if let Some(value) = rhs.as_constant() {
             let Some(value) = value.as_decimal().decimal_value() else {
                 return Ok(None);
@@ -45,6 +46,7 @@ impl CompareKernel for Decimal {
         } else {
             return Ok(None);
         };
+
         lhs.values().binary(rhs, Operator::from(operator)).map(Some)
     }
 }

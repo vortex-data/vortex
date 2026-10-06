@@ -123,12 +123,14 @@ impl CastReduce for WideIntegerEncoding {
         if signed_integer_type(dtype) != Some(array.values_type()) {
             return Ok(None);
         }
+
         let Some(validity) = array
             .integer_validity()
             .trivially_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
+
         Ok(Some(
             WideIntegerArray::try_new_handle(
                 array.buffer_handle().clone(),

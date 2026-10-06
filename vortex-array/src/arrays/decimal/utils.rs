@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Convert native decimal buffers or narrow their integer children.
+//!
+//! Buffer conversions require materialized storage and retain unscaled values. Narrowing keeps
+//! the precision-derived logical child dtype and selects storage from non-null bounds.
+
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -33,7 +38,7 @@ pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buff
 ///
 /// Call [`DecimalArray::materialize_values`] before borrowing this buffer.
 ///
-/// Widening is lossless. Narrowing fails for any *valid* value that does not fit `W`.
+/// Widening is lossless. Narrowing fails for any _valid_ value that does not fit `W`.
 /// Null slots may hold arbitrary bytes and never fail; their contents in the returned
 /// buffer are likewise arbitrary and must not be read.
 pub fn converted_buffer<W: NativeDecimalType>(

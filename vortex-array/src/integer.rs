@@ -95,6 +95,7 @@ pub(crate) fn buffer_handle(array: &ArrayRef) -> VortexResult<&BufferHandle> {
     if let Some(primitive) = array.as_opt::<Primitive>() {
         return Ok(primitive.data().buffer_handle());
     }
+
     if let Some(wide) = array.as_opt::<WideIntegerEncoding>() {
         return Ok(wide.data().buffer_handle());
     }
@@ -126,6 +127,7 @@ pub(crate) fn materialize(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexRes
             validity: wide.integer_validity(),
         });
     }
+
     if values_type <= DecimalType::I64 {
         let parts = array
             .clone()
@@ -409,6 +411,7 @@ pub(crate) fn fill_null(
         )?
         .into_array());
     }
+
     Ok(values)
 }
 
@@ -439,6 +442,7 @@ pub(crate) fn widened_buffer<T: NativeDecimalType>(array: &IntegerBuffer) -> Buf
     if array.values_type == T::DECIMAL_TYPE {
         return Buffer::from_byte_buffer(array.values.to_host_sync());
     }
+
     match_each_decimal_value_type!(array.values_type, |S| {
         Buffer::<S>::from_byte_buffer(array.values.to_host_sync())
             .into_iter()

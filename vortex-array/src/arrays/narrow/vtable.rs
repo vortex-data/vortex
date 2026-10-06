@@ -42,6 +42,13 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::ValidityChild;
 use crate::vtable::ValidityVTableFromChild;
 
+impl Narrow {
+    // Primitive metadata uses PType discriminants. Reserve tags outside that range for the wide
+    // integer extensions without changing the single-byte metadata format.
+    const I128_STORAGE_TAG: u8 = 128;
+    const I256_STORAGE_TAG: u8 = 129;
+}
+
 impl VTable for Narrow {
     type TypedArrayData = EmptyArrayData;
     type OperationsVTable = Self;
@@ -94,10 +101,11 @@ impl VTable for Narrow {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let tag = match WideInteger::width(array.values().dtype()) {
-            Some(IntegerWidth::I128) => 128,
-            Some(IntegerWidth::I256) => 129,
+            Some(IntegerWidth::I128) => Self::I128_STORAGE_TAG,
+            Some(IntegerWidth::I256) => Self::I256_STORAGE_TAG,
             None => PType::try_from(array.values().dtype())? as u8,
         };
+
         Ok(Some(vec![tag]))
     }
 
@@ -112,16 +120,16 @@ impl VTable for Narrow {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure_eq!(buffers.len(), 0);
         vortex_ensure_eq!(children.len(), 1);
-        let [storage_ptype] = metadata else {
+        let [storage_tag] = metadata else {
             return Err(vortex_err!(
                 "Narrow requires one metadata byte, got {}",
                 metadata.len()
             ));
         };
 
-        let storage_dtype = match storage_ptype {
-            128 => integer_dtype(DecimalType::I128, dtype.nullability()),
-            129 => integer_dtype(DecimalType::I256, dtype.nullability()),
+        let storage_dtype = match storage_tag {
+            &Self::I128_STORAGE_TAG => integer_dtype(DecimalType::I128, dtype.nullability()),
+            &Self::I256_STORAGE_TAG => integer_dtype(DecimalType::I256, dtype.nullability()),
             tag => DType::Primitive(
                 PType::try_from(i32::from(*tag))
                     .map_err(|err| vortex_err!("Invalid Narrow storage type: {err}"))?,

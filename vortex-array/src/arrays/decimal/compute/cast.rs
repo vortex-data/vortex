@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Cast decimal children and rescale native values.
+//!
+//! Precision widening at a fixed scale keeps the child encoded. Rescaling, precision narrowing,
+//! and casts to primitive values materialize native storage for checked conversion.
+
 use num_traits::AsPrimitive;
 use num_traits::CheckedMul;
 use num_traits::ToPrimitive as NumToPrimitive;

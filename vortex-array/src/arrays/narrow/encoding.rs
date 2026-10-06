@@ -99,6 +99,9 @@ impl NarrowArray {
     }
 
     /// Narrows signed primitive or wide integer values without changing their logical dtype.
+    ///
+    /// Bounds exclude null payloads. Empty and all-null arrays use i8 storage, and arrays whose
+    /// values need the full logical width are returned unchanged. The input may be encoded.
     pub fn encode_signed(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let logical = signed_integer_type(array.dtype());
         vortex_ensure!(
@@ -116,6 +119,7 @@ impl NarrowArray {
                 ))
             })
             .transpose()?;
+
         for candidate in [
             DecimalType::I8,
             DecimalType::I16,
@@ -126,18 +130,21 @@ impl NarrowArray {
             if candidate >= logical {
                 break;
             }
+
             let fits = match_each_decimal_value_type!(candidate, |T| {
                 bounds.is_none_or(|(min, max)| {
                     DecimalValue::I256(min).cast::<T>().is_some()
                         && DecimalValue::I256(max).cast::<T>().is_some()
                 })
             });
+
             if fits {
                 let dtype = integer_dtype(candidate, array.dtype().nullability());
                 let values = integer::cast_array(storage, &dtype, ctx)?;
                 return Ok(Self::try_new(values, array.dtype().clone())?.into_array());
             }
         }
+
         Ok(array)
     }
 }

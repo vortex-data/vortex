@@ -75,7 +75,7 @@ fn test_narrow_bitpacked_child() -> VortexResult<()> {
 }
 
 #[test]
-fn decimal_canonicalization_keeps_bitpacked_storage() -> VortexResult<()> {
+fn test_decimal_canonicalization_keeps_bitpacked_storage() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(76, 2);
     let packed = BitPacked::encode(&buffer![0i32, 1, 3, 7].into_array(), 3, &mut ctx)?;

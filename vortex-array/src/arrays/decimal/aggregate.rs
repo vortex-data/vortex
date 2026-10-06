@@ -76,12 +76,15 @@ impl DynAggregateKernel for DecimalAggregateKernel {
         let Some(array) = batch.as_opt::<Decimal>() else {
             return Ok(None);
         };
+
         let Some(dtype) = aggregate_fn.state_dtype(batch.dtype()) else {
             return Ok(None);
         };
+
         let mut accumulator = aggregate_fn.accumulator(array.values().dtype())?;
         accumulator.accumulate(array.values(), ctx)?;
         let partial = accumulator.partial_scalar()?;
+
         Ok(Some(decimal_partial(&partial, &dtype)?))
     }
 }
@@ -91,12 +94,14 @@ fn decimal_partial(scalar: &Scalar, dtype: &DType) -> VortexResult<Scalar> {
     if scalar.is_null() {
         return Ok(Scalar::null(dtype.clone()));
     }
+
     if matches!(dtype, DType::Decimal(..)) {
         return Scalar::try_new(
             dtype.clone(),
             Some(ScalarValue::Decimal(integer::scalar_value(scalar)?)),
         );
     }
+
     if let DType::Struct(fields, _) = dtype {
         let values = scalar
             .as_struct()
@@ -107,5 +112,6 @@ fn decimal_partial(scalar: &Scalar, dtype: &DType) -> VortexResult<Scalar> {
             .collect::<VortexResult<Vec<_>>>()?;
         return Ok(Scalar::struct_(dtype.clone(), values));
     }
+
     scalar.cast(dtype)
 }

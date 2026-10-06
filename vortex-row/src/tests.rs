@@ -766,7 +766,7 @@ fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> Vort
 #[rstest]
 #[case::ascending(false)]
 #[case::descending(true)]
-fn decimal_keys_accept_encoded_integer_children(#[case] descending: bool) -> VortexResult<()> {
+fn test_decimal_keys_accept_encoded_integer_children(#[case] descending: bool) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(76, 2);
     let dictionary = DictArray::try_new(

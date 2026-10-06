@@ -127,6 +127,9 @@ impl WideIntegerArray {
     }
 
     /// Creates a wide integer array from a host or device buffer.
+    ///
+    /// The width must be i128 or i256. The buffer must be aligned for that native type and contain
+    /// whole elements. Array-backed validity must have the same element count.
     pub fn try_new_handle(
         values: BufferHandle,
         values_type: DecimalType,

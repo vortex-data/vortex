@@ -48,6 +48,7 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
+/// The integer child that owns a canonical decimal's values and validity.
 #[array_slots(Decimal)]
 pub struct DecimalSlots {
     /// Signed integer values, with logical width determined by the decimal precision.
@@ -82,7 +83,7 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> + DecimalArraySlotsExt {
             .as_ref()
             .dtype()
             .as_decimal_opt()
-            .vortex_expect("Decimal dtype")
+            .vortex_expect("Decimal validation requires a decimal dtype")
     }
 
     /// Returns the nullability shared by the decimal and its integer child.
@@ -98,7 +99,7 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> + DecimalArraySlotsExt {
     /// Integer width of the stored child, which may be narrower than its logical dtype.
     fn values_type(&self) -> DecimalType {
         signed_integer_type(integer::storage_child(self.values()).dtype())
-            .vortex_expect("Decimal values have a signed integer dtype")
+            .vortex_expect("Decimal validation requires a signed integer child")
     }
 
     /// Returns the decimal precision.
@@ -112,12 +113,22 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> + DecimalArraySlotsExt {
     }
 
     /// Borrows a native buffer after the stored child has been materialized.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored child is encoded. Call [`Self::materialize_values`] first. The returned
+    /// handle may refer to host or device memory.
     fn buffer_handle(&self) -> &BufferHandle {
         integer::buffer_handle(self.values())
             .vortex_expect("Materialize decimal values before borrowing their buffer")
     }
 
     /// Borrows typed native storage after calling [`Self::materialize_values`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` differs from [`Self::values_type`], the stored child is encoded, or its buffer
+    /// is in device memory. Materialization retains existing native device buffers.
     fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
         assert_eq!(self.values_type(), T::DECIMAL_TYPE);
         Buffer::<T>::from_byte_buffer(self.buffer_handle().as_host().clone())
@@ -126,8 +137,8 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> + DecimalArraySlotsExt {
     /// Decodes stored values without expanding [`NarrowArray`] to its logical width.
     ///
     /// Empty and all-null arrays retain their stored width. The returned array supports native
-    /// buffer access and keeps the same decimal dtype and validity. Already materialized arrays
-    /// are returned unchanged.
+    /// buffer-handle access and keeps the same decimal dtype and validity. Already materialized
+    /// arrays are returned unchanged, including arrays with native device buffers.
     fn materialize_values(&self, ctx: &mut ExecutionCtx) -> VortexResult<DecimalArray> {
         let values = integer::storage_child(self.values());
         if values.is::<Primitive>() || values.is::<WideIntegerEncoding>() {
@@ -172,12 +183,12 @@ impl Array<Decimal> {
         self.decimal_dtype().scale()
     }
 
-    /// Borrows native storage after calling [`Self::materialize_values`].
+    /// Borrows native storage with the preconditions of [`DecimalArrayExt::buffer_handle`].
     pub fn buffer_handle(&self) -> &BufferHandle {
         DecimalArrayExt::buffer_handle(self)
     }
 
-    /// Borrows typed storage after calling [`Self::materialize_values`].
+    /// Borrows typed storage with the preconditions of [`DecimalArrayExt::buffer`].
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
         DecimalArrayExt::buffer(self)
     }
@@ -192,6 +203,7 @@ impl Array<Decimal> {
     ///
     /// The child dtype must equal the integer dtype selected by the decimal precision. Use a
     /// [`NarrowArray`] to retain smaller physical values without changing this logical dtype.
+    /// Values must satisfy [`Self::try_new`]'s precision requirement.
     pub fn try_new_values(values: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, values.dtype().nullability());
         let len = values.len();
@@ -225,6 +237,8 @@ impl Array<Decimal> {
     }
 
     /// Creates a decimal from a native buffer, retaining its stored width when narrower.
+    ///
+    /// Uses [`Self::try_new`]'s precision requirement and panics if structural validation fails.
     pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -253,6 +267,8 @@ impl Array<Decimal> {
     }
 
     /// Creates a decimal from native storage in host or device memory.
+    ///
+    /// Uses [`Self::try_new_handle`]'s requirements and panics if structural validation fails.
     pub fn new_handle(
         values: BufferHandle,
         values_type: DecimalType,
@@ -264,6 +280,9 @@ impl Array<Decimal> {
     }
 
     /// Creates a decimal from native storage with structural validation.
+    ///
+    /// Uses [`Self::try_new`]'s precision requirement. The buffer must be aligned for `values_type`
+    /// and contain whole elements. Array-backed validity must have the same element count.
     pub fn try_new_handle(
         values: BufferHandle,
         values_type: DecimalType,
@@ -272,14 +291,15 @@ impl Array<Decimal> {
     ) -> VortexResult<Self> {
         vortex_ensure!(
             values.len().is_multiple_of(values_type.byte_width()),
-            "Decimal buffer size {} is not divisible by {}",
-            values.len(),
+            "Expected decimal buffer size divisible by {}, got {} bytes",
             values_type.byte_width(),
+            values.len(),
         );
         match_each_decimal_value_type!(values_type, |T| {
             vortex_ensure!(
                 values.is_aligned_to(Alignment::of::<T>()),
-                "Decimal buffer is not aligned for {values_type}"
+                "Expected decimal buffer alignment for {values_type}, got {:?}",
+                values.alignment()
             );
             Ok::<_, vortex_error::VortexError>(())
         })?;
@@ -359,7 +379,7 @@ impl Array<Decimal> {
         )
     }
 
-    /// Extracts native storage after calling [`DecimalArrayExt::materialize_values`].
+    /// Extracts native storage with the preconditions of [`DecimalArrayExt::buffer_handle`].
     pub fn into_data_parts(self) -> DecimalDataParts {
         DecimalDataParts {
             decimal_dtype: self.decimal_dtype(),

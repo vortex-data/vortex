@@ -37,6 +37,7 @@ impl IntegerOperand {
                 Validity::from(value.dtype().nullability()),
             ));
         }
+
         Ok(Self::Array(integer::materialize(array, ctx)?))
     }
 
@@ -86,6 +87,7 @@ pub(super) fn compare_integer(
             ctx.allocator().clone(),
         ),
     };
+
     Ok(BoolArray::try_new(bits, validity)?.into_array())
 }
 

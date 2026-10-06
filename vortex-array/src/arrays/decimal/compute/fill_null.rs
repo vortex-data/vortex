@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Fill decimal nulls through the integer child.
+//!
+//! The integer kernel selects storage wide enough for the fill value. Rewrapping retains the
+//! decimal precision and scale while the fill scalar determines result nullability.
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Wide integers preserve signed numeric semantics.
+//!
+//! Ordering and checked casts cover the full native ranges. Narrowing ignores null payloads
+//! while retaining the logical wide integer dtype.
+
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
