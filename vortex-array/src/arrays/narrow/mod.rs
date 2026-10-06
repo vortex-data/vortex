@@ -10,6 +10,7 @@
 
 mod aggregates;
 pub(crate) use aggregates::register_aggregate_kernels;
+
 mod compare;
 mod encoding;
 mod rules;

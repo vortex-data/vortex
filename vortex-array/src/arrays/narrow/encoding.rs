@@ -32,6 +32,7 @@ impl NarrowArray {
             ptype.is_int(),
             "Narrow requires integer values, got {ptype}"
         );
+
         if ptype.byte_width() == 1 {
             return Ok(array.into_array());
         }
@@ -59,6 +60,7 @@ impl NarrowArray {
                 .as_ref()
                 .cast(storage_dtype)?
                 .execute::<PrimitiveArray>(ctx)?;
+
             return Ok(Self::try_new(values.into_array(), array.dtype().clone())?.into_array());
         }
 

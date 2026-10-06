@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Narrow operations on compressed integer children.
+//!
+//! BitPacked children retain their stored width through selection and comparison. Canonical
+//! execution widens them to Narrow's logical dtype.
+
 #![cfg(test)]
 
 use std::sync::LazyLock;
