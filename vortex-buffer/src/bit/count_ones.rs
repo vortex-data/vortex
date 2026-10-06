@@ -79,8 +79,8 @@ fn mask_byte(byte: u8, bit_offset: usize, bit_len: usize) -> u8 {
 fn count_ones_aligned(bytes: &[u8]) -> usize {
     // SIMD kernels only pay off from 32 bytes. Below that, call the scalar kernel
     // directly: it stays inlinable and skips the dispatch, which would otherwise
-    // dominate the couple of word popcounts. Miri can't interpret the SIMD intrinsics.
-    if cfg!(miri) || bytes.len() < 32 {
+    // dominate the couple of word popcounts.
+    if bytes.len() < 32 {
         return count_ones_aligned_scalar(bytes);
     }
 
