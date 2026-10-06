@@ -7,9 +7,12 @@ use vortex_mask::Mask;
 
 use super::IsSortedIteratorExt;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::chunked::IsSorted;
+use crate::aggregate_fn::chunked::accumulate;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
+use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 
 pub(super) fn check_primitive_sorted(
@@ -17,9 +20,32 @@ pub(super) fn check_primitive_sorted(
     strict: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
+    if array.ptype().is_int() {
+        let validity = array
+            .as_ref()
+            .validity()?
+            .execute_mask(array.as_ref().len(), ctx)?;
+        return Ok(match_each_integer_ptype!(array.ptype(), |P| {
+            let values = array.as_slice::<P>();
+            if strict {
+                integer_is_sorted::<P, true>(values, &validity)
+            } else {
+                integer_is_sorted::<P, false>(values, &validity)
+            }
+        }));
+    }
     match_each_native_ptype!(array.ptype(), |P| {
         compute_is_sorted::<P>(array, strict, ctx)
     })
+}
+
+fn integer_is_sorted<T: NativePType + Ord, const STRICT: bool>(
+    values: &[T],
+    validity: &Mask,
+) -> bool {
+    let mut acc = IsSorted::<T, STRICT>::new();
+    accumulate(values, validity, &mut acc);
+    acc.finish()
 }
 
 fn compute_is_sorted<T: NativePType>(

@@ -18,6 +18,7 @@ use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::chunked::compute_primitive_stats;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
@@ -255,6 +256,8 @@ impl StatsSetRef<'_> {
     }
 
     pub fn compute_all(&self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
+        // Compute the statistics of integer arrays in one pass, then read them from the cache.
+        compute_primitive_stats(self.dyn_array_ref, stats, ctx)?;
         let mut stats_set = StatsSet::default();
         for &stat in stats {
             if let Some(s) = self.compute_stat(stat, ctx)?
