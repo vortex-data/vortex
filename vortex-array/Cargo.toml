@@ -147,6 +147,10 @@ name = "row_fn_output"
 harness = false
 
 [[bench]]
+name = "row_fn_utf8_input"
+harness = false
+
+[[bench]]
 name = "kleene_bool"
 harness = false
 

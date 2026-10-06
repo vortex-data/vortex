@@ -39,6 +39,30 @@ fn is_char_boundary_at(bytes: &[u8], index: usize) -> bool {
     index == bytes.len() || bytes[index] & 0b1100_0000 != 0b1000_0000
 }
 
+/// Returns `true` if `offsets` never decrease, end within `bytes`, and delimit valid UTF-8
+/// strings, including the strings at null rows.
+///
+/// When the offsets never decrease, the strings tile `bytes[first..last]`. If that range is valid
+/// UTF-8 as a whole, every string is valid UTF-8 if and only if every offset falls on a char
+/// boundary. This costs one UTF-8 pass over the range instead of one call per string.
+pub(crate) fn offsets_tile_utf8<O: AsPrimitive<usize> + PartialOrd>(
+    offsets: &[O],
+    bytes: &[u8],
+) -> bool {
+    let (Some(first), Some(last)) = (offsets.first(), offsets.last()) else {
+        return false;
+    };
+    let (first, last): (usize, usize) = (first.as_(), last.as_());
+
+    first <= last
+        && last <= bytes.len()
+        && offsets.windows(2).all(|pair| pair[0] <= pair[1])
+        && simdutf8::basic::from_utf8(&bytes[first..last]).is_ok()
+        && offsets
+            .iter()
+            .all(|&offset| is_char_boundary_at(bytes, offset.as_()))
+}
+
 #[array_slots(VarBin)]
 pub struct VarBinSlots {
     /// The offsets array defining the start/end of each variable-length binary element.
@@ -288,21 +312,11 @@ impl VarBinData {
                 bytes.len()
             );
 
-            // When the offsets never decrease, the strings tile `bytes[first..last]`. If that range
-            // is valid UTF-8 as a whole, every string is valid UTF-8 if and only if every offset
-            // falls on a char boundary. Otherwise, for example for invalid bytes at a null, check
-            // the strings one by one.
-            let first_offset: usize = offsets_slice[0].as_();
-            if offsets_slice.windows(2).all(|o| o[0] <= o[1])
-                && first_offset <= last_offset
-                && simdutf8::basic::from_utf8(&bytes[first_offset..last_offset]).is_ok()
-                && offsets_slice
-                    .iter()
-                    .all(|&o| is_char_boundary_at(bytes, o.as_()))
-            {
+            if offsets_tile_utf8(offsets_slice, bytes) {
                 return Ok(());
             }
 
+            // Invalid bytes at a null row fail the check above, so check valid strings one by one.
             for (i, (start, end)) in offsets_slice
                 .windows(2)
                 .map(|o| (o[0].as_(), o[1].as_()))
