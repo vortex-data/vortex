@@ -33,16 +33,22 @@ mod benchmarks {
         ShortRuns,
         LongRuns,
         VeryLongRuns,
+        /// A multiple of the position, so every value differs.
+        Sequence,
+        /// Uniformly random over 200 values.
+        SmallRange,
         /// Uniformly random over a range wider than the dense distinct-counting limit.
         WideRandom,
     }
 
-    const DISTRIBUTIONS: [Distribution; 6] = [
+    const DISTRIBUTIONS: [Distribution; 8] = [
         Distribution::Constant,
         Distribution::LowCardinality,
         Distribution::ShortRuns,
         Distribution::LongRuns,
         Distribution::VeryLongRuns,
+        Distribution::Sequence,
+        Distribution::SmallRange,
         Distribution::WideRandom,
     ];
 
@@ -86,6 +92,11 @@ mod benchmarks {
             Distribution::ShortRuns => generate_runs(len, 4, 1024),
             Distribution::LongRuns => generate_runs(len, 64, 1024),
             Distribution::VeryLongRuns => generate_runs(len, 512, 1024),
+            Distribution::Sequence => (0u32..).take(len).map(|i| i.wrapping_mul(3)).collect(),
+            Distribution::SmallRange => {
+                let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+                (0..len).map(|_| 1000 + rng.next() % 200).collect()
+            }
             Distribution::WideRandom => {
                 let mut rng = Rng(0x2545_F491_4F6C_DD1D);
                 (0..len).map(|_| rng.next() % 1_000_000).collect()

@@ -108,28 +108,107 @@ where
         }
     }
 
-    /// Accumulates one valid value, after the first run started.
+    /// Accumulates valid values, after the first run started.
+    ///
+    /// The run state is copied into a local for the loop: the counts are reached through `self`,
+    /// so every count update could otherwise alias the run state and force it out of registers.
     #[inline(always)]
-    fn push_started(&mut self, value: T) {
-        if value != self.prev {
-            self.flush(self.prev);
-            self.prev = value;
-            self.runs += 1;
-        }
-        self.pending += 1;
-    }
-
-    /// Adds the pending occurrences of `value`, the value of the current run, to the counts.
-    #[inline(always)]
-    fn flush(&mut self, value: T) {
-        let count = self.pending;
+    fn scan(&mut self, values: impl Iterator<Item = T>) {
+        let mut run = Run {
+            prev: self.prev,
+            pending: self.pending,
+            runs: self.runs,
+        };
         match &mut self.counts {
             Counts::Dense {
                 min_index, counts, ..
-            } => counts[value.as_().wrapping_sub(*min_index)] += count,
-            Counts::Hashed(map) => *map.entry(NativeValue(value)).or_insert(0) += count,
+            } => run.scan(
+                values,
+                &mut Dense {
+                    min_index: *min_index,
+                    counts,
+                },
+            ),
+            Counts::Hashed(map) => run.scan(values, map),
         }
-        self.pending = 0;
+        self.prev = run.prev;
+        self.pending = run.pending;
+        self.runs = run.runs;
+    }
+}
+
+/// The current run of a [`Distinct`], held apart from its counts.
+struct Run<T> {
+    /// The value of the current run.
+    prev: T,
+    /// Occurrences of `prev` in the current run not yet counted.
+    pending: u32,
+    /// The number of runs so far.
+    runs: u32,
+}
+
+impl<T: Copy + PartialEq> Run<T> {
+    /// Accumulates `values`, counting the occurrences of each run that ends.
+    #[inline(always)]
+    fn scan(&mut self, values: impl Iterator<Item = T>, counter: &mut impl Counter<T>) {
+        for value in values {
+            if value != self.prev {
+                counter.add(self.prev, self.pending);
+                self.prev = value;
+                self.pending = 0;
+                self.runs += 1;
+            }
+            self.pending += 1;
+        }
+    }
+}
+
+/// Counts occurrences of values.
+trait Counter<T> {
+    /// Adds `count` occurrences of `value`.
+    fn add(&mut self, value: T, count: u32);
+}
+
+impl<T: IntegerPType> Counter<T> for Counts<T>
+where
+    NativeValue<T>: Eq + Hash,
+{
+    fn add(&mut self, value: T, count: u32) {
+        match self {
+            Self::Dense {
+                min_index, counts, ..
+            } => Dense {
+                min_index: *min_index,
+                counts,
+            }
+            .add(value, count),
+            Self::Hashed(map) => map.add(value, count),
+        }
+    }
+}
+
+/// Dense counts, borrowed from [`Counts::Dense`].
+struct Dense<'a> {
+    /// See [`Counts::Dense`].
+    min_index: usize,
+    /// See [`Counts::Dense`].
+    counts: &'a mut [u32],
+}
+
+impl<T: IntegerPType> Counter<T> for Dense<'_> {
+    #[inline(always)]
+    fn add(&mut self, value: T, count: u32) {
+        self.counts[value.as_().wrapping_sub(self.min_index)] += count;
+    }
+}
+
+impl<T: Copy> Counter<T> for HashMap<NativeValue<T>, u32, FxBuildHasher>
+where
+    NativeValue<T>: Eq + Hash,
+{
+    #[inline(always)]
+    fn add(&mut self, value: T, count: u32) {
+        *self.entry(NativeValue(value)).or_insert(0) += count;
     }
 }
 
@@ -150,30 +229,31 @@ where
             self.pending += CHUNK_U32;
             return;
         }
-        for &value in values {
-            self.push_started(value);
-        }
+        self.scan(values.iter().copied());
     }
 
     #[inline(always)]
     fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
         self.start_run(filled[valid.trailing_zeros() as usize]);
         let mut valid = valid;
-        while valid != 0 {
-            self.push_started(filled[valid.trailing_zeros() as usize]);
-            valid &= valid - 1;
-        }
+        self.scan(std::iter::from_fn(|| {
+            (valid != 0).then(|| {
+                let index = valid.trailing_zeros() as usize;
+                valid &= valid - 1;
+                filled[index]
+            })
+        }));
     }
 
     #[inline(always)]
     fn push(&mut self, value: T) {
         self.start_run(value);
-        self.push_started(value);
+        self.scan(std::iter::once(value));
     }
 
     fn finish(mut self) -> (DistinctInfo<T>, u32) {
         if self.pending > 0 {
-            self.flush(self.prev);
+            self.counts.add(self.prev, self.pending);
         }
         let distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher> = match self.counts {
             Counts::Dense { min, counts, .. } => {
