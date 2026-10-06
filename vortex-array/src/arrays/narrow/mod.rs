@@ -13,6 +13,7 @@ pub(crate) use aggregates::register_aggregate_kernels;
 
 mod compare;
 mod encoding;
+mod merge;
 mod numeric;
 mod rules;
 mod vtable;

@@ -14,6 +14,8 @@ use vortex_mask::Mask;
 use super::Narrow;
 use super::NarrowArray;
 use super::NarrowArraySlotsExt;
+use super::merge::ChunkedInputsReduce;
+use super::merge::InterleaveInputsReduce;
 use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::ArrayView;
@@ -56,8 +58,10 @@ use crate::scalar_fn::fns::zip::ZipReduceAdaptor;
 pub(super) const RULES: ParentRuleSet<Narrow> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BetweenReduceAdaptor(Narrow)),
     ParentRuleSet::lift(&CastReduceAdaptor(Narrow)),
+    ParentRuleSet::lift(&ChunkedInputsReduce),
     ParentRuleSet::lift(&FillNullReduceAdaptor(Narrow)),
     ParentRuleSet::lift(&FilterReduceAdaptor(Narrow)),
+    ParentRuleSet::lift(&InterleaveInputsReduce),
     ParentRuleSet::lift(&MaskReduceAdaptor(Narrow)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Narrow)),
     ParentRuleSet::lift(&TakeReduceAdaptor(Narrow)),
@@ -155,7 +159,7 @@ impl FillNullReduce for Narrow {
 }
 
 /// Select a common primitive width without reading the child's values.
-fn scalar_storage_type(
+pub(super) fn scalar_storage_type(
     array: ArrayView<'_, Narrow>,
     scalar: &Scalar,
 ) -> VortexResult<Option<PType>> {

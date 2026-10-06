@@ -11,11 +11,15 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::BoolArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
+use crate::arrays::Interleave;
+use crate::arrays::InterleaveArray;
 use crate::arrays::Narrow;
 use crate::arrays::NarrowArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::interleave::InterleaveArrayExt;
 use crate::arrays::narrow::NarrowArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
@@ -194,6 +198,93 @@ fn signedness_cast_checks_values_and_nulls() -> VortexResult<()> {
             .execute::<PrimitiveArray>(&mut ctx)
             .is_err()
     );
+
+    Ok(())
+}
+
+#[test]
+fn concat_stored_widths() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let first =
+        NarrowArray::try_new(buffer![-128i8, 127].into_array(), PType::I64.into())?.into_array();
+    let second =
+        NarrowArray::try_new(buffer![1000i16, 2000].into_array(), PType::I64.into())?.into_array();
+    let result = ChunkedArray::try_new([first, second], PType::I64.into())?
+        .into_array()
+        .optimize()?;
+
+    assert_eq!(
+        result.as_::<Narrow>().values().dtype().as_ptype(),
+        PType::I16
+    );
+    assert_arrays_eq!(
+        result,
+        buffer![-128i64, 127, 1000, 2000].into_array(),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+#[test]
+fn interleave_stored_widths() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let first =
+        NarrowArray::try_new(buffer![-128i8, 127].into_array(), PType::I64.into())?.into_array();
+    let second =
+        NarrowArray::try_new(buffer![1000i16, 2000].into_array(), PType::I64.into())?.into_array();
+    let result = InterleaveArray::try_new(
+        vec![first, second],
+        buffer![1u8, 0, 1, 0].into_array(),
+        buffer![0u8, 1, 1, 0].into_array(),
+    )?
+    .into_array()
+    .optimize()?;
+
+    assert_eq!(
+        result.as_::<Narrow>().values().dtype().as_ptype(),
+        PType::I16
+    );
+    assert_arrays_eq!(
+        result,
+        buffer![1000i64, 127, 2000, -128].into_array(),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+#[test]
+fn interleave_stored_selectors() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let arrays =
+        NarrowArray::try_new(buffer![0u8, 1, 0].into_array(), PType::U64.into())?.into_array();
+    let rows =
+        NarrowArray::try_new(buffer![1u8, 0, 0].into_array(), PType::U64.into())?.into_array();
+    let result = InterleaveArray::try_new(
+        vec![
+            buffer![10i64, 20].into_array(),
+            buffer![30i64, 40].into_array(),
+        ],
+        arrays,
+        rows,
+    )?
+    .into_array()
+    .optimize()?;
+
+    assert_eq!(
+        result
+            .as_::<Interleave>()
+            .array_indices()
+            .dtype()
+            .as_ptype(),
+        PType::U8
+    );
+    assert_eq!(
+        result.as_::<Interleave>().row_indices().dtype().as_ptype(),
+        PType::U8
+    );
+    assert_arrays_eq!(result, buffer![20i64, 30, 10].into_array(), &mut ctx);
 
     Ok(())
 }
