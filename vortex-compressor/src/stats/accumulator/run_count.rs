@@ -6,27 +6,25 @@
 use num_traits::PrimInt;
 
 use super::CHUNK;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
+use super::Nulls;
 use super::transitions;
 
 /// The number of runs of equal consecutive valid values. Nulls do not break runs.
 #[derive(Debug, Clone, Copy)]
 pub struct RunCount<T> {
-    /// The last value seen.
-    prev: T,
-    /// The number of runs so far.
-    runs: u32,
+    /// The last value seen, if any.
+    prev: Option<T>,
+    /// The number of value changes so far.
+    changes: u32,
 }
 
 impl<T: PrimInt> RunCount<T> {
     /// Creates an accumulator.
     pub fn new() -> Self {
         Self {
-            prev: T::zero(),
-            runs: 0,
+            prev: None,
+            changes: 0,
         }
     }
 }
@@ -40,47 +38,20 @@ impl<T: PrimInt> Default for RunCount<T> {
 impl<T: PrimInt> IntAccumulator<T> for RunCount<T> {
     type Output = u32;
 
-    const USES_FILL: bool = true;
-
-    #[inline(always)]
-    fn start(&mut self, head: T) {
-        self.prev = head;
-        self.runs = 1;
-    }
+    // A filled null repeats its neighbour, so it adds no runs.
+    const NULLS: Nulls = Nulls::Fill;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
-        self.runs += transitions(&self.prev, values);
-        self.prev = values[CHUNK - 1];
-    }
-
-    #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], _valid: u64) {
-        // Filled nulls repeat their predecessor, so they add no runs.
-        self.chunk(filled);
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.runs += u32::from(value != self.prev);
-        self.prev = value;
+        let prev = self.prev.unwrap_or(values[0]);
+        self.changes += transitions(&prev, values);
+        self.prev = Some(values[CHUNK - 1]);
     }
 
     #[inline]
     fn finish(self) -> u32 {
-        self.runs
+        self.changes + u32::from(self.prev.is_some())
     }
 }
 
-/// The key of the [`RunCount`] statistic.
-pub struct RunCountStat;
-
-impl IntStat for RunCountStat {
-    type Value = u32;
-}
-
-impl<T: PrimInt> ErasedAccumulator<T> for RunCount<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        stats.insert::<RunCountStat>(self.finish());
-    }
-}
+int_stat!(RunCount, RunCountStat: u32, |runs| runs);

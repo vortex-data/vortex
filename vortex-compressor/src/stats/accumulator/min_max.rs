@@ -7,12 +7,9 @@ use num_traits::PrimInt;
 use vortex_array::scalar::PValue;
 
 use super::CHUNK;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
-use super::IntValue;
 use super::LANES;
+use super::Nulls;
 use super::fold_lanes2;
 use super::reduce_lanes;
 
@@ -45,10 +42,8 @@ impl<T: PrimInt> IntAccumulator<T> for MinMax<T> {
     /// `(min, max)`.
     type Output = (T, T);
 
-    const USES_FILL: bool = true;
-
-    #[inline(always)]
-    fn start(&mut self, _head: T) {}
+    // Repeating a valid value changes neither extreme.
+    const NULLS: Nulls = Nulls::Fill;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -61,17 +56,6 @@ impl<T: PrimInt> IntAccumulator<T> for MinMax<T> {
         );
     }
 
-    #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], _valid: u64) {
-        self.chunk(filled);
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.min[0] = self.min[0].min(value);
-        self.max[0] = self.max[0].max(value);
-    }
-
     #[inline]
     fn finish(self) -> (T, T) {
         (
@@ -81,16 +65,7 @@ impl<T: PrimInt> IntAccumulator<T> for MinMax<T> {
     }
 }
 
-/// The key of the [`MinMax`] statistic: `(min, max)`.
-pub struct MinMaxStat;
-
-impl IntStat for MinMaxStat {
-    type Value = (PValue, PValue);
-}
-
-impl<T: IntValue> ErasedAccumulator<T> for MinMax<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        let (min, max) = self.finish();
-        stats.insert::<MinMaxStat>((min.to_pvalue(), max.to_pvalue()));
-    }
-}
+int_stat!(MinMax, MinMaxStat: (PValue, PValue), |(min, max): (T, T)| (
+    min.to_pvalue(),
+    max.to_pvalue()
+));

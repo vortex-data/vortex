@@ -6,16 +6,14 @@
 use num_traits::PrimInt;
 
 use super::CHUNK;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
+use super::Nulls;
 
 /// Whether the valid values are sorted, non-strictly and strictly, in ascending order.
 #[derive(Debug, Clone, Copy)]
 pub struct Sorted<T> {
-    /// The last value seen.
-    prev: T,
+    /// The last value seen, if any.
+    prev: Option<T>,
     /// The number of adjacent pairs that decrease.
     decreases: u32,
     /// The number of adjacent pairs that are equal.
@@ -26,7 +24,7 @@ impl<T: PrimInt> Sorted<T> {
     /// Creates an accumulator.
     pub fn new() -> Self {
         Self {
-            prev: T::zero(),
+            prev: None,
             decreases: 0,
             repeats: 0,
         }
@@ -51,12 +49,8 @@ pub struct SortedResult {
 impl<T: PrimInt> IntAccumulator<T> for Sorted<T> {
     type Output = SortedResult;
 
-    const USES_FILL: bool = true;
-
-    #[inline(always)]
-    fn start(&mut self, head: T) {
-        self.prev = head;
-    }
+    // A filled null equals its neighbour, adding exactly one equal pair, which `unfill` removes.
+    const NULLS: Nulls = Nulls::Fill;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -64,49 +58,28 @@ impl<T: PrimInt> IntAccumulator<T> for Sorted<T> {
         // The pair spanning the previous chunk is counted separately, so the rest stays a plain
         // zip that vectorizes.
         let pairs = || values.iter().zip(&values[1..]);
+        let prev = self.prev.unwrap_or(values[0]);
+        let first_repeat = u8::from(values[0] == prev && self.prev.is_some());
         let decreases =
-            u8::from(values[0] < self.prev) + pairs().map(|(a, b)| u8::from(b < a)).sum::<u8>();
-        let repeats =
-            u8::from(values[0] == self.prev) + pairs().map(|(a, b)| u8::from(b == a)).sum::<u8>();
+            u8::from(values[0] < prev) + pairs().map(|(a, b)| u8::from(b < a)).sum::<u8>();
+        let repeats = first_repeat + pairs().map(|(a, b)| u8::from(b == a)).sum::<u8>();
         self.decreases += u32::from(decreases);
         self.repeats += u32::from(repeats);
-        self.prev = values[CHUNK - 1];
+        self.prev = Some(values[CHUNK - 1]);
     }
 
     #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
-        self.chunk(filled);
-        // Each filled null repeats the value before it, adding exactly one equal pair.
+    fn unfill(&mut self, _filled: &[T; CHUNK], valid: u64) {
         self.repeats -= (!valid).count_ones();
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.decreases += u32::from(value < self.prev);
-        self.repeats += u32::from(value == self.prev);
-        self.prev = value;
     }
 
     #[inline]
     fn finish(self) -> SortedResult {
-        // `start` and the first `push` or `chunk` compare the head with itself once.
-        let repeats = self.repeats.saturating_sub(1);
         SortedResult {
             sorted: self.decreases == 0,
-            strict_sorted: self.decreases == 0 && repeats == 0,
+            strict_sorted: self.decreases == 0 && self.repeats == 0,
         }
     }
 }
 
-/// The key of the [`Sorted`] statistic.
-pub struct SortedStat;
-
-impl IntStat for SortedStat {
-    type Value = SortedResult;
-}
-
-impl<T: PrimInt> ErasedAccumulator<T> for Sorted<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        stats.insert::<SortedStat>(self.finish());
-    }
-}
+int_stat!(Sorted, SortedStat: SortedResult, |sorted| sorted);

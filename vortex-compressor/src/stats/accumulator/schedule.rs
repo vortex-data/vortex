@@ -20,6 +20,7 @@ use super::CHUNK;
 use super::ErasedAccumulator;
 use super::IntAccumulator;
 use super::IntStats;
+use super::Nulls;
 
 /// Every statistic runs in one loop over each block.
 pub const FUSED: u64 = 0;
@@ -145,11 +146,11 @@ macro_rules! impl_schedule {
         {
             type Output = ($($name::Output,)+);
 
-            const USES_FILL: bool = false $(|| $name::USES_FILL)+;
+            const NULLS: Nulls = Nulls::Skip $(.and($name::NULLS))+;
 
             #[inline(always)]
-            fn start(&mut self, head: T) {
-                self.0.start(head);
+            fn uses_fill(&self) -> bool {
+                self.0.uses_fill()
             }
 
             #[inline(always)]

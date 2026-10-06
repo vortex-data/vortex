@@ -9,12 +9,10 @@ use num_traits::PrimInt;
 
 use super::CHUNK;
 use super::CHUNK_U32;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
 use super::IntValue;
 use super::LANES;
+use super::Nulls;
 use super::fold_lanes2;
 use super::null_indices;
 
@@ -89,10 +87,8 @@ impl CommonBitsResult {
 impl<T: IntValue> IntAccumulator<T> for CommonBits<T> {
     type Output = CommonBitsResult;
 
-    const USES_FILL: bool = true;
-
-    #[inline(always)]
-    fn start(&mut self, _head: T) {}
+    // Repeating a valid value changes neither the AND nor the OR.
+    const NULLS: Nulls = Nulls::Fill;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -105,18 +101,6 @@ impl<T: IntValue> IntAccumulator<T> for CommonBits<T> {
         );
     }
 
-    #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], _valid: u64) {
-        // Filled nulls repeat valid values, which changes neither the AND nor the OR.
-        self.chunk(filled);
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.and[0] = self.and[0] & value;
-        self.or[0] = self.or[0] | value;
-    }
-
     #[inline]
     fn finish(self) -> CommonBitsResult {
         CommonBitsResult {
@@ -127,18 +111,7 @@ impl<T: IntValue> IntAccumulator<T> for CommonBits<T> {
     }
 }
 
-/// The key of the [`CommonBits`] statistic.
-pub struct CommonBitsStat;
-
-impl IntStat for CommonBitsStat {
-    type Value = CommonBitsResult;
-}
-
-impl<T: IntValue> ErasedAccumulator<T> for CommonBits<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        stats.insert::<CommonBitsStat>(self.finish());
-    }
-}
+int_stat!(CommonBits, CommonBitsStat: CommonBitsResult, |bits| bits);
 
 /// The number of independent histograms. Consecutive values often have the same bit width, and
 /// incrementing one counter repeatedly serializes on store-to-load forwarding.
@@ -206,10 +179,8 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
     /// The count of each bit width, from `0` to the type's width.
     type Output = Vec<u32>;
 
-    const USES_FILL: bool = true;
-
-    #[inline(always)]
-    fn start(&mut self, _head: T) {}
+    // The filled values are counted, then removed when finishing.
+    const NULLS: Nulls = Nulls::Fill;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -230,17 +201,10 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
     }
 
     #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
-        self.chunk(filled);
-        // Remember the values that filled the nulls, to remove them when finishing.
+    fn unfill(&mut self, filled: &[T; CHUNK], valid: u64) {
         for i in null_indices(valid) {
             self.filled[bit_width(filled[i])] += 1;
         }
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.counts[0][bit_width(value)] += 1;
     }
 
     #[inline]
@@ -271,15 +235,4 @@ impl<T: IntValue> IntAccumulator<T> for BitWidthHistogram<T> {
     }
 }
 
-/// The key of the [`BitWidthHistogram`] statistic.
-pub struct BitWidthHistogramStat;
-
-impl IntStat for BitWidthHistogramStat {
-    type Value = Vec<u32>;
-}
-
-impl<T: IntValue> ErasedAccumulator<T> for BitWidthHistogram<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        stats.insert::<BitWidthHistogramStat>(self.finish());
-    }
-}
+int_stat!(BitWidthHistogram, BitWidthHistogramStat: Vec<u32>, |widths| widths);

@@ -6,12 +6,10 @@
 use num_traits::Bounded;
 
 use super::CHUNK;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
 use super::IntValue;
 use super::LANES;
+use super::Nulls;
 use super::fold_lanes2;
 
 /// The smallest and largest exact difference between consecutive valid values.
@@ -20,9 +18,9 @@ use super::fold_lanes2;
 /// differences are between valid values that are consecutive among the valid values.
 #[derive(Debug, Clone, Copy)]
 pub struct DeltaRange<T: IntValue> {
-    /// The last value seen.
+    /// The last value seen, if `started`.
     prev: T,
-    /// Whether `prev` holds a value, so the next value has a difference.
+    /// Whether a value was seen.
     started: bool,
     /// Whether any difference was seen.
     has_delta: bool,
@@ -55,9 +53,8 @@ impl<T: IntValue> IntAccumulator<T> for DeltaRange<T> {
     /// `(min, max)` of the differences, or `None` with fewer than two valid values.
     type Output = Option<(i128, i128)>;
 
-    // The head is fed again after `start`, so it is handled by `started` instead.
-    #[inline(always)]
-    fn start(&mut self, _head: T) {}
+    // A filled null would add a difference of zero, so only valid values are accumulated.
+    const NULLS: Nulls = Nulls::Skip;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -123,15 +120,4 @@ impl<T: IntValue> IntAccumulator<T> for DeltaRange<T> {
     }
 }
 
-/// The key of the [`DeltaRange`] statistic.
-pub struct DeltaRangeStat;
-
-impl IntStat for DeltaRangeStat {
-    type Value = Option<(i128, i128)>;
-}
-
-impl<T: IntValue> ErasedAccumulator<T> for DeltaRange<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        stats.insert::<DeltaRangeStat>(self.finish());
-    }
-}
+int_stat!(DeltaRange, DeltaRangeStat: Option<(i128, i128)>, |deltas| deltas);

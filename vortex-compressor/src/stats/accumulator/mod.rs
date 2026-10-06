@@ -31,9 +31,35 @@
 // The per-chunk kernels must inline into the fused pass to vectorize together.
 #![allow(clippy::inline_always)]
 
+/// Declares the type-erased key `$key` of statistic `$stat<T>`, whose value of type `$value` is
+/// `$erase` applied to the statistic's output.
+macro_rules! int_stat {
+    ($stat:ident, $key:ident: $value:ty, $erase:expr $(, where $($bound:tt)+)?) => {
+        #[doc = concat!("The key of the [`", stringify!($stat), "`] statistic.")]
+        pub struct $key;
+
+        impl $crate::stats::accumulator::IntStat for $key {
+            type Value = $value;
+        }
+
+        impl<T: $crate::stats::accumulator::IntValue>
+            $crate::stats::accumulator::ErasedAccumulator<T> for $stat<T>
+        $(where $($bound)+)?
+        {
+            fn finish_into(self, stats: &mut $crate::stats::accumulator::IntStats) {
+                let erase = $erase;
+                stats.insert::<$key>(erase(
+                    $crate::stats::accumulator::IntAccumulator::<T>::finish(self),
+                ));
+            }
+        }
+    };
+}
+
 mod bits;
 mod delta;
 mod distinct;
+mod dynamic;
 mod min_max;
 mod run_count;
 mod schedule;
@@ -55,6 +81,8 @@ pub use delta::DeltaRangeStat;
 pub use distinct::Distinct;
 pub use distinct::DistinctStat;
 pub use distinct::DistinctSummary;
+pub use dynamic::DynAccumulator;
+pub use dynamic::DynStats;
 pub use min_max::MinMax;
 pub use min_max::MinMaxStat;
 use num_traits::AsPrimitive;
@@ -199,56 +227,95 @@ const BLOCK_BYTES: usize = 8 << 10;
 /// The most chunks in a block, for the narrowest values.
 const MAX_BLOCK_CHUNKS: usize = BLOCK_BYTES / CHUNK;
 
+/// How a statistic accumulates a chunk with nulls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nulls {
+    /// The statistic accumulates the chunk with each null filled by a valid neighbour: the closest
+    /// valid value before it, or for nulls before the first valid value, that value. Then
+    /// [`unfill`](IntAccumulator::unfill) undoes any effect of the filled values. Repeating a
+    /// valid value changes neither the extrema, the bits, nor the runs, and adds exactly one equal
+    /// pair of neighbours per null.
+    Fill,
+    /// The statistic accumulates only the valid values, and the nulls hold arbitrary values. By
+    /// default it pushes each valid value.
+    Skip,
+}
+
+impl Nulls {
+    /// Combines the null handling of statistics accumulated together: they need filled chunks if
+    /// any of them does.
+    pub const fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Skip, Self::Skip) => Self::Skip,
+            _ => Self::Fill,
+        }
+    }
+}
+
 /// A statistic over the valid values of an integer array, computed in a single pass.
 ///
-/// [`accumulate`] calls [`start`](Self::start) once with the first valid value, then feeds every
-/// valid value, including the first, exactly once and in order. It splits the values into blocks
-/// that fit in L1 and passes each to [`block`](Self::block), or with nulls to
-/// [`filled_block`](Self::filled_block), then the trailing values to [`push`](Self::push).
+/// A statistic defines only its kernel: [`chunk`](Self::chunk) over [`CHUNK`] valid values,
+/// [`finish`](Self::finish), and how it handles [`Nulls`]. With [`Nulls::Skip`] it also defines
+/// [`push`](Self::push) or [`filled_chunk`](Self::filled_chunk). Everything else has a default.
 ///
-/// With nulls, the driver fills each block once, replacing every null with the closest valid value
-/// before it, and every accumulator shares the filled block. Repeating a valid value changes
-/// neither the extrema, the bits, the runs nor the sortedness, so most statistics run their fully
-/// valid kernel on a filled chunk and correct for the repeats.
+/// [`accumulate`] splits the values into blocks that fit in L1 and passes each to
+/// [`block`](Self::block), or with nulls to [`filled_block`](Self::filled_block). It fills the nulls
+/// of a block once for every statistic, and pads the trailing values into a last chunk whose
+/// padding is null, so every value arrives in a chunk, exactly once and in order.
 ///
-/// The default block methods feed each chunk of [`CHUNK`] values to [`chunk`](Self::chunk), or
-/// with nulls to [`filled_chunk`](Self::filled_chunk), and then call
-/// [`end_block`](Self::end_block).
-///
-/// A tuple of accumulators passes each block to each element in turn, so each element runs its
-/// own loop with its state in registers while the block stays in L1. A [`Schedule`] instead merges
-/// any groups of the elements into one loop each.
+/// Tuples, [`Schedule`]s and [`DynStats`] compose statistics, deciding which run in one loop over
+/// each block and which in their own.
 pub trait IntAccumulator<T: Copy> {
     /// The computed statistic.
     type Output;
 
-    /// Whether [`filled_chunk`](Self::filled_chunk) reads the filled nulls. If no accumulator in
-    /// a pass does, the driver skips filling and passes chunks with arbitrary values in place of
-    /// nulls.
-    const USES_FILL: bool = false;
-
-    /// Initializes the state from the first valid value.
-    fn start(&mut self, head: T);
+    /// How the statistic accumulates a chunk with nulls.
+    const NULLS: Nulls;
 
     /// Accumulates [`CHUNK`] consecutive valid values.
     fn chunk(&mut self, values: &[T; CHUNK]);
 
-    /// Accumulates the values of a chunk with nulls, whose bits are set in `valid`, least
-    /// significant bit first.
-    ///
-    /// If [`USES_FILL`](Self::USES_FILL), `filled` holds the chunk with each null replaced by the
-    /// closest valid value before it, so a null repeats its predecessor, or the last valid value
-    /// before the chunk. Otherwise the nulls hold arbitrary values. The default pushes the valid
-    /// values.
+    /// Undoes the effect of the filled nulls of a chunk that [`chunk`](Self::chunk) accumulated,
+    /// for [`Nulls::Fill`]. `valid` has a bit set for each actual value.
     #[inline(always)]
-    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
-        push_set_bits(self, filled, valid);
+    fn unfill(&mut self, _filled: &[T; CHUNK], _valid: u64) {}
+
+    /// Accumulates one valid value. The default accumulates a chunk of copies with all but one
+    /// null, so a [`Nulls::Skip`] statistic must define this or
+    /// [`filled_chunk`](Self::filled_chunk).
+    #[inline(always)]
+    fn push(&mut self, value: T) {
+        self.filled_chunk(&[value; CHUNK], 1);
     }
 
-    /// Accumulates one valid value.
-    fn push(&mut self, value: T);
+    /// Accumulates the values of a chunk with nulls, whose bits are set in `valid`, least
+    /// significant bit first. See [`Nulls`] for what the nulls hold.
+    #[inline(always)]
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        match Self::NULLS {
+            Nulls::Fill => {
+                self.chunk(filled);
+                self.unfill(filled, valid);
+            }
+            Nulls::Skip => push_set_bits(self, filled, valid),
+        }
+    }
 
-    /// Accumulates a block of fully valid chunks.
+    /// Called after each block, for example to flush narrow per-block lanes.
+    #[inline(always)]
+    fn end_block(&mut self) {}
+
+    /// Returns the statistic.
+    fn finish(self) -> Self::Output;
+
+    /// Whether the statistic needs filled chunks, which a set of statistics chosen at runtime
+    /// decides only at runtime.
+    #[inline(always)]
+    fn uses_fill(&self) -> bool {
+        Self::NULLS == Nulls::Fill
+    }
+
+    /// Accumulates a block of fully valid chunks, by default in one loop.
     #[inline(always)]
     fn block(&mut self, chunks: &[[T; CHUNK]]) {
         for chunk in chunks {
@@ -257,8 +324,7 @@ pub trait IntAccumulator<T: Copy> {
         self.end_block();
     }
 
-    /// Accumulates a block of filled chunks with one validity word per chunk. See
-    /// [`filled_chunk`](Self::filled_chunk).
+    /// Accumulates a block of chunks with one validity word per chunk, by default in one loop.
     #[inline(always)]
     fn filled_block(&mut self, filled: &[[T; CHUNK]], valid: &[u64]) {
         for (chunk, &word) in filled.iter().zip(valid) {
@@ -270,13 +336,6 @@ pub trait IntAccumulator<T: Copy> {
         }
         self.end_block();
     }
-
-    /// Called after each block, for example to flush narrow per-block lanes.
-    #[inline(always)]
-    fn end_block(&mut self) {}
-
-    /// Returns the statistic.
-    fn finish(self) -> Self::Output;
 }
 
 /// Computes `acc` over the valid values of `values` in a single pass.
@@ -306,7 +365,7 @@ where
     stats
 }
 
-/// Feeds the valid values of `values` to `acc`, returning `false` if there are none.
+/// Feeds the valid values of `values` to `acc` in blocks, returning `false` if there are none.
 #[inline(always)]
 fn drive<T, A>(values: &[T], validity: &Mask, acc: &mut A) -> bool
 where
@@ -314,32 +373,30 @@ where
     A: IntAccumulator<T>,
 {
     debug_assert_eq!(values.len(), validity.len());
+    let Some(head) = validity.first() else {
+        return false;
+    };
+    let uses_fill = acc.uses_fill();
     let block_chunks = BLOCK_BYTES / size_of::<T>() / CHUNK;
-    match validity.bit_buffer() {
+    let (chunks, remainder) = values.as_chunks::<CHUNK>();
+    // The last valid value, which fills the nulls that lead a chunk. Nulls before the first valid
+    // value repeat it.
+    let mut prev = values[head];
+
+    let remainder_valid = match validity.bit_buffer() {
         AllOr::None => return false,
         AllOr::All => {
-            let Some(&head) = values.first() else {
-                return false;
-            };
-            acc.start(head);
-            let (chunks, remainder) = values.as_chunks::<CHUNK>();
             for block in chunks.chunks(block_chunks) {
                 acc.block(block);
             }
-            for &value in remainder {
-                acc.push(value);
+            if let Some(last) = chunks.last() {
+                prev = last[CHUNK - 1];
             }
+            (1u64 << remainder.len()) - 1
         }
         AllOr::Some(bits) => {
-            let Some(head) = validity.first() else {
-                return false;
-            };
-            // The last valid value seen, which fills the nulls that lead a chunk.
-            let mut prev = values[head];
-            acc.start(prev);
             let bit_chunks = bits.chunks();
             let mut words = bit_chunks.iter();
-            let (chunks, remainder) = values.as_chunks::<CHUNK>();
             let mut block_words = [0u64; MAX_BLOCK_CHUNKS];
             let mut filled: Vec<[T; CHUNK]> = Vec::with_capacity(block_chunks.min(chunks.len()));
             for block in chunks.chunks(block_chunks) {
@@ -350,11 +407,10 @@ where
                 if block_words.iter().all(|&word| word == u64::MAX) {
                     acc.block(block);
                     prev = block[block.len() - 1][CHUNK - 1];
-                } else if !A::USES_FILL {
-                    if block_words.iter().any(|&word| word != 0) {
-                        acc.filled_block(block, block_words);
-                    }
-                } else if block_words.iter().any(|&word| word != 0) {
+                } else if block_words.iter().all(|&word| word == 0) {
+                } else if !uses_fill {
+                    acc.filled_block(block, block_words);
+                } else {
                     filled.clear();
                     filled.extend_from_slice(block);
                     for (chunk, &word) in filled.iter_mut().zip(block_words.iter()) {
@@ -366,8 +422,16 @@ where
                     acc.filled_block(&filled, block_words);
                 }
             }
-            push_set_bits(acc, remainder, bit_chunks.remainder_bits());
+            bit_chunks.remainder_bits()
         }
+    };
+
+    // Pad the trailing values into a last chunk, whose padding is null.
+    if remainder_valid != 0 {
+        let mut last = [prev; CHUNK];
+        last[..remainder.len()].copy_from_slice(remainder);
+        forward_fill(&mut last, remainder_valid, prev);
+        acc.filled_block(&[last], &[remainder_valid]);
     }
     true
 }
@@ -466,13 +530,13 @@ macro_rules! impl_tuple_accumulator {
         impl<T: Copy, $($name: IntAccumulator<T>),+> IntAccumulator<T> for ($($name,)+) {
             type Output = ($($name::Output,)+);
 
-            const USES_FILL: bool = false $(|| $name::USES_FILL)+;
+            const NULLS: Nulls = Nulls::Skip $(.and($name::NULLS))+;
 
             #[inline(always)]
-            fn start(&mut self, head: T) {
+            fn uses_fill(&self) -> bool {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
-                $($name.start(head);)+
+                false $(|| $name.uses_fill())+
             }
 
             #[inline(always)]

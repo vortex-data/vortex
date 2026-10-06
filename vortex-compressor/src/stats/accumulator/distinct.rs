@@ -14,11 +14,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use super::CHUNK;
 use super::CHUNK_U32;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
-use super::IntValue;
+use super::Nulls;
 use super::transitions;
 use crate::stats::integer::DistinctInfo;
 
@@ -54,7 +51,7 @@ enum Counts<T> {
 pub struct Distinct<T> {
     /// The occurrences counted so far.
     counts: Counts<T>,
-    /// The value of the current run.
+    /// The value of the current run, if `pending` is not zero.
     prev: T,
     /// Occurrences of `prev` in the current run not yet added to `counts`.
     pending: u32,
@@ -101,10 +98,31 @@ where
         (size_of::<T>() == 1).then(|| Self::new(T::min_value(), T::max_value(), len))
     }
 
-    /// Adds the pending occurrences of `prev` to the counts.
+    /// Starts the first run at `value`, if no value was seen. Every run has at least one pending
+    /// occurrence until the next run starts, so a zero `pending` means no value was seen.
     #[inline(always)]
-    fn flush(&mut self) {
-        let (value, count) = (self.prev, self.pending);
+    fn start_run(&mut self, value: T) {
+        if self.pending == 0 {
+            self.prev = value;
+            self.runs = 1;
+        }
+    }
+
+    /// Accumulates one valid value, after the first run started.
+    #[inline(always)]
+    fn push_started(&mut self, value: T) {
+        if value != self.prev {
+            self.flush(self.prev);
+            self.prev = value;
+            self.runs += 1;
+        }
+        self.pending += 1;
+    }
+
+    /// Adds the pending occurrences of `value`, the value of the current run, to the counts.
+    #[inline(always)]
+    fn flush(&mut self, value: T) {
+        let count = self.pending;
         match &mut self.counts {
             Counts::Dense {
                 min_index, counts, ..
@@ -122,35 +140,41 @@ where
     /// The distinct values and the run count.
     type Output = (DistinctInfo<T>, u32);
 
-    #[inline(always)]
-    fn start(&mut self, head: T) {
-        self.prev = head;
-        self.runs = 1;
-    }
+    // A filled null would count as an occurrence, so only valid values are accumulated.
+    const NULLS: Nulls = Nulls::Skip;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
+        self.start_run(values[0]);
         if transitions(&self.prev, values) == 0 {
             self.pending += CHUNK_U32;
             return;
         }
         for &value in values {
-            self.push(value);
+            self.push_started(value);
+        }
+    }
+
+    #[inline(always)]
+    fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
+        self.start_run(filled[valid.trailing_zeros() as usize]);
+        let mut valid = valid;
+        while valid != 0 {
+            self.push_started(filled[valid.trailing_zeros() as usize]);
+            valid &= valid - 1;
         }
     }
 
     #[inline(always)]
     fn push(&mut self, value: T) {
-        if value != self.prev {
-            self.flush();
-            self.prev = value;
-            self.runs += 1;
-        }
-        self.pending += 1;
+        self.start_run(value);
+        self.push_started(value);
     }
 
     fn finish(mut self) -> (DistinctInfo<T>, u32) {
-        self.flush();
+        if self.pending > 0 {
+            self.flush(self.prev);
+        }
         let distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher> = match self.counts {
             Counts::Dense { min, counts, .. } => {
                 let min = min.to_i128().vortex_expect("integers fit in i128");
@@ -184,25 +208,17 @@ pub struct DistinctSummary {
     pub runs: u32,
 }
 
-/// The key of the [`Distinct`] statistic.
-pub struct DistinctStat;
-
-impl IntStat for DistinctStat {
-    type Value = DistinctSummary;
-}
-
-impl<T: IntValue> ErasedAccumulator<T> for Distinct<T>
-where
-    NativeValue<T>: Eq + Hash,
-{
-    fn finish_into(self, stats: &mut IntStats) {
-        let (info, runs) = self.finish();
+int_stat!(
+    Distinct,
+    DistinctStat: DistinctSummary,
+    |(info, runs): (DistinctInfo<T>, u32)| {
         let (most_frequent, top_frequency) = info.most_frequent();
-        stats.insert::<DistinctStat>(DistinctSummary {
+        DistinctSummary {
             distinct_count: info.distinct_count(),
             most_frequent: most_frequent.to_pvalue(),
             top_frequency,
             runs,
-        });
-    }
-}
+        }
+    },
+    where NativeValue<T>: Eq + Hash
+);

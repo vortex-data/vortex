@@ -28,6 +28,7 @@ mod benchmarks {
     use vortex_compressor::stats::accumulator::CommonBits;
     use vortex_compressor::stats::accumulator::DeltaRange;
     use vortex_compressor::stats::accumulator::Distinct;
+    use vortex_compressor::stats::accumulator::DynStats;
     use vortex_compressor::stats::accumulator::EACH;
     use vortex_compressor::stats::accumulator::FUSED;
     use vortex_compressor::stats::accumulator::IntValue;
@@ -214,6 +215,19 @@ mod benchmarks {
         )
     } else {
         accumulate(v, m, Schedule::<_, FUSED>::new(compressor_set::<T>()))
+    });
+    // The same statistics chosen at runtime, each in its own loop over every block.
+    int_bench!(dyn_compressor_set, |v, m| {
+        let mut stats = DynStats::new();
+        stats
+            .add(Sum::new())
+            .add(MinMax::new())
+            .add(CommonBits::new())
+            .add(BitWidthHistogram::new())
+            .add(DeltaRange::new())
+            .add(Sorted::new())
+            .add(RunCount::new());
+        compute(v, m, stats)
     });
     int_bench!(erased_grouped_compressor_set, |v, m| compute(
         v,

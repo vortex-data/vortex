@@ -393,3 +393,98 @@ fn compositions_match_naive(
     );
     check_compositions::<u16>(raw.iter().map(|&v| (v & 0x3FF) as u16).collect(), valid);
 }
+
+/// A statistic defined outside the built-in ones: only its kernel, its null handling and its key.
+#[derive(Default)]
+struct ZeroCount {
+    zeros: u32,
+}
+
+impl<T: IntValue> IntAccumulator<T> for ZeroCount {
+    type Output = u32;
+
+    // A filled zero counts once more, which `unfill` removes.
+    const NULLS: Nulls = Nulls::Fill;
+
+    fn chunk(&mut self, values: &[T; CHUNK]) {
+        self.zeros += values.iter().filter(|&&v| v == T::zero()).count() as u32;
+    }
+
+    fn unfill(&mut self, filled: &[T; CHUNK], valid: u64) {
+        self.zeros -= null_indices(valid)
+            .filter(|&i| filled[i] == T::zero())
+            .count() as u32;
+    }
+
+    fn finish(self) -> u32 {
+        self.zeros
+    }
+}
+
+/// The key of [`ZeroCount`].
+struct ZeroCountStat;
+
+impl IntStat for ZeroCountStat {
+    type Value = u32;
+}
+
+impl<T: IntValue> ErasedAccumulator<T> for ZeroCount {
+    fn finish_into(self, stats: &mut IntStats) {
+        stats.insert::<ZeroCountStat>(IntAccumulator::<T>::finish(self));
+    }
+}
+
+/// Statistics chosen at runtime compose with statically scheduled ones, and with a statistic
+/// defined outside this module, in one pass.
+#[rstest]
+fn runtime_statistics(
+    #[values(0, 1, 64 * 300 + 5, 40_000)] len: usize,
+    #[values(None, Some(10), Some(2))] null_every: Option<usize>,
+) {
+    let valid: Vec<bool> = (0..len)
+        .map(|i| null_every.is_none_or(|n| i % n != 0))
+        .collect();
+    let validity = Mask::from_iter(valid.iter().copied());
+    let values: Vec<u16> = wide_values(len)
+        .iter()
+        .map(|&v| (v & 0x3F) as u16)
+        .collect();
+    let expected = naive_generic(&values, &valid);
+    let zeros = values
+        .iter()
+        .zip(&valid)
+        .filter(|&(&v, &ok)| ok && v == 0)
+        .count() as u32;
+
+    for fused in [false, true] {
+        let mut runtime = DynStats::new();
+        runtime
+            .add(RunCount::new())
+            .add(Sorted::new())
+            .add(BitWidthHistogram::new())
+            .add(DeltaRange::new())
+            .add(ZeroCount::default());
+        let stats = if fused {
+            compute(
+                &values,
+                &validity,
+                Schedule::<_, FUSED>::new((MinMax::new(), Sum::new(), CommonBits::new(), runtime)),
+            )
+        } else {
+            compute(
+                &values,
+                &validity,
+                (
+                    Schedule::<_, FUSED>::new((MinMax::new(), Sum::new(), CommonBits::new())),
+                    runtime,
+                ),
+            )
+        };
+        assert_eq!(generic_stats(&stats), expected, "fused: {fused}");
+        assert_eq!(
+            stats.get::<ZeroCountStat>().copied(),
+            expected.as_ref().map(|_| zeros),
+            "fused: {fused}"
+        );
+    }
+}

@@ -8,12 +8,10 @@ use std::marker::PhantomData;
 use num_traits::AsPrimitive;
 
 use super::CHUNK;
-use super::ErasedAccumulator;
 use super::IntAccumulator;
-use super::IntStat;
-use super::IntStats;
 use super::IntValue;
 use super::LANES;
+use super::Nulls;
 use super::fold_lanes;
 use super::fold_lanes2;
 use super::null_indices;
@@ -62,8 +60,8 @@ impl<T> Default for Sum<T> {
 impl<T: IntValue> IntAccumulator<T> for Sum<T> {
     type Output = i128;
 
-    #[inline(always)]
-    fn start(&mut self, _head: T) {}
+    // The nulls are replaced by zeros, which needs no fill.
+    const NULLS: Nulls = Nulls::Skip;
 
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {
@@ -99,17 +97,12 @@ impl<T: IntValue> IntAccumulator<T> for Sum<T> {
 
     #[inline(always)]
     fn filled_chunk(&mut self, filled: &[T; CHUNK], valid: u64) {
-        // Zeros do not change the sum, so this needs no fill and replaces the nulls itself.
+        // Zeros do not change the sum.
         let mut zeroed = *filled;
         for i in null_indices(valid) {
             zeroed[i] = T::zero();
         }
         self.chunk(&zeroed);
-    }
-
-    #[inline(always)]
-    fn push(&mut self, value: T) {
-        self.total += AsPrimitive::<i128>::as_(value);
     }
 
     #[inline(always)]
@@ -143,15 +136,4 @@ impl<T: IntValue> IntAccumulator<T> for Sum<T> {
     }
 }
 
-/// The key of the [`Sum`] statistic.
-pub struct SumStat;
-
-impl IntStat for SumStat {
-    type Value = i128;
-}
-
-impl<T: IntValue> ErasedAccumulator<T> for Sum<T> {
-    fn finish_into(self, stats: &mut IntStats) {
-        stats.insert::<SumStat>(self.finish());
-    }
-}
+int_stat!(Sum, SumStat: i128, |sum| sum);
