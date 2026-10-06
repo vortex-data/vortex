@@ -39,7 +39,17 @@ pub struct DistinctInfo<T> {
     top_frequency: u32,
 }
 
-impl<T: Copy> DistinctInfo<T> {
+impl<T: PrimInt> DistinctInfo<T> {
+    /// Describes an array without valid values.
+    fn empty() -> Self {
+        Self {
+            distinct_values: HashMap::with_hasher(FxBuildHasher),
+            distinct_count: 0,
+            most_frequent_value: T::zero(),
+            top_frequency: 0,
+        }
+    }
+
     /// Summarizes a non-empty map of distinct values to their occurrence counts.
     fn new(distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>) -> Self {
         let (&top_value, &top_frequency) = distinct_values
@@ -365,12 +375,7 @@ where
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
-                distinct: Some(DistinctInfo {
-                    distinct_values: HashMap::with_capacity_and_hasher(0, FxBuildHasher),
-                    distinct_count: 0,
-                    most_frequent_value: T::zero(),
-                    top_frequency: 0,
-                }),
+                distinct: Some(DistinctInfo::empty()),
             }
             .into(),
         });
@@ -476,10 +481,9 @@ where
     T: IntegerPType + PrimInt,
     NativeValue<T>: Eq + Hash,
 {
-    let range_len = match (min.to_i128(), max.to_i128()) {
-        (Some(min), Some(max)) => usize::try_from(max - min + 1).unwrap_or(usize::MAX),
-        _ => usize::MAX,
-    };
+    let min_i128 = min.to_i128().vortex_expect("integers fit in i128");
+    let max_i128 = max.to_i128().vortex_expect("integers fit in i128");
+    let range_len = usize::try_from(max_i128 - min_i128 + 1).unwrap_or(usize::MAX);
 
     // A dense counter is only worthwhile when it is not much larger than the array itself.
     if range_len <= DENSE_DISTINCT_ALWAYS_RANGE
@@ -494,13 +498,12 @@ where
                 counts: &mut counts,
             },
         );
-        let min = min.to_i128().vortex_expect("integers fit in i128");
         let distinct_values = counts
             .iter()
             .enumerate()
             .filter(|&(_, &count)| count > 0)
             .map(|(index, &count)| {
-                let value = <T as num_traits::NumCast>::from(min + index as i128)
+                let value = <T as num_traits::NumCast>::from(min_i128 + index as i128)
                     .vortex_expect("values between min and max fit in the type");
                 (NativeValue(value), count)
             })
@@ -569,13 +572,14 @@ const CHUNK: usize = 64;
 /// [`CHUNK`] as a `u32`.
 const CHUNK_U32: u32 = 64;
 
-/// The result of a [`scan`].
+/// The result of a [`scan`]. Statistics it did not compute keep their initial values: `T::MAX`
+/// for `min`, `T::MIN` for `max` and 1 for `runs`.
 struct Scan<T> {
-    /// The smallest valid value, if computed.
+    /// The smallest valid value.
     min: T,
-    /// The largest valid value, if computed.
+    /// The largest valid value.
     max: T,
-    /// The number of runs of equal consecutive valid values, if computed.
+    /// The number of runs of equal consecutive valid values.
     runs: u32,
 }
 
@@ -609,16 +613,10 @@ where
     T: PrimInt,
     C: Counter<T>,
 {
-    let mut bounds = Bounds {
-        min: [T::max_value(); CHUNK],
-        max: [T::min_value(); CHUNK],
-    };
+    let mut bounds = Bounds::new();
     let runs = scan_into::<T, C, MIN_MAX, RUNS>(values, validity, counter, &mut bounds);
-    Scan {
-        min: fold(&bounds.min, T::max_value(), T::min),
-        max: fold(&bounds.max, T::min_value(), T::max),
-        runs,
-    }
+    let (min, max) = bounds.finish();
+    Scan { min, max, runs }
 }
 
 /// Runs a [`scan`] that folds the bounds into `bounds`, and returns the runs.
@@ -696,11 +694,11 @@ impl<T: PrimInt> ScanState<T> {
         if C::COUNTS || RUNS {
             let changes = transitions(&self.prev, values);
             self.runs += changes;
-            if C::COUNTS {
-                if changes == 0 {
-                    self.pending += CHUNK_U32;
-                    return;
-                }
+            if !C::COUNTS {
+                self.prev = values[CHUNK - 1];
+            } else if changes == 0 {
+                self.pending += CHUNK_U32;
+            } else {
                 for &value in values {
                     if value != self.prev {
                         counter.add(self.prev, self.pending);
@@ -710,7 +708,6 @@ impl<T: PrimInt> ScanState<T> {
                     self.pending += 1;
                 }
             }
-            self.prev = values[CHUNK - 1];
         }
     }
 
@@ -760,6 +757,27 @@ struct Bounds<T> {
 }
 
 impl<T: PrimInt> Bounds<T> {
+    /// Returns empty bounds.
+    fn new() -> Self {
+        Self {
+            min: [T::max_value(); CHUNK],
+            max: [T::min_value(); CHUNK],
+        }
+    }
+
+    /// Reduces the lanes to the overall minimum and maximum.
+    fn finish(&self) -> (T, T) {
+        let min = self
+            .min
+            .iter()
+            .fold(T::max_value(), |acc, &lane| acc.min(lane));
+        let max = self
+            .max
+            .iter()
+            .fold(T::min_value(), |acc, &lane| acc.max(lane));
+        (min, max)
+    }
+
     /// Folds a chunk into the bounds of each lane.
     ///
     /// The lane count depends on the width and the instruction set, and was chosen by
@@ -829,11 +847,6 @@ fn transitions<T: PartialEq>(prev: &T, values: &[T; CHUNK]) -> u32 {
             .map(|(a, b)| u8::from(a != b))
             .sum::<u8>();
     u32::from(changes)
-}
-
-/// Reduces lanes to one value.
-fn fold<T: Copy>(lanes: &[T; CHUNK], init: T, f: impl Fn(T, T) -> T) -> T {
-    lanes.iter().fold(init, |acc, &lane| f(acc, lane))
 }
 
 #[cfg(test)]
