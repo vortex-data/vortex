@@ -6,6 +6,7 @@
 use std::ops::Not;
 use std::ops::Range;
 
+use vortex_buffer::BitBufferMut;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -111,16 +112,21 @@ impl Selection {
 
 /// Build the mask of positions within `range` that are named by the given sorted row indices.
 fn index_mask(range: &Range<u64>, range_len: usize, row_indices: &[u64]) -> Mask {
-    indices_range(range, row_indices)
-        .map(|idx_range| {
-            Mask::from_indices(
-                range_len,
-                row_indices[idx_range]
-                    .iter()
-                    .map(|&idx| relativize(range, idx)),
-            )
-        })
-        .unwrap_or_else(|| Mask::new_false(range_len))
+    let Some(idx_range) = indices_range(range, row_indices) else {
+        return Mask::new_false(range_len);
+    };
+    let selected = &row_indices[idx_range];
+    // The indices are unique, so naming as many rows as the range holds selects all of them.
+    if selected.len() == range_len {
+        return Mask::new_true(range_len);
+    }
+
+    // Set the bits in place rather than collecting relative indices first.
+    let mut bits = BitBufferMut::new_unset(range_len);
+    for &idx in selected {
+        bits.set(relativize(range, idx));
+    }
+    Mask::from_buffer(bits.freeze())
 }
 
 /// Shift an absolute row index to be relative to the start of `range`.

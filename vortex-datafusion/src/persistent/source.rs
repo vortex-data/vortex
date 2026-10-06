@@ -10,10 +10,12 @@ use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::EquivalenceProperties;
+use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
@@ -33,11 +35,13 @@ use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::selection::Selection;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use crate::VortexAccessPlan;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
@@ -439,6 +443,43 @@ impl FileSource for VortexSource {
         true
     }
 
+    fn repartitioned(
+        &self,
+        target_partitions: usize,
+        repartition_file_min_size: usize,
+        output_ordering: Option<LexOrdering>,
+        config: &FileScanConfig,
+    ) -> DFResult<Option<FileScanConfig>> {
+        // When an external index has already picked a few rows of every file, splitting a file
+        // into byte ranges only makes each partition open it to find that most ranges hold none
+        // of those rows. Keep such files whole; they are already spread across file groups.
+        let all_sparse = config
+            .file_groups
+            .iter()
+            .flat_map(|group| group.files())
+            .all(|file| {
+                file.extensions
+                    .get::<VortexAccessPlan>()
+                    .and_then(VortexAccessPlan::selection)
+                    .is_some_and(is_sparse_selection)
+            });
+        if all_sparse {
+            return Ok(None);
+        }
+
+        let Some(file_groups) = FileGroupPartitioner::new()
+            .with_target_partitions(target_partitions)
+            .with_repartition_file_min_size(repartition_file_min_size)
+            .with_preserve_order_within_groups(output_ordering.is_some())
+            .repartition_file_groups(&config.file_groups)
+        else {
+            return Ok(None);
+        };
+        let mut config = config.clone();
+        config.file_groups = file_groups;
+        Ok(Some(config))
+    }
+
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,
@@ -547,6 +588,22 @@ impl FileSource for VortexSource {
     }
 }
 
+/// Selections of at most this many rows (one batch) are read by a single partition: opening the
+/// file once per byte range costs more than reading them. Larger selections scattered across the
+/// file still gain from splitting it across partitions.
+const SPARSE_SELECTION_MAX_ROWS: u64 = 8_192;
+
+/// Whether `selection` includes few enough rows that splitting its file buys nothing.
+fn is_sparse_selection(selection: &Selection) -> bool {
+    match selection {
+        Selection::IncludeByIndex(_) | Selection::IncludeRoaring(_) => {
+            // The total row count only matters for exclusion selections.
+            selection.row_count(u64::MAX) <= SPARSE_SELECTION_MAX_ROWS
+        }
+        Selection::All | Selection::ExcludeByIndex(_) | Selection::ExcludeRoaring(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use arrow_schema::DataType;
@@ -554,6 +611,7 @@ mod tests {
     use arrow_schema::Schema;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_datasource::PartitionedFile;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
@@ -563,7 +621,10 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::buffer::Buffer;
+    use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use super::*;
     use crate::convert::exprs::ProcessedProjection;
@@ -687,6 +748,40 @@ mod tests {
             &opener.expression_convertor,
             &expression_convertor
         ));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::no_access_plan(None, true)]
+    #[case::sparse_selection(Some(10), false)]
+    #[case::one_batch_selection(Some(SPARSE_SELECTION_MAX_ROWS), false)]
+    #[case::dense_selection(Some(SPARSE_SELECTION_MAX_ROWS + 1), true)]
+    fn repartition_splits_files_unless_selection_is_sparse(
+        #[case] selected_rows: Option<u64>,
+        #[case] expect_split: bool,
+    ) -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let source = Arc::new(sort_test_source(schema));
+
+        let mut file = PartitionedFile::new("data.vortex", 1 << 30);
+        if let Some(rows) = selected_rows {
+            let indices = StrictSortedBuffer::try_new(Buffer::from_iter(0..rows))?;
+            file.extensions.insert(
+                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(indices)),
+            );
+        }
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::clone(&source) as _,
+        )
+        .with_file(file)
+        .build();
+
+        let repartitioned = source.repartitioned(4, 1 << 20, None, &config)?;
+        assert_eq!(repartitioned.is_some(), expect_split);
+        if let Some(config) = repartitioned {
+            assert_eq!(config.file_groups.len(), 4);
+        }
         Ok(())
     }
 
