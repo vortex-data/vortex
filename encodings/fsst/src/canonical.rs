@@ -366,13 +366,16 @@ mod tests {
             encoded.uncompressed_lengths().slice(1..3)?,
             &mut ctx,
         )?;
-        let mut builder = VarBinViewBuilder::with_capacity_in(
-            input.dtype().clone(),
-            2,
-            ctx.allocator().clone(),
+        let mut builder =
+            VarBinViewBuilder::with_capacity_in(input.dtype().clone(), 2, ctx.allocator().clone());
+        sliced
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+        assert_arrays_eq!(
+            builder.finish_into_varbinview(),
+            input.slice(1..3)?,
+            &mut ctx
         );
-        sliced.into_array().append_to_builder(&mut builder, &mut ctx)?;
-        assert_arrays_eq!(builder.finish_into_varbinview(), input.slice(1..3)?, &mut ctx);
         Ok(())
     }
 
