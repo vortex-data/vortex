@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Cascading array compression implementation.
+//!
+//! [`CascadingCompressor`] selects schemes for leaf arrays and recurses through structural children.
+//! Optional integer narrowing changes the stored width before selection while retaining the logical
+//! dtype. Scheme-specific encoding belongs to the registered [`Scheme`] implementations.
 
 mod cascade;
 mod constant;
