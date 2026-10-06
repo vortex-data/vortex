@@ -23,12 +23,14 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 
 pub mod builder;
 
+use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {
@@ -38,6 +40,23 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     } else {
         Scalar::binary(value, dtype.nullability())
     }
+}
+
+/// Creates a non-null [`Scalar`] from `value` without checking UTF-8.
+///
+/// # Safety
+///
+/// `dtype` must be [`DType::Utf8`] or [`DType::Binary`]. If it is [`DType::Utf8`], `value` must be
+/// valid UTF-8.
+pub(crate) unsafe fn varbin_scalar_unchecked(value: ByteBuffer, dtype: &DType) -> Scalar {
+    let value = match dtype {
+        // SAFETY: The caller guarantees that `value` is valid UTF-8.
+        DType::Utf8(_) => ScalarValue::Utf8(unsafe { BufferString::new_unchecked(value) }),
+        _ => ScalarValue::Binary(value),
+    };
+
+    // SAFETY: The value variant matches the dtype.
+    unsafe { Scalar::new_unchecked(dtype.clone(), Some(value)) }
 }
 
 #[cfg(test)]

@@ -105,11 +105,39 @@ impl StatsSet {
 
     /// Get value for a given stat
     pub fn get(&self, stat: Stat) -> Precision<ScalarValue> {
+        self.get_ref(stat).map(ScalarValue::clone)
+    }
+
+    /// Get a reference to the value for a given stat.
+    fn get_ref(&self, stat: Stat) -> Precision<&ScalarValue> {
         self.values
             .iter()
             .find(|(s, _)| *s == stat)
-            .map(|(_, v)| v.clone())
+            .map(|(_, v)| v.as_ref())
             .unwrap_or(Precision::Absent)
+    }
+
+    /// Get the value for a count stat, such as [`Stat::NullCount`], without building a [`Scalar`].
+    pub(super) fn get_usize(&self, stat: Stat) -> Precision<usize> {
+        self.get_ref(stat).map(|v| {
+            usize::try_from(v).unwrap_or_else(|err| {
+                vortex_panic!(
+                    err,
+                    "Failed to get stat {} as {}",
+                    stat,
+                    type_name::<usize>()
+                )
+            })
+        })
+    }
+
+    /// Get the value for a boolean stat, such as [`Stat::IsSorted`], without building a
+    /// [`Scalar`].
+    pub(super) fn get_bool(&self, stat: Stat) -> Precision<bool> {
+        self.get_ref(stat).map(|v| match v {
+            ScalarValue::Bool(b) => *b,
+            _ => vortex_panic!("Failed to get stat {} as bool, found {}", stat, v),
+        })
     }
 
     /// Length of the stats set
@@ -209,6 +237,20 @@ impl StatsSet {
     }
 }
 
+/// Builds the typed [`Scalar`] for `stat` over an array of `dtype` from its stored value.
+fn stat_scalar(values: &StatsSet, stat: Stat, dtype: &DType) -> Precision<Scalar> {
+    values.get_ref(stat).map(|value| {
+        let stat_dtype = stat
+            .dtype(dtype)
+            .vortex_expect("Must have valid dtype if value is present");
+        Scalar::validate(&stat_dtype, Some(value))
+            .vortex_expect("failed to construct a scalar statistic");
+
+        // SAFETY: The value was validated against the dtype above.
+        unsafe { Scalar::new_unchecked(stat_dtype, Some(value.clone())) }
+    })
+}
+
 pub struct TypedStatsSetRef<'a, 'b> {
     pub values: &'a StatsSet,
     pub dtype: &'b DType,
@@ -216,14 +258,7 @@ pub struct TypedStatsSetRef<'a, 'b> {
 
 impl StatsProvider for TypedStatsSetRef<'_, '_> {
     fn get(&self, stat: Stat) -> Precision<Scalar> {
-        self.values.get(stat).map(|sv| {
-            Scalar::try_new(
-                stat.dtype(self.dtype)
-                    .vortex_expect("Must have valid dtype if value is present"),
-                Some(sv),
-            )
-            .vortex_expect("failed to construct a scalar statistic")
-        })
+        stat_scalar(self.values, stat, self.dtype)
     }
 
     fn len(&self) -> usize {
@@ -250,14 +285,7 @@ impl MutTypedStatsSetRef<'_, '_> {
 
 impl StatsProvider for MutTypedStatsSetRef<'_, '_> {
     fn get(&self, stat: Stat) -> Precision<Scalar> {
-        self.values.get(stat).map(|sv| {
-            Scalar::try_new(
-                stat.dtype(self.dtype)
-                    .vortex_expect("Must have valid dtype if value is present"),
-                Some(sv),
-            )
-            .vortex_expect("failed to construct a scalar statistic")
-        })
+        stat_scalar(self.values, stat, self.dtype)
     }
 
     fn len(&self) -> usize {
@@ -477,24 +505,32 @@ impl MutTypedStatsSetRef<'_, '_> {
     }
 
     fn merge_is_constant(&mut self, other: &TypedStatsSetRef) {
-        let self_const = self.get_as(Stat::IsConstant);
-        let other_const = other.get_as(Stat::IsConstant);
-        let self_min = self.get(Stat::Min);
-        let other_min = other.get(Stat::Min);
+        let self_const = self.values.get_bool(Stat::IsConstant);
+        let other_const = other.values.get_bool(Stat::IsConstant);
 
-        if let (Some(self_const), Some(other_const), Some(self_min), Some(other_min)) = (
-            self_const.as_exact(),
-            other_const.as_exact(),
-            self_min.as_exact(),
-            other_min.as_exact(),
-        ) {
-            if self_const && other_const && self_min == other_min {
-                self.set(Stat::IsConstant, Precision::exact(true));
-            } else {
-                self.set(Stat::IsConstant, Precision::inexact(false));
+        match (self_const, other_const) {
+            // A non-constant part makes the whole array non-constant.
+            (Precision::Exact(false), _) | (_, Precision::Exact(false)) => {
+                self.set(Stat::IsConstant, Precision::exact(false));
             }
+            (Precision::Exact(true), Precision::Exact(true)) => {
+                // Both mins have the same dtype, so comparing the values is the same as comparing
+                // scalars.
+                let self_min = self.values.get_ref(Stat::Min).as_exact();
+                let other_min = other.values.get_ref(Stat::Min).as_exact();
+
+                match (self_min, other_min) {
+                    (Some(self_min), Some(other_min)) => {
+                        let is_constant = self_min == other_min;
+                        self.set(Stat::IsConstant, Precision::exact(is_constant));
+                    }
+                    // Without both exact mins, e.g. for an all-null part, the parts cannot be
+                    // compared.
+                    _ => self.clear(Stat::IsConstant),
+                }
+            }
+            _ => self.clear(Stat::IsConstant),
         }
-        self.set(Stat::IsConstant, Precision::exact(false));
     }
 
     fn merge_is_sorted(&mut self, other: &TypedStatsSetRef) {
@@ -512,7 +548,7 @@ impl MutTypedStatsSetRef<'_, '_> {
         cmp: F,
     ) {
         if (Precision::Exact(true), Precision::Exact(true))
-            == (self.get_as(stat), other.get_as(stat))
+            == (self.values.get_bool(stat), other.values.get_bool(stat))
         {
             // There might be no stat because it was dropped, or it doesn't exist
             // (e.g. an all null array).
@@ -546,8 +582,9 @@ impl MutTypedStatsSetRef<'_, '_> {
 
     fn merge_sum_stat(&mut self, stat: Stat, other: &TypedStatsSetRef) {
         let merged = self
-            .get_as::<usize>(stat)
-            .zip(other.get_as::<usize>(stat))
+            .values
+            .get_usize(stat)
+            .zip(other.values.get_usize(stat))
             .map(|(l, r)| ScalarValue::from(l + r));
 
         if merged.is_absent() {
@@ -562,6 +599,7 @@ impl MutTypedStatsSetRef<'_, '_> {
 mod test {
     use enum_iterator::all;
     use itertools::Itertools;
+    use rstest::rstest;
     use smallvec::smallvec;
 
     use crate::VortexSessionExecute;
@@ -680,12 +718,73 @@ mod test {
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
 
+        // With an inexact min, the two constant parts cannot be compared.
         let first_ref = first.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert_eq!(
             first_ref.get_as::<bool>(Stat::IsConstant),
-            Precision::exact(false)
+            Precision::Absent
         );
         assert_eq!(first_ref.get_as::<i32>(Stat::Min), Precision::exact(42));
+    }
+
+    #[rstest]
+    #[case::equal_mins(
+        Precision::exact(true),
+        42,
+        Precision::exact(true),
+        42,
+        Precision::exact(true)
+    )]
+    #[case::different_mins(
+        Precision::exact(true),
+        42,
+        Precision::exact(true),
+        7,
+        Precision::exact(false)
+    )]
+    #[case::first_not_constant(
+        Precision::exact(false),
+        42,
+        Precision::exact(true),
+        42,
+        Precision::exact(false)
+    )]
+    #[case::second_not_constant(
+        Precision::exact(true),
+        42,
+        Precision::exact(false),
+        42,
+        Precision::exact(false)
+    )]
+    #[case::inexact_constant(
+        Precision::inexact(true),
+        42,
+        Precision::exact(true),
+        42,
+        Precision::Absent
+    )]
+    fn merge_constant_parts(
+        #[case] first_const: Precision<bool>,
+        #[case] first_min: i32,
+        #[case] second_const: Precision<bool>,
+        #[case] second_min: i32,
+        #[case] expected: Precision<bool>,
+    ) {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let stats = |is_constant: Precision<bool>, min: i32| {
+            StatsSet::from_iter([
+                (Stat::Min, Precision::exact(min)),
+                (Stat::IsConstant, is_constant.map(ScalarValue::from)),
+            ])
+        };
+
+        let merged =
+            stats(first_const, first_min).merge_ordered(&stats(second_const, second_min), &dtype);
+
+        assert_eq!(
+            merged.as_typed_ref(&dtype).get_as::<bool>(Stat::IsConstant),
+            expected
+        );
     }
 
     #[test]

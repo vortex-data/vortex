@@ -33,8 +33,8 @@ use crate::scalar::UnionValue;
 impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
-        Self::try_new(DType::Bool(nullability), Some(ScalarValue::Bool(value)))
-            .vortex_expect("unable to construct a boolean `Scalar`")
+        // SAFETY: A `Bool` value is always valid for a `Bool` dtype.
+        unsafe { Self::new_unchecked(DType::Bool(nullability), Some(ScalarValue::Bool(value))) }
     }
 
     /// Creates a new primitive scalar from a native value.
@@ -47,11 +47,21 @@ impl Scalar {
     /// Note that an explicit PType is passed since any compatible PValue may be used as the value
     /// for a primitive type.
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
-        Self::try_new(
-            DType::Primitive(ptype, nullability),
-            Some(ScalarValue::Primitive(value)),
-        )
-        .vortex_expect("unable to construct a primitive `Scalar`")
+        if value.ptype() != ptype {
+            return Self::try_new(
+                DType::Primitive(ptype, nullability),
+                Some(ScalarValue::Primitive(value)),
+            )
+            .vortex_expect("unable to construct a primitive `Scalar`");
+        }
+
+        // SAFETY: The value has the same ptype as the dtype.
+        unsafe {
+            Self::new_unchecked(
+                DType::Primitive(ptype, nullability),
+                Some(ScalarValue::Primitive(value)),
+            )
+        }
     }
 
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
@@ -91,20 +101,21 @@ impl Scalar {
     where
         B: TryInto<BufferString>,
     {
-        Ok(Self::try_new(
-            DType::Utf8(nullability),
-            Some(ScalarValue::Utf8(str.try_into()?)),
-        )
-        .vortex_expect("unable to construct a UTF-8 `Scalar`"))
+        let value = ScalarValue::Utf8(str.try_into()?);
+
+        // SAFETY: A `Utf8` value is always valid for a `Utf8` dtype.
+        Ok(unsafe { Self::new_unchecked(DType::Utf8(nullability), Some(value)) })
     }
 
     /// Creates a new binary scalar from a byte buffer.
     pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
-        Self::try_new(
-            DType::Binary(nullability),
-            Some(ScalarValue::Binary(buffer.into())),
-        )
-        .vortex_expect("unable to construct a binary `Scalar`")
+        // SAFETY: A `Binary` value is always valid for a `Binary` dtype.
+        unsafe {
+            Self::new_unchecked(
+                DType::Binary(nullability),
+                Some(ScalarValue::Binary(buffer.into())),
+            )
+        }
     }
 
     /// Creates a new list scalar with the given element type and children.

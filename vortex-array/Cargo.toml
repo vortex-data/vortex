@@ -183,6 +183,10 @@ name = "scalar_at_struct"
 harness = false
 
 [[bench]]
+name = "scalar_construction"
+harness = false
+
+[[bench]]
 name = "patches_lookup"
 harness = false
 

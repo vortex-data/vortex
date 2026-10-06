@@ -200,7 +200,7 @@ impl AggregateFnVTable for BoundedMax {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
         let state = if scalar.is_null() {

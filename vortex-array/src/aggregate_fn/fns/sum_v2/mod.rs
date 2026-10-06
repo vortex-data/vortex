@@ -48,8 +48,8 @@ use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
-use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -155,15 +155,14 @@ impl AggregateFnVTable for SumV2 {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let mut partial = SumV2Partial::empty(args.return_dtype);
-        let (sum, is_overflow, is_empty) = decode_partial_scalar(scalar)?;
-        validate_sum_field_dtype(&sum, args.return_dtype)?;
+        let (sum, is_overflow, is_empty) = decode_partial_scalar(scalar, args.return_dtype)?;
 
         // Adding the parsed value to the zero state cannot overflow; treat a decimal value that
         // no longer fits its precision as an already-overflowed partial.
-        let overflowed = checked_add_sum_state(&mut partial.sum, args.return_dtype, &sum)?;
+        let overflowed = checked_add_sum_value(&mut partial.sum, args.return_dtype, sum)?;
         partial.is_overflow = is_overflow || overflowed;
         partial.is_empty = is_empty && !partial.is_overflow;
         Ok(partial)
@@ -396,35 +395,58 @@ fn has_valid_value(batch: &Columnar, ctx: &mut ExecutionCtx) -> VortexResult<boo
     Ok(validity.execute_mask(len, ctx)?.true_count() > 0)
 }
 
-fn decode_partial_scalar(scalar: Scalar) -> VortexResult<(Scalar, bool, bool)> {
+/// Reads the `sum`, `is_overflow` and `is_empty` fields of a partial scalar.
+///
+/// This reads the struct values directly, because building a [`Scalar`] for each field costs more
+/// than the merge itself.
+fn decode_partial_scalar<'a>(
+    scalar: &'a Scalar,
+    return_dtype: &DType,
+) -> VortexResult<(&'a ScalarValue, bool, bool)> {
     vortex_ensure!(!scalar.is_null(), "SumV2 partial must not be null");
 
-    let Some(fields) = scalar.as_struct_opt() else {
+    let (DType::Struct(fields, _), Some(ScalarValue::Tuple(values))) =
+        (scalar.dtype(), scalar.value())
+    else {
         vortex_bail!("SumV2 partial must be a struct, got {}", scalar.dtype());
     };
-    let sum = fields
-        .field(SUM_FIELD)
-        .ok_or_else(|| vortex_err!("SumV2 partial is missing the sum field"))?;
-    let is_overflow = bool::try_from(
-        &fields
-            .field(IS_OVERFLOW_FIELD)
-            .ok_or_else(|| vortex_err!("SumV2 partial is missing the is_overflow field"))?,
-    )?;
-    let is_empty = bool::try_from(
-        &fields
-            .field(IS_EMPTY_FIELD)
-            .ok_or_else(|| vortex_err!("SumV2 partial is missing the is_empty field"))?,
-    )?;
 
-    Ok((sum, is_overflow, is_empty))
+    let field_index = |name: &str| {
+        fields
+            .find(name)
+            .ok_or_else(|| vortex_err!("SumV2 partial is missing the {name} field"))
+    };
+    let bool_field = |name: &str| -> VortexResult<bool> {
+        match &values[field_index(name)?] {
+            Some(ScalarValue::Bool(value)) => Ok(*value),
+            _ => vortex_bail!("SumV2 partial field {name} must be a non-null bool"),
+        }
+    };
+
+    let sum_index = field_index(SUM_FIELD)?;
+    let sum_dtype = fields
+        .field_dtypes()
+        .nth(sum_index)
+        .vortex_expect("field index from find is in bounds");
+    validate_sum_field_dtype(sum_dtype, return_dtype)?;
+
+    let sum = values[sum_index]
+        .as_ref()
+        .ok_or_else(|| vortex_err!("SumV2 partial sum must not be null"))?;
+
+    Ok((
+        sum,
+        bool_field(IS_OVERFLOW_FIELD)?,
+        bool_field(IS_EMPTY_FIELD)?,
+    ))
 }
 
-fn validate_sum_field_dtype(sum: &Scalar, return_dtype: &DType) -> VortexResult<()> {
+fn validate_sum_field_dtype(sum_dtype: &DType, return_dtype: &DType) -> VortexResult<()> {
     vortex_ensure!(
-        sum.dtype().nullability() == Nullability::NonNullable
-            && sum.dtype().eq_ignore_nullability(return_dtype),
+        sum_dtype.nullability() == Nullability::NonNullable
+            && sum_dtype.eq_ignore_nullability(return_dtype),
         "SumV2 partial value has dtype {}, expected {}",
-        sum.dtype(),
+        sum_dtype,
         return_dtype.as_nonnullable(),
     );
     Ok(())
@@ -435,19 +457,33 @@ fn checked_add_sum_state(
     return_dtype: &DType,
     other: &Scalar,
 ) -> VortexResult<bool> {
-    Ok(match state {
-        SumState::Unsigned(sum) => checked_add_u64(sum, u64::try_from(other)?),
-        SumState::Signed(sum) => checked_add_i64(sum, i64::try_from(other)?),
-        SumState::Float(sum) => {
-            *sum += f64::try_from(other)?;
+    let other = other
+        .value()
+        .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))?;
+    checked_add_sum_value(state, return_dtype, other)
+}
+
+fn checked_add_sum_value(
+    state: &mut SumState,
+    return_dtype: &DType,
+    other: &ScalarValue,
+) -> VortexResult<bool> {
+    Ok(match (state, other) {
+        (SumState::Unsigned(sum), ScalarValue::Primitive(other)) => {
+            checked_add_u64(sum, other.cast::<u64>()?)
+        }
+        (SumState::Signed(sum), ScalarValue::Primitive(other)) => {
+            checked_add_i64(sum, other.cast::<i64>()?)
+        }
+        (SumState::Float(sum), ScalarValue::Primitive(other)) => {
+            *sum += other.cast::<f64>()?;
             false
         }
-        SumState::Decimal(value) => {
+        (SumState::Decimal(value), ScalarValue::Decimal(other)) => {
             let dtype = return_dtype
                 .as_decimal_opt()
                 .vortex_expect("decimal sum result dtype");
-            let other = DecimalValue::try_from(other)?;
-            match value.checked_add(&other) {
+            match value.checked_add(other) {
                 Some(result) if result.fits_in_precision(*dtype) => {
                     *value = result;
                     false
@@ -455,6 +491,7 @@ fn checked_add_sum_state(
                 Some(_) | None => true,
             }
         }
+        (_, other) => vortex_bail!("SumV2 cannot add {other} to a {return_dtype} sum"),
     })
 }
 
