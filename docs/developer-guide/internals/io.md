@@ -69,9 +69,9 @@ The `SegmentCache` trait provides a key-value interface for caching fetched segm
 `SegmentId`. Three implementations are provided:
 
 - **`NoOpSegmentCache`** -- no caching; used when segments are already in memory.
-- **`MokaSegmentCache`** -- an in-memory LRU cache backed by the Moka library, sized by total
-  byte capacity. Files share it through per-file views from `for_file(key)`, which key segments by
-  file as well as segment ID.
+- **`MokaSegmentCache`** -- an in-memory cache backed by the Moka library, sized by total byte
+  capacity, with LRU or TinyLFU eviction chosen at construction. Files share it through per-file
+  views from `for_file(key)`, which key segments by file as well as segment ID.
 - **`InitialReadSegmentCache`** -- a two-level cache that captures segments read during the
   initial file footer parse and delegates misses to a fallback cache.
 

@@ -33,6 +33,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex::layout::segments::SegmentEviction;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
 
@@ -215,10 +216,11 @@ fn open_options(
         )),
         (None, Some(_)) => Err(PyValueError::new_err("cache_key requires a segment_cache")),
         (None, None) if without_segment_cache => Ok(options),
-        // A private cache holds only this file, so any key will do.
-        (None, None) => {
-            Ok(options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20).for_file(""))))
-        }
+        // A private cache holds only this file, so any key will do. It serves re-reads of this
+        // one file, where TinyLFU keeps a stable hot set that LRU would evict on every pass.
+        (None, None) => Ok(options.with_segment_cache(Arc::new(
+            MokaSegmentCache::new(256 << 20, SegmentEviction::TinyLfu).for_file(""),
+        ))),
     }
 }
 
@@ -245,7 +247,7 @@ impl PySegmentCache {
     #[new]
     fn new(max_bytes: u64) -> Self {
         Self {
-            cache: MokaSegmentCache::new(max_bytes),
+            cache: MokaSegmentCache::new(max_bytes, SegmentEviction::Lru),
         }
     }
 

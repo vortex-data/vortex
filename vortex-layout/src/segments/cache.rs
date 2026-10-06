@@ -48,6 +48,19 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
+/// Which segments a [`MokaSegmentCache`] evicts when it is full.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SegmentEviction {
+    /// Admit every new segment and evict the least recently used. Suits a cache shared by readers
+    /// that move from file to file, where a newly opened file's segments must displace older ones.
+    #[default]
+    Lru,
+    /// Admit a new segment only if it is likely to be used more often than the one it would
+    /// evict. Suits repeated scans of one file larger than the cache, which LRU would evict
+    /// entirely on every pass, but rejects a new file's segments while older ones are popular.
+    TinyLfu,
+}
+
 /// An in-memory Moka cache of segments, capped by total buffer bytes, that any number of files can
 /// share.
 ///
@@ -60,7 +73,11 @@ pub struct MokaSegmentCache(Cache<(Arc<str>, SegmentId), ByteBuffer, FxBuildHash
 
 impl MokaSegmentCache {
     /// Construct a Moka-backed cache capped by total buffer bytes.
-    pub fn new(max_capacity_bytes: u64) -> Self {
+    pub fn new(max_capacity_bytes: u64, eviction: SegmentEviction) -> Self {
+        let eviction_policy = match eviction {
+            SegmentEviction::Lru => EvictionPolicy::lru(),
+            SegmentEviction::TinyLfu => EvictionPolicy::tiny_lfu(),
+        };
         Self(
             CacheBuilder::new(max_capacity_bytes)
                 .name("vortex-segment-cache")
@@ -68,10 +85,7 @@ impl MokaSegmentCache {
                 .weigher(|_, buffer: &ByteBuffer| {
                     u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
                 })
-                // Readers of many files move from file to file, so the segments of a newly opened
-                // file must displace those of older files. TinyLFU admission would instead reject
-                // new segments while older ones have higher counts.
-                .eviction_policy(EvictionPolicy::lru())
+                .eviction_policy(eviction_policy)
                 .build_with_hasher(FxBuildHasher),
         )
     }
@@ -218,13 +232,17 @@ impl SegmentSource for SegmentCacheSourceAdapter {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::ByteBuffer;
 
     use super::*;
 
+    #[rstest]
+    #[case::lru(SegmentEviction::Lru)]
+    #[case::tiny_lfu(SegmentEviction::TinyLfu)]
     #[tokio::test]
-    async fn shared_cache_separates_files() -> VortexResult<()> {
-        let shared = MokaSegmentCache::new(1 << 20);
+    async fn shared_cache_separates_files(#[case] eviction: SegmentEviction) -> VortexResult<()> {
+        let shared = MokaSegmentCache::new(1 << 20, eviction);
         let a = shared.for_file("a");
         let b = shared.for_file("b");
         let id = SegmentId::from(0);
@@ -242,9 +260,14 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::lru(SegmentEviction::Lru)]
+    #[case::tiny_lfu(SegmentEviction::TinyLfu)]
     #[tokio::test]
-    async fn shared_cache_is_capped_by_bytes() -> VortexResult<()> {
-        let shared = MokaSegmentCache::new(1000);
+    async fn shared_cache_is_capped_by_bytes(
+        #[case] eviction: SegmentEviction,
+    ) -> VortexResult<()> {
+        let shared = MokaSegmentCache::new(1000, eviction);
         let file = shared.for_file("file");
         for i in 0..10u32 {
             file.put(SegmentId::from(i), ByteBuffer::copy_from(vec![0u8; 400]))
@@ -255,8 +278,10 @@ mod tests {
         assert!(shared.weighted_size() <= 1000);
         assert!(shared.entry_count() <= 2);
 
-        // The most recently stored segment survives under LRU eviction.
-        assert!(file.get(SegmentId::from(9)).await?.is_some());
+        // LRU admits every segment, so the most recently stored one survives.
+        if eviction == SegmentEviction::Lru {
+            assert!(file.get(SegmentId::from(9)).await?.is_some());
+        }
         Ok(())
     }
 }
