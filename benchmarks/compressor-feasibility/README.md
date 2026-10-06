@@ -346,6 +346,46 @@ build next is a hybrid:
 - **Decode time:** the learned model.
 - **Choice:** by `bytes / bandwidth + decode time`.
 
+## Counting compression time too (default encodings only)
+
+The objective per chunk is now `compress time / reads + bytes / bandwidth + decode time`, where
+`reads` is reads per write. The model gains a third prediction per candidate: compression time,
+trained on 3 timed repetitions. Pco is excluded, since it isn't in the default encodings.
+
+The model is only run when it could plausibly pay for itself. Production is always compressed. An
+alternative is tried only when `reads × predicted serving saving` covers twice its predicted
+compression time, and its serving cost is at least 10% lower.
+
+Measured total cost against production (all costs real, including features, inference and
+verification):
+
+| Bandwidth | Reads | Size-model thresholds | Model-driven | Bytes | Decode | Compress time |
+|---|---|---|---|---|---|---|
+| S3 | 1 | +1.6% | +21.4% | 0% | +1% | 1.39× |
+| S3 | 10 | −2.3% | +8.5% | −2.6% | +5% | 1.99× |
+| S3 | 100 | −3.1% | −1.1% | −3.1% | +2% | 2.39× |
+| NVMe | 1 | +7.0% | +0.8% | 0% | +1% | 1.01× |
+| NVMe | 10 | +13.8% | +18.3% | 0% | +2% | 1.34× |
+| NVMe | 100 | +21.0% | **−2.9%** | +12.5% | −26% | 1.62× |
+| Memory | 1 | +7.5% | −0.1% | 0% | 0% | 1.00× |
+| Memory | 10 | +18.4% | +22.4% | 0% | +2% | 1.34× |
+| Memory | 100 | +35.3% | **−11.8%** | +31.2% | −28% | 1.59× |
+
+**Once compression time counts, the model's fixed overhead dominates.** Features (~0.07 ms per
+chunk) plus inference (~0.04 ms) add ~25–35% to production's 0.58 ms. It's paid even when the
+model keeps production's choice. That loses at 1–10 reads per write; only at ~100 reads does the
+decode saving outweigh it.
+
+- **The "worth it?" check only helps where serving is cheap** (NVMe and memory at 1 read). At S3,
+  transfer cost makes the model look worthwhile even when it ends up trying nothing.
+- **The size-model thresholds** only win at S3. Elsewhere their slower decode and compression
+  cost more than the bytes they save.
+
+To make this pay at low read counts, the overhead has to go. Computed inside the compressor, the
+features could reuse `IntegerStats` (which already counts distinct values and runs) rather than
+being recomputed. The ensembles (12 candidates × 3 targets × 40 trees) can be distilled to a few
+small trees.
+
 ## Caveats
 
 - Integers only. The oracle is one step (root only), so the true headroom is at least this large.

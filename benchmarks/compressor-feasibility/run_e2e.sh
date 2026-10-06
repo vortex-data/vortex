@@ -16,13 +16,13 @@ BIN="$ROOT/target/release/compressor-feasibility"
 
 cargo build --release -p compressor-feasibility --manifest-path "$ROOT/Cargo.toml"
 
-"$BIN" --data-dir "$DATA" --tpch-sf 1 --max-chunks-per-column 16 --decode-reps 5 \
+"$BIN" --data-dir "$DATA" --tpch-sf 1 --max-chunks-per-column 16 --decode-reps 5 --compress-reps 3 \
     --variants default,model/runend+sparse,forced/ --out "$WORK/train"
 
 uv run --no-project --with pandas --with scikit-learn python -W ignore "$HERE/train.py" \
     "$WORK/train" --export "$WORK/models"
 
 "$BIN" --data-dir "$DATA" --tpch-sf 1 --max-chunks-per-column 16 --decode-reps 7 --compress-reps 3 \
-    --variants default,model/runend+sparse --model-dir "$WORK/models" --gate 0.1 --out "$WORK/eval"
+    --variants default,model/runend+sparse --model-dir "$WORK/models" --gate 0.1 --exclude-candidates pco --out "$WORK/eval"
 
 uv run --no-project --with pandas python "$HERE/e2e_report.py" "$WORK/eval"

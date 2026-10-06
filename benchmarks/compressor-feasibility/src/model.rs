@@ -69,6 +69,9 @@ struct CandidateModel {
     bytes: Ensemble,
     /// `log2(decode ns per value)`.
     decode: Ensemble,
+    /// `log2(compress ns per value)`.
+    #[serde(default)]
+    compress: Option<Ensemble>,
 }
 
 /// A trained selector.
@@ -84,6 +87,7 @@ pub struct Prediction {
     pub name: String,
     pub bytes: f64,
     pub decode_ns: f64,
+    pub compress_ns: f64,
 }
 
 impl Prediction {
@@ -123,6 +127,10 @@ impl Model {
                 name: name.clone(),
                 bytes: m.bytes.predict(&x).exp2() * canonical_bytes,
                 decode_ns: m.decode.predict(&x).exp2() * len,
+                compress_ns: m
+                    .compress
+                    .as_ref()
+                    .map_or(0.0, |c| c.predict(&x).exp2() * len),
             })
             .collect()
     }
@@ -153,15 +161,43 @@ fn record(slot: usize, start: std::time::Instant) {
     );
 }
 
+///
+/// The objective per chunk is `compress time / reads + bytes / bandwidth + decode time`. Production
+/// is always compressed; an alternative is only tried when `reads` times its predicted serving
+/// saving outweighs its predicted compression time, and its serving cost is at least `gate` lower.
+#[allow(clippy::too_many_arguments)]
 pub fn compress(
     model: &Model,
     candidates: &BTreeMap<String, &BtrBlocksCompressor>,
     bandwidth: f64,
+    reads: f64,
     gate: f64,
     input: &ArrayRef,
     session: &VortexSession,
     ctx: &mut ExecutionCtx,
 ) -> anyhow::Result<Outcome> {
+    let production = candidates
+        .get("production")
+        .context("the production compressor is missing")?;
+
+    // Value of information: skip the model when even the best plausible serving saving over all
+    // reads cannot repay the model's own cost. Constants are this machine's measured rates.
+    const PROD_RATIO: f64 = 5.5;
+    const DECODE_NS_PER_VALUE: f64 = 1.0;
+    const MODEL_NS_PER_VALUE: f64 = 2.3;
+    const MAX_SAVING: f64 = 0.6;
+    let len = input.len() as f64;
+    let width = input.dtype().as_ptype().byte_width() as f64;
+    let serving_est = len * width / PROD_RATIO / bandwidth + len * DECODE_NS_PER_VALUE / 1e9;
+    if reads * MAX_SAVING * serving_est < len * MODEL_NS_PER_VALUE / 1e9 {
+        return Ok(Outcome {
+            array: production.compress(input, ctx)?,
+            proposed: "skipped".to_string(),
+            tried: false,
+            kept: "production".to_string(),
+        });
+    }
+
     let t = std::time::Instant::now();
     let primitive = input.clone().execute::<PrimitiveArray>(ctx)?;
     let base = features::from_primitive(&primitive, ctx)?;
@@ -173,19 +209,12 @@ pub fn compress(
     let predictions = model.predict(&base, canonical_bytes);
     record(2, t);
 
-    let production = candidates
-        .get("production")
-        .context("the production compressor is missing")?;
     let t = std::time::Instant::now();
     let prod_array = production.compress(input, ctx)?;
     record(3, t);
     let prod_pred = predictions.iter().find(|p| p.name == "production");
 
-    let best = predictions
-        .iter()
-        .filter(|p| candidates.contains_key(&p.name))
-        .min_by(|a, b| a.cost(bandwidth).total_cmp(&b.cost(bandwidth)));
-    let (Some(best), Some(prod_pred)) = (best, prod_pred) else {
+    let Some(prod_pred) = prod_pred else {
         return Ok(Outcome {
             array: prod_array,
             proposed: "production".to_string(),
@@ -193,7 +222,24 @@ pub fn compress(
             kept: "production".to_string(),
         });
     };
-    if best.name == "production" || best.cost(bandwidth) > prod_pred.cost(bandwidth) * (1.0 - gate) {
+    // Net benefit of also trying a candidate: serving savings over all reads, minus its compression.
+    let benefit = |p: &Prediction| {
+        reads * (prod_pred.cost(bandwidth) - p.cost(bandwidth)) - p.compress_ns / 1e9
+    };
+    let best = predictions
+        .iter()
+        .filter(|p| p.name != "production" && candidates.contains_key(&p.name))
+        .max_by(|a, b| benefit(a).total_cmp(&benefit(b)));
+    let Some(best) = best else {
+        return Ok(Outcome {
+            array: prod_array,
+            proposed: "production".to_string(),
+            tried: false,
+            kept: "production".to_string(),
+        });
+    };
+    // Predicted savings are optimistic, so the saving must cover the extra compression twice over.
+    if benefit(best) <= best.compress_ns / 1e9 || best.cost(bandwidth) > prod_pred.cost(bandwidth) * (1.0 - gate) {
         return Ok(Outcome {
             array: prod_array,
             proposed: best.name.clone(),

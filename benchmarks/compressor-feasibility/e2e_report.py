@@ -27,30 +27,29 @@ def main() -> None:
     size = ok[ok.variant == "model/runend+sparse"]
     mb = prod.canonical_bytes.sum() / 1e6
     print(f"chunks {len(prod)}, canonical {mb:.1f} MB")
-    print(f"production: {prod.bytes.sum() / 1e6:.2f} MB, compress {mb / (prod.compress_ns.sum() / 1e9):.0f} MB/s, "
-          f"decode {mb / (prod.decode_ns_median.sum() / 1e9) / 1e3:.2f} GB/s\n")
+    print(f"production: {prod.bytes.sum() / 1e6:.2f} MB (ratio {prod.canonical_bytes.sum() / prod.bytes.sum():.2f}x), "
+          f"compress {mb / (prod.compress_ns.sum() / 1e9):.0f} MB/s, decode {mb / (prod.decode_ns_median.sum() / 1e9) / 1e3:.2f} GB/s")
+    print("cost per chunk = compress time / reads + bytes / bandwidth + decode time; all measured\n")
 
-    def line(label, df, bw):
-        c = (df.bytes / bw + df.decode_ns_median / 1e9).sum()
-        c0 = (prod.bytes / bw + prod.decode_ns_median / 1e9).sum()
-        return (f"{label:24s} cost {c / c0 - 1:>+7.1%}  bytes {df.bytes.sum() / prod.bytes.sum() - 1:>+7.1%}  "
-                f"decode {df.decode_ns_median.sum() / prod.decode_ns_median.sum() - 1:>+7.1%}  "
-                f"compress time {df.compress_ns.sum() / prod.compress_ns.sum():.2f}x")
+    def total(df, bw, reads):
+        return (df.compress_ns / 1e9 / reads + df.bytes / bw + df.decode_ns_median / 1e9).sum()
 
+    print(f"{'bandwidth':10s} {'reads':>5s} {'size-model':>11s} {'model-driven':>13s} {'bytes':>7s} {'decode':>7s} "
+          f"{'compress':>9s} {'tried':>6s} {'kept':>5s}  worst held-out source")
     for key, (label, bw) in BANDWIDTHS.items():
-        model = ok[ok.variant == f"model@{key}"]
-        print(f"## {label}")
-        print(line("size-model thresholds", size, bw))
-        print(line("model-driven compressor", model, bw))
-        kept = model.tree.str.extract(r"kept=(\S+)")[0]
-        tried = model.tree.str.extract(r"tried=(\d)")[0].eq("1")
-        print(f"{'':24s} proposals tried on {tried.mean():.0%} of chunks, kept on {kept.ne('production').mean():.0%}; "
-              f"kept: {kept[kept.ne('production')].value_counts().head(5).to_dict()}")
-        per_src = model.groupby(level="source").apply(
-            lambda d: (d.bytes / bw + d.decode_ns_median / 1e9).sum()
-            / (prod.loc[d.index].bytes / bw + prod.loc[d.index].decode_ns_median / 1e9).sum() - 1)
-        print(f"{'':24s} cost by held-out source: " + ", ".join(f"{s} {v:+.1%}" for s, v in per_src.items()))
-        print()
+        for variant in sorted(v for v in ok.variant.unique() if v.startswith(f"model@{key}@")):
+            reads = float(variant.split("@r")[1])
+            model = ok[ok.variant == variant]
+            base = total(prod, bw, reads)
+            kept = model.tree.str.extract(r"kept=(\S+)")[0]
+            tried = model.tree.str.extract(r"tried=(\d)")[0].eq("1")
+            per_src = {s: total(d, bw, reads) / total(prod.loc[d.index], bw, reads) - 1
+                       for s, d in model.groupby(level="source")}
+            worst = max(per_src, key=per_src.get)
+            print(f"{key:10s} {reads:>5.0f} {total(size, bw, reads) / base - 1:>+11.1%} {total(model, bw, reads) / base - 1:>+13.1%} "
+                  f"{model.bytes.sum() / prod.bytes.sum() - 1:>+7.1%} {model.decode_ns_median.sum() / prod.decode_ns_median.sum() - 1:>+7.1%} "
+                  f"{model.compress_ns.sum() / prod.compress_ns.sum():>8.2f}x {tried.mean():>6.0%} {kept.ne('production').mean():>5.0%}  "
+                  f"{worst} {per_src[worst]:+.1%}")
 
 
 if __name__ == "__main__":
