@@ -53,6 +53,9 @@ use crate::scan::v2::file::SharedFile;
 use crate::scan::v2::file::shared_file;
 use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
+use crate::scan::v2::pruning::PrunedFile;
+use crate::scan::v2::pruning::file_pruning_enabled;
+use crate::scan::v2::pruning::prune_file;
 use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitPlan;
 use crate::scan::v2::splits::chunk_starts;
@@ -279,9 +282,24 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        self.execute_splits(self.split_plans(row_range)?)
+    }
+
+    /// Like [`execute`](Self::execute), with file pruning before split creation when
+    /// `VORTEX_SCAN_FILE_PRUNING=1`. Statistics IO completes before this returns the data tasks.
+    pub async fn execute_pruned(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        self.execute_splits(self.execution_splits(row_range).await?)
+    }
+
+    fn execute_splits(
+        &self,
+        splits: Vec<SplitPlan>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         let dtype = self.plans.projection.dtype().clone();
-        Ok(self
-            .split_plans(row_range)?
+        Ok(splits
             .into_iter()
             .map(|split| {
                 let io = Arc::clone(&self.io);
@@ -304,8 +322,21 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {
-        Ok(self
-            .split_plans(row_range)?
+        self.execute_batch_splits(self.split_plans(row_range)?)
+    }
+
+    pub(super) async fn execute_batches_pruned(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {
+        self.execute_batch_splits(self.execution_splits(row_range).await?)
+    }
+
+    fn execute_batch_splits(
+        &self,
+        splits: Vec<SplitPlan>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {
+        Ok(splits
             .into_iter()
             .map(|split| {
                 let io = Arc::clone(&self.io);
@@ -322,9 +353,41 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
             .collect())
     }
 
+    async fn execution_splits(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<SplitPlan>> {
+        if file_pruning_enabled() {
+            self.pruned_split_plans(row_range).await
+        } else {
+            self.split_plans(row_range)
+        }
+    }
+
+    /// Prunes the whole file's zone statistics before constructing or announcing data splits.
+    /// Surviving splits retain pruning only when dynamic bounds can change during execution.
+    pub async fn pruned_split_plans(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<SplitPlan>> {
+        let pruned = match &self.pruning {
+            Some(proof) => Some(prune_file(&self.plans, proof.clone(), &self.io).await?),
+            None => None,
+        };
+        self.split_plans_with_pruning(row_range, pruned.as_ref())
+    }
+
     /// The filter splits of `row_range` that have selected rows, in row order, each ready to be
     /// admitted to a planning run that reads through a session of [`io`](Self::io).
     pub fn split_plans(&self, row_range: Option<Range<u64>>) -> VortexResult<Vec<SplitPlan>> {
+        self.split_plans_with_pruning(row_range, None)
+    }
+
+    fn split_plans_with_pruning(
+        &self,
+        row_range: Option<Range<u64>>,
+        pruned: Option<&PrunedFile>,
+    ) -> VortexResult<Vec<SplitPlan>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -371,24 +434,40 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
             }),
         };
 
+        let pruning = if pruned.is_some_and(|pruned| !pruned.dynamic) {
+            None
+        } else {
+            self.pruning.clone()
+        };
         let mut limit = self.limit;
         let mut splits = Vec::new();
         for range in ranges {
+            let (range, surviving) = match pruned {
+                Some(pruned) => match pruned.select(range)? {
+                    Some((range, mask)) => (range, Some(mask)),
+                    None => continue,
+                },
+                None => (range, None),
+            };
             let row_mask = self.selection.row_mask(&range);
-            if row_mask.mask().all_false() {
+            let selected = match surviving {
+                Some(surviving) => row_mask.mask() & &surviving,
+                None => row_mask.mask().clone(),
+            };
+            if selected.all_false() {
                 continue;
             }
             let mask = match (&self.filter, limit.as_mut()) {
-                (None, Some(0)) => Mask::new_false(row_mask.mask().len()),
+                (None, Some(0)) => Mask::new_false(selected.len()),
                 (None, Some(l)) => {
-                    let true_count = row_mask.mask().true_count();
+                    let true_count = selected.true_count();
                     let mask_limit = usize::try_from(*l)
                         .map(|l| l.min(true_count))
                         .unwrap_or(true_count);
                     *l -= mask_limit as u64;
-                    row_mask.mask().clone().limit(mask_limit)
+                    selected.limit(mask_limit)
                 }
-                _ => row_mask.mask().clone(),
+                _ => selected,
             };
             if !mask.all_false() {
                 let scope = WorkScope {
@@ -398,7 +477,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 splits.push(SplitPlan {
                     root: plan_split(
                         self.plans.clone(),
-                        self.pruning.clone(),
+                        pruning.clone(),
                         self.filter.clone(),
                         scope.clone(),
                         mask,
@@ -411,6 +490,12 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
             }
         }
 
+        tracing::debug!(
+            target: "vortex_layout::scan::v2::pruning",
+            splits = splits.len(),
+            file_pruned = pruned.is_some(),
+            "filter splits prepared"
+        );
         Ok(splits)
     }
 }

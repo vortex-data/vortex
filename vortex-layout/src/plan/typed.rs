@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::any::TypeId;
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Debug;
@@ -31,12 +30,11 @@ use crate::plan::pipeline::GraphBuilder;
 
 /// The combined allocation behind [`PlanRef`].
 ///
-/// Common plan state is stored before the unsized `data` tail, so testing the operator type or
-/// reading its ID, dtype, row count, or children does not dispatch through the operator vtable.
-/// Only `PlanData<V>` is erased to [`DynPlan`].
+/// Common plan state is stored before the unsized `data` tail, so reading the operator ID, dtype,
+/// row count, or children does not dispatch through the operator vtable. Only `PlanData<V>` is
+/// erased to [`DynPlan`].
 struct PlanInner<D: ?Sized> {
     id: PlanId,
-    type_id: TypeId,
     dtype: DType,
     row_count: u64,
     children: PlanChildren,
@@ -128,7 +126,7 @@ impl PlanRef {
 
     /// Returns whether this plan uses vtable `V`.
     pub fn is<V: PlanVTable>(&self) -> bool {
-        self.0.type_id == TypeId::of::<V>()
+        self.dyn_plan().as_any().is::<PlanData<V>>()
     }
 
     /// Downcasts this plan to vtable `V`.
@@ -264,7 +262,6 @@ impl<V: PlanVTable> Plan<V> {
     pub fn from_parts(parts: PlanParts<V>) -> Self {
         let inner = Arc::new(PlanInner {
             id: parts.vtable.id(),
-            type_id: TypeId::of::<V>(),
             dtype: parts.dtype,
             row_count: parts.row_count,
             children: parts.children,

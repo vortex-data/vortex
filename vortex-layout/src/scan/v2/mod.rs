@@ -29,6 +29,7 @@ mod file;
 pub(crate) mod io;
 mod lower;
 pub(crate) mod prefetch;
+mod pruning;
 mod repeated_scan;
 mod scan_builder;
 mod share;

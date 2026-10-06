@@ -15,7 +15,7 @@
 
 mod announce;
 mod filter;
-mod graph;
+pub(crate) mod graph;
 mod projection;
 
 use std::sync::Arc;

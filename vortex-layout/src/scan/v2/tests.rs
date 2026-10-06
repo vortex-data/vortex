@@ -39,6 +39,7 @@ use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::not_eq;
+use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -726,6 +727,134 @@ async fn struct_projection_splits_match_default() -> VortexResult<()> {
     assert_arrays_eq!(
         ChunkedArray::try_new(streamed, dtype)?,
         expected,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case(1500, Some(1000..4000))]
+#[case(4000, None)]
+#[case(-1, Some(0..4000))]
+#[tokio::test(flavor = "multi_thread")]
+async fn file_pruning_precedes_data_split_creation(
+    #[case] threshold: i32,
+    #[case] expected_scope: Option<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_zoned_layout(&session).await?;
+    let recording = Arc::new(RecordingSegments {
+        registered: Default::default(),
+        inner: Arc::clone(&segments),
+        reads: Arc::default(),
+    });
+    let mut file = scan_file(&segments, &layout)?;
+    file.segments = Arc::clone(&recording) as _;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
+    let scan = v2::prepare(
+        ScanBuilder::new(session.clone(), reader)
+            .with_filter(gt(root(), lit(threshold)).bind(&DTYPE)?),
+        file,
+    )?;
+    let splits = scan.pruned_split_plans(None).await?;
+    assert_eq!(
+        splits.iter().map(|split| split.scope.rows.clone()).collect::<Vec<_>>(),
+        expected_scope.into_iter().collect::<Vec<_>>()
+    );
+    let zones = layout
+        .slot(1)?
+        .ok_or_else(|| vortex_error::vortex_err!("no zones"))?;
+    let zone_segments = segment_ids(&zones)?;
+    assert_eq!(*recording.reads.lock(), zone_segments);
+    assert!(recording.registered.lock().is_subset(&zone_segments));
+    let mut arrays = Vec::new();
+    for split in splits {
+        arrays.extend(split.run(Arc::clone(scan.io())).await?);
+    }
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, DTYPE)?,
+        Buffer::from_iter((0..4000).filter(|value| *value > threshold)).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn file_pruning_rechecks_dynamic_bounds_after_splitting() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_zoned_layout(&session).await?;
+    let bound = Arc::new(Mutex::new(None::<i32>));
+    let filter = {
+        let bound = Arc::clone(&bound);
+        dynamic(
+            CompareOperator::Gt,
+            move || bound.lock().map(Into::into),
+            DTYPE,
+            true,
+            root(),
+        )
+    };
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
+    let scan = v2::prepare(
+        ScanBuilder::new(session.clone(), reader).with_filter(filter.bind(&DTYPE)?),
+        scan_file(&segments, &layout)?,
+    )?;
+    let splits = scan.pruned_split_plans(None).await?;
+    assert_eq!(splits[0].scope.rows, 0..4000);
+    *bound.lock() = Some(2500);
+    let mut arrays = Vec::new();
+    for split in splits {
+        arrays.extend(split.run(Arc::clone(scan.io())).await?);
+    }
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, DTYPE)?,
+        Buffer::from_iter(2501..4000).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    let splits = scan.pruned_split_plans(None).await?;
+    assert_eq!(splits[0].scope.rows, 2000..4000);
+    *bound.lock() = None;
+    let splits = scan.pruned_split_plans(None).await?;
+    assert_eq!(splits[0].scope.rows, 0..4000);
+    Ok(())
+}
+
+
+#[tokio::test(flavor = "multi_thread")]
+async fn file_pruning_keeps_disjoint_zones_in_one_filter_task() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_zoned_layout(&session).await?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
+    let filter = or(lt(root(), lit(500i32)), gt(root(), lit(3500i32))).bind(&DTYPE)?;
+    let scan = v2::prepare(
+        ScanBuilder::new(session.clone(), reader).with_filter(filter),
+        scan_file(&segments, &layout)?,
+    )?;
+    let splits = scan.pruned_split_plans(None).await?;
+    assert_eq!(splits.len(), 1);
+    assert_eq!(splits[0].scope.rows, 0..4000);
+    let mut arrays = Vec::new();
+    for split in splits {
+        arrays.extend(split.run(Arc::clone(scan.io())).await?);
+    }
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, DTYPE)?,
+        Buffer::from_iter((0..500).chain(3501..4000)).into_array(),
         &mut session.create_execution_ctx()
     );
     Ok(())
