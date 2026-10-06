@@ -190,6 +190,49 @@ Findings:
   bit-packing (+37% decode time). That's the size-vs-decode tradeoff from question 4. A
   decode-aware preset would weigh it.
 
+## Training a selector that trades ratio against decode time
+
+`train.py` learns, for each candidate, how big the result will be and how long it takes to
+decode. The candidates are every root scheme (Pco included), the production choice and the size
+model. Gradient-boosted trees predict `log2(bytes / canonical bytes)` and `log2(decode ns per
+value)` from 28 features: the per-chunk stats plus closed-form size estimates per scheme. A
+classifier predicts whether each scheme is feasible.
+
+The choice is the lowest `bytes / bandwidth + decode time`, so **bandwidth is a knob at
+inference time**: one model serves every preset.
+
+Used directly, the model can lose to production when its size predictions are off. On held-out
+datasets at S3 bandwidth it was up to +21% worse. So it is used as a **proposer**:
+
+1. Compress with production, as today.
+2. If the model predicts an alternative is at least `gate` cheaper, compress that too.
+3. Keep whichever has the lower real cost.
+
+The result is never worse than production. Results on datasets the model never trained on
+(leave-one-source-out), with cost relative to production at the same bandwidth:
+
+| Bandwidth | Gate | Cost | Best possible | Bytes | Decode | Chunks tried | Extra compression time |
+|---|---|---|---|---|---|---|---|
+| S3 ~100 MB/s | 0% | −13.6% | −21.7% | −20.2% | +75% | 71% | +118% |
+| S3 ~100 MB/s | 10% | −13.4% | −21.7% | −20.0% | +75% | 34% | +92% |
+| NVMe ~2 GB/s | 0% | −18.1% | −27.6% | +20.2% | −44% | 89% | +61% |
+| NVMe ~2 GB/s | 10% | −16.3% | −27.6% | +18.6% | −40% | 47% | +35% |
+| Memory ~20 GB/s | 0% | −52.4% | −61.9% | +64.4% | −60% | 94% | +64% |
+| Memory ~20 GB/s | 10% | −48.5% | −61.9% | +52.6% | −55% | 61% | +47% |
+
+- With a 5-fold split grouped by column, the same policy reaches −17% / −25% / −57%.
+- **At S3, the model picks Pco wherever its 40% smaller output outweighs a slower decode.** Pco
+  is excluded today; a cost model can admit it per chunk.
+- **At NVMe and memory bandwidth, it trades bytes for decode speed:** roughly 40–55% less decode
+  time.
+- The extra compression time comes from verifying proposals (one more full compression per tried
+  chunk). Pco's slow compression dominates it at S3. The gate trades it off: at 20%, NVMe costs
+  −6.9% for +14% compression time.
+
+To ship this, the decode-time measurement in step 3 should become a prediction (the decode model
+itself, or per-encoding throughput), because timing at write time is noisy. The proposer can be
+distilled to a shallow tree and code-generated.
+
 ## Caveats
 
 - Integers only. The oracle is one step (root only), so the true headroom is at least this large.
