@@ -20,6 +20,8 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 parquet = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 vortex = { workspace = true }

@@ -9,8 +9,10 @@
 //! decode time and per-chunk features as CSV for offline analysis.
 
 mod features;
+mod model;
 mod wrap;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
 use std::hint::black_box;
@@ -77,6 +79,16 @@ struct Args {
     /// A label written into every row, e.g. a patched build such as `max_cascade=4`.
     #[arg(long, default_value = "stock")]
     tag: String,
+    /// Directory of models from `train.py --export`: `<source>.json` (trained without that
+    /// source) or `all.json`. Enables the model-driven compressor variants.
+    #[arg(long)]
+    model_dir: Option<PathBuf>,
+    /// Bandwidths (bytes/s) the model-driven compressor optimises for, as `label=value`.
+    #[arg(long, value_delimiter = ',', default_value = "s3=1e8,nvme=2e9,mem=2e10")]
+    bandwidths: Vec<String>,
+    /// Minimum predicted saving before the model's proposal is compressed and verified.
+    #[arg(long, default_value_t = 0.1)]
+    gate: f64,
     /// Output directory.
     #[arg(long)]
     out: PathBuf,
@@ -106,7 +118,34 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("session already set");
     }
     let mut ctx = session.create_execution_ctx();
-    let variants = build_variants(&session, &args.variants)?;
+    let all_variants = build_variants(&session)?;
+    let variants: Vec<&Variant> = all_variants
+        .iter()
+        .filter(|v| {
+            args.variants.is_empty() || args.variants.iter().any(|f| v.name.starts_with(f.as_str()))
+        })
+        .collect();
+    // The model's candidates map onto compressors we already build.
+    let candidates: BTreeMap<String, &BtrBlocksCompressor> = all_variants
+        .iter()
+        .filter_map(|v| {
+            let name = match v.name.as_str() {
+                "default" => "production".to_string(),
+                "model/runend+sparse" => "sizemodel".to_string(),
+                other => other.strip_prefix("forced/")?.to_string(),
+            };
+            Some((name, &v.compressor))
+        })
+        .collect();
+    let bandwidths: Vec<(String, f64)> = args
+        .bandwidths
+        .iter()
+        .map(|b| {
+            let (label, value) = b.split_once('=').context("bandwidths look like label=bytes_per_sec")?;
+            Ok((label.to_string(), value.parse::<f64>()?))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let mut models: BTreeMap<String, Option<model::Model>> = BTreeMap::new();
     eprintln!(
         "variants: {}",
         variants
@@ -129,7 +168,7 @@ fn main() -> anyhow::Result<()> {
     let mut feats = BufWriter::new(File::create(
         args.out.join(format!("features-{}.csv", args.tag)),
     )?);
-    writeln!(feats, "source,column,chunk,{}", features::HEADER)?;
+    writeln!(feats, "source,column,chunk,{}", features::header())?;
 
     let started = Instant::now();
     for (i, chunk) in chunks.iter().enumerate() {
@@ -146,6 +185,49 @@ fn main() -> anyhow::Result<()> {
             chunk.index,
             features::compute(&chunk.arrow)?
         )?;
+
+        if let Some(dir) = &args.model_dir {
+            if !models.contains_key(&chunk.source) {
+                let own = dir.join(format!("{}.json", chunk.source));
+                let path = if own.exists() { own } else { dir.join("all.json") };
+                let loaded = path.exists().then(|| model::Model::load(&path)).transpose()?;
+                models.insert(chunk.source.clone(), loaded);
+            }
+            if let Some(Some(m)) = models.get(&chunk.source) {
+                for (label, bandwidth) in &bandwidths {
+                    let mut times = Vec::with_capacity(args.compress_reps);
+                    let mut outcome = None;
+                    for _ in 0..args.compress_reps.max(1) {
+                        let start = Instant::now();
+                        let result =
+                            model::compress(m, &candidates, *bandwidth, args.gate, &input, &session, &mut ctx)?;
+                        times.push(start.elapsed().as_nanos());
+                        outcome = Some(result);
+                    }
+                    times.sort_unstable();
+                    let outcome = outcome.context("no repetitions")?;
+                    let compressed = outcome.array;
+                    let (median, min) = decode_timed(&compressed, args.decode_reps, &mut ctx)?;
+                    writeln!(
+                        rows,
+                        "{},{},{},{},{},{},model@{label},1,{canonical_bytes},{},{},{},proposed={} tried={} kept={},{},{median},{min},",
+                        args.tag,
+                        chunk.source,
+                        chunk.column,
+                        chunk.index,
+                        ptype,
+                        input.len(),
+                        serialized_size(&compressed, &session)?,
+                        compressed.nbytes(),
+                        compressed.encoding_id(),
+                        outcome.proposed,
+                        u8::from(outcome.tried),
+                        outcome.kept,
+                        times[times.len() / 2],
+                    )?;
+                }
+            }
+        }
 
         for variant in &variants {
             let reps = if variant.timed { args.compress_reps } else { 1 };
@@ -201,11 +283,19 @@ fn main() -> anyhow::Result<()> {
     }
     rows.flush()?;
     feats.flush()?;
+    let profile: Vec<u64> = model::PROFILE
+        .iter()
+        .map(|p| p.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000)
+        .collect();
+    eprintln!(
+        "model profile (ms): features {}, canonical size {}, inference {}, production compress {}",
+        profile[0], profile[1], profile[2], profile[3]
+    );
     eprintln!("done in {:.0}s", started.elapsed().as_secs_f64());
     Ok(())
 }
 
-fn build_variants(session: &VortexSession, filter: &[String]) -> anyhow::Result<Vec<Variant>> {
+fn build_variants(session: &VortexSession) -> anyhow::Result<Vec<Variant>> {
     let probe = Canonical::Primitive(PrimitiveArray::new(
         vortex::buffer::buffer![1i64, 2, 3],
         Validity::NonNullable,
@@ -321,14 +411,11 @@ fn build_variants(session: &VortexSession, filter: &[String]) -> anyhow::Result<
         });
     }
 
-    Ok(variants
-        .into_iter()
-        .filter(|v| filter.is_empty() || filter.iter().any(|f| v.name.starts_with(f.as_str())))
-        .collect())
+    Ok(variants)
 }
 
 /// The size of the array as written: its buffers plus the flatbuffer holding its metadata.
-fn serialized_size(array: &ArrayRef, session: &VortexSession) -> anyhow::Result<u64> {
+pub(crate) fn serialized_size(array: &ArrayRef, session: &VortexSession) -> anyhow::Result<u64> {
     let buffers = array.serialize(&ArrayContext::empty(), session, &SerializeOptions::default())?;
     Ok(buffers.iter().map(|b| b.len() as u64).sum())
 }
