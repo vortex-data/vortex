@@ -102,8 +102,7 @@ fn count_ones_aligned_scalar(bytes: &[u8]) -> usize {
             .sum::<usize>()
 }
 
-/// Lane-wise `u64` popcount over 64-byte vectors: VPOPCNTQ on Ice Lake-class AVX-512, a nibble
-/// lookup with `vpsadbw` on AVX2, `vcnt` on NEON. The total is independent of lane byte order.
+/// Lane-wise `u64` popcount over 64-byte vectors. The total is independent of lane byte order.
 #[simd]
 fn count_ones_aligned_simd<S: Simd>(simd: S, bytes: &[u8]) -> usize {
     let (chunks, tail) = bytes.as_chunks::<64>();

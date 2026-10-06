@@ -263,7 +263,7 @@ spatialbench-parquet = { package = "parquet", version = "56", features = [
 ] }
 static_assertions = "1.1"
 strum = "0.28"
-syn = { version = "3.0.2", features = ["full"] }
+syn = { version = "3.0.4", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.12"
