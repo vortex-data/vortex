@@ -50,7 +50,8 @@ Kept, with what each was measured against:
 | 3-bit per-lane stop field | A wider field saves at most 0.04% / 0.45%. |
 | u16 block header, packed block lengths, 64 B tail padding | −0.2% (64-bit) / −1.7% (narrow at 1K blocks). |
 | Bin lowers serialized as gaps; block lengths and seeds frame-of-reference packed | −0.35% / −0.46% of serialized bytes with 1 MB file blocks. |
-| Lag-k differences fused into the merge (k ≤ 8) | +0.7% / +0.5% over lag 0/1 only, mostly interleaved series. |
+| Lag-k differences fused into the merge (k ≤ 8) | Against FastLanes Delta stacked on a lag-0 leaf (1 MB arrays, deltas zigzagged, its best case): 5.76x vs 5.28x (64-bit) and 17.1x vs 14.4x (narrow); per array the better of lag 0 and stacked Delta reaches only 5.60x / 16.0x. On the arrays that pick a lag, fused decodes at 6.3 / 2.9 GB/s against 3.2 / 1.6 GB/s stacked, which pays a second pass. Lags 2–8 add +0.7% / +0.5% over lag 0/1 only, mostly interleaved series. |
+| Sign bit flipped for signed values and differences | Keeps latents in value order, which the id compare and between kernels need. Zigzag instead: +1.26% bytes (64-bit) / +0.46% (narrow), likely because zigzag interleaves positive and negative values, so a bin over a skewed range spends a bit on sign parity. |
 | Per-block vector merge chosen from the widths a block uses | Rare 63–64 bit bins no longer force a chunk onto the portable merge (hits.UserID decodes 1.6x faster). |
 
 Rejected or not yet worth it:
