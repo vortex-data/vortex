@@ -29,7 +29,7 @@ SELECT * FROM 'data/*/*.vortex';
 
 # alternative syntax supports hive_partitioning, filename, and allow_empty
 # parameters
-SELECT * FROM read_vortex(['1.vortex.csv', '2.vortex'], filename = true);
+SELECT * FROM read_vortex(['1.vortex', '2.vortex'], filename = true);
 ```
 
 ## Writing files

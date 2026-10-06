@@ -1,9 +1,12 @@
 # DataFusion
 
-https://github.com/vortex-data/vortex-datafusion-cli
+> If you're a developer willing to integrate Vortex and Datafusion, see
+> [`vortex-datafusion` developer
+> guide](docs/developer-guide/integrations/datafusion.md) instead.
 
-The `vortex-datafusion` crate integrates Vortex as a native DataFusion `FileFormat`, supporting
-both reads and writes with filter, projection, and limit pushdown.
+Vortex provides a
+[DataFusion CLI](https://github.com/vortex-data/vortex-datafusion-cli) which
+allows you to query `.vortex` files via DataFusion.
 
 ## Setup
 

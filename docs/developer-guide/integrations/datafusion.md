@@ -1,8 +1,26 @@
 # DataFusion
 
-The `vortex-datafusion` crate integrates Vortex as a native file format in Apache DataFusion.
-It registers a `FileFormat` and `FileSource` so that DataFusion's query planner can discover,
-partition, and scan Vortex files using the same machinery it uses for Parquet and CSV.
+Vortex provides a
+[`vortex-datafusion`](https://crates.io/crates/vortex-datafusion) crate for
+`.vortex` file support in DataFusion.
+
+## Setup
+
+Add the dependency:
+
+```toml
+[dependencies]
+vortex-datafusion = "<version>"
+```
+
+Register the Vortex format with a `SessionContext`:
+
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
+:language: rust
+:dedent:
+:start-after: [setup]
+:end-before: [setup]
+:::
 
 ## Registration
 
@@ -65,13 +83,3 @@ schema.
 
 Vortex arrays produced by the scan are converted to Arrow `RecordBatch`es for consumption by
 DataFusion. Batches are sliced to respect DataFusion's configured batch size preference.
-
-## Future Work
-
-The current integration builds directly on the `ScanBuilder` and layout reader APIs. Future work
-will migrate it to use the [Scan API](/concepts/scanning) `Source` trait, which will simplify
-the integration by providing a standard interface for file discovery, partitioning, and pushdown
-that is shared across all engine integrations.
-
-Better support for dynamic expressions would enable use-cases like top-k queries, where the scan's
-filter expression is updated during execution as the query engine discovers tighter bounds.
