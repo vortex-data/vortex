@@ -91,6 +91,7 @@ use vortex::expr::stats::Precision;
 pub mod convert;
 mod persistent;
 pub mod v2;
+pub mod variant;
 
 #[cfg(test)]
 mod tests;

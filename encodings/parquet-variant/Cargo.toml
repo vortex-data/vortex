@@ -19,24 +19,28 @@ workspace = true
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
+async-trait = { workspace = true }
 chrono = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
 parquet-variant = { workspace = true }
 parquet-variant-compute = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-json = { workspace = true }
+vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
-vortex-edition = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
-vortex-layout = { workspace = true }
 vortex-uuid = { workspace = true }

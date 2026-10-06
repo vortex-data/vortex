@@ -26,6 +26,7 @@ use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_datafusion::variant::VariantGetUdf;
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -55,7 +56,9 @@ pub fn get_session_context() -> SessionContext {
         file_formats.push(Arc::new(factory));
     }
 
-    SessionContext::new_with_state(session_state_builder.build())
+    let ctx = SessionContext::new_with_state(session_state_builder.build());
+    ctx.register_udf(VariantGetUdf::udf());
+    ctx
 }
 
 pub fn make_object_store(

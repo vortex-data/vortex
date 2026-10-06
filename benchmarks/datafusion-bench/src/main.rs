@@ -95,6 +95,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
 
+    /// Print each query's results, for comparing results across formats.
+    #[arg(long, default_value_t = false)]
+    show_results: bool,
+
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
 
@@ -165,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
+    let show_results = args.show_results;
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -202,6 +207,13 @@ async fn main() -> anyhow::Result<()> {
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
+
+                        if show_results {
+                            println!(
+                                "Q{query_idx} [{format}]:\n{}",
+                                pretty_format_batches(&batches)?
+                            );
+                        }
 
                         // Store plan for metrics (only store once per query/format combination)
                         if show_metrics {

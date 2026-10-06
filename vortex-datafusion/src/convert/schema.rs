@@ -71,6 +71,12 @@ fn calculate_physical_field_type(
     logical_type: &DataType,
     arrow_session: &ArrowSession,
 ) -> DFResult<DataType> {
+    // Variant values are exported to whatever `arrow.parquet.variant` storage layout the logical
+    // schema asks for (e.g. with or without a shredded `typed_value`), so keep it as-is.
+    if dtype.is_variant() {
+        return Ok(logical_type.clone());
+    }
+
     // Check if the logical type is one that doesn't roundtrip through DType
     Ok(match logical_type {
         // Dictionary types lose their encoding when converted to DType

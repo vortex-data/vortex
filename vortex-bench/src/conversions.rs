@@ -154,6 +154,15 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
 fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
     let schema = batch.schema();
     let chunk = SESSION.arrow().from_arrow_record_batch(batch, &schema)?;
+    // There are no Variant builders: keep the imported Variant storage (including any shredded
+    // `typed_value`) as-is rather than canonicalizing through one.
+    if chunk
+        .dtype()
+        .as_struct_fields_opt()
+        .is_some_and(|fields| fields.fields().any(|field| field.is_variant()))
+    {
+        return Ok(chunk);
+    }
     let mut ctx = VortexSession::default().create_execution_ctx();
     let mut builder = builder_with_capacity_in(chunk.dtype(), chunk.len(), ctx.allocator());
 

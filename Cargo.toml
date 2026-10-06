@@ -163,6 +163,7 @@ fearless_simd = "1.0.0"
 fearless_simd_macros = "0.1.0"
 flatbuffers = "25.2.10"
 fsst-rs = "0.6.0"
+flate2 = "1"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
 geo = "0.31.0"

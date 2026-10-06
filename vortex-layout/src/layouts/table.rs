@@ -33,6 +33,7 @@ use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
+use crate::session::LayoutSessionExt;
 
 /// Whether [`TableStrategy`] writes list fields using a [`ListLayoutStrategy`] by
 /// default. Disabled unless the environment variable `VORTEX_EXPERIMENTAL_LIST_LAYOUT`
@@ -58,6 +59,10 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 ///   strategies. Gated: only when list decomposition is enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
+/// - **variant** → the Variant writer registered with the session's
+///   [`LayoutSession`][crate::session::LayoutSession], with storage children written by a
+///   descended copy of this dispatcher. Without a registered writer, a Variant falls through to the
+///   leaf strategy.
 /// - **anything else** → the leaf strategy.
 ///
 /// [`write_stream`]: LayoutStrategy::write_stream
@@ -306,6 +311,16 @@ impl LayoutStrategy for TableStrategy {
         if dtype.is_struct() {
             return self
                 .struct_strategy()
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
+        if dtype.is_variant()
+            && let Some(variant_strategy) = session.layouts().variant_strategy()
+        {
+            // The Variant writer decomposes its storage into children written by a clean
+            // descended dispatcher, so they are split, zoned, and compressed like any column.
+            return variant_strategy(Arc::new(self.descend_clean()))
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }

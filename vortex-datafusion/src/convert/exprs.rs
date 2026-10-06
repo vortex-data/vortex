@@ -6,6 +6,7 @@ use std::sync::Arc;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::extension::ExtensionType;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
@@ -23,6 +24,7 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+use parquet_variant_compute::VariantType;
 use vortex::VortexSessionDefault;
 use vortex::dtype::Nullability;
 use vortex::expr::Expression;
@@ -39,6 +41,7 @@ use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::variant_get;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
@@ -49,6 +52,9 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::convert::scalar_from_df;
+use crate::variant::VariantGetUdf;
+use crate::variant::parse_variant_path;
+use crate::variant::variant_get_literal_args;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -227,6 +233,29 @@ impl DefaultExpressionConvertor {
         Ok(cast(list_length(input), return_dtype))
     }
 
+    /// Converts a [`VariantGetUdf`] call to a Vortex `variant_get` expression.
+    ///
+    /// A typed call keeps the UDF's return type as the Vortex target dtype; an untyped call
+    /// returns Variant values.
+    fn try_convert_variant_get(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        let args = scalar_fn.args();
+        let input = self.convert(args[0].as_ref())?;
+        let path = parse_variant_path(&variant_get_literal_args(args)?)?;
+        let dtype = if args.len() == 3 {
+            Some(
+                self.session
+                    .arrow()
+                    .from_arrow_field(&Field::new("", scalar_fn.return_type().clone(), true))
+                    .map_err(|e| {
+                        exec_datafusion_err!("Failed to convert return type to dtype: {e}")
+                    })?,
+            )
+        } else {
+            None
+        };
+        Ok(variant_get(input, path, dtype))
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         if let Some(octet_length_fn) =
@@ -239,6 +268,10 @@ impl DefaultExpressionConvertor {
             ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
         {
             return self.try_convert_array_length(array_length_fn);
+        }
+
+        if ScalarFunctionExpr::try_downcast_func::<VariantGetUdf>(scalar_fn).is_some() {
+            return self.try_convert_variant_get(scalar_fn);
         }
 
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
@@ -607,6 +640,7 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<ArrayLength>(sf).is_some()
+                || ScalarFunctionExpr::try_downcast_func::<VariantGetUdf>(sf).is_some()
         })
 }
 
@@ -684,8 +718,30 @@ fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema)
         return true;
     }
 
+    if ScalarFunctionExpr::try_downcast_func::<VariantGetUdf>(scalar_fn).is_some() {
+        return can_variant_get_be_pushed_down(scalar_fn, schema);
+    }
+
     ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
         .is_some_and(|array_length| can_array_length_be_pushed_down(array_length, schema))
+}
+
+/// `variant_get` is pushable when it reads a Variant column directly and its typed result, if
+/// any, is a type the scan can produce.
+fn can_variant_get_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    let Some(col) = scalar_fn.args()[0].downcast_ref::<df_expr::Column>() else {
+        return false;
+    };
+    let is_variant_column = schema
+        .field_with_name(col.name())
+        .is_ok_and(|field| field.extension_type_name() == Some(VariantType::NAME));
+    let typed_result_supported =
+        scalar_fn.args().len() == 2 || supported_data_types(scalar_fn.return_type());
+    is_variant_column
+        && typed_result_supported
+        && variant_get_literal_args(scalar_fn.args())
+            .and_then(|path| parse_variant_path(&path))
+            .is_ok()
 }
 
 fn can_octet_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {

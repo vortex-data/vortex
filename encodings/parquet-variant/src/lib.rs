@@ -27,9 +27,11 @@
 mod array;
 mod arrow;
 mod compute;
+pub mod editions;
 #[cfg(test)]
 mod json_to_variant_tests;
 mod kernel;
+pub mod layout;
 mod operations;
 mod validity;
 mod vtable;
@@ -61,4 +63,5 @@ pub fn initialize(session: &VortexSession) {
     kernel::initialize(session);
     session.arrow().register_exporter(Arc::new(ParquetVariant));
     session.arrow().register_importer(Arc::new(ParquetVariant));
+    layout::initialize(session);
 }
