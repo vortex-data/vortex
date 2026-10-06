@@ -31,12 +31,15 @@ use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_pco::Pco;
+use vortex_runend::RunEnd;
 use vortex_session::registry::ReadContext;
 
 use super::*;
@@ -50,6 +53,7 @@ use crate::layouts::struct_::StructLayout;
 use crate::plan::EvalPlan;
 use crate::plan::Filter;
 use crate::plan::SegmentScan;
+use crate::plan::SegmentScanPlan;
 use crate::plan::Take;
 use crate::plan::lower;
 use crate::plan::optimize;
@@ -57,6 +61,51 @@ use crate::plan::pipeline::PipelineGraph;
 use crate::test::SESSION;
 
 const ROWS: u64 = 20;
+
+#[rstest]
+#[case::whole(0..10)]
+#[case::offset(2..9)]
+#[case::single_run(4..6)]
+#[case::empty(3..3)]
+fn compound_encoded_predicate_preserves_nulls_and_slices(
+    #[case] rows: Range<usize>,
+    #[values(false, true)] disjunction: bool,
+    #[values(false, true)] pco: bool,
+) -> VortexResult<()> {
+    let session = crate::test::new_session();
+    vortex_runend::initialize(&session);
+    session.arrays().register(Pco);
+    let mut ctx = session.create_execution_ctx();
+    let expected = PrimitiveArray::from_option_iter([
+        Some(1_i32), Some(1), None, None, Some(3), Some(3), Some(3), Some(5), Some(5), None,
+    ]);
+    let encoded = if pco {
+        Pco::from_primitive(expected.as_view(), 0, 128, &mut ctx)?.into_array()
+    } else {
+        RunEnd::encode(expected.clone().into_array(), &mut ctx)?.into_array()
+    }
+    .slice(rows.clone())?;
+    let lhs = gt(root(), lit(1_i32));
+    let rhs = lt(root(), lit(5_i32));
+    let expression = if disjunction {
+        or(lhs, rhs)
+    } else {
+        and(lhs, rhs)
+    }
+    .bind(encoded.dtype())?;
+    let source = SegmentScanPlan::new(
+        encoded.dtype().clone(),
+        encoded.len() as u64,
+        SegmentId::from(0),
+        ReadContext::new([]),
+        None,
+    );
+    let plan = EvalPlan::try_new(expression.clone(), source.into_plan())?;
+    let actual = plan.apply(encoded, &session)?;
+    let expected = expected.into_array().slice(rows)?.apply_bound(&expression)?;
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
 
 /// In-memory segments, standing in for the IO service.
 #[derive(Default)]

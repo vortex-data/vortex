@@ -11,13 +11,20 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::SharedArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::slice::SliceArraySlotsExt;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_pco::Pco;
+use vortex_runend::RunEnd;
+use vortex_runend::RunEndArrayExt;
+use vortex_runend::RunEndArraySlotsExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -45,7 +52,7 @@ pub struct Eval;
 #[derive(Clone, Debug)]
 pub struct EvalData {
     expression: BoundExpression,
-    dictionary_predicate: bool,
+    encoded_predicate: bool,
 }
 
 /// A plan that applies an expression to its child.
@@ -72,7 +79,7 @@ impl EvalPlan {
             row_count: child.row_count(),
             children: vec![child].into(),
             data: EvalData {
-                dictionary_predicate: matches!(
+                encoded_predicate: matches!(
                     expression.as_opt::<Binary>(),
                     Some(Operator::And | Operator::Or)
                 ) && is_infallible(&expression),
@@ -87,10 +94,10 @@ impl EvalPlan {
         &self.data().expression
     }
 
-    /// Applies the whole predicate to dictionary values before looking up row results. Layout
-    /// planning cannot push into dictionaries discovered only when a segment is decoded.
-    pub(crate) fn apply(&self, array: ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
-        if !self.data().dictionary_predicate {
+    /// Applies the whole predicate to encoded values before expanding row results. Layout
+    /// planning cannot push into encodings discovered only when a segment is decoded.
+    pub(crate) fn apply(&self, mut array: ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
+        if !self.data().encoded_predicate {
             return array.apply_bound(self.expression());
         }
         if let Some(dict) = array.as_opt::<Dict>()
@@ -100,8 +107,34 @@ impl EvalPlan {
             let values = dict.values().clone().apply_bound(self.expression())?;
             return Ok(DictArray::try_new(dict.codes().clone(), values)?.into_array());
         }
+        let mut ctx = ExecutionCtx::new(session.clone());
+        if array
+            .as_opt::<Slice>()
+            .is_some_and(|slice| slice.child().is::<RunEnd>() || slice.child().is::<Pco>())
+        {
+            array = array.execute::<ArrayRef>(&mut ctx)?;
+        }
+        if let Some(runend) = array.as_opt::<RunEnd>() {
+            // Each comparison otherwise decompresses the values and expands its own boolean
+            // runs. Share the values across the compound predicate and expand only its result.
+            let values = SharedArray::new(runend.values().clone())
+                .into_array()
+                .apply_bound(self.expression())?;
+            return Ok(RunEnd::try_new_offset_length(
+                runend.ends().clone(),
+                values,
+                runend.offset(),
+                array.len(),
+                &mut ctx,
+            )?
+            .into_array());
+        }
+        if array.is::<Pco>() {
+            // PCO has no comparison kernel; each branch would decompress the same values.
+            array = SharedArray::new(array).into_array();
+        }
         let result = array.apply_bound(self.expression())?;
-        fuse_dictionary_predicate(result, &mut ExecutionCtx::new(session.clone()))
+        fuse_dictionary_predicate(result, &mut ctx)
     }
 
     /// Returns the child plan supplying the expression root.

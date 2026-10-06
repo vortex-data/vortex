@@ -11426,6 +11426,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-runend",
  "vortex-scan",
  "vortex-sequence",

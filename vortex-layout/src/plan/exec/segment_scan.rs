@@ -4,6 +4,9 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
@@ -11,6 +14,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
+use vortex_runend::RunEnd;
+use vortex_runend::RunEndArrayExt;
+use vortex_runend::RunEndArraySlotsExt;
 use vortex_session::VortexSession;
 
 use crate::plan::SegmentScanPlan;
@@ -147,7 +153,29 @@ pub(crate) fn decode_segment(
         None => SerializedArray::try_from(segment)?,
     };
     let row_count = usize::try_from(plan.row_count()).vortex_expect("row count must fit in usize");
-    serialized.decode(plan.dtype(), row_count, plan.array_ctx(), session)
+    let array = serialized.decode(plan.dtype(), row_count, plan.array_ctx(), session)?;
+    let Some(runend) = array.as_opt::<RunEnd>() else {
+        return Ok(array);
+    };
+    if runend.ends().is_canonical() {
+        return Ok(array);
+    }
+    // Slicing searches the run ends with scalar probes. A compressed index can decompress
+    // a page for every probe, then repeat that work for each slice of this segment.
+    let mut ctx = session.create_execution_ctx();
+    let ends = runend.ends().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let prepared = RunEnd::try_new_offset_length(
+        ends.into_array(),
+        runend.values().clone(),
+        runend.offset(),
+        array.len(),
+        &mut ctx,
+    )?
+    .into_array();
+    prepared
+        .statistics()
+        .inherit(array.statistics().to_owned().iter());
+    Ok(prepared)
 }
 
 /// Slices the whole decoded segment of `plan` to `rows`.
@@ -162,4 +190,71 @@ pub(crate) fn slice_rows(
     let start = usize::try_from(rows.start).vortex_expect("row must fit in usize");
     let end = usize::try_from(rows.end).vortex_expect("row must fit in usize");
     array.slice(start..end)
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_buffer::Alignment;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+    use crate::segments::SegmentId;
+
+    #[rstest]
+    #[case::whole(0, 15)]
+    #[case::offset(2, 11)]
+    #[case::null_run(5, 4)]
+    #[case::empty(0, 0)]
+    fn compressed_run_ends_preserve_offsets_and_nulls(
+        #[case] offset: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let session = crate::test::new_session();
+        vortex_runend::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let ends = DictArray::try_new(
+            Buffer::from(vec![0_u8, 1, 2]).into_array(),
+            Buffer::from(vec![5_u32, 9, 15]).into_array(),
+        )?
+        .into_array();
+        let values = PrimitiveArray::from_option_iter([Some(10_i32), None, Some(30)]).into_array();
+        let array = RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
+        let array_ctx = ArrayContext::empty();
+        let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
+        for buffer in array.serialize(
+            &array_ctx,
+            &session,
+            &SerializeOptions {
+                offset: 0,
+                include_padding: true,
+            },
+        )? {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let plan = SegmentScanPlan::new(
+            array.dtype().clone(),
+            len as u64,
+            SegmentId::from(0),
+            ReadContext::new(array_ctx.to_ids()),
+            None,
+        );
+        let decoded = decode_segment(&plan, &session, BufferHandle::new_host(bytes.freeze()))?;
+        let expected = PrimitiveArray::from_option_iter(
+            [Some(10_i32); 5]
+                .into_iter()
+                .chain([None; 4])
+                .chain([Some(30); 6]),
+        )
+        .into_array()
+        .slice(offset..offset + len)?;
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
 }

@@ -9,6 +9,12 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::fill_null::FillNull;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -67,6 +73,8 @@ pub struct FilterPlans {
     infallible: Arc<[bool]>,
     /// Predicates mapped through dictionary codes are cheaper before filtering those codes.
     dictionary: Arc<[bool]>,
+    /// Numeric disjunctions avoid filtering compressed data separately for each comparison.
+    numeric_disjunction: Arc<[bool]>,
 }
 
 impl FilterPlans {
@@ -77,6 +85,7 @@ impl FilterPlans {
             order: None,
             infallible: Arc::from([false]),
             dictionary: Arc::from([false]),
+            numeric_disjunction: Arc::from([false]),
         }
     }
 
@@ -85,6 +94,14 @@ impl FilterPlans {
     pub(crate) fn conjuncts(filter: Arc<FilterExpr>, plans: Vec<PlanRef>) -> VortexResult<Self> {
         debug_assert_eq!(filter.conjuncts().len(), plans.len());
         let infallible = filter.conjuncts().iter().map(is_infallible).collect();
+        let numeric_disjunction = filter
+            .conjuncts()
+            .iter()
+            .map(|expression| {
+                matches!(expression.as_opt::<Binary>(), Some(Operator::Or))
+                    && is_numeric_predicate(expression)
+            })
+            .collect();
         let dictionary = plans
             .iter()
             .map(has_dictionary_predicate)
@@ -92,6 +109,7 @@ impl FilterPlans {
         Ok(Self {
             infallible,
             dictionary,
+            numeric_disjunction,
             plans: plans.into(),
             order: Some(filter),
         })
@@ -137,6 +155,20 @@ fn is_infallible(expression: &BoundExpression) -> bool {
         .as_scalar()
         .is_none_or(|scalar| scalar.signature().is_infallible())
         && expression.children().iter().all(is_infallible)
+}
+
+fn is_numeric_predicate(expression: &BoundExpression) -> bool {
+    if expression.is_root() || expression.as_opt::<GetItem>().is_some() {
+        return expression.dtype().is_primitive() || expression.dtype().is_decimal();
+    }
+    if expression.as_opt::<Literal>().is_some() {
+        return true;
+    }
+    let simple = expression.as_opt::<Binary>().is_some_and(|operator| {
+        operator.is_comparison() || matches!(operator, Operator::And | Operator::Or)
+    }) || expression.as_opt::<Between>().is_some()
+        || expression.as_opt::<FillNull>().is_some();
+    simple && expression.children().iter().all(is_numeric_predicate)
 }
 
 /// Evaluates a split's filter to a selection, then hands the selection to `next`.
@@ -286,7 +318,9 @@ impl FilterPlanner {
         // lookup. Evaluate that lookup first, as V1 does. Dense masks likewise cost less to AND
         // with a full predicate result than to compact and then scatter back by rank.
         self.evaluate_all = self.filters.infallible[index]
-            && (self.mask.density() >= 0.2 || self.filters.dictionary[index]);
+            && (self.mask.density() >= 0.2
+                || self.filters.dictionary[index]
+                || self.filters.numeric_disjunction[index]);
         let evaluation_mask = if self.evaluate_all {
             Mask::new_true(self.mask.len())
         } else {

@@ -7,6 +7,8 @@ use rstest::rstest;
 use vortex_array::expr::checked_add;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
+use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,14 +30,16 @@ use crate::scan::planning::ScanPlans;
 use crate::test::new_session;
 
 #[rstest]
-#[case::dense(&[0, 2, 4, 7], false, false, true, &[4, 7])]
-#[case::sparse(&[7], false, false, false, &[7])]
-#[case::sparse_dictionary(&[7], true, false, true, &[7])]
-#[case::fallible_dense(&[0, 1, 2, 3], false, true, false, &[3])]
+#[case::dense(&[0, 2, 4, 7], false, false, false, true, &[4, 7])]
+#[case::sparse(&[7], false, false, false, false, &[7])]
+#[case::sparse_dictionary(&[7], true, false, false, true, &[7])]
+#[case::sparse_disjunction(&[7], false, false, true, true, &[7])]
+#[case::fallible_dense(&[0, 1, 2, 3], false, true, false, false, &[3])]
 fn predicate_selection(
     #[case] selected: &[usize],
     #[case] dictionary: bool,
     #[case] fallible: bool,
+    #[case] disjunction: bool,
     #[case] evaluate_all: bool,
     #[case] expected: &[usize],
 ) -> VortexResult<()> {
@@ -43,6 +47,8 @@ fn predicate_selection(
     let expression = if fallible {
         // Rows 4..8 overflow, so evaluating outside the selection would fail.
         gt(checked_add(root(), lit(u64::MAX - 3)), lit(u64::MAX - 1))
+    } else if disjunction {
+        or(gt(root(), lit(3_u64)), lt(root(), lit(1_u64)))
     } else {
         gt(root(), lit(3_u64))
     }
