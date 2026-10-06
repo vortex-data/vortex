@@ -15,6 +15,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
@@ -29,16 +30,21 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
+use crate::OnPairArray;
 use crate::OnPairArraySlotsExt;
 use crate::array::dict_view;
 use crate::decode::code_boundary_at;
 use crate::decode::collect_widened_range;
 
+/// Decodes an OnPair array into a `VarBinViewArray`.
+///
+/// The uncompressed lengths must already be a primitive array.
 pub(super) fn canonicalize_onpair(
-    array: ArrayView<'_, OnPair>,
+    array: OnPairArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+    let plan = OnPairDecodePlan::from_primitive_lengths(array.as_view(), ctx)?;
+    let (out_bytes, lengths) = decode_bytes(plan)?;
     let (buffers, views) = match_each_integer_ptype!(lengths.ptype(), |P| {
         build_views(
             0,
@@ -47,7 +53,7 @@ pub(super) fn canonicalize_onpair(
             lengths.as_slice::<P>(),
         )
     });
-    let validity = array.array().validity()?;
+    let validity = array.validity()?;
     Ok(unsafe {
         VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
             .into_array()
@@ -64,12 +70,37 @@ pub(crate) struct OnPairDecodePlan<'a> {
 }
 
 impl<'a> OnPairDecodePlan<'a> {
-    pub(crate) fn new(array: ArrayView<'a, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    /// Builds the plan for an array whose uncompressed lengths can still be encoded.
+    ///
+    /// Builder paths bypass `OnPair::execute`, so they execute the uncompressed lengths here.
+    pub(crate) fn execute(
+        array: ArrayView<'a, OnPair>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
         let lengths = array
             .uncompressed_lengths()
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
 
+        Self::new(array, lengths, ctx)
+    }
+
+    /// Builds the plan for an array whose uncompressed lengths are already a primitive array, as
+    /// `OnPair::execute` requires.
+    pub(crate) fn from_primitive_lengths(
+        array: ArrayView<'a, OnPair>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let lengths = array.uncompressed_lengths().clone().downcast::<Primitive>();
+
+        Self::new(array, lengths, ctx)
+    }
+
+    fn new(
+        array: ArrayView<'a, OnPair>,
+        lengths: PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
         let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
             lengths
                 .as_slice::<P>()
@@ -151,7 +182,10 @@ pub(crate) fn onpair_decode_bytes(
     array: ArrayView<'_, OnPair>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
-    let plan = OnPairDecodePlan::new(array, ctx)?;
+    decode_bytes(OnPairDecodePlan::execute(array, ctx)?)
+}
+
+fn decode_bytes(plan: OnPairDecodePlan<'_>) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let mut out_bytes = ByteBufferMut::with_capacity(plan.total_size);
     let written = plan.decode_into(out_bytes.spare_capacity_mut())?;
     // SAFETY: `decode_into` initialised exactly `written` bytes.

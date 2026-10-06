@@ -202,11 +202,12 @@ impl VTable for Delta {
         ))
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
         let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
+
         Ok(ExecutionResult::done(
-            delta_decompress(&array, ctx)?.into_array(),
+            delta_decompress(&array)?.into_array(),
         ))
     }
 }

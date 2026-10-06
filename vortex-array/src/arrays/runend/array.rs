@@ -33,11 +33,13 @@ use crate::IntoArray;
 use crate::TypedArrayRef;
 use crate::VortexSessionExecute;
 use crate::array_slots;
-use crate::arrays::DecimalArray;
+use crate::arrays::Bool;
+use crate::arrays::Decimal;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinView;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::runend::compress::runend_decode_decimal;
 use crate::arrays::runend::compress::runend_decode_primitive;
@@ -204,7 +206,7 @@ impl VTable for RunEnd {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.ends(), RunEndSlots::ENDS => Primitive);
         let array = require_child!(array, array.values(), RunEndSlots::VALUES => AnyCanonical);
-        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
+        run_end_canonicalize(array, ctx).map(ExecutionResult::done)
     }
 }
 
@@ -254,6 +256,28 @@ pub trait RunEndArrayExt: RunEndArraySlotsExt {
 }
 
 impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
+
+pub(crate) trait RunEndArrayOwnedExt {
+    /// Returns the parts of the array. Moves the children out when this handle owns the array,
+    /// and clones them otherwise.
+    fn into_parts(self) -> RunEndDataParts;
+}
+
+impl RunEndArrayOwnedExt for Array<RunEnd> {
+    fn into_parts(self) -> RunEndDataParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let RunEndSlots { ends, values } = RunEndSlots::from_slots(parts.slots);
+                parts.data.into_parts(ends, values)
+            }
+            Err(array) => RunEndDataParts {
+                ends: array.ends().clone(),
+                values: array.values().clone(),
+                offset: array.offset(),
+            },
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RunEnd;
@@ -508,43 +532,59 @@ impl ValidityVTable<RunEnd> for RunEnd {
     }
 }
 
+/// Decodes a run-end array into its canonical form.
+///
+/// The ends must already be a primitive array, and the values must already be canonical, as
+/// `RunEnd::execute` requires.
 pub(super) fn run_end_canonicalize(
-    array: &RunEndArray,
+    array: RunEndArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let pends = array.ends().clone().execute_as("ends", ctx)?;
+    let len = array.len();
+    let RunEndDataParts {
+        ends,
+        values,
+        offset,
+    } = array.into_parts();
+    let pends = ends.downcast::<Primitive>();
 
-    Ok(match array.dtype() {
-        DType::Bool(_) => {
-            let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len(), ctx)?
-        }
-        DType::Primitive(..) => {
-            let pvalues = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_primitive(pends, pvalues, array.offset(), array.len(), ctx)?
-        }
-        DType::Decimal(..) => {
-            let values = array
-                .values()
-                .clone()
-                .execute_as::<DecimalArray>("values", ctx)?;
-            runend_decode_decimal(pends, values, array.offset(), array.len(), ctx)?
-        }
-        DType::Utf8(_) | DType::Binary(_) => {
-            let values = array
-                .values()
-                .clone()
-                .execute_as::<VarBinViewArray>("values", ctx)?;
-            runend_decode_varbinview(pends, values, array.offset(), array.len(), ctx)?
-        }
-        DType::List(..) => {
-            let values = array
-                .values()
-                .clone()
-                .execute_as::<ListViewArray>("values", ctx)?;
-            runend_decode_listview(pends, values, array.offset(), array.len())?.into_array()
-        }
-        _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
+    Ok(match values.dtype() {
+        DType::Bool(_) => runend_decode_bools(
+            pends,
+            values.downcast::<Bool>(),
+            offset,
+            len,
+            ctx,
+        )?,
+        DType::Primitive(..) => runend_decode_primitive(
+            pends,
+            values.downcast::<Primitive>(),
+            offset,
+            len,
+            ctx,
+        )?,
+        DType::Decimal(..) => runend_decode_decimal(
+            pends,
+            values.downcast::<Decimal>(),
+            offset,
+            len,
+            ctx,
+        )?,
+        DType::Utf8(_) | DType::Binary(_) => runend_decode_varbinview(
+            pends,
+            values.downcast::<VarBinView>(),
+            offset,
+            len,
+            ctx,
+        )?,
+        DType::List(..) => runend_decode_listview(
+            pends,
+            values.downcast::<ListView>(),
+            offset,
+            len,
+        )?
+        .into_array(),
+        dtype => vortex_bail!("Unsupported RunEnd value type: {}", dtype),
     })
 }
 
