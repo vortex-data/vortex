@@ -48,8 +48,15 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
-/// A [`SegmentCache`] based around an in-memory Moka cache.
-pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
+/// An in-memory Moka cache of segments, capped by total buffer bytes, that any number of files can
+/// share.
+///
+/// A [`SegmentId`] is unique only within one file, so files use the cache through a
+/// [`FileSegmentCache`] from [`Self::for_file`], which adds a file key. Files opened with the
+/// same key share entries, so a key must identify the file's contents, not only its location.
+/// Opening the same file again with the same key reuses the segments an earlier open read.
+#[derive(Clone)]
+pub struct MokaSegmentCache(Cache<(Arc<str>, SegmentId), ByteBuffer, FxBuildHasher>);
 
 impl MokaSegmentCache {
     /// Construct a Moka-backed cache capped by total buffer bytes.
@@ -57,48 +64,6 @@ impl MokaSegmentCache {
         Self(
             CacheBuilder::new(max_capacity_bytes)
                 .name("vortex-segment-cache")
-                // Weight each segment by the number of bytes in the buffer.
-                .weigher(|_, buffer: &ByteBuffer| {
-                    u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
-                })
-                // We configure LFU (vs LRU) since the cache is mostly used when re-reading the
-                // same file - it is _not_ used when reading the same segments during a single
-                // scan.
-                .eviction_policy(EvictionPolicy::tiny_lfu())
-                .build_with_hasher(FxBuildHasher),
-        )
-    }
-}
-
-#[async_trait]
-impl SegmentCache for MokaSegmentCache {
-    async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        Ok(self.0.get(&id).await)
-    }
-
-    async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        self.0.insert(id, buffer).await;
-        Ok(())
-    }
-}
-
-/// A Moka-backed segment cache that many files share, capped by total buffer bytes.
-///
-/// A [`SegmentId`] is unique only within one file, so each file uses the cache through a
-/// [`FileSegmentCache`] from [`Self::for_file`], which adds a file key. Files opened with the
-/// same key share entries, so a key must identify the file's contents, not only its location.
-///
-/// Opening the same file again with the same key reuses segments that an earlier open read, so
-/// a short-lived reader does not read them again.
-#[derive(Clone)]
-pub struct SharedSegmentCache(Cache<(Arc<str>, SegmentId), ByteBuffer, FxBuildHasher>);
-
-impl SharedSegmentCache {
-    /// Construct a shared cache capped by total buffer bytes.
-    pub fn new(max_capacity_bytes: u64) -> Self {
-        Self(
-            CacheBuilder::new(max_capacity_bytes)
-                .name("vortex-shared-segment-cache")
                 // Weight each segment by the number of bytes in the buffer.
                 .weigher(|_, buffer: &ByteBuffer| {
                     u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
@@ -143,10 +108,10 @@ impl SharedSegmentCache {
     }
 }
 
-/// One file's view of a [`SharedSegmentCache`]; see [`SharedSegmentCache::for_file`].
+/// One file's view of a [`MokaSegmentCache`]; see [`MokaSegmentCache::for_file`].
 #[derive(Clone)]
 pub struct FileSegmentCache {
-    cache: SharedSegmentCache,
+    cache: MokaSegmentCache,
     key: Arc<str>,
 }
 
@@ -259,7 +224,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_cache_separates_files() -> VortexResult<()> {
-        let shared = SharedSegmentCache::new(1 << 20);
+        let shared = MokaSegmentCache::new(1 << 20);
         let a = shared.for_file("a");
         let b = shared.for_file("b");
         let id = SegmentId::from(0);
@@ -279,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_cache_is_capped_by_bytes() -> VortexResult<()> {
-        let shared = SharedSegmentCache::new(1000);
+        let shared = MokaSegmentCache::new(1000);
         let file = shared.for_file("file");
         for i in 0..10u32 {
             file.put(SegmentId::from(i), ByteBuffer::copy_from(vec![0u8; 400]))
