@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(target_arch = "aarch64")]
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
 use fearless_simd::prelude::*;
-#[cfg(target_arch = "aarch64")]
+use fearless_simd::u8x16;
+use fearless_simd::u64x8;
 use fearless_simd_macros::simd;
-#[cfg(target_arch = "aarch64")]
 use vortex_error::VortexExpect;
 
 use super::count_ones::align_offset_len;
@@ -17,12 +19,8 @@ use crate::dispatch::CpuKernel;
 /// The returned position is relative to the logical start (i.e., 0-indexed from `offset`).
 /// Returns `None` if `nth` is out of bounds.
 ///
-/// Uses architecture-specific optimizations:
-/// - **aarch64**: Fearless SIMD popcounts for chunk scans and the final word selection.
-/// - **x86_64 + AVX-512 VPOPCNTDQ**: 64-byte chunk scan.
-/// - **x86_64 + AVX-512 VBMI2**: byte-lane compress for the final in-word select.
-/// - **x86_64 + BMI2**: `pdep` + `tzcnt` for the final in-word select.
-/// - **Scalar fallback**: 4× unrolled word scan with `count_ones`, byte-level narrowing.
+/// 64-byte chunks are scanned and selected with SIMD popcounts. The final in-word select uses
+/// `pdep` + `tzcnt` on x86_64 with BMI2, and a scalar fallback elsewhere.
 #[inline]
 pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option<usize> {
     let (head, middle, tail) = align_offset_len(bytes, offset, len);
@@ -90,44 +88,13 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
 ///
 /// If `chunk_index < chunks.len()`, the target bit is inside that chunk and `remaining`
 /// is the rank *within* that chunk. Otherwise all chunks were consumed.
-#[cfg(not(target_arch = "aarch64"))]
-type ScanChunks = unsafe fn(&[[u8; 64]], usize, usize) -> (usize, usize, usize);
-
-#[inline]
-#[cfg(not(target_arch = "aarch64"))]
-fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    // Scans of a couple of chunks don't amortize the dispatch indirection: call the
-    // per-architecture unconditional kernel directly so it stays inlinable (see the
-    // size-gating note in the CpuKernel docs).
-    if chunks.len() <= 2 {
-        return scan_chunks_scalar(chunks, remaining, pos);
-    }
-
-    static KERNEL: CpuKernel<ScanChunks> = CpuKernel::new(|| {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vpopcntdq") {
-                return scan_chunks_avx512_vpopcnt;
-            }
-        }
-        scan_chunks_scalar
-    });
-    // SAFETY: the selector only returns kernels that are safe or whose required CPU
-    // features were probed before selection.
-    unsafe { KERNEL.get()(chunks, remaining, pos) }
-}
-
-#[cfg(target_arch = "aarch64")]
 #[inline]
 fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    fearless_simd::dispatch!(fearless_simd::Level::new(), simd => {
-        scan_chunks_fearless(simd, chunks, remaining, pos)
-    })
+    dispatch!(Level::new(), simd => scan_chunks_simd(simd, chunks, remaining, pos))
 }
 
-#[cfg(target_arch = "aarch64")]
 #[simd]
-fn scan_chunks_fearless<S: Simd>(
+fn scan_chunks_simd<S: Simd>(
     simd: S,
     chunks: &[[u8; 64]],
     mut remaining: usize,
@@ -138,13 +105,7 @@ fn scan_chunks_fearless<S: Simd>(
             .as_chunks::<16>()
             .0
             .iter()
-            .map(|bytes| {
-                usize::from(
-                    fearless_simd::u8x16::from_slice(simd, bytes)
-                        .count_ones()
-                        .reduce_sum(),
-                )
-            })
+            .map(|bytes| usize::from(u8x16::from_slice(simd, bytes).count_ones().reduce_sum()))
             .sum();
         if remaining < total {
             return (remaining, pos, idx);
@@ -152,57 +113,6 @@ fn scan_chunks_fearless<S: Simd>(
         remaining -= total;
         pos += 512;
     }
-    (remaining, pos, chunks.len())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vpopcntdq")]
-unsafe fn scan_chunks_avx512_vpopcnt(
-    chunks: &[[u8; 64]],
-    mut remaining: usize,
-    mut pos: usize,
-) -> (usize, usize, usize) {
-    use std::arch::x86_64::_mm512_loadu_si512;
-    use std::arch::x86_64::_mm512_popcnt_epi64;
-    use std::arch::x86_64::_mm512_reduce_add_epi64;
-
-    use vortex_error::VortexExpect;
-
-    for (idx, chunk) in chunks.iter().enumerate() {
-        // SAFETY: chunk is exactly 64 bytes. `_mm512_loadu_si512` supports unaligned access.
-        let block = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
-        let counts = _mm512_popcnt_epi64(block);
-        let total =
-            usize::try_from(_mm512_reduce_add_epi64(counts)).vortex_expect("must fit in usize");
-
-        if remaining < total {
-            return (remaining, pos, idx);
-        }
-
-        remaining -= total;
-        pos += 512;
-    }
-
-    (remaining, pos, chunks.len())
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-#[inline]
-fn scan_chunks_scalar(
-    chunks: &[[u8; 64]],
-    mut remaining: usize,
-    mut pos: usize,
-) -> (usize, usize, usize) {
-    for (idx, chunk) in chunks.iter().enumerate() {
-        let total = count_ones_chunk(chunk);
-        if remaining < total {
-            return (remaining, pos, idx);
-        }
-
-        remaining -= total;
-        pos += 512;
-    }
-
     (remaining, pos, chunks.len())
 }
 
@@ -281,45 +191,16 @@ fn scan_words_scalar(
 
 // ── In-chunk select ─────────────────────────────────────────────────────
 
-#[cfg(not(target_arch = "aarch64"))]
-type SelectInChunk = unsafe fn(&[u8; 64], usize) -> usize;
-
 /// Position of the `nth` set bit inside a 64-byte chunk (0-indexed).
 #[inline]
-#[cfg(not(target_arch = "aarch64"))]
 fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
-    static KERNEL: CpuKernel<SelectInChunk> = CpuKernel::new(|| {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx512f")
-                && is_x86_feature_detected!("avx512vpopcntdq")
-                && is_x86_feature_detected!("avx512vbmi2")
-            {
-                return select_in_chunk_vbmi2;
-            }
-        }
-        select_in_chunk_scalar
-    });
-    // SAFETY: the selector only returns kernels that are safe or whose required CPU
-    // features were probed before selection.
-    unsafe { KERNEL.get()(chunk, nth) }
+    dispatch!(Level::new(), simd => select_in_chunk_simd(simd, chunk, nth))
 }
 
-#[cfg(target_arch = "aarch64")]
-#[inline]
-fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
-    fearless_simd::dispatch!(fearless_simd::Level::new(), simd => {
-        select_in_chunk_fearless(simd, chunk, nth)
-    })
-}
-
-#[cfg(target_arch = "aarch64")]
 #[simd]
-fn select_in_chunk_fearless<S: Simd>(simd: S, chunk: &[u8; 64], mut nth: usize) -> usize {
+fn select_in_chunk_simd<S: Simd>(simd: S, chunk: &[u8; 64], mut nth: usize) -> usize {
     let words: [u64; 8] = std::array::from_fn(|i| u64::from_le_bytes(chunk.as_chunks::<8>().0[i]));
-    let counts = fearless_simd::u64x8::from_slice(simd, &words)
-        .count_ones()
-        .to_array();
+    let counts = u64x8::from_slice(simd, &words).count_ones().to_array();
     for (idx, count) in counts.into_iter().enumerate() {
         // Each lane is the popcount of a u64, hence at most 64.
         let count = usize::try_from(count).vortex_expect("u64 popcount fits in usize");
@@ -329,67 +210,6 @@ fn select_in_chunk_fearless<S: Simd>(simd: S, chunk: &[u8; 64], mut nth: usize) 
         nth -= count;
     }
     unreachable!("select_in_chunk: nth exceeds popcount")
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vpopcntdq,avx512vbmi2")]
-unsafe fn select_in_chunk_vbmi2(chunk: &[u8; 64], mut nth: usize) -> usize {
-    use std::arch::x86_64::_mm512_loadu_si512;
-    use std::arch::x86_64::_mm512_popcnt_epi64;
-    use std::arch::x86_64::_mm512_storeu_epi64;
-
-    use vortex_error::VortexExpect;
-
-    let words = chunk.as_chunks::<8>().0;
-
-    // SAFETY: chunk is exactly 64 bytes. `_mm512_loadu_si512` supports unaligned access.
-    let block = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
-    let counts = _mm512_popcnt_epi64(block);
-    let mut lane_counts = [0_i64; 8];
-
-    // SAFETY: `lane_counts` has room for all eight i64 lanes.
-    unsafe { _mm512_storeu_epi64(lane_counts.as_mut_ptr(), counts) };
-
-    for (idx, count) in lane_counts.into_iter().enumerate() {
-        let count = usize::try_from(count).vortex_expect("must fit in usize");
-        if nth < count {
-            return idx * 64 + select_in_word(u64::from_le_bytes(words[idx]), nth);
-        }
-        nth -= count;
-    }
-
-    unreachable!("select_in_chunk: nth exceeds popcount")
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-#[inline]
-fn select_in_chunk_scalar(chunk: &[u8; 64], mut nth: usize) -> usize {
-    let words = chunk.as_chunks::<8>().0;
-
-    for (idx, word) in words.iter().enumerate() {
-        let word = u64::from_le_bytes(*word);
-        let count = word.count_ones() as usize;
-        if nth < count {
-            return idx * 64 + select_in_word(word, nth);
-        }
-        nth -= count;
-    }
-
-    unreachable!("select_in_chunk: nth exceeds popcount")
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-#[inline]
-fn count_ones_chunk(chunk: &[u8; 64]) -> usize {
-    let words = chunk.as_chunks::<8>().0;
-    u64::from_le_bytes(words[0]).count_ones() as usize
-        + u64::from_le_bytes(words[1]).count_ones() as usize
-        + u64::from_le_bytes(words[2]).count_ones() as usize
-        + u64::from_le_bytes(words[3]).count_ones() as usize
-        + u64::from_le_bytes(words[4]).count_ones() as usize
-        + u64::from_le_bytes(words[5]).count_ones() as usize
-        + u64::from_le_bytes(words[6]).count_ones() as usize
-        + u64::from_le_bytes(words[7]).count_ones() as usize
 }
 
 // ── In-word select ──────────────────────────────────────────────────────
