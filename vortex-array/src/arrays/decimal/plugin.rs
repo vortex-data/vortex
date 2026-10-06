@@ -45,7 +45,7 @@ impl ArrayPlugin for DecimalPlugin {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure!(
             array.is::<Decimal>(),
-            "Decimal plugin cannot serialize {}",
+            "Expected a decimal array, got {}",
             array.encoding_id()
         );
         let mut ctx = session.create_execution_ctx();

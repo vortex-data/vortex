@@ -58,7 +58,7 @@ pub(super) fn compare_integer(
 ) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         lhs.dtype().eq_ignore_nullability(rhs.dtype()),
-        "Cannot compare integer dtypes {} and {}",
+        "Expected integer dtypes matching apart from nullability, got {} and {}",
         lhs.dtype(),
         rhs.dtype()
     );

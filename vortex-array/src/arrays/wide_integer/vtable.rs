@@ -68,13 +68,15 @@ impl VTable for WideIntegerEncoding {
     ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(data.values_type, DecimalType::I128 | DecimalType::I256),
-            "Expected wide integer storage"
+            "Expected i128 or i256 storage, got {}",
+            data.values_type
         );
         let alignment =
             match_each_decimal_value_type!(data.values_type, |T| { Alignment::of::<T>() });
         vortex_ensure!(
             data.values.is_aligned_to(alignment),
-            "Integer storage is not aligned to {alignment:?}"
+            "Expected integer storage alignment {alignment:?}, got {:?}",
+            data.values.alignment()
         );
         vortex_ensure_eq!(slots.len(), 1);
         let expected_dtype = integer_dtype(data.values_type, dtype.nullability());
@@ -83,7 +85,9 @@ impl VTable for WideIntegerEncoding {
             data.values
                 .len()
                 .is_multiple_of(data.values_type.byte_width()),
-            "Integer buffer must contain whole values"
+            "Expected whole {} values, got {} bytes",
+            data.values_type,
+            data.values.len()
         );
         vortex_ensure_eq!(data.values.len() / data.values_type.byte_width(), len);
         if let Some(validity) = &slots[0] {

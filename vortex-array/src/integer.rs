@@ -179,7 +179,10 @@ pub(crate) fn from_buffer(buffer: IntegerBuffer) -> VortexResult<ArrayRef> {
 
 /// Reads a non-null signed integer scalar without applying a decimal scale.
 pub(crate) fn scalar_value(scalar: &Scalar) -> VortexResult<DecimalValue> {
-    vortex_ensure!(!scalar.is_null(), "Expected a non-null integer scalar");
+    vortex_ensure!(
+        !scalar.is_null(),
+        "Expected a non-null integer scalar, got {scalar}"
+    );
     if let Some(width) = WideInteger::width(scalar.dtype()) {
         return Ok(DecimalValue::I256(WideInteger::unpack_value(
             width,
@@ -262,7 +265,10 @@ pub(crate) fn scalar_from_integer(value: DecimalValue, dtype: &DType) -> VortexR
 /// Casts a signed integer scalar with checked width and nullability.
 pub(crate) fn cast_scalar(scalar: &Scalar, dtype: &DType) -> VortexResult<Scalar> {
     if scalar.is_null() {
-        vortex_ensure!(dtype.is_nullable(), "Cannot cast null to {dtype}");
+        vortex_ensure!(
+            dtype.is_nullable(),
+            "Expected a nullable integer dtype for a null scalar, got {dtype}"
+        );
         return Ok(Scalar::null(dtype.clone()));
     }
 
