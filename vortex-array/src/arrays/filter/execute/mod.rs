@@ -28,7 +28,6 @@ use vortex_mask::MaskValuesRef;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
@@ -39,6 +38,7 @@ use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::fixed_width;
 use crate::arrays::variant::VariantArraySlotsExt;
@@ -105,18 +105,14 @@ fn contiguous_values_range(mask: &MaskValues) -> Option<Range<usize>> {
 }
 
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
+///
+/// Only a child whose validity is [definitely all null](Validity::definitely_all_null) takes this
+/// path, so the check does not execute the child or its validity.
 pub(super) fn execute_all_null_filter_fast_path(
     array: ArrayView<'_, Filter>,
     selected_count: usize,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let child = array.array();
-    if child
-        .validity()?
-        .execute_mask(child.len(), ctx)?
-        .true_count()
-        == 0
-    {
+    if array.child().validity()?.definitely_all_null() {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().clone()), selected_count).into_array(),
         ));

@@ -21,6 +21,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
@@ -205,6 +206,14 @@ impl VTable for RLE {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.values(), RLESlots::VALUES => Primitive);
+        let array = require_child!(array, array.indices(), RLESlots::INDICES => Primitive);
+        let array = require_child!(
+            array,
+            array.values_idx_offsets(),
+            RLESlots::VALUES_IDX_OFFSETS => Primitive
+        );
+
         Ok(ExecutionResult::done(
             rle_decompress(&array, ctx)?.into_array(),
         ))

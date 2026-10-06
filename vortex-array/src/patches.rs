@@ -212,6 +212,16 @@ impl PatchesData {
     }
 }
 
+/// The owned components of [`Patches`], as returned by [`Patches::into_parts`].
+pub struct PatchesParts {
+    pub array_len: usize,
+    pub offset: usize,
+    pub indices: ArrayRef,
+    pub values: ArrayRef,
+    pub chunk_offsets: Option<ArrayRef>,
+    pub offset_within_chunk: Option<usize>,
+}
+
 /// A helper for working with patched arrays.
 #[derive(Debug, Clone)]
 pub struct Patches {
@@ -340,6 +350,19 @@ impl Patches {
     #[inline]
     pub fn indices(&self) -> &ArrayRef {
         &self.indices
+    }
+
+    /// Consumes the patches and returns their components.
+    #[inline]
+    pub fn into_parts(self) -> PatchesParts {
+        PatchesParts {
+            array_len: self.array_len,
+            offset: self.offset,
+            indices: self.indices,
+            values: self.values,
+            chunk_offsets: self.chunk_offsets,
+            offset_within_chunk: self.offset_within_chunk,
+        }
     }
 
     #[inline]

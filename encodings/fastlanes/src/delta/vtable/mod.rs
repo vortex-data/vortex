@@ -16,10 +16,12 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -200,9 +202,12 @@ impl VTable for Delta {
         ))
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
+        let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
+
         Ok(ExecutionResult::done(
-            delta_decompress(&array, ctx)?.into_array(),
+            delta_decompress(&array)?.into_array(),
         ))
     }
 }

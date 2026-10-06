@@ -50,6 +50,25 @@ pub fn assemble_decimal(
     decimal_dtype: DecimalDType,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    // TODO(mk): Broadcast constant parts directly instead of materializing their buffers.
+    let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
+    let lower_parts = lower_parts
+        .iter()
+        .map(|part| part.clone().execute::<PrimitiveArray>(exec_ctx))
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    assemble_decimal_from_primitive(&msp, &lower_parts, decimal_dtype, exec_ctx)
+}
+
+/// Reassemble decimal parts that are already primitive arrays into a decimal array.
+///
+/// The parts have the same requirements as in [`assemble_decimal`].
+pub(crate) fn assemble_decimal_from_primitive(
+    msp: &PrimitiveArray,
+    lower_parts: &[PrimitiveArray],
+    decimal_dtype: DecimalDType,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         msp.dtype().is_signed_int(),
         "MSP must have a signed integer dtype"
@@ -58,7 +77,9 @@ pub fn assemble_decimal(
     let validity = msp.validity()?;
 
     if lower_parts.is_empty() {
-        return assemble_narrow_decimal(msp, validity, decimal_dtype, exec_ctx);
+        return Ok(match_each_signed_integer_ptype!(msp.ptype(), |P| {
+            DecimalArray::new(msp.to_buffer::<P>(), decimal_dtype, validity).into_array()
+        }));
     }
 
     vortex_ensure!(
@@ -79,38 +100,29 @@ pub fn assemble_decimal(
     assemble_wide_decimal_from_arrays(msp, lower_parts, validity, decimal_dtype, exec_ctx)
 }
 
-fn assemble_narrow_decimal(
-    msp: &ArrayRef,
-    validity: Validity,
-    decimal_dtype: DecimalDType,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // TODO(mk): Broadcast a constant MSP directly instead of materializing its buffer.
-    let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
-    Ok(match_each_signed_integer_ptype!(msp.ptype(), |P| {
-        DecimalArray::new(msp.to_buffer::<P>(), decimal_dtype, validity).into_array()
-    }))
-}
-
-/// Execute the MSP at its signed integer width and cast lower parts to `u64` before assembly.
+/// Widen the lower parts to `u64` before assembly with the MSP at its signed integer width.
 /// The number of lower parts determines the decimal storage type: one produces `i128`, while
 /// two or three produce `i256`.
 fn assemble_wide_decimal_from_arrays(
-    msp: &ArrayRef,
-    lower_parts: &[ArrayRef],
+    msp: &PrimitiveArray,
+    lower_parts: &[PrimitiveArray],
     validity: Validity,
     decimal_dtype: DecimalDType,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // TODO(mk): Broadcast constant parts directly instead of materializing their buffers.
-    let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
     // TODO(mk): Revisit dispatching on lower-part dtypes and widening values during assembly.
     // Casting narrowed parts allocates temporary buffers and adds passes over the data.
     // Nested dtype dispatch is significantly in benchmarks, but adds code and generic instantiations.
     let lower = lower_parts
         .iter()
         .map(|part| {
-            part.cast(LOWER_PART_DTYPE)?
+            if part.dtype() == &LOWER_PART_DTYPE {
+                return Ok(part.clone());
+            }
+
+            part.clone()
+                .into_array()
+                .cast(LOWER_PART_DTYPE)?
                 .execute::<PrimitiveArray>(exec_ctx)
         })
         .collect::<VortexResult<Vec<_>>>()?;
