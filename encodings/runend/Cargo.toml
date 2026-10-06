@@ -28,6 +28,8 @@ workspace = true
 
 [dev-dependencies]
 divan = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 insta = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
@@ -63,9 +65,5 @@ name = "run_end_sum"
 harness = false
 
 [[bench]]
-name = "run_end_ci"
-harness = false
-
-[[bench]]
-name = "run_end_bool_coalesce"
+name = "run_end_fill"
 harness = false

@@ -12313,6 +12313,8 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "codspeed-divan-compat",
+ "fearless_simd",
+ "fearless_simd_macros",
  "insta",
  "itertools 0.14.0",
  "mimalloc",
