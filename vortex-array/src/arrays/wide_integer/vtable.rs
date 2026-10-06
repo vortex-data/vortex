@@ -125,8 +125,8 @@ impl VTable for WideIntegerEncoding {
             rebuilt.dtype().clone(),
             rebuilt.len(),
             rebuilt.data().clone(),
-        )
-        .with_slots(rebuilt.slots().iter().cloned().collect()))
+            rebuilt.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -159,8 +159,8 @@ impl VTable for WideIntegerEncoding {
             array.dtype().clone(),
             array.len(),
             array.data().clone(),
-        )
-        .with_slots(array.slots().iter().cloned().collect()))
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn reduce_parent(

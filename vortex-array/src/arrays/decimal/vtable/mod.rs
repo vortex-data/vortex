@@ -82,10 +82,13 @@ impl VTable for Decimal {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure_eq!(buffers.len(), 0);
-        Ok(
-            ArrayParts::new(Self, array.dtype().clone(), array.len(), EmptyArrayData)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            Self,
+            array.dtype().clone(),
+            array.len(),
+            EmptyArrayData,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -138,8 +141,13 @@ impl VTable for Decimal {
         let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
         let array = DecimalArray::try_new_handle(values, values_type, *decimal_dtype, validity)?;
         vortex_ensure_eq!(array.len(), len);
-        Ok(ArrayParts::new(Self, dtype.clone(), len, EmptyArrayData)
-            .with_slots(array.slots().iter().cloned().collect()))
+        Ok(ArrayParts::new(
+            Self,
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

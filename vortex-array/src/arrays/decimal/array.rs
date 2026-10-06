@@ -195,10 +195,13 @@ impl Array<Decimal> {
     pub fn try_new_values(values: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, values.dtype().nullability());
         let len = values.len();
-        Array::try_from_parts(
-            ArrayParts::new(Decimal, dtype, len, EmptyArrayData)
-                .with_slots(DecimalSlots { values }.into_slots()),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            Decimal,
+            dtype,
+            len,
+            EmptyArrayData,
+            DecimalSlots { values }.into_slots(),
+        ))
     }
 
     pub(crate) fn from_integer_values(

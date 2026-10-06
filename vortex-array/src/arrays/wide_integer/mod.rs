@@ -154,14 +154,16 @@ impl WideIntegerArray {
             values,
             values_type,
         };
-        Self::try_from_parts(
-            ArrayParts::new(WideIntegerEncoding, dtype, len, data).with_slots(
-                WideIntegerSlots {
-                    validity: validity_to_child(&validity, len),
-                }
-                .into_slots(),
-            ),
-        )
+        Self::try_from_parts(ArrayParts::new(
+            WideIntegerEncoding,
+            dtype,
+            len,
+            data,
+            WideIntegerSlots {
+                validity: validity_to_child(&validity, len),
+            }
+            .into_slots(),
+        ))
     }
 }
 
