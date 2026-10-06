@@ -272,7 +272,7 @@ class PReadBytes:
         base = (-raw.ctypes.data) % 64 + start
         out = raw[base : base + length]
         out[:] = np.frombuffer(self._data, dtype=np.uint8, count=length, offset=offset)
-        out.flags.writeable = self._writable
+        out.setflags(write=self._writable)
         self.returned.append(weakref.ref(raw))
         # NumPy's stubs do not declare `__buffer__`, though `ndarray` implements the buffer protocol.
         return cast(Buffer, out)
