@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Narrow preserves primitive semantics through storage changes.
+
+mod numeric;
+mod pushdown;
+
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
