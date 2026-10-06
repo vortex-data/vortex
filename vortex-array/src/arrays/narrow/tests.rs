@@ -158,18 +158,24 @@ fn test_validate_slots() {
         vec![Some(buffer![1i8].into_array()), None],
     ] {
         assert!(
-            NarrowArray::try_from_parts(
-                ArrayParts::new(Narrow, PType::I64.into(), 1, EmptyArrayData)
-                    .with_slots(slots.into()),
-            )
+            NarrowArray::try_from_parts(ArrayParts::new(
+                Narrow,
+                PType::I64.into(),
+                1,
+                EmptyArrayData,
+                slots.into()
+            ),)
             .is_err()
         );
     }
     assert!(
-        NarrowArray::try_from_parts(
-            ArrayParts::new(Narrow, PType::I64.into(), 2, EmptyArrayData)
-                .with_slots(vec![Some(buffer![1i8].into_array())].into()),
-        )
+        NarrowArray::try_from_parts(ArrayParts::new(
+            Narrow,
+            PType::I64.into(),
+            2,
+            EmptyArrayData,
+            vec![Some(buffer![1i8].into_array())].into()
+        ),)
         .is_err()
     );
 }

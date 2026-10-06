@@ -56,10 +56,13 @@ impl NarrowArray {
         }
 
         let len = values.len();
-        Self::try_from_parts(
-            ArrayParts::new(Narrow, dtype, len, EmptyArrayData)
-                .with_slots(NarrowSlots { values }.into_slots()),
-        )
+        Self::try_from_parts(ArrayParts::new(
+            Narrow,
+            dtype,
+            len,
+            EmptyArrayData,
+            NarrowSlots { values }.into_slots(),
+        ))
     }
 }
 

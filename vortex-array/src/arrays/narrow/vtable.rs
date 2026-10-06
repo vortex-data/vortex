@@ -116,8 +116,13 @@ impl VTable for Narrow {
         validate_dtypes(&storage_dtype, dtype)?;
 
         let values = children.get(0, &storage_dtype, len)?;
-        Ok(ArrayParts::new(Self, dtype.clone(), len, EmptyArrayData)
-            .with_slots(NarrowSlots { values }.into_slots()))
+        Ok(ArrayParts::new(
+            Self,
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            NarrowSlots { values }.into_slots(),
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
