@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Compression selection, cascades, and logical dtype preservation.
+//!
+//! Scheme fixtures isolate selection and exclusion rules. Narrow cases separately check the
+//! optional width reduction before codec selection.
 
 mod narrow;
 

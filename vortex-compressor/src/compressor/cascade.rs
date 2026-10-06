@@ -93,6 +93,7 @@ impl CascadingCompressor {
             {
                 return NarrowArray::encode(primitive.into_owned(), exec_ctx);
             }
+
             return Ok(child.clone());
         }
 
@@ -134,11 +135,13 @@ impl CascadingCompressor {
                 if compressed.dtype() == &dtype {
                     return Ok(compressed);
                 }
+
                 if let Some(constant) = compressed.as_opt::<Constant>() {
                     return Ok(
                         ConstantArray::new(constant.scalar().cast(&dtype)?, len).into_array()
                     );
                 }
+
                 Ok(NarrowArray::try_new(compressed, dtype)?.into_array())
             }
             Canonical::Decimal(decimal) => {

@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Integer narrowing precedes codec selection and preserves the input dtype.
+//!
+//! These cases use a compressor without schemes to isolate width selection. Constants and values
+//! that need the full logical width exercise paths that do not require a Narrow wrapper.
 
 use rstest::rstest;
 use vortex_array::IntoArray;
@@ -21,7 +24,7 @@ use crate::CascadingCompressor;
 #[rstest]
 #[case::disabled(false)]
 #[case::enabled(true)]
-fn integer_width(#[case] enabled: bool) -> VortexResult<()> {
+fn test_integer_width(#[case] enabled: bool) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = buffer![-128i64, 0, 127].into_array();
     let compressor = CascadingCompressor::new(vec![]).with_narrow_integers(enabled);
@@ -44,7 +47,7 @@ fn integer_width(#[case] enabled: bool) -> VortexResult<()> {
 #[rstest]
 #[case::constant(PrimitiveArray::from_iter([127i64; 1024]))]
 #[case::all_null(PrimitiveArray::from_option_iter([None::<i64>; 3]))]
-fn constant_dtype(#[case] input: PrimitiveArray) -> VortexResult<()> {
+fn test_constant_dtype(#[case] input: PrimitiveArray) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = input.into_array();
     let compressor = CascadingCompressor::new(vec![]).with_narrow_integers(true);
@@ -58,7 +61,7 @@ fn constant_dtype(#[case] input: PrimitiveArray) -> VortexResult<()> {
 }
 
 #[test]
-fn full_width_values() -> VortexResult<()> {
+fn test_full_width_values() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let input = buffer![i64::MIN, i64::MAX].into_array();
     let result = CascadingCompressor::new(vec![])

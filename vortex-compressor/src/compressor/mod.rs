@@ -81,6 +81,7 @@ impl CascadingCompressor {
     /// disabled by default and does not consume a level of the codec cascade budget.
     pub fn with_narrow_integers(mut self, enabled: bool) -> Self {
         self.narrow_integers = enabled;
+
         self
     }
 }

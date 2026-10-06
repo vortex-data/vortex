@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Preview gating and codec cascades retain Narrow's logical dtype on the wire.
+//!
+//! Core and CUDA presets exclude Narrow wrappers. Serialization round trips also cover signed
+//! internal buffers whose dtypes are selected by the compressor.
 
 #![cfg(test)]
 
@@ -57,7 +60,7 @@ fn session(preview: bool) -> VortexResult<VortexSession> {
 #[rstest]
 #[case::core(false)]
 #[case::preview(true)]
-fn compression_roundtrip(#[case] preview: bool) -> VortexResult<()> {
+fn test_compression_roundtrip(#[case] preview: bool) -> VortexResult<()> {
     let session = session(preview)?;
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_iter((0..8192u64).map(|i| i % 128)).into_array();
@@ -95,7 +98,7 @@ fn compression_roundtrip(#[case] preview: bool) -> VortexResult<()> {
 }
 
 #[test]
-fn cuda_preset_excludes_narrow() -> VortexResult<()> {
+fn test_cuda_preset_excludes_narrow() -> VortexResult<()> {
     let session = session(true)?;
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_iter((0..8192u64).map(|i| i % 128)).into_array();
@@ -110,7 +113,7 @@ fn cuda_preset_excludes_narrow() -> VortexResult<()> {
 }
 
 #[test]
-fn internal_signed_buffers_roundtrip() -> VortexResult<()> {
+fn test_internal_signed_buffers_roundtrip() -> VortexResult<()> {
     let session = session(false)?;
     vortex_fsst::initialize(&session);
     #[cfg(feature = "pco")]

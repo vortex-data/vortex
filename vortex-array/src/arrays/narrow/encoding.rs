@@ -56,9 +56,10 @@ impl NarrowArray {
         if !ptype.is_int() || ptype.byte_width() == 1 {
             return Ok(array);
         }
+
         let bounds = min_max(array.as_ref(), ctx, NumericalAggregateOpts::default())?;
         let storage_type = if let Some(bounds) = bounds {
-            let smallest = if ptype.is_signed_int() {
+            let (min_type, max_type) = if ptype.is_signed_int() {
                 (
                     PType::min_signed_ptype_for_value(i64::try_from(&bounds.min)?),
                     PType::min_signed_ptype_for_value(i64::try_from(&bounds.max)?),
@@ -69,16 +70,17 @@ impl NarrowArray {
                     PType::min_unsigned_ptype_for_value(u64::try_from(&bounds.max)?),
                 )
             };
-            if smallest.0.byte_width() >= smallest.1.byte_width() {
-                smallest.0
+            if min_type.byte_width() >= max_type.byte_width() {
+                min_type
             } else {
-                smallest.1
+                max_type
             }
         } else if ptype.is_signed_int() {
             PType::I8
         } else {
             PType::U8
         };
+
         if storage_type.byte_width() >= ptype.byte_width() {
             return Ok(array);
         }

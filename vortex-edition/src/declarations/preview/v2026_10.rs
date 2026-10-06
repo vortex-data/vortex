@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The October 2026 preview edition adding Narrow integer arrays.
+//!
+//! This declaration permits Narrow on the wire for sessions that enable it. Earlier preview
+//! and core editions retain their existing membership.
 
 use crate::Edition;
 use crate::EditionDeclaration;
