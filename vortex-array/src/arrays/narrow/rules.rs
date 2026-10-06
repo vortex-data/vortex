@@ -273,21 +273,17 @@ impl ArrayParentReduceRule<Narrow> for TakeIndicesReduce {
         // Dictionary codes are internal indices. Their integer width does not determine the
         // result dtype, so the dictionary can consume the stored child directly.
         Ok(Some(
-            DictArray::try_from_parts(
-                ArrayParts::new(
-                    Dict,
-                    parent.dtype().clone(),
-                    parent.len(),
-                    parent.data().clone(),
-                )
-                .with_slots(
-                    DictSlots {
-                        codes: array.values().clone(),
-                        values: parent.values().clone(),
-                    }
-                    .into_slots(),
-                ),
-            )?
+            DictArray::try_from_parts(ArrayParts::new(
+                Dict,
+                parent.dtype().clone(),
+                parent.len(),
+                parent.data().clone(),
+                DictSlots {
+                    codes: array.values().clone(),
+                    values: parent.values().clone(),
+                }
+                .into_slots(),
+            ))?
             .into_array(),
         ))
     }
