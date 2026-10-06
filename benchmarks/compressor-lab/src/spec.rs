@@ -28,6 +28,9 @@ pub struct PlanSpec {
     pub chunk_rows: u64,
     /// The dtype classes to plan for. Columns of other classes are skipped.
     pub dtypes: Vec<DTypeClass>,
+    /// At most this many chunks per column, spread evenly through it. `None` keeps every chunk.
+    #[serde(default)]
+    pub max_chunks_per_column: Option<u64>,
     /// Which registered compression schemes the search may use.
     #[serde(default)]
     pub schemes: SchemeSelection,
@@ -63,13 +66,24 @@ impl PlanSpec {
 
     fn validate(&self) -> anyhow::Result<()> {
         ensure!(self.chunk_rows > 0, "chunk_rows must be greater than zero");
-        ensure!(!self.dtypes.is_empty(), "dtypes must name at least one dtype class");
+        ensure!(
+            !self.dtypes.is_empty(),
+            "dtypes must name at least one dtype class"
+        );
         ensure!(self.search.k >= 1, "search.k must be at least 1");
         ensure!(
             self.search.epsilon.is_finite() && self.search.epsilon >= 0.0,
             "search.epsilon must be a non-negative number"
         );
         ensure!(self.measure.reps >= 1, "measure.reps must be at least 1");
+        ensure!(
+            self.measure.compress_reps >= 1,
+            "measure.compress_reps must be at least 1"
+        );
+        ensure!(
+            self.search.strategy == SearchStrategy::ForcedRoot,
+            "only search.strategy = \"forced_root\" is implemented"
+        );
         ensure!(!self.sources.is_empty(), "a plan needs at least one source");
 
         let mut names = BTreeSet::new();
@@ -78,7 +92,11 @@ impl PlanSpec {
                 bail!("duplicate source name `{}`", source.name());
             }
             if let SourceSpec::Synthetic { rows, seeds, .. } = source {
-                ensure!(*rows > 0, "synthetic source `{}` needs rows > 0", source.name());
+                ensure!(
+                    *rows > 0,
+                    "synthetic source `{}` needs rows > 0",
+                    source.name()
+                );
                 ensure!(
                     !seeds.is_empty(),
                     "synthetic source `{}` needs at least one seed",
@@ -174,22 +192,26 @@ fn default_epsilon() -> f64 {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchStrategy {
-    /// Try every eligible scheme at every node.
-    #[default]
+    /// Try every eligible scheme at every node. Not implemented yet.
     Exhaustive,
-    /// Force each root scheme and let today's compressor choose the children.
+    /// Force each root scheme and let today's compressor choose the children, plus the production
+    /// compressor and the size-model variant as whole candidates.
+    #[default]
     ForcedRoot,
     /// Record today's compressor choices only.
     Default,
 }
 
-/// How decompression and pushdown are timed.
+/// How compression, decompression and pushdown are timed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MeasureParams {
     /// Repetitions per measurement.
     #[serde(default = "default_reps")]
     pub reps: u32,
+    /// Repetitions per compression timing.
+    #[serde(default = "default_compress_reps")]
+    pub compress_reps: u32,
     /// The operations to time on each encoding.
     #[serde(default = "default_ops")]
     pub ops: Vec<MeasureOp>,
@@ -199,23 +221,30 @@ impl Default for MeasureParams {
     fn default() -> Self {
         Self {
             reps: default_reps(),
+            compress_reps: default_compress_reps(),
             ops: default_ops(),
         }
     }
 }
 
 fn default_reps() -> u32 {
-    9
+    7
+}
+
+fn default_compress_reps() -> u32 {
+    3
 }
 
 fn default_ops() -> Vec<MeasureOp> {
-    vec![MeasureOp::Decode]
+    vec![MeasureOp::Compress, MeasureOp::Decode]
 }
 
 /// An operation timed on an encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MeasureOp {
+    /// Compress the canonical chunk with the candidate.
+    Compress,
     /// Decompress to the canonical array.
     Decode,
     /// Compare against a constant.
@@ -245,6 +274,18 @@ pub enum SourceSpec {
         #[serde(default)]
         exclude_columns: Vec<String>,
     },
+    /// TPC-H tables generated in-process, deterministic for a scale factor.
+    Tpch {
+        /// The source name, used for provenance and dataset splits.
+        name: String,
+        /// The TPC-H scale factor.
+        scale_factor: f64,
+        /// Tables to use, e.g. `lineitem`, `orders`, `partsupp`, `customer`.
+        tables: Vec<String>,
+        /// Column name glob patterns to include. Empty includes every column.
+        #[serde(default)]
+        columns: Vec<String>,
+    },
     /// Seeded synthetic columns, one chunk per (parameter combination, seed).
     Synthetic {
         /// The source name, used for provenance and dataset splits.
@@ -267,7 +308,9 @@ impl SourceSpec {
     /// The source name.
     pub fn name(&self) -> &str {
         match self {
-            Self::Parquet { name, .. } | Self::Synthetic { name, .. } => name,
+            Self::Parquet { name, .. } | Self::Tpch { name, .. } | Self::Synthetic { name, .. } => {
+                name
+            }
         }
     }
 }

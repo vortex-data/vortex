@@ -2137,6 +2137,7 @@ dependencies = [
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
  "clap",
+ "compressor-lab",
  "parking_lot",
  "parquet 59.3.0",
  "serde",
@@ -2149,6 +2150,35 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-compressor",
  "vortex-error",
+]
+
+[[package]]
+name = "compressor-lab"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
+ "arrow-select 59.3.0",
+ "clap",
+ "glob",
+ "parking_lot",
+ "parquet 59.3.0",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 1.1.6+spec-1.1.0",
+ "tpchgen",
+ "tpchgen-arrow",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-btrblocks",
+ "vortex-compressor",
+ "vortex-error",
+ "vortex-session",
 ]
 
 [[package]]

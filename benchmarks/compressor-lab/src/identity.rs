@@ -60,7 +60,11 @@ impl CodeIdentity {
             );
         }
 
-        let dirty = !git(&repo_root, &["status", "--porcelain", "--untracked-files=no"])?.is_empty();
+        let dirty = !git(
+            &repo_root,
+            &["status", "--porcelain", "--untracked-files=no"],
+        )?
+        .is_empty();
         if dirty && !allow_dirty {
             bail!(
                 "tracked files have uncommitted changes; commit them, or pass --allow-dirty to \

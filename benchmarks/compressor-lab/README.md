@@ -1,4 +1,89 @@
-# Learned compression scheme selection: plan and learnings
+# vx-lab: data generation for learned compression scheme selection
+
+`vx-lab` generates training data for choosing compression schemes. It is built to run for a long
+time, across machines, commits and datasets, and to grow with new schemes, features and dtypes.
+
+```bash
+# Everything, resumable: plan, facts in 4 shards, timings, training tables, models.
+benchmarks/compressor-lab/pipeline.sh benchmarks/compressor-lab/specs/int-v1.toml /tmp/lab 4
+```
+
+`specs/int-v1.toml` reads Parquet from `data/` next to the spec. It covers ClickBench, NYC taxi,
+TPC-H SF1 and synthetic grids, with integers only and default encodings only.
+
+## How it works
+
+1. **Spec → plan.** `vx-lab plan create` expands a TOML spec into tasks. Each task key is a hash
+   of its inputs plus the code identity (Vortex version, git commit, dirty flag). The same spec,
+   data and commit produce a byte-identical plan; re-creating it reports `unchanged`. Parquet
+   files are identified by content hash, not path, so moving the data keeps the keys.
+2. **Facts.** `vx-lab run` executes pending tasks:
+
+   | Stage | Output |
+   |---|---|
+   | `chunk` | The canonical chunk, as a blob. |
+   | `features` | Keyed by `FEATURES_VERSION`. |
+   | `candidates` | Every candidate's encoding as a blob, plus its size and tree. Keyed by the candidate set and `CANDIDATES_VERSION`. |
+
+   - Facts are upserted by key, and a done marker in `ledger/` makes re-runs skip them.
+   - `--shard i/n` splits work across processes or machines. A chunk's tasks always share a
+     shard, so no shard waits on another.
+   - `--verify` re-runs done tasks and reports any output that changed (nondeterminism).
+3. **Observations.** `vx-lab run --stages time` times every candidate: compression (and checks
+   that re-compressing reproduces the stored encoding byte for byte) and decode. Each run
+   *appends* a file per task under `obs/time/machine=<id>/`. Repeated runs add samples, and
+   machines with a different CPU or architecture get a different `machine_id` and stay separate.
+   The time stage reads only blobs, so a store can be copied to a quiet machine without the
+   source data.
+4. **Materialize.** `vx-lab materialize` joins one plan's facts with one machine's pooled
+   timings into `rows-*.csv`, `features-*.csv` and `dataset.json`. That's the layout
+   `benchmarks/compressor-feasibility/train.py` reads to fit and export models.
+
+```text
+store/
+  ledger/<kk>/<task key>.json           done markers (written last)
+  facts/<kind>/<kk>/<task key>.json     fact outputs; rewriting = upsert
+  blobs/<hh>/<sha256>                   content-addressed arrays (chunks and encodings)
+  obs/time/machine=<id>/<task key>/<run id>.json
+  machines/<id>.json
+```
+
+`vx-lab plan show --store` reports progress per stage and timing runs per machine.
+`vx-lab plan tasks --kind candidates --shard 3/16 --pending --store` lists work to hand out.
+
+## Extending it
+
+| To add… | Change | What re-runs |
+|---|---|---|
+| A dataset | A `[[sources]]` entry in a spec (`parquet`, `tpch` or `synthetic`) | Only the new chunks |
+| A synthetic generator | `synthetic.rs` | New chunks only |
+| A source kind (e.g. object store, Vortex files) | `spec::SourceSpec`, `source.rs` (resolve), `load.rs` (rows), `plan::ChunkIdentity` | New chunks only |
+| A feature | `features.rs`, mirrored in `train.py`'s `add_estimates`; bump `FEATURES_VERSION` | `features` only |
+| A candidate (scheme, policy or variant) | `candidates.rs`; it appears in plans via the scheme selection | `candidates` and `time` |
+| A change to how candidates are built | Bump `CANDIDATES_VERSION` | `candidates` and `time` |
+| A measurement (pushdown compare, filter, take) | `runner::run_time`, `TimeObservation`, `materialize` columns | `time` only |
+| A dtype (floats, strings) | `features.rs` and `candidates.rs` for that dtype; the plan's `dtypes` already filters | New chunks only |
+| A search strategy (exhaustive DP) | `spec::SearchStrategy`, `runner` (the strategy is part of the candidates key) | `candidates` only |
+
+## Running it long term
+
+- **Commits.** Every key includes the commit, so facts from different code never mix. A new
+  commit means a new plan; the old store data stays valid for the old plan. To reuse timings
+  across commits, add an explicit policy at materialize time (for example, reuse when an
+  encoding's hash is unchanged), never by changing keys.
+- **Machines.** Time on quiet, dedicated machines: copy the store there, run
+  `--stages time` one or more times, copy `obs/` back. Materialize with `--machine <id>` per
+  machine, and train per machine or architecture.
+- **Storage.** The `int-v1` run (1,582 chunks, 11 candidates) uses about 1.1 GB, mostly blobs.
+  Blobs are shared across plans by content hash. Garbage collection (keep the blobs referenced
+  by the plans you keep) isn't implemented yet.
+- **Scale.** Facts are JSON files, one per task: fine to around 10⁵ chunks on a local
+  filesystem. Beyond that, move facts to Parquet partitions and the store to object storage.
+  The layout is already path-per-key, so that is a storage swap, not a redesign.
+
+---
+
+# Design notes: plan and learnings
 
 Status: **design parked.** The feasibility study in `benchmarks/compressor-feasibility` found
 ~7.7% one-step headroom on integers, mostly cascade-estimation misses, and a large win from a
@@ -102,8 +187,7 @@ compression that the compressor does today.
   - Shard with `hash(key) mod n`. Done markers live in a ledger directory.
 - **Unit of parallelism and checkpointing:** `(chunk, dtype)`. Parallelising per scheme happens
   inside a task, because cascades couple schemes.
-- A parked draft of the planner lives in `src/` on this branch. It isn't a workspace member and
-  hasn't been built.
+- This is now implemented as `vx-lab` (above).
 
 ## Open questions checked before building it
 

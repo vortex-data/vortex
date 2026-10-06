@@ -8,9 +8,9 @@
 //! closed-form estimates, and heuristic caps removed. It records bytes, compression time,
 //! decode time and per-chunk features as CSV for offline analysis.
 
-mod features;
-mod model;
-mod wrap;
+// Measurement code converts between counts, nanoseconds and floats on purpose; every value it
+// casts is far below the narrower type's range.
+#![allow(clippy::cast_possible_truncation)]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -20,6 +20,8 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use anyhow::Context;
@@ -27,6 +29,11 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
 use arrow_schema::DataType;
 use clap::Parser;
+use compressor_lab::features;
+use compressor_lab::model;
+use compressor_lab::wrap;
+use compressor_lab::wrap::Mode;
+use compressor_lab::wrap::Wrapped;
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tpchgen::generators::CustomerGenerator;
@@ -49,9 +56,6 @@ use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::CompressionSessionExt;
 use vortex_btrblocks::SchemeExt;
 use vortex_compressor::scheme::Scheme;
-
-use crate::wrap::Mode;
-use crate::wrap::Wrapped;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -84,7 +88,11 @@ struct Args {
     #[arg(long)]
     model_dir: Option<PathBuf>,
     /// Bandwidths (bytes/s) the model-driven compressor optimises for, as `label=value`.
-    #[arg(long, value_delimiter = ',', default_value = "s3=1e8,nvme=2e9,mem=2e10")]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        default_value = "s3=1e8,nvme=2e9,mem=2e10"
+    )]
     bandwidths: Vec<String>,
     /// Reads per write the model-driven compressor optimises for: compression time is divided
     /// by this, serving cost (transfer plus decode) is paid on every read.
@@ -127,7 +135,9 @@ fn main() -> anyhow::Result<()> {
     let mut ctx = session.create_execution_ctx();
     let all_variants = build_variants(&session)?;
     if let Some(production) = all_variants.iter().find(|v| v.name == "default")
-        && wrap::SPY_COMPRESSOR.set((*production.compressor).clone()).is_err()
+        && wrap::SPY_COMPRESSOR
+            .set((*production.compressor).clone())
+            .is_err()
     {
         anyhow::bail!("spy compressor already set");
     }
@@ -157,7 +167,9 @@ fn main() -> anyhow::Result<()> {
         .bandwidths
         .iter()
         .map(|b| {
-            let (label, value) = b.split_once('=').context("bandwidths look like label=bytes_per_sec")?;
+            let (label, value) = b
+                .split_once('=')
+                .context("bandwidths look like label=bytes_per_sec")?;
             Ok((label.to_string(), value.parse::<f64>()?))
         })
         .collect::<anyhow::Result<_>>()?;
@@ -205,8 +217,15 @@ fn main() -> anyhow::Result<()> {
         if let Some(dir) = &args.model_dir {
             if !models.contains_key(&chunk.source) {
                 let own = dir.join(format!("{}.json", chunk.source));
-                let path = if own.exists() { own } else { dir.join("all.json") };
-                let loaded = path.exists().then(|| model::Model::load(&path)).transpose()?;
+                let path = if own.exists() {
+                    own
+                } else {
+                    dir.join("all.json")
+                };
+                let loaded = path
+                    .exists()
+                    .then(|| model::Model::load(&path))
+                    .transpose()?;
                 models.insert(chunk.source.clone(), loaded);
             }
             if let Some(Some(m)) = models.get(&chunk.source) {
@@ -218,8 +237,7 @@ fn main() -> anyhow::Result<()> {
                     let mut outcome = None;
                     for _ in 0..args.compress_reps.max(1) {
                         let start = Instant::now();
-                        let result =
-                            model::compress(
+                        let result = model::compress(
                             m,
                             &candidates,
                             *bandwidth,
@@ -301,11 +319,7 @@ fn main() -> anyhow::Result<()> {
                     )?;
                 }
                 Err(error) => {
-                    let error = error
-                        .lines()
-                        .next()
-                        .unwrap_or_default()
-                        .replace(',', ";");
+                    let error = error.lines().next().unwrap_or_default().replace(',', ";");
                     writeln!(rows, "{prefix},0,{canonical_bytes},,,,,,,,{error}")?;
                 }
             }
@@ -325,7 +339,7 @@ fn main() -> anyhow::Result<()> {
     estimates.flush()?;
     let profile: Vec<u64> = model::PROFILE
         .iter()
-        .map(|p| p.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000)
+        .map(|p| p.load(Ordering::Relaxed) / 1_000_000)
         .collect();
     eprintln!(
         "model profile (ms): features {}, canonical size {}, inference {}, production compress {}",
@@ -461,7 +475,11 @@ fn build_variants(session: &VortexSession) -> anyhow::Result<Vec<Variant>> {
 
 /// The size of the array as written: its buffers plus the flatbuffer holding its metadata.
 pub(crate) fn serialized_size(array: &ArrayRef, session: &VortexSession) -> anyhow::Result<u64> {
-    let buffers = array.serialize(&ArrayContext::empty(), session, &SerializeOptions::default())?;
+    let buffers = array.serialize(
+        &ArrayContext::empty(),
+        session,
+        &SerializeOptions::default(),
+    )?;
     Ok(buffers.iter().map(|b| b.len() as u64).sum())
 }
 
@@ -542,7 +560,7 @@ fn load_chunks(args: &Args) -> anyhow::Result<Vec<Chunk>> {
             let builder = ParquetRecordBatchReaderBuilder::try_new(
                 File::open(&path).with_context(|| format!("opening {}", path.display()))?,
             )?;
-            let schema = builder.schema().clone();
+            let schema = Arc::clone(builder.schema());
             let int_fields: Vec<usize> = schema
                 .fields()
                 .iter()
@@ -613,7 +631,7 @@ fn push_batches(source: &str, batches: &[RecordBatch], max: usize, chunks: &mut 
                 source: source.to_string(),
                 column: field.name().clone(),
                 index,
-                arrow: batches[index].column(col).clone(),
+                arrow: Arc::clone(batches[index].column(col)),
             });
         }
     }
