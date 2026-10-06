@@ -1834,6 +1834,8 @@ dependencies = [
  "arrow-schema 59.3.0",
  "clap",
  "parquet 59.3.0",
+ "serde",
+ "serde_json",
  "tpchgen",
  "tpchgen-arrow",
  "vortex",
