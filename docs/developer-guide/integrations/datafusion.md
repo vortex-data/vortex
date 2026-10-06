@@ -4,7 +4,7 @@ Vortex provides a
 [`vortex-datafusion`](https://crates.io/crates/vortex-datafusion) crate for
 `.vortex` file support in DataFusion.
 
-## Setup
+## Setup and registration
 
 Add the dependency:
 
@@ -20,6 +20,33 @@ Register the Vortex format with a `SessionContext`:
 :dedent:
 :start-after: [setup]
 :end-before: [setup]
+:::
+
+Create an external table and query it:
+
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
+:language: rust
+:dedent:
+:start-after: [create]
+:end-before: [create]
+:::
+
+You can also register a `ListingTable` directly:
+
+:::{literalinclude} ../../vortex-datafusion/examples/vortex_table.rs
+:language: rust
+:dedent:
+:start-after: [register]
+:end-before: [register]
+:::
+
+Write query results to Vortex using `INSERT INTO`:
+
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
+:language: rust
+:dedent:
+:start-after: [write]
+:end-before: [write]
 :::
 
 ## Registration
