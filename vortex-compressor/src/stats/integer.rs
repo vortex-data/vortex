@@ -348,7 +348,7 @@ impl IntegerStats {
 ///
 /// Every statistic is computed by a fused [`accumulate`] pass. Counting distinct values needs the
 /// value bounds up front to pick a counter, so for types wider than a byte without cached bounds it
-/// takes a second pass.
+/// takes a second pass, unless the bounds show that every valid value is the same.
 fn typed_int_stats<T>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
@@ -406,7 +406,18 @@ where
     let cached = cached_min_max::<T>(array);
     let expect_valid = "validity has valid values";
 
+    // Every valid value is the same, so there is one run of all of them.
+    let constant = |value: T| {
+        let distinct = count_distinct_values.then(|| {
+            let mut distinct_values = HashMap::with_capacity_and_hasher(1, FxBuildHasher);
+            distinct_values.insert(NativeValue(value), value_count);
+            DistinctInfo::new(distinct_values)
+        });
+        ((value, value), 1, distinct)
+    };
+
     let ((min, max), runs, distinct) = match (cached, count_distinct_values) {
+        (Some((min, max)), _) if min == max => constant(min),
         (Some(bounds), false) => {
             let runs = accumulate(values, &validity, RunCount::new()).vortex_expect(expect_valid);
             (bounds, runs, None)
@@ -449,9 +460,14 @@ where
             None => {
                 let (min, max) =
                     accumulate(values, &validity, MinMax::new()).vortex_expect(expect_valid);
-                let (distinct, runs) = accumulate(values, &validity, Distinct::new(min, max, len))
-                    .vortex_expect(expect_valid);
-                ((min, max), runs, Some(distinct))
+                if min == max {
+                    constant(min)
+                } else {
+                    let (distinct, runs) =
+                        accumulate(values, &validity, Distinct::new(min, max, len))
+                            .vortex_expect(expect_valid);
+                    ((min, max), runs, Some(distinct))
+                }
             }
         },
     };
@@ -594,6 +610,28 @@ mod tests {
             stats.most_frequent_value_and_count(),
             Some((0u64.into(), 2))
         );
+        Ok(())
+    }
+
+    #[rstest]
+    fn constant_valid_values(#[values(false, true)] count_distinct: bool) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new(
+            buffer![7u64, 9, 7, 7, 3],
+            Validity::from_iter([true, false, true, true, false]),
+        );
+
+        // The second time, the bounds are cached on the array.
+        for _ in 0..2 {
+            let stats = typed_int_stats::<u64>(&array, count_distinct, &mut ctx)?;
+            assert_eq!(stats.value_count(), 3);
+            assert_eq!(stats.average_run_length(), 3);
+            assert_eq!(stats.distinct_count(), count_distinct.then_some(1));
+            assert_eq!(
+                stats.most_frequent_value_and_count(),
+                count_distinct.then(|| (7u64.into(), 3))
+            );
+        }
         Ok(())
     }
 
