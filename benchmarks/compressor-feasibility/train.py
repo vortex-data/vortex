@@ -224,7 +224,16 @@ def walk(ens: dict, x: np.ndarray) -> float:
     return total
 
 
-def export_model(X, bytes_, dec, meta, train) -> dict:
+def load_compress(out: str, tag: str, index) -> pd.DataFrame:
+    """Compression ns per candidate, aligned with `load`'s index."""
+    rows = pd.read_csv(f"{out}/rows-{tag}.csv")
+    policies = {"default": "production", "model/runend+sparse": "sizemodel"}
+    cand = rows[(rows.ok == 1) & (rows.variant.str.startswith("forced/") | rows.variant.isin(policies))].copy()
+    cand["scheme"] = cand.variant.str.removeprefix("forced/").replace(policies)
+    return cand.pivot_table(index=KEY, columns="scheme", values="compress_ns", aggfunc="min").reindex(index)
+
+
+def export_model(X, bytes_, dec, meta, train, comp=None) -> dict:
     """Fits every candidate on the training rows and exports it for the Rust compressor."""
     canon = meta.canonical_bytes.to_numpy()
     length = meta.len.to_numpy()
@@ -250,7 +259,12 @@ def export_model(X, bytes_, dec, meta, train) -> dict:
         sample = X[tr].to_numpy()[:50]
         assert np.allclose([walk(eb, x) for x in sample], rb.predict(sample), atol=1e-9), scheme
         assert np.allclose([walk(ed, x) for x in sample], rd.predict(sample), atol=1e-9), scheme
-        out["candidates"][scheme] = {"feasible": feas, "bytes": eb, "decode": ed}
+        entry = {"feasible": feas, "bytes": eb, "decode": ed}
+        if comp is not None and scheme in comp.columns:
+            rc = HistGradientBoostingRegressor(max_depth=4, max_iter=40, learning_rate=0.2, random_state=0).fit(
+                X[tr], np.log2(comp[scheme].to_numpy()[tr] / length[tr]))
+            entry["compress"] = export_ensemble(rc)
+        out["candidates"][scheme] = entry
     return out
 
 
@@ -274,7 +288,7 @@ def main() -> None:
         # One model per held-out source (trained without it), plus one on everything.
         for held_out in [*np.unique(sources), "all"]:
             train = sources != held_out
-            model = export_model(X, bytes_, dec, meta, train)
+            model = export_model(X, bytes_, dec, meta, train, load_compress(out, tag, X.index))
             (export_dir / f"{held_out}.json").write_text(json.dumps(model))
             print(f"exported {held_out}.json: {len(model['candidates'])} candidates, trained on {train.sum()} chunks")
         return

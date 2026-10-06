@@ -86,6 +86,10 @@ struct Args {
     /// Bandwidths (bytes/s) the model-driven compressor optimises for, as `label=value`.
     #[arg(long, value_delimiter = ',', default_value = "s3=1e8,nvme=2e9,mem=2e10")]
     bandwidths: Vec<String>,
+    /// Reads per write the model-driven compressor optimises for: compression time is divided
+    /// by this, serving cost (transfer plus decode) is paid on every read.
+    #[arg(long, value_delimiter = ',', default_value = "1,10,100")]
+    reads: Vec<f64>,
     /// Candidates the model-driven compressor may not use, e.g. `pco`.
     #[arg(long, value_delimiter = ',')]
     exclude_candidates: Vec<String>,
@@ -206,13 +210,25 @@ fn main() -> anyhow::Result<()> {
                 models.insert(chunk.source.clone(), loaded);
             }
             if let Some(Some(m)) = models.get(&chunk.source) {
-                for (label, bandwidth) in &bandwidths {
+                for ((label, bandwidth), reads) in bandwidths
+                    .iter()
+                    .flat_map(|b| args.reads.iter().map(move |r| (b, *r)))
+                {
                     let mut times = Vec::with_capacity(args.compress_reps);
                     let mut outcome = None;
                     for _ in 0..args.compress_reps.max(1) {
                         let start = Instant::now();
                         let result =
-                            model::compress(m, &candidates, *bandwidth, args.gate, &input, &session, &mut ctx)?;
+                            model::compress(
+                            m,
+                            &candidates,
+                            *bandwidth,
+                            reads,
+                            args.gate,
+                            &input,
+                            &session,
+                            &mut ctx,
+                        )?;
                         times.push(start.elapsed().as_nanos());
                         outcome = Some(result);
                     }
@@ -222,7 +238,7 @@ fn main() -> anyhow::Result<()> {
                     let (median, min) = decode_timed(&compressed, args.decode_reps, &mut ctx)?;
                     writeln!(
                         rows,
-                        "{},{},{},{},{},{},model@{label},1,{canonical_bytes},{},{},{},proposed={} tried={} kept={},{},{median},{min},",
+                        "{},{},{},{},{},{},model@{label}@r{reads},1,{canonical_bytes},{},{},{},proposed={} tried={} kept={},{},{median},{min},",
                         args.tag,
                         chunk.source,
                         chunk.column,
@@ -436,7 +452,7 @@ fn build_variants(session: &VortexSession) -> anyhow::Result<Vec<Variant>> {
             compressor: BtrBlocksCompressorBuilder::from_session(session)
                 .with_new_scheme(Wrapped::leak(*scheme, Mode::ForceRoot))
                 .build(),
-            timed: false,
+            timed: true,
         });
     }
 
