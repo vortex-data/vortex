@@ -4484,6 +4484,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3772b63c40606beea8fe1f7b06a60de27ceb9bfc2d9dad3427368ca41dc7e62"
 
 [[package]]
+name = "fearless_simd_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e91d94c6885390b81782d7ee60fd6583b33907333a8b340de25ccf468353315"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11536,6 +11547,7 @@ dependencies = [
  "bytes",
  "codspeed-divan-compat",
  "fearless_simd",
+ "fearless_simd_macros",
  "itertools 0.14.0",
  "memmap2",
  "mimalloc",
