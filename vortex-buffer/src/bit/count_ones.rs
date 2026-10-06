@@ -169,4 +169,18 @@ mod tests {
             "offset={offset} len={slice_len}"
         );
     }
+
+    /// Lengths spanning many 64-byte SIMD chunks plus a scalar tail.
+    #[cfg_attr(miri, ignore)]
+    #[rstest]
+    fn test_count_ones_matches_iteration_multi_chunk(
+        #[values(0usize, 5)] offset: usize,
+        #[values(1024usize, 4096, 4097, 65_537)] len: usize,
+    ) {
+        let buf = BitBuffer::collect_bool(offset + len, |i| (i % 3 == 0) ^ (i % 7 == 0));
+        let sliced = buf.slice(offset..offset + len);
+        let expected = sliced.iter().filter(|bit| *bit).count();
+
+        assert_eq!(sliced.true_count(), expected, "offset={offset} len={len}");
+    }
 }
