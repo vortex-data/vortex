@@ -26,8 +26,11 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -174,7 +177,9 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // lock and not in reader_try_initialize_scan under global lock.
     let reader = Arc::clone(&file.reader);
     let filter = &global.filter;
+    let split_by = split_by_for_rows(reader.row_count());
     let builder = ScanBuilder::new(SESSION.clone(), reader)
+        .with_split_by(split_by)
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
@@ -186,6 +191,22 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     file.total_splits = splits.len();
     file.splits = splits;
     Ok(false)
+}
+
+/// Splits smaller than this are not worth scheduling on their own thread.
+const MIN_SPLIT_ROWS: u64 = 16 * 1024;
+
+/// Sub-split files with few rows so that every DuckDB thread gets a split.
+///
+/// DuckDB runs a pipeline on as many threads as its source has splits, so a dimension table that
+/// fits in one default-sized split (e.g. 100K rows) would scan, filter and build its hash table on
+/// a single thread. Large files keep the default split size.
+fn split_by_for_rows(row_count: u64) -> SplitBy {
+    let threads = get_available_parallelism().unwrap_or(1) as u64;
+    let max_rows = row_count
+        .div_ceil(threads)
+        .clamp(MIN_SPLIT_ROWS, DEFAULT_MAX_SPLIT_ROWS);
+    SplitBy::LayoutSubSplitting { max_rows }
 }
 
 /// Called by all threads under global lock. If this function returns true,
@@ -335,5 +356,29 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use rstest::rstest;
+    use vortex::layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
+    use vortex::layout::scan::split_by::SplitBy;
+
+    use super::MIN_SPLIT_ROWS;
+    use super::split_by_for_rows;
+
+    #[rstest]
+    #[case::tiny(100)]
+    #[case::dimension(100_000)]
+    #[case::fact(2_880_404)]
+    fn split_rows_stay_within_bounds(#[case] rows: u64) {
+        let SplitBy::LayoutSubSplitting { max_rows } = split_by_for_rows(rows) else {
+            unreachable!("always sub-splits");
+        };
+        assert!((MIN_SPLIT_ROWS..=DEFAULT_MAX_SPLIT_ROWS).contains(&max_rows));
+        if rows >= DEFAULT_MAX_SPLIT_ROWS * 64 {
+            assert_eq!(max_rows, DEFAULT_MAX_SPLIT_ROWS);
+        }
     }
 }

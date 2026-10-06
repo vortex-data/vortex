@@ -134,6 +134,7 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::encodings::runend::RunEnd;
     use vortex::error::VortexResult;
+    use vortex::mask::Mask;
 
     use crate::SESSION;
     use crate::cpp::duckdb_type::DUCKDB_TYPE_INTEGER;
@@ -189,6 +190,37 @@ mod tests {
         );
 
         assert!(!exporter.export(&mut chunk, None)?);
+        Ok(())
+    }
+
+    /// A scan's lazy `Filter` over RunEnd must execute into the RunEnd filter kernel and export
+    /// as a dictionary, not be decoded to a flat vector first.
+    #[test]
+    fn filtered_run_end_exports_as_dictionary() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<i32> = [10, 20, 30, 40]
+            .iter()
+            .flat_map(|&v| std::iter::repeat_n(v, 32))
+            .collect();
+        let array = RunEnd::encode(PrimitiveArray::from_iter(values).into_array(), &mut ctx)?;
+        let filtered = array
+            .into_array()
+            .filter(Mask::from_iter((0..128).map(|i| i % 16 == 0)))?;
+
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE_INTEGER)]);
+        new_array_exporter(filtered, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            8,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(8);
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 8 = [ 10, 10, 20, 20, 30, 30, 40, 40]
+"#
+        );
         Ok(())
     }
 }

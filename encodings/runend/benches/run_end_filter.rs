@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks for the run-end filter inner loop (`filter_run_end_primitive`).
+//! Benchmarks for the run-end filter inner loops (`filter_run_end_primitive` and
+//! `filter_run_end_sparse`).
 //!
-//! This measures the kernel directly rather than going through the lazy
+//! This measures the kernels directly rather than going through the lazy
 //! `ArrayRef::filter` (which only builds a `FilterArray` node and does not run
-//! the kernel). The hot work is a per-run popcount of the predicate mask, which
-//! now uses `BitBuffer::count_range` (SIMD) instead of a bit-by-bit walk.
+//! the kernel). The rank scan costs a lookup per run; the sparse walk costs a step per
+//! selected row, which wins for selective masks over short runs.
 
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::cast_precision_loss)]
@@ -22,6 +23,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use vortex_buffer::BitBuffer;
 use vortex_runend::_benchmarking::filter_run_end_primitive;
+use vortex_runend::_benchmarking::filter_run_end_sparse;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -44,13 +46,29 @@ impl fmt::Display for FilterBenchArgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "len={}_run={}_density={:.1}",
+            "len={}_run={}_density={:.2}",
             self.length, self.run_length, self.density
         )
     }
 }
 
 const FILTER_ARGS: &[FilterBenchArgs] = &[
+    // Shape of a selective scan over short runs, e.g. TPC-DS store_sales ticket columns.
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 6,
+        density: 0.03,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 6,
+        density: 0.1,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 6,
+        density: 0.5,
+    },
     FilterBenchArgs {
         length: 4_096,
         run_length: 16,
@@ -113,5 +131,16 @@ fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
         .with_inputs(|| (run_ends.clone(), mask.clone()))
         .bench_refs(|(run_ends, mask)| {
             filter_run_end_primitive::<u32>(run_ends, 0, length, mask).expect("filter")
+        });
+}
+
+#[divan::bench(args = FILTER_ARGS)]
+fn filter_run_end_sparse_path(bencher: Bencher, args: FilterBenchArgs) {
+    let run_ends = build_run_ends(args.length, args.run_length);
+    let mask = build_mask(args.length, args.density);
+    bencher
+        .with_inputs(|| (run_ends.clone(), mask.clone()))
+        .bench_refs(|(run_ends, mask)| {
+            filter_run_end_sparse::<u32>(run_ends, 0, mask).expect("filter")
         });
 }

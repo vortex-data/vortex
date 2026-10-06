@@ -43,6 +43,9 @@ use crate::SplitRange;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
+/// Below this mask density, filter evaluation resolves only the selected rows' codes.
+const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
 pub struct DictReader {
     layout: DictLayout,
     name: Arc<str>,
@@ -277,6 +280,15 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let mut ctx = session.create_execution_ctx();
+            if mask.density() < EXPR_EVAL_THRESHOLD {
+                // A sparse mask from earlier conjuncts: resolve only the surviving rows' codes
+                // rather than taking and decoding the whole row range.
+                let dict_mask = values
+                    .take(codes.filter(mask.clone())?)?
+                    .null_as_false()
+                    .execute(&mut ctx)?;
+                return Ok(mask.intersect_by_rank(&dict_mask));
+            }
             let dict_mask = values.take(codes)?.null_as_false().execute(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
@@ -391,6 +403,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
@@ -612,6 +625,50 @@ mod tests {
                 .unwrap();
 
             assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected), &mut ctx);
+        })
+    }
+
+    /// A sparse input mask from earlier conjuncts takes the filter-first path; the result must
+    /// match the dense path: the input mask AND the predicate, with nulls as false.
+    #[rstest]
+    #[case::sparse(10)]
+    #[case::dense(1)]
+    fn filter_evaluation_respects_input_mask(#[case] every: usize) {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let data: Vec<Option<&str>> = (0..200)
+                .map(|i| [Some("a"), Some("b"), None, Some("c")][i % 4])
+                .collect();
+            let array = VarBinArray::from_iter(data.clone(), DType::Utf8(Nullability::Nullable))
+                .into_array();
+            let (layout, segments) = write_dict_layout(array, &session).await;
+
+            let reader = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap();
+            let filter = eq(
+                root(),
+                lit(vortex_array::scalar::Scalar::utf8(
+                    "b",
+                    Nullability::Nullable,
+                )),
+            )
+            .bind(reader.dtype())
+            .unwrap();
+            let input = Mask::from_iter((0..200).map(|i| i % every == 1 || every == 1));
+            let mask = reader
+                .filter_evaluation(&(0..200), &filter, MaskFuture::ready(input.clone()))
+                .unwrap()
+                .await
+                .unwrap();
+
+            let expected = BoolArray::from_iter(
+                data.iter()
+                    .enumerate()
+                    .map(|(i, v)| input.value(i) && *v == Some("b")),
+            );
+            assert_arrays_eq!(mask.into_array(), expected, &mut ctx);
         })
     }
 

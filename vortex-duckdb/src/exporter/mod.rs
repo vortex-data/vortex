@@ -35,6 +35,7 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::matcher::Matcher;
 use vortex::buffer::BitChunks;
 use vortex::encodings::fastlanes::RLE;
 use vortex::encodings::runend::RunEnd;
@@ -216,6 +217,28 @@ fn cached_values_dict(
     Ok(dict)
 }
 
+/// Matches the encodings that have a dedicated exporter below.
+///
+/// Executing until one of these (or a canonical array) pushes lazy wrappers such as a scan's
+/// `Filter` into the encoding's own kernels, so for example `Filter(Dict)` exports as a filtered
+/// dictionary instead of being decoded to canonical first.
+struct ExportableEncoding;
+
+impl Matcher for ExportableEncoding {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (Constant::matches(array)
+            || Sequence::matches(array)
+            || RunEnd::matches(array)
+            || RLE::matches(array)
+            || Dict::matches(array)
+            || Chunked::matches(array)
+            || List::matches(array))
+        .then_some(array)
+    }
+}
+
 /// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter_with_flatten(
     array: ArrayRef,
@@ -223,6 +246,8 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    let array = array.execute_until::<ExportableEncoding>(ctx)?;
+
     let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
