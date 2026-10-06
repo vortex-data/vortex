@@ -42,6 +42,16 @@ pub enum Mode {
     Estimate(SamplePolicy),
     /// Estimate RunEnd and Sparse from a size model over stats instead of caps and samples.
     SizeModel,
+    /// Record the production estimate at the root without changing it.
+    Spy,
+}
+
+/// Root estimates recorded by [`Mode::Spy`]: (scheme, kind, ratio).
+pub static ESTIMATES: parking_lot::Mutex<Vec<(String, &'static str, f64)>> =
+    parking_lot::Mutex::new(Vec::new());
+
+fn spy_record(name: &str, kind: &'static str, ratio: f64) {
+    ESTIMATES.lock().push((name.to_string(), kind, ratio));
 }
 
 /// How a custom sample estimate is taken and measured.
@@ -87,7 +97,7 @@ impl Wrapped {
                     Box::leak(format!("forced/{}", inner.scheme_name()).into_boxed_str());
                 name
             }
-            Mode::NoSample | Mode::CapOff | Mode::Estimate(_) | Mode::SizeModel => {
+            Mode::NoSample | Mode::CapOff | Mode::Estimate(_) | Mode::SizeModel | Mode::Spy => {
                 inner.scheme_name()
             }
         };
@@ -178,6 +188,60 @@ impl Scheme for Wrapped {
                         estimate_with(inner, policy)
                     }
                     other => other,
+                }
+            }
+            Mode::Spy => {
+                let root = compress_ctx.cascade_history().is_empty() && !compress_ctx.is_sample();
+                let name = self.base_name();
+                let estimate = self.inner.expected_compression_ratio(
+                    data,
+                    compress_ctx.clone(),
+                    exec_ctx,
+                );
+                if !root {
+                    return estimate;
+                }
+                match estimate {
+                    CompressionEstimate::Verdict(EstimateVerdict::Ratio(r)) => {
+                        spy_record(name, "closed_form", r);
+                        estimate
+                    }
+                    CompressionEstimate::Verdict(EstimateVerdict::Skip) => {
+                        spy_record(name, "skip", f64::NAN);
+                        estimate
+                    }
+                    CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse) => {
+                        spy_record(name, "always", f64::INFINITY);
+                        estimate
+                    }
+                    CompressionEstimate::Deferred(DeferredEstimate::Sample) => {
+                        // Reproduce the production sample (16 x 64, buffer bytes) to record its ratio.
+                        let policy = SamplePolicy {
+                            slices: 16,
+                            slice_len: 64,
+                            serialized: false,
+                            zero_ok: false,
+                            all: false,
+                        };
+                        let ratio = sample_ratio(self.inner, policy, data, compress_ctx, exec_ctx);
+                        spy_record(name, "sample", ratio.unwrap_or(f64::NAN));
+                        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+                    }
+                    CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => {
+                        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                            move |compressor, data, best, ctx, exec| {
+                                let verdict = callback(compressor, data, best, ctx, exec)?;
+                                match verdict {
+                                    EstimateVerdict::Ratio(r) => spy_record(name, "callback", r),
+                                    EstimateVerdict::Skip => spy_record(name, "skip", f64::NAN),
+                                    EstimateVerdict::AlwaysUse => {
+                                        spy_record(name, "always", f64::INFINITY)
+                                    }
+                                }
+                                Ok(verdict)
+                            },
+                        )))
+                    }
                 }
             }
             Mode::SizeModel => {
@@ -313,6 +377,27 @@ fn estimate_with(inner: &'static dyn Scheme, policy: SamplePolicy) -> Compressio
         },
     )))
 }
+
+/// The ratio a sample estimate would report, or `None` if the sample fails to compress.
+fn sample_ratio(
+    inner: &'static dyn Scheme,
+    policy: SamplePolicy,
+    data: &ArrayAndStats,
+    compress_ctx: CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> Option<f64> {
+    let compressor = SPY_COMPRESSOR.get()?;
+    let sample = take_sample(data.array(), policy, exec_ctx).ok()?;
+    let sample_data = ArrayAndStats::new(sample, inner.stats_options());
+    let compressed = inner
+        .compress(compressor, &sample_data, compress_ctx.with_sampling(), exec_ctx)
+        .ok()?;
+    let after = compressed.nbytes();
+    (after > 0).then(|| sample_data.array().nbytes() as f64 / after as f64)
+}
+
+/// The production compressor the spy compresses its samples with.
+pub static SPY_COMPRESSOR: std::sync::OnceLock<CascadingCompressor> = std::sync::OnceLock::new();
 
 fn take_sample(
     array: &ArrayRef,

@@ -295,6 +295,57 @@ Getting the end-to-end result right took two fixes the offline evaluation missed
   +61% at NVMe). Measuring one decode of each candidate fixed it.
 - **Features over the whole chunk cost 3–4× the compression.** Contiguous windows fixed it.
 
+## What the model uses, and how it compares with the compressor's own estimates
+
+`compare_estimators.py` reads a run with the `spy` variant, which logs the estimate each scheme
+gives the selector at the root without changing the choice.
+
+**Features that matter** (permutation importance on held-out columns, mean over candidates):
+
+| Model | Top features | Barely used |
+|---|---|---|
+| Size | `step_mode_frac`, `est_runend`, `bits_p99`, `est_sparse`, `est_bp`, `est_for`, `avg_run`, `top1_frac` | `distinct_frac`, `null_frac`, `trailing_zeros`, `bits_delta`, `for_gain` |
+| Decode time | `avg_run`, `est_runend`, `bits_for`, `ptype_bits`, `est_bp`, `top1_frac`, `bits_p99` | |
+
+**Ratio accuracy** (median |log2(estimate / actual)|, per scheme at the root):
+
+| Estimator | Median error | Within 10% |
+|---|---|---|
+| Compressor closed-form (Pass 1) | 47% | 31% |
+| Compressor 1% sample (Pass 2) | 19% | 46% |
+| Model, unseen columns | 22% | 39% |
+| Model + compressor estimates as features, unseen columns | **11%** | **56%** |
+| Model, unseen source | 92% | 14% |
+
+- The compressor is exact for BitPacking and FOR. Its errors are Dict (62%), RunEnd (47%), RLE
+  (40%) and Sparse (21%).
+- **The compressor ranks schemes better** (rank correlation 0.70 vs 0.42).
+- **Its failure is skipping, not ranking.** At the root it skips FOR on 65% of chunks, Sparse on
+  61%, ZigZag on 75% and RunEnd on 28%. On 6% of chunks the best scheme is skipped outright.
+- **Without verification, the model's pick is worse than the compressor's on size alone:** +15%
+  regret against the compressor's +8%.
+
+**Compression ratio** (real compressions, ratio-only bandwidth):
+
+| Compressor | Ratio | Bytes |
+|---|---|---|
+| Production | 5.54× | — |
+| Model-driven, production schemes | 5.75× | −3.6% |
+| Size-model thresholds (earlier) | — | −6.4% |
+| Best root, production schemes | 5.99× | −7.5% |
+| Model-driven, Pco allowed | 8.03× | −31.0% |
+| Best root, Pco allowed | 8.97× | −38.2% |
+
+**Takeaway:** for ratio alone, the compressor's own estimates are the better predictor, and the
+size-model fix beats the learned model. The learned model earns its place through decode time
+(which nothing in today's compressor models) and through admitting Pco per chunk. The design to
+build next is a hybrid:
+
+- **Ratio:** the compressor's estimates with the size-model fix, plus the model as a correction
+  (11% error with both).
+- **Decode time:** the learned model.
+- **Choice:** by `bytes / bandwidth + decode time`.
+
 ## Caveats
 
 - Integers only. The oracle is one step (root only), so the true headroom is at least this large.

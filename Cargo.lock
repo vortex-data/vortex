@@ -1833,6 +1833,7 @@ dependencies = [
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
  "clap",
+ "parking_lot",
  "parquet 59.3.0",
  "serde",
  "serde_json",

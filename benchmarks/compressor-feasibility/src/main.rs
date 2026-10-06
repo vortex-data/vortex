@@ -86,6 +86,9 @@ struct Args {
     /// Bandwidths (bytes/s) the model-driven compressor optimises for, as `label=value`.
     #[arg(long, value_delimiter = ',', default_value = "s3=1e8,nvme=2e9,mem=2e10")]
     bandwidths: Vec<String>,
+    /// Candidates the model-driven compressor may not use, e.g. `pco`.
+    #[arg(long, value_delimiter = ',')]
+    exclude_candidates: Vec<String>,
     /// Minimum predicted saving before the model's proposal is compressed and verified.
     #[arg(long, default_value_t = 0.1)]
     gate: f64,
@@ -119,6 +122,15 @@ fn main() -> anyhow::Result<()> {
     }
     let mut ctx = session.create_execution_ctx();
     let all_variants = build_variants(&session)?;
+    if let Some(production) = all_variants.iter().find(|v| v.name == "default")
+        && wrap::SPY_COMPRESSOR.set((*production.compressor).clone()).is_err()
+    {
+        anyhow::bail!("spy compressor already set");
+    }
+    let mut estimates = BufWriter::new(File::create(
+        args.out.join(format!("estimates-{}.csv", args.tag)),
+    )?);
+    writeln!(estimates, "source,column,chunk,scheme,kind,ratio")?;
     let variants: Vec<&Variant> = all_variants
         .iter()
         .filter(|v| {
@@ -134,7 +146,7 @@ fn main() -> anyhow::Result<()> {
                 "model/runend+sparse" => "sizemodel".to_string(),
                 other => other.strip_prefix("forced/")?.to_string(),
             };
-            Some((name, &v.compressor))
+            (!args.exclude_candidates.contains(&name)).then_some((name, &v.compressor))
         })
         .collect();
     let bandwidths: Vec<(String, f64)> = args
@@ -230,6 +242,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         for variant in &variants {
+            wrap::ESTIMATES.lock().clear();
             let reps = if variant.timed { args.compress_reps } else { 1 };
             let result = compress_timed(&variant.compressor, &input, reps, &mut ctx);
             let prefix = format!(
@@ -253,6 +266,16 @@ fn main() -> anyhow::Result<()> {
                         .collect::<Vec<_>>()
                         .join(" / ")
                         .replace(',', ";");
+                    for (scheme, kind, ratio) in wrap::ESTIMATES.lock().drain(..) {
+                        writeln!(
+                            estimates,
+                            "{},{},{},{},{kind},{ratio}",
+                            chunk.source,
+                            chunk.column,
+                            chunk.index,
+                            scheme.trim_start_matches("vortex.int."),
+                        )?;
+                    }
                     writeln!(
                         rows,
                         "{prefix},1,{canonical_bytes},{},{},{},{tree},{compress_ns},{median},{min},",
@@ -283,6 +306,7 @@ fn main() -> anyhow::Result<()> {
     }
     rows.flush()?;
     feats.flush()?;
+    estimates.flush()?;
     let profile: Vec<u64> = model::PROFILE
         .iter()
         .map(|p| p.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000)
@@ -350,6 +374,11 @@ fn build_variants(session: &VortexSession) -> anyhow::Result<Vec<Variant>> {
                 .any(|cap| named(cap, s))
                 .then_some(Mode::CapOff)
         }),
+        timed: false,
+    });
+    variants.push(Variant {
+        name: "spy".to_string(),
+        compressor: replaced(&|_| Some(Mode::Spy)),
         timed: false,
     });
     variants.push(Variant {
