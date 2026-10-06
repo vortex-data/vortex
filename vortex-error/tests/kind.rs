@@ -142,6 +142,34 @@ fn test_clone_and_shared_round_trip() {
 }
 
 #[test]
+fn test_context_on_a_clone_leaves_the_other_clone_alone() {
+    let err = VortexError::from(io::Error::other("disk on fire"));
+    let clone = err.clone();
+
+    // The payload is shared, so this context cannot be written into it in place.
+    let with_context = clone.with_context("while reading");
+
+    let original = err.to_string();
+    assert!(
+        original.starts_with("IO error: disk on fire") && !original.contains("while reading"),
+        "{original}"
+    );
+    let display = with_context.to_string();
+    assert!(
+        display.starts_with("IO error: while reading:\n  disk on fire"),
+        "{display}"
+    );
+    assert_eq!(with_context.kind(), VortexErrorKind::Io);
+    assert!(
+        with_context
+            .source()
+            .and_then(|source| source.downcast_ref::<io::Error>())
+            .is_some(),
+        "context on a shared error must still expose the underlying error"
+    );
+}
+
+#[test]
 fn test_arrow_error_is_classified_by_variant() {
     use arrow_schema::ArrowError;
 

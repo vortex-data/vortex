@@ -132,26 +132,42 @@ impl VortexErrorKind {
 ///
 /// An error is a [`VortexErrorKind`], a message, an optional underlying error, and a backtrace
 /// captured at construction. Cloning is cheap: the payload is shared, never copied.
+///
+/// The payload sits behind one pointer, so a `VortexResult<T>` costs the same as `T` plus at
+/// most a word on the success path. Most results fit in two registers and are returned in them,
+/// rather than through a stack slot the caller must reserve and read back. Constructing an error
+/// is no more expensive for it: the payload's allocation is the one the backtrace needed anyway.
 #[derive(Clone)]
-pub struct VortexError {
+pub struct VortexError(Arc<ErrorInner>);
+
+const _: () = assert!(size_of::<VortexError>() == size_of::<usize>());
+const _: () = assert!(size_of::<VortexResult<()>>() == size_of::<usize>());
+
+struct ErrorInner {
     kind: VortexErrorKind,
-    /// `None` defers the message to `source`, keeping the `?` conversion path allocation-free.
+    /// `None` defers the message to the source, keeping the `?` conversion path allocation-free.
     message: Option<ErrString>,
-    source: Option<Arc<dyn Error + Send + Sync + 'static>>,
-    backtrace: Arc<Backtrace>,
+    origin: Origin,
 }
 
-const _: () = assert!(size_of::<VortexError>() <= 56);
+/// Where an error's source and backtrace come from.
+enum Origin {
+    /// Captured when this error was created.
+    Own {
+        source: Option<Box<dyn Error + Send + Sync + 'static>>,
+        backtrace: Backtrace,
+    },
+    /// Shared with the error this one adds context to.
+    ///
+    /// Context is normally added in place. This is only for an error that has been cloned, whose
+    /// payload the other clones still see.
+    Context(VortexError),
+}
 
 impl VortexError {
     /// Creates an error of the given kind carrying `message`.
     pub fn new<T: Into<ErrString>>(kind: VortexErrorKind, message: T) -> Self {
-        Self {
-            kind,
-            message: Some(message.into()),
-            source: None,
-            backtrace: Arc::new(Backtrace::capture()),
-        }
+        Self::from_parts(kind, Some(message.into()), None)
     }
 
     /// Wraps an underlying error as a Vortex error of the given kind.
@@ -162,12 +178,7 @@ impl VortexError {
     where
         E: Into<Box<dyn Error + Send + Sync + 'static>>,
     {
-        Self {
-            kind,
-            message: None,
-            source: Some(Arc::from(source.into())),
-            backtrace: Arc::new(Backtrace::capture()),
-        }
+        Self::from_parts(kind, None, Some(source.into()))
     }
 
     /// Wraps an underlying error that does not fit any more specific [`VortexErrorKind`].
@@ -178,9 +189,24 @@ impl VortexError {
         Self::wrap(VortexErrorKind::Other, source)
     }
 
+    fn from_parts(
+        kind: VortexErrorKind,
+        message: Option<ErrString>,
+        source: Option<Box<dyn Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self(Arc::new(ErrorInner {
+            kind,
+            message,
+            origin: Origin::Own {
+                source,
+                backtrace: Backtrace::capture(),
+            },
+        }))
+    }
+
     /// The classification of this error.
     pub fn kind(&self) -> VortexErrorKind {
-        self.kind
+        self.0.kind
     }
 
     /// Adds additional context to an error, preserving its kind, source and backtrace.
@@ -188,33 +214,53 @@ impl VortexError {
         let msg: ErrString = msg.into();
         // Build the combined string directly: `msg` has already been through the
         // `VORTEX_PANIC_ON_ERR` check and must not trip it a second time.
-        self.message = Some(ErrString(Cow::Owned(format!(
-            "{msg}:\n  {}",
-            self.message_body()
-        ))));
-        self
+        let message = ErrString(Cow::Owned(format!("{msg}:\n  {}", self.message_body())));
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            inner.message = Some(message);
+            return self;
+        }
+        Self(Arc::new(ErrorInner {
+            kind: self.kind(),
+            message: Some(message),
+            origin: Origin::Context(self),
+        }))
     }
 
     /// The error message, falling back to the underlying error when none was provided.
     fn message_body(&self) -> Cow<'_, str> {
-        match (&self.message, &self.source) {
+        match (&self.0.message, self.source_ref()) {
             (Some(message), _) => Cow::Borrowed(message.as_ref()),
             (None, Some(source)) => Cow::Owned(source.to_string()),
             (None, None) => Cow::Borrowed(""),
+        }
+    }
+
+    fn source_ref(&self) -> Option<&(dyn Error + Send + Sync + 'static)> {
+        match &self.0.origin {
+            Origin::Own { source, .. } => source.as_deref(),
+            Origin::Context(error) => error.source_ref(),
+        }
+    }
+
+    fn backtrace(&self) -> &Backtrace {
+        match &self.0.origin {
+            Origin::Own { backtrace, .. } => backtrace,
+            Origin::Context(error) => error.backtrace(),
         }
     }
 }
 
 impl Display for VortexError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(self.kind.prefix())?;
-        match (&self.message, &self.source) {
+        f.write_str(self.kind().prefix())?;
+        match (&self.0.message, self.source_ref()) {
             (Some(message), _) => Display::fmt(message, f)?,
             (None, Some(source)) => Display::fmt(source, f)?,
             (None, None) => {}
         }
-        if self.backtrace.status() == BacktraceStatus::Captured {
-            write!(f, "\nBacktrace:\n{}", self.backtrace)?;
+        let backtrace = self.backtrace();
+        if backtrace.status() == BacktraceStatus::Captured {
+            write!(f, "\nBacktrace:\n{backtrace}")?;
         }
         Ok(())
     }
@@ -228,9 +274,8 @@ impl Debug for VortexError {
 
 impl Error for VortexError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source
-            .as_ref()
-            .map(|source| source.as_ref() as &(dyn Error + 'static))
+        self.source_ref()
+            .map(|source| source as &(dyn Error + 'static))
     }
 }
 
