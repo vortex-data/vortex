@@ -67,6 +67,11 @@ impl ObjectStoreReadAt {
         allocator: BufferAllocatorRef,
     ) -> Self {
         let uri = Arc::from(path.to_string());
+        let coalesce_config = if is_local_file_system(store.as_ref()) {
+            CoalesceConfig::file()
+        } else {
+            CoalesceConfig::object_storage()
+        };
         Self {
             store,
             path,
@@ -74,7 +79,7 @@ impl ObjectStoreReadAt {
             handle,
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
-            coalesce_config: Some(CoalesceConfig::object_storage()),
+            coalesce_config: Some(coalesce_config),
         }
     }
 
@@ -89,6 +94,14 @@ impl ObjectStoreReadAt {
         self.coalesce_config = Some(config);
         self
     }
+}
+
+/// Whether `store` is object_store's `LocalFileSystem`, whose reads are local file reads.
+///
+/// `ObjectStore` offers no downcast, so this matches the store's `Display`, which is
+/// `LocalFileSystem(<root>)`. A wrapped local store falls back to the object storage config.
+fn is_local_file_system(store: &dyn ObjectStore) -> bool {
+    store.to_string().starts_with("LocalFileSystem(")
 }
 
 async fn read_object_store_range(
@@ -293,6 +306,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use object_store::PutPayload;
+    use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
 
     use super::*;
@@ -340,6 +354,14 @@ mod tests {
         fn abort(self: Box<Self>) {
             self.0.abort();
         }
+    }
+
+    #[test]
+    fn local_file_system_coalesces_as_file() {
+        let local = LocalFileSystem::new();
+        let memory = InMemory::new();
+        assert!(is_local_file_system(&local));
+        assert!(!is_local_file_system(&memory));
     }
 
     #[tokio::test]
