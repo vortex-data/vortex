@@ -142,8 +142,8 @@ fn has_dictionary_predicate(plan: &PlanRef) -> VortexResult<bool> {
     if plan.is::<Take>() && plan.dtype().is_boolean() {
         return Ok(true);
     }
-    for child in plan.children().iter() {
-        if has_dictionary_predicate(&child?)? {
+    for child in plan.children().iter_refs() {
+        if has_dictionary_predicate(child?)? {
             return Ok(true);
         }
     }

@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
-use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -58,7 +58,7 @@ pub type TakePlan = Plan<Take>;
 /// rebuilt with new children starts empty.
 #[derive(Clone)]
 pub struct TakeData {
-    values: Arc<Mutex<Option<ArrayRef>>>,
+    values: Arc<OnceLock<ArrayRef>>,
     /// Whether the values may be kept. Values evaluated with a dynamic comparison change as the
     /// engine updates it, so each execution evaluates them again.
     cacheable: bool,
@@ -89,7 +89,7 @@ impl TakeData {
 impl fmt::Debug for TakeData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TakeData")
-            .field("values_cached", &self.values.lock().is_some())
+            .field("values_cached", &self.values.get().is_some())
             .finish()
     }
 }
@@ -147,7 +147,12 @@ impl TakePlan {
 
     /// The values an earlier execution of this plan produced, if any.
     pub(crate) fn cached_values(&self) -> Option<ArrayRef> {
-        self.data().values.lock().clone()
+        self.data().values.get().cloned()
+    }
+
+    /// Whether an earlier execution populated the cache.
+    pub(crate) fn has_cached_values(&self) -> bool {
+        self.data().values.get().is_some()
     }
 
     /// Records the values for later executions, keeping the first when two race, unless the
@@ -156,7 +161,7 @@ impl TakePlan {
         if !self.data().cacheable {
             return values;
         }
-        self.data().values.lock().get_or_insert(values).clone()
+        self.data().values.get_or_init(|| values).clone()
     }
 }
 
