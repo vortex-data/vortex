@@ -229,12 +229,12 @@ fn open_options(
 /// batch, does not read them again. The key must identify the file's contents, not only its
 /// location: a file that has changed must get a new key.
 ///
+/// It is safe to share between threads, but it is not picklable: create one in each process.
+///
 /// Parameters
 /// ----------
 /// max_bytes : :class:`int`
 ///     The most bytes of segments to hold. The least recently used segments are evicted first.
-///
-/// It is safe to share between threads, but it is not picklable: create one in each process.
 #[pyclass(name = "SegmentCache", module = "vortex", frozen)]
 pub struct PySegmentCache {
     cache: MokaSegmentCache,
