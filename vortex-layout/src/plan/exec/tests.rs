@@ -663,8 +663,8 @@ fn take_values_are_read_once_per_plan(
     let mut expected = values.take(codes)?;
     if predicate {
         let expression = gt(root(), lit("a"))
-            .optimize_recursive(plan.dtype())?
-            .bind(plan.dtype())?;
+            .bind(plan.dtype())?
+            .optimize_recursive()?;
         expected = expected.apply_bound(&expression)?;
         plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
     }
