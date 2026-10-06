@@ -23,6 +23,7 @@ use futures::stream::BoxStream;
 use futures::stream::Fuse;
 use futures::stream::SelectAll;
 use parking_lot::Mutex;
+use tracing::Instrument;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -331,7 +332,10 @@ impl FileSegmentSource {
         )
         .boxed();
 
-        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics).collect::<()>();
+        let span = tracing::debug_span!(target: "vortex_file::read_lifecycle", "file_reads", uri = ?reader.uri());
+        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics)
+            .collect::<()>()
+            .instrument(span);
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
         // join it (below) only to surface a panic raised while driving reads.

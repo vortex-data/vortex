@@ -46,11 +46,6 @@ impl Selection {
             .slice(self.index(rows.start)..self.index(rows.end))
     }
 
-    /// The number of selected rows in `rows`.
-    pub(crate) fn count(&self, rows: &Range<u64>) -> usize {
-        self.slice(rows).true_count()
-    }
-
     fn index(&self, row: u64) -> usize {
         usize::try_from(row - self.rows.start).vortex_expect("selection index must fit in usize")
     }
@@ -61,21 +56,6 @@ pub(crate) fn empty_piece(dtype: &DType, rows: Range<u64>) -> Piece {
     Piece {
         rows,
         array: Canonical::empty(dtype).into_array(),
-    }
-}
-
-impl Piece {
-    /// The part of this piece covering `sub`, which must lie within `self.rows`.
-    pub(crate) fn slice_rows(&self, selection: &Selection, sub: Range<u64>) -> VortexResult<Piece> {
-        if sub == self.rows {
-            return Ok(self.clone());
-        }
-        let start = selection.count(&(self.rows.start..sub.start));
-        let len = selection.count(&sub);
-        Ok(Piece {
-            rows: sub,
-            array: self.array.slice(start..start + len)?,
-        })
     }
 }
 

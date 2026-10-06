@@ -15,9 +15,11 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 
+use crate::plan::PlanRef;
 use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::SelectedRows;
+use crate::scan::planning::plan_selected;
 use crate::scan::v2::prefetch::plan_segments;
 
 /// Announces the segments a split is likely to read, then hands the split to `next`.
@@ -26,12 +28,17 @@ use crate::scan::v2::prefetch::plan_segments;
 /// near one that it does read, as the layout reader's splits do by registering their reads when
 /// their futures are built.
 pub struct AnnouncePlanner {
-    plans: ScanPlans,
+    plans: Option<ScanPlans>,
     filter: Option<FilterPlans>,
     /// The split, until it is handed to `next`.
     selected: Option<SelectedRows>,
     announced: bool,
-    next: Next<SelectedRows>,
+    next: Option<Continuation>,
+}
+
+enum Continuation {
+    Next(Next<SelectedRows>),
+    Split(Option<PlanRef>),
 }
 
 impl AnnouncePlanner {
@@ -43,28 +50,46 @@ impl AnnouncePlanner {
         next: Next<SelectedRows>,
     ) -> Self {
         Self {
-            plans,
+            plans: Some(plans),
             filter,
             selected: Some(selected),
             announced: false,
-            next,
+            next: Some(Continuation::Next(next)),
+        }
+    }
+
+    pub(super) fn for_split(
+        plans: ScanPlans,
+        pruning: Option<PlanRef>,
+        filter: Option<FilterPlans>,
+        selected: SelectedRows,
+    ) -> Self {
+        Self {
+            plans: Some(plans),
+            filter,
+            selected: Some(selected),
+            announced: false,
+            next: Some(Continuation::Split(pruning)),
         }
     }
 
     fn announce(&self, selected: &SelectedRows) -> VortexResult<IoBatch> {
+        let plans = self
+            .plans
+            .as_ref()
+            .ok_or_else(|| vortex_err!("AnnouncePlanner has no plans"))?;
         let rows = &selected.scope.rows;
         let mut ids = Vec::new();
         for filter in self.filter.iter().flat_map(FilterPlans::plans) {
             plan_segments(filter, rows.clone(), &mut ids)?;
         }
-        plan_segments(&self.plans.projection, rows.clone(), &mut ids)?;
+        plan_segments(&plans.projection, rows.clone(), &mut ids)?;
         ids.sort_unstable();
         ids.dedup();
         ids.into_iter()
             .enumerate()
             .map(|(index, id)| {
-                let location = self
-                    .plans
+                let location = plans
                     .locations
                     .get(*id as usize)
                     .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
@@ -106,6 +131,17 @@ impl Planner for AnnouncePlanner {
             vortex_bail!("AnnouncePlanner: compute called after Done");
         };
         let scope = selected.scope.clone();
-        Ok(PlannerOutput::Planner(scope, (self.next)(selected)?))
+        let next = match self.next.take() {
+            Some(Continuation::Next(next)) => next(selected)?,
+            Some(Continuation::Split(pruning)) => {
+                let plans = self
+                    .plans
+                    .take()
+                    .ok_or_else(|| vortex_err!("AnnouncePlanner has no plans"))?;
+                plan_selected(plans, pruning, self.filter.take(), selected)?
+            }
+            None => vortex_bail!("AnnouncePlanner has no continuation"),
+        };
+        Ok(PlannerOutput::Planner(scope, next))
     }
 }

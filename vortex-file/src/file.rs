@@ -17,6 +17,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_io::request::IoService;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
@@ -29,7 +30,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::pruning::can_prune_file_stats;
-use crate::segments::FileScanIo;
 use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
@@ -49,8 +49,8 @@ pub struct VortexFile {
     metadata: Arc<HashMap<String, ByteBuffer>>,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
-    /// Serves protocol reads through the file's read driver, when the file reads through one.
-    scan_io: Option<FileScanIo>,
+    /// Serves the planning protocol's reads, when the file was opened over a reader.
+    scan_io: Option<Arc<dyn IoService>>,
 }
 
 fn layout_reader(
@@ -91,14 +91,14 @@ impl VortexFile {
         }
     }
 
-    pub(crate) fn with_scan_io(mut self, scan_io: FileScanIo) -> Self {
+    pub(crate) fn with_scan_io(mut self, scan_io: Arc<dyn IoService>) -> Self {
         self.scan_io = Some(scan_io);
         self
     }
 
-    /// The service that serves protocol reads through the file's read driver, when the file was
-    /// opened over one.
-    pub fn scan_io(&self) -> Option<&FileScanIo> {
+    /// The service that serves the planning protocol's reads of this file, when the file was
+    /// opened over a reader.
+    pub fn scan_io(&self) -> Option<&Arc<dyn IoService>> {
         self.scan_io.as_ref()
     }
 

@@ -36,8 +36,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
-use crate::planning::next::PendingPlanner;
-use crate::planning::next::pending;
 use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
@@ -122,17 +120,9 @@ impl ScriptedPlanner {
         }
     }
 
-    /// Wraps a fresh scripted planner as pending work that logs its start.
-    pub fn pending(
-        name: &'static str,
-        script: Vec<PlannerStep>,
-        log: &Log,
-    ) -> Box<dyn PendingPlanner> {
-        let planner = Self::new(name, script, log);
-        pending(move || {
-            planner.log.push(format!("start {name}"));
-            Ok(Box::new(planner) as Box<dyn Planner>)
-        })
+    /// A fresh scripted planner, boxed as the driver takes it.
+    pub fn boxed(name: &'static str, script: Vec<PlannerStep>, log: &Log) -> Box<dyn Planner> {
+        Box::new(Self::new(name, script, log))
     }
 }
 
@@ -197,7 +187,7 @@ impl Planner for ScriptedPlanner {
             PlannerStep::Continue => PlannerOutput::Continue,
             PlannerStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
             PlannerStep::Planner(scope, script) => {
-                PlannerOutput::Planner(scope, Self::pending("child", script, &self.log))
+                PlannerOutput::Planner(scope, Self::boxed("child", script, &self.log))
             }
             PlannerStep::Morsel(scope, script) => PlannerOutput::Morsel(
                 scope,

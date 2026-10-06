@@ -14,13 +14,10 @@ use std::sync::Arc;
 
 use vortex_array::expr::Expression;
 use vortex_io::VortexReadAt;
-use vortex_io::request::IoService;
 use vortex_layout::scan::planning::SegmentLocation;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_scan::planning::next::Next;
-use vortex_scan::planning::next::PendingPlanner;
 use vortex_scan::planning::next::next_fn;
-use vortex_scan::planning::next::pending;
 use vortex_scan::planning::planner::Planner;
 use vortex_session::VortexSession;
 
@@ -69,9 +66,7 @@ pub fn scan_file(file: &VortexFile) -> ScanFile {
         layout: Arc::clone(file.footer().layout()),
         locations: segment_locations(file.footer()),
         segments: file.segment_source(),
-        io: file
-            .scan_io()
-            .map(|io| Arc::new(io.clone()) as Arc<dyn IoService>),
+        io: file.scan_io().cloned(),
     }
 }
 
@@ -82,7 +77,7 @@ pub fn plan_file(
     filter: Option<Expression>,
     session: VortexSession,
     next: Next<OpenedFile>,
-) -> Box<dyn PendingPlanner> {
+) -> Box<dyn Planner> {
     let after_open: Next<OpenedFile> = {
         let session = session.clone();
         next_fn(move |opened| {
@@ -94,14 +89,12 @@ pub fn plan_file(
             ))
         })
     };
-    pending(move || {
-        Ok(Box::new(FooterOpen::new(
-            source,
-            DEFAULT_INITIAL_READ_SIZE,
-            session,
-            after_open,
-        )) as Box<dyn Planner>)
-    })
+    Box::new(FooterOpen::new(
+        source,
+        DEFAULT_INITIAL_READ_SIZE,
+        session,
+        after_open,
+    ))
 }
 
 #[cfg(test)]

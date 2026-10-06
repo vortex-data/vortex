@@ -8,14 +8,18 @@
 //! into a nearby read. A prefetch registers a read and marks it wanted, so the driver starts it
 //! and the service keeps the bytes. A fetch does the same, or marks an earlier announcement or
 //! prefetch of the same range wanted, and delivers the bytes to its owner. Dropping a split's
-//! source withdraws every read it registered that has not finished.
+//! source withdraws an unfinished read only after its last interested split releases it.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::Weak;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
+use std::time::Instant;
 
 use futures::FutureExt;
 use futures::StreamExt;
@@ -39,6 +43,7 @@ use vortex_io::request::IoResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::read::ReadRequest;
@@ -48,6 +53,7 @@ use crate::segments::source::SharedDriver;
 
 /// A read's bytes, shared by every fetch of its range.
 type SharedRead = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
+type ReadKey = (u64, usize, Alignment);
 
 /// Serves a scan's splits from a file's coalescing read driver, one [`FileSplitIo`] per split.
 ///
@@ -60,6 +66,10 @@ pub struct FileScanIo {
     /// source may be dropped while the scan's splits still read.
     _driver: SharedDriver,
     next_id: Arc<AtomicUsize>,
+    /// Live registrations, including completed reads still held by another split. Weak entries
+    /// deduplicate overlapping split lifetimes without turning the service into a segment cache.
+    /// Initialized only for direct reads; scans with a segment cache use another source.
+    reads: Arc<OnceLock<DashMap<ReadKey, Weak<Read>>>>,
 }
 
 impl FileScanIo {
@@ -72,6 +82,7 @@ impl FileScanIo {
             events,
             _driver: driver,
             next_id,
+            reads: Arc::default(),
         }
     }
 }
@@ -94,7 +105,7 @@ struct FileSplitIo {
 #[derive(Default)]
 struct SplitState {
     /// Every read the split registered, by byte range.
-    reads: HashMap<(u64, usize), Read>,
+    reads: HashMap<ReadKey, Arc<Read>>,
     /// Fetches waiting for their read, in the order they complete.
     fetches: FuturesUnordered<BoxFuture<'static, Completion>>,
 }
@@ -102,13 +113,35 @@ struct SplitState {
 struct Read {
     id: RequestId,
     /// Whether the driver was told the read is wanted.
-    wanted: bool,
+    wanted: AtomicBool,
     bytes: SharedRead,
+    events: mpsc::UnboundedSender<ReadEvent>,
+}
+
+impl Drop for Read {
+    fn drop(&mut self) {
+        if self.bytes.peek().is_none() {
+            // Only the last split can cancel a shared registration.
+            drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
+        }
+    }
 }
 
 impl FileSplitIo {
     /// Registers a read of `offset..offset + len`, aligned to `alignment`, with the driver.
-    fn register(&self, offset: u64, len: usize, alignment: Alignment) -> VortexResult<Read> {
+    fn register(&self, offset: u64, len: usize, alignment: Alignment) -> VortexResult<Arc<Read>> {
+        let key = (offset, len, alignment);
+        // Keep this range locked until Request is queued, so another split cannot send Polled
+        // before its registration. Other ranges can register through different shards.
+        let mut entry = self
+            .io
+            .reads
+            .get_or_init(DashMap::default)
+            .entry(key)
+            .or_default();
+        if let Some(read) = entry.upgrade() {
+            return Ok(read);
+        }
         let id = self.io.next_id.fetch_add(1, Ordering::Relaxed);
         let (callback, receiver) = oneshot::channel();
         self.io
@@ -130,29 +163,37 @@ impl FileSplitIo {
             })
             .boxed()
             .shared();
-        Ok(Read {
+        let read = Arc::new(Read {
             id,
-            wanted: false,
+            wanted: AtomicBool::new(false),
             bytes,
-        })
+            events: self.io.events.clone(),
+        });
+        *entry = Arc::downgrade(&read);
+        Ok(read)
     }
 
     /// Tells the driver `read` is wanted, so it starts the read if nothing has yet.
-    fn want(&self, read: &mut Read) -> VortexResult<()> {
-        if !read.wanted {
-            read.wanted = true;
+    fn want(&self, read: &Read) -> VortexResult<bool> {
+        let wanted = !read.wanted.swap(true, Ordering::Relaxed);
+        if wanted {
             self.io
                 .events
                 .unbounded_send(ReadEvent::Polled(read.id))
                 .map_err(|err| vortex_err!("the file's read driver has stopped: {err}"))?;
         }
-        Ok(())
+        Ok(wanted)
     }
 }
 
 impl IoSource for FileSplitIo {
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
+        let timing = tracing::enabled!(target: "vortex_file::io_submit", tracing::Level::DEBUG)
+            .then(Instant::now);
+        let requests = batch.len();
         let mut state = self.state.lock();
+        let previous_reads = state.reads.len();
+        let mut wanted = 0usize;
         for request in batch {
             let IoTarget::Range {
                 offset,
@@ -162,13 +203,13 @@ impl IoSource for FileSplitIo {
             else {
                 vortex_bail!("a split's IO serves byte ranges, not {:?}", request.target);
             };
-            let read = match state.reads.remove(&(offset, len)) {
+            let key = (offset, len, alignment);
+            let read = match state.reads.remove(&key) {
                 Some(read) => read,
                 None => self.register(offset, len, alignment)?,
             };
-            let mut read = read;
             if request.intent != IoIntent::Announce {
-                self.want(&mut read)?;
+                wanted += usize::from(self.want(&read)?);
             }
             if request.intent == IoIntent::Fetch {
                 let id = request.request;
@@ -185,7 +226,19 @@ impl IoSource for FileSplitIo {
                         .boxed(),
                 );
             }
-            state.reads.insert((offset, len), read);
+            state.reads.insert(key, read);
+        }
+        let registered = state.reads.len() - previous_reads;
+        drop(state);
+        if let Some(start) = timing {
+            tracing::debug!(
+                target: "vortex_file::io_submit",
+                requests,
+                registered,
+                wanted,
+                elapsed_ns = start.elapsed().as_nanos() as u64,
+                "scan IO submit"
+            );
         }
         Ok(())
     }
@@ -219,31 +272,19 @@ impl IoSource for FileSplitIo {
     fn clear(&self) {
         let mut state = self.state.lock();
         state.fetches = FuturesUnordered::new();
-        for (_, read) in state.reads.drain() {
-            withdraw(&self.io.events, read);
-        }
-    }
-}
-
-impl Drop for FileSplitIo {
-    fn drop(&mut self) {
-        for (_, read) in self.state.get_mut().reads.drain() {
-            withdraw(&self.io.events, read);
-        }
-    }
-}
-
-/// Withdraws `read` from the driver unless it already finished, which removed it.
-fn withdraw(events: &mpsc::UnboundedSender<ReadEvent>, read: Read) {
-    if read.bytes.peek().is_none() {
-        // Best effort: a stopped driver has nothing left to withdraw.
-        drop(events.unbounded_send(ReadEvent::Dropped(read.id)));
+        state.reads.clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::poll_fn;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
     use futures::TryStreamExt;
+    use futures::future::BoxFuture;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -251,15 +292,24 @@ mod tests {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::buffer::BufferHandle;
     use vortex_array::expr::Expression;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_io::VortexReadAt;
+    use vortex_io::request::IoIntent;
+    use vortex_io::request::IoOwnerId;
+    use vortex_io::request::IoRequest;
+    use vortex_io::request::IoRequestId;
+    use vortex_io::request::IoTarget;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::scan::v2;
@@ -302,6 +352,79 @@ mod tests {
             )
             .await?;
         Ok(ByteBuffer::from(output))
+    }
+
+    #[derive(Clone)]
+    struct CountingRead {
+        bytes: ByteBuffer,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl VortexReadAt for CountingRead {
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            self.bytes.size()
+        }
+
+        fn concurrency(&self) -> usize {
+            self.bytes.concurrency()
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            self.bytes.read_at(offset, length, alignment)
+        }
+    }
+
+    /// A cancelled split cannot cancel another split's read, and a completed registration
+    /// remains reusable only while a split holds it.
+    #[tokio::test]
+    async fn splits_share_live_reads_and_cancel_only_the_last_registration() -> VortexResult<()> {
+        let session = session();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let file = session
+            .open_options()
+            .open_read(CountingRead {
+                bytes: write(&session).await?,
+                reads: Arc::clone(&reads),
+            })
+            .await?;
+        reads.store(0, Ordering::Relaxed);
+        let service = file.scan_io().ok_or_else(|| vortex_err!("missing file IO"))?;
+        let spec = file.footer().segment_map()[0];
+        let request = |intent, id| IoRequest {
+            intent,
+            request: IoRequestId(id),
+            target: IoTarget::Range {
+                offset: spec.offset,
+                len: spec.length as usize,
+                alignment: spec.alignment,
+            },
+        };
+        let announced = service.session();
+        let fetched = service.session();
+        announced.submit(IoOwnerId(0), vec![request(IoIntent::Announce, 0)])?;
+        fetched.submit(IoOwnerId(1), vec![request(IoIntent::Fetch, 1)])?;
+        announced.clear();
+        poll_fn(|cx| fetched.poll_completion(cx)).await?.result?;
+        assert_eq!(reads.load(Ordering::Relaxed), 1);
+
+        let later = service.session();
+        later.submit(IoOwnerId(2), vec![request(IoIntent::Fetch, 2)])?;
+        poll_fn(|cx| later.poll_completion(cx)).await?.result?;
+        assert_eq!(reads.load(Ordering::Relaxed), 1);
+        fetched.clear();
+        later.clear();
+
+        let fresh = service.session();
+        fresh.submit(IoOwnerId(3), vec![request(IoIntent::Fetch, 3)])?;
+        poll_fn(|cx| fresh.poll_completion(cx)).await?.result?;
+        assert_eq!(reads.load(Ordering::Relaxed), 2);
+        Ok(())
     }
 
     /// A scan's splits keep the file's read driver running after the file and its reader are

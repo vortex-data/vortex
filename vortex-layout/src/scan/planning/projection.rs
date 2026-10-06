@@ -8,7 +8,11 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
+use vortex_io::request::IoIntent;
+use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_scan::planning::morsel::Morsel;
@@ -18,12 +22,13 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
 
-use crate::plan::exec::ExecGraph;
 use crate::plan::exec::Piece;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::SelectedRows;
 use crate::scan::planning::graph::GraphStep;
 use crate::scan::planning::graph::ProtocolGraph;
+use crate::scan::planning::graph::ScanGraph;
+use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::splits::projection_splits;
 
 /// Turns a filter split's selected rows into the morsels that project them.
@@ -31,8 +36,14 @@ use crate::scan::v2::splits::projection_splits;
 /// The rows are cut into projection splits where the projection's chunks start, and each split
 /// with a selected row becomes one [`ProjectionMorsel`], so a morsel reads at most one chunk of
 /// every column. The planner finishes once it has handed out every morsel.
+///
+/// Before the first morsel, the planner prefetches every segment the projection reads over the
+/// selected rows, so the reads of all its morsels start together. Nothing asks for projection
+/// segments earlier: rows the filter drops are never read for the projection.
 pub struct ProjectionPlanner {
     plans: ScanPlans,
+    /// The filter split's selected rows, until the first compute cuts them.
+    selected: Option<SelectedRows>,
     /// The projection splits not yet handed out, last first.
     pending: Vec<SelectedRows>,
 }
@@ -40,10 +51,44 @@ pub struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub fn new(plans: ScanPlans, selected: SelectedRows) -> Self {
+        Self {
+            plans,
+            selected: Some(selected),
+            pending: Vec::new(),
+        }
+    }
+
+    /// Prefetches the nonempty projection chunks, which are already cut for execution.
+    fn prefetch(&self) -> VortexResult<IoBatch> {
+        let mut ids = Vec::new();
+        for selected in &self.pending {
+            plan_segments(&self.plans.projection, selected.scope.rows.clone(), &mut ids)?;
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter()
+            .enumerate()
+            .map(|(index, id)| {
+                let location = self
+                    .plans
+                    .locations
+                    .get(*id as usize)
+                    .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
+                Ok(IoRequest {
+                    intent: IoIntent::Prefetch,
+                    request: IoRequestId(u32::try_from(index)?),
+                    target: location.target(),
+                })
+            })
+            .collect()
+    }
+
+    /// The projection splits of `selected` that have a selected row, last first.
+    fn cut(&self, selected: SelectedRows) -> Vec<SelectedRows> {
         let SelectedRows { scope, mask } = selected;
         let start = scope.rows.start;
         let index = |row: u64| usize::try_from(row - start).vortex_expect("split row fits usize");
-        let mut pending = projection_splits(&plans.projection_starts, scope.rows.clone())
+        let mut splits = projection_splits(&self.plans.projection_starts, scope.rows.clone())
             .into_iter()
             .filter_map(|rows| {
                 let mask = mask.slice(index(rows.start)..index(rows.end));
@@ -56,8 +101,8 @@ impl ProjectionPlanner {
                 })
             })
             .collect::<Vec<_>>();
-        pending.reverse();
-        Self { plans, pending }
+        splits.reverse();
+        splits
     }
 }
 
@@ -67,7 +112,7 @@ impl IoConsumer for ProjectionPlanner {
 
 impl Planner for ProjectionPlanner {
     fn state(&self) -> State {
-        if self.pending.is_empty() {
+        if self.selected.is_none() && self.pending.is_empty() {
             State::Done
         } else {
             State::NeedsCompute
@@ -75,6 +120,17 @@ impl Planner for ProjectionPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        if let Some(selected) = self.selected.take() {
+            self.pending = self.cut(selected);
+            // No projection split has a selected row.
+            if self.pending.is_empty() {
+                return Ok(PlannerOutput::Done);
+            }
+            let prefetch = self.prefetch()?;
+            if !prefetch.is_empty() {
+                return Ok(PlannerOutput::NeedsIO(prefetch));
+            }
+        }
         let Some(selected) = self.pending.pop() else {
             vortex_bail!("ProjectionPlanner: compute called after Done");
         };
@@ -150,7 +206,7 @@ impl Morsel for ProjectionMorsel {
             vortex_bail!("ProjectionMorsel: compute called after Done");
         }
         let Some(graph) = self.graph.as_mut() else {
-            let graph = ExecGraph::try_new(
+            let graph = ScanGraph::try_new(
                 self.plans.session.clone(),
                 &self.plans.projection,
                 self.selected.scope.rows.clone(),
@@ -176,5 +232,83 @@ impl Morsel for ProjectionMorsel {
                 MorselOutput::Continue
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
+    use vortex_buffer::Alignment;
+    use vortex_mask::Mask;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+    use crate::plan::ConcatPlan;
+    use crate::plan::FilterPlan;
+    use crate::plan::SegmentScanPlan;
+    use crate::plan::exec::DecodeCache;
+    use crate::scan::planning::SegmentLocation;
+    use crate::segments::SegmentId;
+    use crate::test::new_session;
+
+    #[test]
+    fn prefetch_skips_empty_chunks_without_enumerating_row_runs() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+        let chunks = (0..3)
+            .map(|segment| {
+                FilterPlan::new(
+                    SegmentScanPlan::new(
+                        dtype.clone(),
+                        1000,
+                        SegmentId::from(segment),
+                        ReadContext::new([]),
+                        None,
+                    )
+                    .into_plan(),
+                )
+                .into_plan()
+            })
+            .collect();
+        let locations: Arc<[_]> = (0..3)
+            .map(|offset| SegmentLocation {
+                offset,
+                length: 1,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        // More than 64 runs used to fall back to prefetching the entire bounding range,
+        // including the empty middle chunk, after enumerating every run.
+        let mask = Mask::from_iter(
+            (0..3000).map(|row| row % 2 == 0 && !(1000..2000).contains(&row)),
+        );
+        let mut planner = ProjectionPlanner::new(
+            ScanPlans {
+                session: new_session(),
+                locations: Arc::clone(&locations),
+                projection: ConcatPlan::try_new(dtype, chunks)?.into_plan(),
+                projection_starts: Arc::from([0, 1000, 2000]),
+                row_offset: 0,
+                decoded: DecodeCache::default(),
+            },
+            SelectedRows {
+                scope: WorkScope {
+                    file_ordinal: 0,
+                    rows: 0..3000,
+                },
+                mask: mask.clone(),
+            },
+        );
+        let PlannerOutput::NeedsIO(requests) = planner.compute()? else {
+            vortex_bail!("expected projection prefetch");
+        };
+        let targets: Vec<_> = requests.iter().map(|request| request.target).collect();
+        assert_eq!(targets, vec![locations[0].target(), locations[2].target()]);
+        let Mask::Values(values) = mask else {
+            vortex_bail!("expected a partial mask");
+        };
+        assert!(values.cached_slices().is_none());
+        Ok(())
     }
 }

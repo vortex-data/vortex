@@ -28,9 +28,7 @@ use vortex_io::request::IoSource;
 use vortex_io::request::ReadAtIoSource;
 use vortex_scan::planning::driver::Batch;
 use vortex_scan::planning::driver::Driver;
-use vortex_scan::planning::next::PendingPlanner;
 use vortex_scan::planning::next::next_fn;
-use vortex_scan::planning::next::pending;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
@@ -180,9 +178,9 @@ fn known_and_unknown_size_read_only_the_footer(
     Ok(())
 }
 
-/// A root that hands out several pending files, one per compute, then finishes.
+/// A root that hands out several files, one per compute, then finishes.
 struct Fanout {
-    files: Vec<Box<dyn PendingPlanner>>,
+    files: Vec<Box<dyn Planner>>,
     ordinal: u64,
 }
 
@@ -211,7 +209,7 @@ impl Planner for Fanout {
 }
 
 /// Two files planned concurrently over one IO source, both with an unknown size.
-fn two_files_root(buffer: &ByteBuffer) -> Box<dyn PendingPlanner> {
+fn two_files_root(buffer: &ByteBuffer) -> Box<dyn Planner> {
     let plan = || {
         plan_file(
             FileSource {
@@ -225,7 +223,7 @@ fn two_files_root(buffer: &ByteBuffer) -> Box<dyn PendingPlanner> {
         )
     };
     let files = vec![plan(), plan()];
-    pending(move || Ok(Box::new(Fanout { files, ordinal: 0 }) as Box<dyn Planner>))
+    Box::new(Fanout { files, ordinal: 0 })
 }
 
 fn expect_two_files(batches: Vec<Batch>) -> VortexResult<()> {

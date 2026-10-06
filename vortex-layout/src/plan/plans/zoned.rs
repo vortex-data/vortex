@@ -11,6 +11,7 @@ use vortex_array::EmptyMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::stats::Stat;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -36,6 +37,8 @@ use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
 use crate::plan::exec::ZonePruneNode;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 const DATA: usize = 0;
 const ZONES: usize = 1;
@@ -131,6 +134,8 @@ pub struct ZonedData {
     zone_len: u64,
     /// The aggregate functions whose results the zone table stores, in field order.
     aggregate_fns: Arc<[AggregateFnRef]>,
+    // Legacy fields have stat names and separate truncation flags, rather than aggregate names.
+    legacy_stats: Option<Arc<[Stat]>>,
     pruning: Option<ZonedPruningState>,
 }
 
@@ -146,12 +151,17 @@ pub struct Zoned;
 pub type ZonedPlan = Plan<Zoned>;
 
 impl ZonedPlan {
+    pub(crate) fn legacy_stats(&self) -> Option<&Arc<[Stat]>> {
+        self.data().legacy_stats.as_ref()
+    }
+
     pub(crate) fn from_children(
         dtype: DType,
         row_count: u64,
         children: PlanChildren,
         zone_len: u64,
         aggregate_fns: Arc<[AggregateFnRef]>,
+        legacy_stats: Option<Arc<[Stat]>>,
     ) -> Self {
         PlanParts {
             vtable: Zoned,
@@ -161,6 +171,7 @@ impl ZonedPlan {
             data: ZonedData {
                 zone_len,
                 aggregate_fns,
+                legacy_stats,
                 pruning: None,
             },
         }
@@ -183,6 +194,7 @@ impl ZonedPlan {
             vec![data, zones].into(),
             zone_len,
             aggregate_fns,
+            None,
         )
     }
 
@@ -331,6 +343,15 @@ impl PlanVTable for Zoned {
             vortex_bail!("Zoned plan has no data child");
         };
         data.exec(rows, mask, ctx)
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::zoned(plan, rows, mask, cx)
     }
 }
 

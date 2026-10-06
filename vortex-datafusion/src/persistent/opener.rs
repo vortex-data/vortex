@@ -63,6 +63,7 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::diagnostics::benchmark_segment_cache;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
 
@@ -198,6 +199,11 @@ impl FileOpener for VortexOpener {
                 .with_metrics_registry(Arc::clone(&metrics_registry))
                 .with_labels(labels);
 
+            let benchmark_cache = benchmark_segment_cache(&reader, &file)?;
+            if let Some(cache) = &benchmark_cache {
+                open_opts = open_opts.with_segment_cache(Arc::clone(&cache.segments));
+            }
+
             let cached_footer = file_metadata_cache
                 .as_ref()
                 .and_then(|cache| cache.get(file.path()))
@@ -219,6 +225,10 @@ impl FileOpener for VortexOpener {
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+            if let Some(cache) = benchmark_cache {
+                cache.preload(&vxf).await?;
+            }
 
             // On a miss, cache the parsed footer so other partitions and later executions
             // skip the footer fetch and parse. `infer_schema`/`infer_stats` also populate

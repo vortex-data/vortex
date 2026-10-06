@@ -18,26 +18,26 @@ use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::scan_builder;
+use crate::scan::v2::ScanBuilder;
 use crate::scan::v2::ScanFile;
-use crate::scan::v2::prepare;
 
 /// Returns a stream that prepares the scan over `file` on first poll and spawns its split tasks.
 ///
-/// The replacement for [`ScanBuilder::into_stream`].
+/// The replacement for the default
+/// [`ScanBuilder::into_stream`](scan_builder::ScanBuilder::into_stream). Equivalent to copying
+/// `builder` into a [`ScanBuilder`] and streaming that.
 pub fn into_stream<A: 'static + Send>(
-    builder: ScanBuilder<A>,
+    builder: scan_builder::ScanBuilder<A>,
     file: ScanFile,
 ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-    Ok(LazyScanStream {
-        state: State::Builder(Some(Box::new((builder, file)))),
-    })
+    ScanBuilder::from_default(builder, file).into_stream()
 }
 
 type Tasks<A> = Vec<BoxFuture<'static, VortexResult<Vec<A>>>>;
 
 enum State<A: 'static + Send> {
-    Builder(Option<Box<(ScanBuilder<A>, ScanFile)>>),
+    Builder(Option<Box<ScanBuilder<A>>>),
     Preparing {
         ordered: bool,
         concurrency: usize,
@@ -48,8 +48,17 @@ enum State<A: 'static + Send> {
     Error(Option<VortexError>),
 }
 
-struct LazyScanStream<A: 'static + Send> {
+/// Prepares a scan on first poll, then spawns its split tasks and yields their batches.
+pub(super) struct LazyScanStream<A: 'static + Send> {
     state: State<A>,
+}
+
+impl<A: 'static + Send> LazyScanStream<A> {
+    pub(super) fn new(builder: ScanBuilder<A>) -> Self {
+        Self {
+            state: State::Builder(Some(Box::new(builder))),
+        }
+    }
 }
 
 impl<A: 'static + Send> Unpin for LazyScanStream<A> {}
@@ -61,13 +70,14 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
         loop {
             match &mut self.state {
                 State::Builder(builder) => {
-                    let (builder, file) = *builder.take().vortex_expect("polled after completion");
+                    let builder = builder.take().vortex_expect("polled after completion");
                     let ordered = builder.ordered();
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency() * num_workers;
                     let handle = builder.session().handle();
-                    let task = handle.spawn_cpu(move || {
-                        prepare(builder, file).and_then(|s| s.execute_batches(None))
+                    let prepared = handle.spawn_cpu(move || builder.prepare());
+                    let task = handle.spawn(async move {
+                        prepared.await?.execute_batches_pruned(None).await
                     });
                     self.state = State::Preparing {
                         ordered,

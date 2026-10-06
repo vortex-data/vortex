@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
@@ -9,6 +8,13 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::fill_null::FillNull;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -18,7 +24,6 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scan::planning::next::Next;
 use vortex_scan::planning::planner::Planner;
@@ -27,13 +32,15 @@ use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
 
 use crate::plan::PlanRef;
-use crate::plan::exec::ExecGraph;
+use crate::plan::Take;
 use crate::plan::exec::Piece;
 use crate::scan::filter::FilterExpr;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::graph::GraphStep;
 use crate::scan::planning::graph::ProtocolGraph;
+use crate::scan::planning::graph::ScanGraph;
 use crate::scan::v2::prefetch::plan_segments;
+use crate::scan::v2::prefetch::selected_ranges;
 
 /// Which rows a [`FilterPlanner`] keeps.
 #[derive(Clone, Copy)]
@@ -62,6 +69,12 @@ pub struct SelectedRows {
 pub struct FilterPlans {
     plans: Arc<[PlanRef]>,
     order: Option<Arc<FilterExpr>>,
+    /// Whether the predicate can safely evaluate rows outside the selection.
+    infallible: Arc<[bool]>,
+    /// Predicates mapped through dictionary codes are cheaper before filtering those codes.
+    dictionary: Arc<[bool]>,
+    /// Numeric disjunctions avoid filtering compressed data separately for each comparison.
+    numeric_disjunction: Arc<[bool]>,
 }
 
 impl FilterPlans {
@@ -70,17 +83,36 @@ impl FilterPlans {
         Self {
             plans: Arc::from([plan]),
             order: None,
+            infallible: Arc::from([false]),
+            dictionary: Arc::from([false]),
+            numeric_disjunction: Arc::from([false]),
         }
     }
 
     /// One plan per conjunct of `filter`, in the order of [`FilterExpr::conjuncts`], evaluated in
     /// the order `filter` prefers.
-    pub(crate) fn conjuncts(filter: Arc<FilterExpr>, plans: Vec<PlanRef>) -> Self {
+    pub(crate) fn conjuncts(filter: Arc<FilterExpr>, plans: Vec<PlanRef>) -> VortexResult<Self> {
         debug_assert_eq!(filter.conjuncts().len(), plans.len());
-        Self {
+        let infallible = filter.conjuncts().iter().map(is_infallible).collect();
+        let numeric_disjunction = filter
+            .conjuncts()
+            .iter()
+            .map(|expression| {
+                matches!(expression.as_opt::<Binary>(), Some(Operator::Or))
+                    && is_numeric_predicate(expression)
+            })
+            .collect();
+        let dictionary = plans
+            .iter()
+            .map(has_dictionary_predicate)
+            .collect::<VortexResult<_>>()?;
+        Ok(Self {
+            infallible,
+            dictionary,
+            numeric_disjunction,
             plans: plans.into(),
             order: Some(filter),
-        }
+        })
     }
 
     /// Every plan, for callers that walk them all.
@@ -106,12 +138,50 @@ impl FilterPlans {
     }
 }
 
+fn has_dictionary_predicate(plan: &PlanRef) -> VortexResult<bool> {
+    if plan.is::<Take>() && plan.dtype().is_boolean() {
+        return Ok(true);
+    }
+    for child in plan.children().iter() {
+        if has_dictionary_predicate(&child?)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn is_infallible(expression: &BoundExpression) -> bool {
+    expression
+        .as_scalar()
+        .is_none_or(|scalar| scalar.signature().is_infallible())
+        && expression.children().iter().all(is_infallible)
+}
+
+fn is_numeric_predicate(expression: &BoundExpression) -> bool {
+    if expression.is_root() || expression.as_opt::<GetItem>().is_some() {
+        return expression.dtype().is_primitive() || expression.dtype().is_decimal();
+    }
+    if expression.as_opt::<Literal>().is_some() {
+        return true;
+    }
+    let simple = expression.as_opt::<Binary>().is_some_and(|operator| {
+        operator.is_comparison() || matches!(operator, Operator::And | Operator::Or)
+    }) || expression.as_opt::<Between>().is_some()
+        || expression.as_opt::<FillNull>().is_some();
+    simple && expression.children().iter().all(is_numeric_predicate)
+}
+
 /// Evaluates a split's filter to a selection, then hands the selection to `next`.
 ///
 /// The filter is split into conjuncts, and each runs as its own plan over the rows the previous
-/// ones kept, most selective first as measured so far. Each conjunct only reads and evaluates the
-/// rows still selected, and the planner stops as soon as none are. A split where no row survives
-/// finishes without a child.
+/// ones kept, most selective first as measured so far. Infallible predicates over dense selections
+/// or dictionary codes run before applying the selection; other predicates run only over selected
+/// rows. The planner stops as soon as none remain, without creating a child.
+///
+/// The first conjunct fetches its segments, and with that request the planner prefetches the
+/// segments of every other conjunct over the same rows, so they arrive while the first is being
+/// evaluated. A fetch is served ahead of a prefetch. The projection's segments are not asked for
+/// here: the projection planner does that once the filter has kept rows.
 ///
 /// The same stage prunes: built with [`FilterPlanner::pruning`], it runs a pruning plan whose
 /// value is true where zone statistics prove the filter false, and keeps the other rows.
@@ -129,14 +199,12 @@ pub struct FilterPlanner {
     pieces: Vec<Piece>,
     /// The protocol id the next plan's first request gets; ids never repeat within the planner.
     next_io_id: u32,
-    /// Whether the planner has asked for its reads ahead of evaluating the plans.
+    /// Whether the conjuncts after the first have been prefetched.
     prefetched: bool,
     done: bool,
+    /// The current predicate returns every row, to be intersected with the input mask.
+    evaluate_all: bool,
 }
-
-/// The most row ranges a split's reads are prefetched for one by one; a more scattered selection
-/// prefetches the range spanning it.
-const MAX_PREFETCH_RANGES: usize = 64;
 
 impl FilterPlanner {
     /// Creates a planner that filters the rows of `scope` selected by `mask`.
@@ -189,54 +257,37 @@ impl FilterPlanner {
             running: None,
             pieces: Vec::new(),
             next_io_id: 0,
-            // Pruning runs before any reads are known to be needed, so it prefetches nothing.
-            prefetched: matches!(keep, Keep::False),
+            prefetched: false,
             done: false,
+            evaluate_all: false,
         }
     }
 
-    /// Prefetches every segment the plans and the projection read over the selected rows, so the
-    /// reads of later plans and of the projection overlap the evaluation of earlier ones, as the
-    /// default scan's split futures do by polling every read up front.
-    fn prefetch(&mut self) -> VortexResult<IoBatch> {
-        let start = self.scope.rows.start;
-        let ranges: Vec<Range<u64>> = match self.mask.slices() {
-            AllOr::All => vec![self.scope.rows.clone()],
-            AllOr::None => Vec::new(),
-            AllOr::Some(slices) if slices.len() <= MAX_PREFETCH_RANGES => slices
-                .iter()
-                .map(|&(begin, end)| start + begin as u64..start + end as u64)
-                .collect(),
-            AllOr::Some(slices) => {
-                let first = slices.first().map_or(0, |slice| slice.0);
-                let last = slices.last().map_or(0, |slice| slice.1);
-                let spanning = start + first as u64..start + last as u64;
-                vec![spanning]
-            }
-        };
+    /// Prefetches of every segment the plans not yet evaluated, other than `running`, read over
+    /// the rows selected now. Their ids count down from the top, clear of the ids the plans'
+    /// graphs count up from.
+    fn prefetch_others(&self, running: usize) -> VortexResult<IoBatch> {
         let mut ids = Vec::new();
-        for range in ranges {
-            for plan in self.filters.plans.iter().chain([&self.plans.projection]) {
-                plan_segments(plan, range.clone(), &mut ids)?;
+        for range in selected_ranges(&self.scope.rows, &self.mask) {
+            for (index, plan) in self.filters.plans.iter().enumerate() {
+                if index != running && self.remaining[index] {
+                    plan_segments(plan, range.clone(), &mut ids)?;
+                }
             }
         }
         ids.sort_unstable();
         ids.dedup();
         ids.into_iter()
-            .map(|id| {
+            .enumerate()
+            .map(|(index, id)| {
                 let location = self
                     .plans
                     .locations
                     .get(*id as usize)
                     .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
-                let request = IoRequestId(self.next_io_id);
-                self.next_io_id = self
-                    .next_io_id
-                    .checked_add(1)
-                    .ok_or_else(|| vortex_err!("FilterPlanner ran out of request ids"))?;
                 Ok(IoRequest {
                     intent: IoIntent::Prefetch,
-                    request,
+                    request: IoRequestId(u32::MAX - u32::try_from(index)?),
                     target: location.target(),
                 })
             })
@@ -263,11 +314,23 @@ impl FilterPlanner {
             })?;
             return Ok(PlannerOutput::Planner(scope, child));
         };
-        let graph = ExecGraph::try_new(
+        // Filtering compressed dictionary codes rebuilds their encoding before a cheap boolean
+        // lookup. Evaluate that lookup first, as V1 does. Dense masks likewise cost less to AND
+        // with a full predicate result than to compact and then scatter back by rank.
+        self.evaluate_all = self.filters.infallible[index]
+            && (self.mask.density() >= 0.2
+                || self.filters.dictionary[index]
+                || self.filters.numeric_disjunction[index]);
+        let evaluation_mask = if self.evaluate_all {
+            Mask::new_true(self.mask.len())
+        } else {
+            self.mask.clone()
+        };
+        let graph = ScanGraph::try_new(
             self.plans.session.clone(),
             &self.filters.plans[index],
             self.scope.rows.clone(),
-            self.mask.clone(),
+            evaluation_mask,
             self.plans.row_offset,
             self.plans.decoded.clone(),
         )?;
@@ -300,7 +363,11 @@ impl FilterPlanner {
             Keep::True => values,
             Keep::False => !values,
         };
-        self.mask = self.mask.intersect_by_rank(&keep);
+        self.mask = if self.evaluate_all {
+            &self.mask & &keep
+        } else {
+            self.mask.intersect_by_rank(&keep)
+        };
         Ok(())
     }
 }
@@ -329,13 +396,6 @@ impl Planner for FilterPlanner {
         if self.done {
             vortex_bail!("FilterPlanner: compute called after Done");
         }
-        if !self.prefetched {
-            self.prefetched = true;
-            let batch = self.prefetch()?;
-            if !batch.is_empty() {
-                return Ok(PlannerOutput::NeedsIO(batch));
-            }
-        }
         let Some((index, input, graph)) = self.running.as_mut() else {
             return self.start_next();
         };
@@ -348,9 +408,17 @@ impl Planner for FilterPlanner {
             self.filters.report(index, input, self.mask.true_count());
             return Ok(PlannerOutput::Continue);
         }
+        let running = *index;
         Ok(match graph.compute()? {
             GraphStep::Yield => PlannerOutput::Continue,
-            GraphStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
+            GraphStep::NeedsIO(mut batch) => {
+                // The running conjunct's fetches come first, then the other conjuncts' prefetches.
+                if !self.prefetched {
+                    self.prefetched = true;
+                    batch.extend(self.prefetch_others(running)?);
+                }
+                PlannerOutput::NeedsIO(batch)
+            }
             GraphStep::Piece(piece) => {
                 self.pieces.push(piece);
                 PlannerOutput::Continue
@@ -358,3 +426,6 @@ impl Planner for FilterPlanner {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

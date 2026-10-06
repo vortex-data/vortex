@@ -26,6 +26,7 @@ use crate::plan::PlanVTable;
 use crate::plan::display::PlanTreeDisplay;
 use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
+use crate::plan::pipeline::GraphBuilder;
 
 /// The combined allocation behind [`PlanRef`].
 ///
@@ -155,6 +156,27 @@ impl PlanRef {
             mask.len()
         );
         self.dyn_plan().dyn_exec(self, rows, mask, ctx)
+    }
+
+    /// Compiles this plan over `rows` of its row domain, restricted to `mask`, into the pipeline
+    /// graph `cx` builds.
+    pub fn compile(
+        &self,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            rows.start <= rows.end && rows.end <= self.row_count(),
+            "Pipeline rows {rows:?} exceed plan row count {}",
+            self.row_count()
+        );
+        vortex_ensure!(
+            mask.len() as u64 == rows.end - rows.start,
+            "Pipeline mask length {} does not match rows {rows:?}",
+            mask.len()
+        );
+        self.dyn_plan().dyn_compile(self, rows, mask, cx)
     }
 
     /// Displays this plan and its descendants with the default plan extractors.
@@ -377,6 +399,15 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
         mask: Mask,
         ctx: &ExecContext,
     ) -> VortexResult<Box<dyn ExecNode>>;
+
+    /// Compiles this operator into a pipeline graph.
+    fn dyn_compile(
+        &self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()>;
 }
 
 impl<V: PlanVTable> DynPlan for PlanData<V> {
@@ -417,5 +448,15 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
         ctx: &ExecContext,
     ) -> VortexResult<Box<dyn ExecNode>> {
         V::exec(plan.as_::<V>(), rows, mask, ctx)
+    }
+
+    fn dyn_compile(
+        &self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        V::compile(plan.as_::<V>(), rows, mask, cx)
     }
 }

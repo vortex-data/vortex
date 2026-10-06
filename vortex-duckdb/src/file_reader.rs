@@ -185,8 +185,10 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
     let mut splits = if scan::v2::enabled() {
-        scan::v2::prepare(builder, planning::scan_file(&file.file))?
-            .execute(filter.row_range.clone())?
+        RUNTIME.block_on(
+            scan::v2::prepare(builder, planning::scan_file(&file.file))?
+                .execute_pruned(filter.row_range.clone()),
+        )?
     } else {
         builder.prepare()?.execute(filter.row_range.clone())?
     };

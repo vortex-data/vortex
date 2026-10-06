@@ -6,14 +6,19 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Weak;
 
+use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
+use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::LayoutReader;
 use crate::plan::PlanRef;
 use crate::scan::v2::ScanFile;
 use crate::scan::v2::lower::lower;
 use crate::scan::v2::lower::lower_with_zones;
+use crate::scan::v2::repeated_scan::PreparedPlans;
 
 /// A file's lowered plans, shared by every scan over the same layout reader.
 ///
@@ -27,6 +32,29 @@ pub(super) struct SharedFile {
     pub(super) root: PlanRef,
     /// The file's layout lowered with its zone statistics, for pruning.
     pub(super) zones: PlanRef,
+    plans: Mutex<HashMap<ScanExpressions, Arc<OnceCell<Arc<PreparedPlans>>>>>,
+}
+
+type ScanExpressions = (BoundExpression, Option<BoundExpression>);
+
+impl SharedFile {
+    /// Partitions of one reader use the same expression plans and full-file chunk boundaries.
+    /// Row ranges, masks, decoding, and output mapping remain local to each scan.
+    pub(super) fn prepare_plans(
+        &self,
+        projection: &BoundExpression,
+        filter: &Option<BoundExpression>,
+        session: &VortexSession,
+    ) -> VortexResult<Arc<PreparedPlans>> {
+        let cell = Arc::clone(
+            self.plans
+                .lock()
+                .entry((projection.clone(), filter.clone()))
+                .or_default(),
+        );
+        cell.get_or_try_init(|| PreparedPlans::new(self, projection, filter, session).map(Arc::new))
+            .cloned()
+    }
 }
 
 /// A reader and the shared file of its scans.
@@ -51,6 +79,7 @@ pub(super) fn shared_file(
     let shared = Arc::new(SharedFile {
         root: lower(&file.layout)?,
         zones: lower_with_zones(&file.layout)?,
+        plans: Mutex::default(),
         file,
     });
     files.push((Arc::downgrade(reader), Arc::clone(&shared)));

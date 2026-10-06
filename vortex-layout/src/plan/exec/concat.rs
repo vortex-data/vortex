@@ -47,7 +47,13 @@ impl ConcatNode {
     /// overlapping chunk with nothing selected.
     fn start(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
         let rows = self.selection.rows().clone();
-        for index in 0..self.plan.row_offsets().len() {
+        let offsets = self.plan.row_offsets();
+        // Every split visits a small part of a file; skip the chunks before and after it.
+        let first = offsets
+            .partition_point(|&offset| offset <= rows.start)
+            .saturating_sub(1);
+        let end = offsets.partition_point(|&offset| offset < rows.end);
+        for index in first..end {
             let chunk = self.chunk_rows(index);
             let local = rows.start.max(chunk.start)..rows.end.min(chunk.end);
             if local.start >= local.end {

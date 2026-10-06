@@ -20,6 +20,13 @@ pub struct InitialReadSegmentCache {
 
 #[async_trait]
 impl SegmentCache for InitialReadSegmentCache {
+    fn get_if_ready(&self, id: SegmentId) -> Option<ByteBuffer> {
+        self.initial
+            .get(&id)
+            .cloned()
+            .or_else(|| self.fallback.get_if_ready(id))
+    }
+
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
         if let Some(buffer) = self.initial.get(&id) {
             return Ok(Some(buffer.clone()));

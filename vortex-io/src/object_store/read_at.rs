@@ -3,6 +3,8 @@
 
 use std::io;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use futures::FutureExt;
 use futures::SinkExt;
@@ -96,6 +98,9 @@ async fn read_object_store_range(
     allocator: BufferAllocatorRef,
     request: ReadAtRequest,
 ) -> VortexResult<BufferHandle> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let timing = tracing::enabled!(target: "vortex_io::read_timing", tracing::Level::DEBUG)
+        .then(Instant::now);
     let ReadAtRequest {
         offset,
         length,
@@ -105,6 +110,8 @@ async fn read_object_store_range(
     let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
+    #[cfg(not(target_arch = "wasm32"))]
+    let allocated = timing.map(|_| Instant::now());
 
     let response = store
         .get_opts(
@@ -118,13 +125,37 @@ async fn read_object_store_range(
 
     let buffer = match response.payload {
         #[cfg(not(target_arch = "wasm32"))]
-        GetResultPayload::File(file, _) => io_handle
-            .spawn_blocking(move || {
-                read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
-                Ok::<_, io::Error>(buffer)
-            })
-            .await
-            .map_err(io::Error::other)?,
+        GetResultPayload::File(file, _) => {
+            let submitted = timing.map(|_| Instant::now());
+            let (buffer, phases) = io_handle
+                .spawn_blocking(move || {
+                    let started = submitted.map(|_| Instant::now());
+                    read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
+                    let finished = started.map(|_| Instant::now());
+                    Ok::<_, io::Error>((buffer, submitted.zip(started).zip(finished)))
+                })
+                .await
+                .map_err(io::Error::other)?;
+            if let Some(((start, allocated), ((submitted, started), finished))) =
+                timing.zip(allocated).zip(phases)
+            {
+                let resumed = Instant::now();
+                tracing::debug!(
+                    target: "vortex_io::read_timing",
+                    path = %path,
+                    offset,
+                    length,
+                    prepare_ns = submitted.duration_since(start).as_nanos() as u64,
+                    allocation_ns = allocated.duration_since(start).as_nanos() as u64,
+                    get_ns = submitted.duration_since(allocated).as_nanos() as u64,
+                    queue_ns = started.duration_since(submitted).as_nanos() as u64,
+                    read_ns = finished.duration_since(started).as_nanos() as u64,
+                    resume_ns = resumed.duration_since(finished).as_nanos() as u64,
+                    "local object-store read"
+                );
+            }
+            buffer
+        }
         #[cfg(target_arch = "wasm32")]
         GetResultPayload::File(..) => {
             unreachable!("File payload not supported on wasm32")
