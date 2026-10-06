@@ -7,6 +7,8 @@ use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use vortex_buffer::ByteBuffer;
@@ -16,6 +18,8 @@ use vortex_layout::segments::SegmentId;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
+use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 use crate::footer::Footer;
 
@@ -39,7 +43,60 @@ pub struct MultiFileSession {
     segment_cache: Option<SharedSegmentCache>,
 }
 
-type SharedSegmentCache = moka::sync::Cache<(Arc<str>, SegmentId), ByteBuffer>;
+/// Segment buffers shared by every file opened through a session, keyed by file path.
+///
+/// This is a plain concurrent map rather than an evicting cache: lookups sit on the scan's hot
+/// path, so they must stay cheap. Once the byte budget is spent, further segments are not cached.
+/// The budget counts segment bytes, while a cached segment may keep a larger coalesced read alive.
+#[derive(Clone)]
+struct SharedSegmentCache(Arc<SharedSegmentCacheInner>);
+
+struct SharedSegmentCacheInner {
+    entries: DashMap<(Arc<str>, SegmentId), ByteBuffer>,
+    used_bytes: AtomicU64,
+    max_bytes: u64,
+}
+
+impl SharedSegmentCache {
+    fn new(max_bytes: u64) -> Self {
+        Self(Arc::new(SharedSegmentCacheInner {
+            entries: DashMap::default(),
+            used_bytes: AtomicU64::new(0),
+            max_bytes,
+        }))
+    }
+
+    fn get(&self, key: &(Arc<str>, SegmentId)) -> Option<ByteBuffer> {
+        self.0.entries.get(key).map(|buffer| buffer.clone())
+    }
+
+    fn insert(&self, key: (Arc<str>, SegmentId), buffer: ByteBuffer) {
+        let inner = &self.0;
+        let len = buffer.len() as u64;
+        if inner.used_bytes.fetch_add(len, Ordering::Relaxed) + len > inner.max_bytes {
+            inner.used_bytes.fetch_sub(len, Ordering::Relaxed);
+            return;
+        }
+        match inner.entries.entry(key) {
+            Entry::Occupied(_) => {
+                inner.used_bytes.fetch_sub(len, Ordering::Relaxed);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(buffer);
+            }
+        }
+    }
+
+    /// Remove every entry. Inserts racing with the clear may survive it.
+    fn clear(&self) {
+        self.0.entries.clear();
+        self.0.used_bytes.store(0, Ordering::Relaxed);
+    }
+
+    fn len(&self) -> usize {
+        self.0.entries.len()
+    }
+}
 
 impl Default for MultiFileSession {
     fn default() -> Self {
@@ -65,7 +122,7 @@ impl Debug for MultiFileSession {
             .field("footer_cache_entry_count", &self.footer_cache.entry_count())
             .field(
                 "segment_cache_entry_count",
-                &self.segment_cache.as_ref().map(|cache| cache.entry_count()),
+                &self.segment_cache.as_ref().map(SharedSegmentCache::len),
             )
             .finish()
     }
@@ -87,13 +144,7 @@ impl MultiFileSession {
     ///
     /// Replaces any previously enabled segment cache.
     pub fn enable_segment_cache(&mut self, max_capacity_bytes: u64) {
-        self.segment_cache = Some(
-            moka::sync::Cache::builder()
-                .name("vortex-multi-file-segment-cache")
-                .max_capacity(max_capacity_bytes)
-                .weigher(|_, buffer: &ByteBuffer| u32::try_from(buffer.len()).unwrap_or(u32::MAX))
-                .build(),
-        );
+        self.segment_cache = Some(SharedSegmentCache::new(max_capacity_bytes));
     }
 
     /// Returns a [`SegmentCache`] scoped to the file at `path`, if a segment cache is enabled.
@@ -109,7 +160,7 @@ impl MultiFileSession {
     /// Remove every entry from the segment cache, if one is enabled.
     pub fn clear_segment_cache(&self) {
         if let Some(cache) = &self.segment_cache {
-            cache.invalidate_all();
+            cache.clear();
         }
     }
 }
