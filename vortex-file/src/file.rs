@@ -14,10 +14,13 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
+use vortex_array::expr::stats::Stat;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::scan::FieldByteSizes;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
@@ -128,6 +131,32 @@ impl VortexFile {
         self.footer.statistics()
     }
 
+    /// Uncompressed bytes per row of each top-level field
+    pub fn field_byte_sizes(&self) -> Option<Arc<FieldByteSizes>> {
+        let statistics = self.footer.statistics()?;
+        let row_count = self.footer.row_count();
+        if row_count == 0 {
+            return None;
+        }
+        let DType::Struct(fields, _) = self.footer.dtype() else {
+            return None;
+        };
+
+        let sizes = fields
+            .names()
+            .iter()
+            .zip(statistics.stats_sets().iter())
+            .map(|(name, stats_set)| {
+                stats_set
+                    .get_as::<u64>(Stat::UncompressedSizeInBytes, &PType::U64.into())
+                    .as_exact()
+                    .map(|size| (name.clone(), size as f64 / row_count as f64))
+            })
+            .collect::<Option<FieldByteSizes>>()?;
+
+        Some(Arc::new(sizes))
+    }
+
     /// Returns the user-defined metadata segments loaded for this file.
     ///
     /// Metadata is only loaded when requested during open. Iteration order is unspecified.
@@ -215,10 +244,11 @@ impl VortexFile {
     /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and
     /// execution options.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(
-            self.session.clone(),
-            self.layout_reader()?,
-        ))
+        let mut builder = ScanBuilder::new(self.session.clone(), self.layout_reader()?);
+        if let Some(field_byte_sizes) = self.field_byte_sizes() {
+            builder = builder.with_field_byte_sizes(field_byte_sizes);
+        }
+        Ok(builder)
     }
 
     /// Returns `true` if file-level statistics prove the expression cannot

@@ -25,6 +25,7 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
+use vortex::layout::scan::FieldByteSizes;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
@@ -103,6 +104,7 @@ pub struct OpenFileReader {
     pub splits: Vec<Split>,
     pub cache: ConversionCache,
     total_splits: usize,
+    field_byte_sizes: Option<Arc<FieldByteSizes>>,
 }
 
 impl OpenFileReader {
@@ -115,6 +117,7 @@ impl OpenFileReader {
             cache: ConversionCache::default(),
             splits: vec![],
             total_splits: 0,
+            field_byte_sizes: file.field_byte_sizes(),
         })
     }
 
@@ -174,10 +177,13 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // lock and not in reader_try_initialize_scan under global lock.
     let reader = Arc::clone(&file.reader);
     let filter = &global.filter;
-    let builder = ScanBuilder::new(SESSION.clone(), reader)
+    let mut builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
+    if let Some(field_byte_sizes) = &file.field_byte_sizes {
+        builder = builder.with_field_byte_sizes(Arc::clone(field_byte_sizes));
+    }
     let scan = builder.prepare()?;
     let mut splits = scan.execute(filter.row_range.clone())?;
 

@@ -6,7 +6,6 @@
 use std::ops::BitAnd;
 use std::sync::Arc;
 
-use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
@@ -91,9 +90,7 @@ pub fn split_exec<A: 'static + Send>(
                 }
 
                 // Now we loop through the conjuncts in the preferred order and evaluate them.
-                let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
-                while let Some(idx) = filter.next_conjunct(&remaining) {
-                    remaining.set(idx, false);
+                for idx in filter.conjunct_order() {
                     if mask.all_false() {
                         return Ok(mask);
                     }
@@ -121,9 +118,10 @@ pub fn split_exec<A: 'static + Send>(
                     let conjunct_mask = reader
                         .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
                         .await?;
-                    filter.report_selectivity(
+                    filter.report_evaluation(
                         idx,
-                        conditional_selectivity(input_true_count, conjunct_mask.true_count()),
+                        input_true_count as u64,
+                        conjunct_mask.true_count() as u64,
                     );
 
                     // Filter evaluations return a mask already intersected with the input mask.
@@ -154,12 +152,6 @@ pub fn split_exec<A: 'static + Send>(
     Ok(array_fut.boxed())
 }
 
-fn conditional_selectivity(input_true_count: usize, output_true_count: usize) -> f64 {
-    debug_assert!(input_true_count > 0);
-    debug_assert!(output_true_count <= input_true_count);
-    output_true_count as f64 / input_true_count as f64
-}
-
 /// Information needed to execute a single split task.
 ///
 /// Row selection is evaluated before creating a split task so it's not included
@@ -172,14 +164,4 @@ pub struct TaskContext<A> {
     pub projection: BoundExpression,
     /// Function that maps into an A.
     pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::conditional_selectivity;
-
-    #[test]
-    fn selectivity_is_relative_to_the_input_mask() {
-        assert_eq!(conditional_selectivity(20, 5), 0.25);
-    }
 }

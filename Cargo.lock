@@ -12122,7 +12122,6 @@ dependencies = [
  "rand 0.10.3",
  "rstest",
  "rustc-hash",
- "sketches-ddsketch",
  "temp-env",
  "termtree",
  "tokio",

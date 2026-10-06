@@ -3,6 +3,7 @@
 
 pub mod arrow;
 mod filter;
+pub use filter::FieldByteSizes;
 pub mod layout;
 pub mod multi;
 pub mod repeated_scan;

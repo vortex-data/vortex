@@ -34,7 +34,6 @@ paste = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
-sketches-ddsketch = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }

@@ -106,7 +106,11 @@ impl VortexWriteOptions {
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
+            file_statistics: PRUNING_STATS
+                .iter()
+                .copied()
+                .chain([Stat::UncompressedSizeInBytes])
+                .collect(),
             max_variable_length_statistics_size: 64,
             metadata: HashMap::default(),
         }

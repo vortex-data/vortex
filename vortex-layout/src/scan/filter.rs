@@ -1,37 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
-use bit_vec::BitVec;
 use itertools::Itertools;
-use parking_lot::RwLock;
-use sketches_ddsketch::DDSketch;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldName;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_utils::aliases::hash_map::HashMap;
 
-/// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
-const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
+/// Uncompressed bytes per row of each top level field
+pub type FieldByteSizes = HashMap<FieldName, f64>;
+
+/// Cumulative row counts for a single conjunct.
+#[derive(Default)]
+#[repr(align(64))] // Concurrent updates shouldn't contend
+struct ConjunctCost {
+    rows_in: AtomicU64,
+    rows_out: AtomicU64,
+}
 
 /// A [`FilterExpr`] splits boolean expressions into individual conjunctions, tracks
-/// statistics about selectivity, and uses this information to reorder the evaluation of the
+/// per-conjunct selectivity, and uses this information to order the evaluation of the
 /// conjunctions in an attempt to minimize the work done.
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
     conjuncts: Vec<BoundExpression>,
-    /// A histogram for the selectivity of each conjunct.
-    conjunct_selectivity: Vec<RwLock<DDSketch>>,
+    /// Cumulative row counts for each conjunct
+    conjunct_costs: Box<[ConjunctCost]>,
+    /// Uncompressed bytes per row read by each conjunct
+    bytes_per_row: Option<Box<[f64]>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
     dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
-    /// The preferred ordering of conjuncts.
-    ordering: RwLock<Vec<usize>>,
-    /// The quantile to use from the selectivity histogram of each conjunct.
-    selectivity_quantile: f64,
 }
 
 fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
@@ -53,23 +60,38 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
     conjuncts
 }
 
+/// Uncompressed bytes per row read by conjunct
+fn conjunct_bytes_per_row(expr: &BoundExpression, sizes: &FieldByteSizes) -> Option<f64> {
+    referenced_field_paths(expr)
+        .ok()?
+        .iter()
+        .map(|path| match path.parts().first() {
+            Some(Field::Name(name)) => sizes.get(name).copied(),
+            _ => None,
+        })
+        .sum()
+}
+
 impl FilterExpr {
-    pub fn new(expr: BoundExpression) -> Self {
+    pub fn new(expr: BoundExpression, field_sizes: Option<&FieldByteSizes>) -> Self {
         let conjuncts = bound_conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
+        let bytes_per_row = field_sizes.and_then(|sizes| {
+            conjuncts
+                .iter()
+                .map(|conjunct| conjunct_bytes_per_row(conjunct, sizes))
+                .collect::<Option<Box<[_]>>>()
+        });
 
         Self {
             conjuncts,
-            conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
-                .take(num_conjuncts)
+            conjunct_costs: (0..num_conjuncts)
+                .map(|_| ConjunctCost::default())
                 .collect(),
+            bytes_per_row,
             dynamic_conjuncts,
-            // The initial ordering is naive, we could order this by how well we expect each
-            // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
-            ordering: RwLock::new((0..num_conjuncts).collect()),
-            selectivity_quantile: DEFAULT_SELECTIVITY_QUANTILE,
         }
     }
 
@@ -85,75 +107,55 @@ impl FilterExpr {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
     }
 
-    /// Returns the next preferred conjunct to evaluate.
-    #[inline]
-    pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
-        let read = self.ordering.read();
-        // Take the first remaining conjunct in the ordered list.
-        read.iter().find(|&idx| remaining[*idx]).copied()
+    /// Preferreed evaluation order of conjuncts
+    pub fn conjunct_order(&self) -> Vec<usize> {
+        let mut order = (0..self.conjuncts.len()).collect_vec();
+        if order.len() < 2 {
+            return order;
+        }
+
+        let all_observed = self
+            .conjunct_costs
+            .iter()
+            .all(|cost| cost.rows_in.load(Ordering::Relaxed) > 0);
+        // We can't do reordering before every conjunct has been seen because
+        // we may move more selective predicates forward otherwise.
+        if !all_observed && self.bytes_per_row.is_none() {
+            return order;
+        }
+
+        let scores = self
+            .conjunct_costs
+            .iter()
+            .enumerate()
+            .map(|(idx, cost)| {
+                let bytes_per_row = self.bytes_per_row.as_ref().map_or(1.0, |bytes| bytes[idx]);
+                if !all_observed {
+                    return bytes_per_row;
+                }
+                let rows_in = cost.rows_in.load(Ordering::Relaxed);
+                let rows_out = cost.rows_out.load(Ordering::Relaxed);
+                bytes_per_row * rows_in as f64 / (1 + rows_in - rows_out) as f64
+            })
+            .collect_vec();
+
+        order.sort_by(|&l_idx, &r_idx| {
+            scores[l_idx]
+                .partial_cmp(&scores[r_idx])
+                .vortex_expect("Can't compare conjunct scores")
+        });
+        order
     }
 
-    /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
-    pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
-        if !(0.0..=1.0).contains(&selectivity) {
-            vortex_panic!(
-                "selectivity {} must be in the range [0.0, 1.0]",
-                selectivity
-            );
+    /// Report evaluation of conjunct over rows_in of which rows_out survived
+    pub fn report_evaluation(&self, conjunct_idx: usize, rows_in: u64, rows_out: u64) {
+        if rows_out > rows_in {
+            vortex_panic!("rows_out {rows_out} must not exceed rows_in {rows_in}");
         }
 
-        {
-            let mut histogram = self.conjunct_selectivity[conjunct_idx].write();
-
-            histogram.add(selectivity);
-        }
-
-        // Note: We read from multiple RwLocks here without coordination. This means we might
-        // see an inconsistent snapshot where some histograms have been updated more recently
-        // than others. This is acceptable because:
-        // 1. The ordering is a heuristic optimization, not a correctness requirement
-        // 2. The selectivity values are statistical estimates that change gradually
-        // 3. Any ordering will produce correct results, just with different performance
-        let Some(all_selectivity) = self
-            .conjunct_selectivity
-            .iter()
-            .map(|histogram| {
-                histogram
-                    .read()
-                    .quantile(self.selectivity_quantile)
-                    .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
-                    .vortex_expect("quantile out of range")
-            })
-            .collect::<Option<Vec<_>>>()
-        else {
-            // Preserve the input order until every conjunct has been observed. Treating an unseen
-            // conjunct as perfectly selective can move expensive predicates ahead of selective
-            // predicates based only on which concurrent split finishes first.
-            return;
-        };
-
-        {
-            let ordering = self.ordering.read();
-            if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
-                return;
-            }
-        }
-
-        // Re-sort our conjuncts based on the new statistics.
-        let mut ordering = self.ordering.write();
-        ordering.sort_unstable_by(|&l_idx, &r_idx| {
-            all_selectivity[l_idx]
-                .partial_cmp(&all_selectivity[r_idx])
-                .vortex_expect("Can't compare selectivity values")
-        });
-
-        tracing::trace!(
-            "Reordered conjuncts based on new selectivity {:?}",
-            ordering
-                .iter()
-                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], all_selectivity[idx]))
-                .join(", ")
-        );
+        let cost = &self.conjunct_costs[conjunct_idx];
+        cost.rows_in.fetch_add(rows_in, Ordering::Relaxed);
+        cost.rows_out.fetch_add(rows_out, Ordering::Relaxed);
     }
 }
 
@@ -161,12 +163,17 @@ impl FilterExpr {
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::expr::and;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
     use vortex_array::expr::lit;
     use vortex_array::expr::not;
     use vortex_array::expr::root;
     use vortex_error::VortexResult;
 
+    use super::FieldByteSizes;
     use super::FilterExpr;
 
     #[test]
@@ -174,7 +181,7 @@ mod tests {
         let expr = and(root(), and(not(root()), lit(true)));
         let dtype = DType::Bool(Nullability::Nullable);
         let bound = expr.bind(&dtype)?;
-        let filter = FilterExpr::new(bound);
+        let filter = FilterExpr::new(bound, None);
         let conjuncts = filter.conjuncts();
 
         let expected = vec![
@@ -197,17 +204,51 @@ mod tests {
         Ok(())
     }
 
+    fn filter(sizes: Option<&FieldByteSizes>) -> VortexResult<FilterExpr> {
+        let wide_dtype = DType::Utf8(Nullability::NonNullable);
+        let narrow_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let dtype = DType::Struct(
+            StructFields::from_iter([("wide", wide_dtype), ("narrow", narrow_dtype)]),
+            Nullability::NonNullable,
+        );
+        let expr = and(
+            eq(get_item("wide", root()), lit("x")),
+            eq(get_item("narrow", root()), lit(5u8)),
+        );
+        Ok(FilterExpr::new(expr.bind(&dtype)?, sizes))
+    }
+
+    fn test_sizes() -> FieldByteSizes {
+        FieldByteSizes::from([("wide".into(), 100.0), ("narrow".into(), 1.0)])
+    }
+
     #[test]
-    fn waits_for_all_conjuncts_before_reordering() -> VortexResult<()> {
-        let dtype = DType::Bool(Nullability::Nullable);
-        let bound = and(root(), not(root())).bind(&dtype)?;
-        let filter = FilterExpr::new(bound);
+    fn not_all_conjuncts_observed() -> VortexResult<()> {
+        let filter = filter(Some(&test_sizes()))?;
+        assert_eq!(filter.conjunct_order(), vec![1, 0]);
+        filter.report_evaluation(0, 1000, 10);
+        assert_eq!(filter.conjunct_order(), vec![1, 0]);
+        Ok(())
+    }
 
-        filter.report_selectivity(0, 0.9);
-        assert_eq!(*filter.ordering.read(), vec![0, 1]);
+    #[test]
+    fn selective_wide() -> VortexResult<()> {
+        let filter = filter(Some(&test_sizes()))?;
+        filter.report_evaluation(1, 1000, 1000);
+        filter.report_evaluation(0, 1000, 10);
+        assert_eq!(filter.conjunct_order(), vec![0, 1]);
+        Ok(())
+    }
 
-        filter.report_selectivity(1, 0.1);
-        assert_eq!(*filter.ordering.read(), vec![1, 0]);
+    #[test]
+    fn missing_sizes() -> VortexResult<()> {
+        let filter = filter(None)?;
+        assert_eq!(filter.conjunct_order(), vec![0, 1]);
+
+        filter.report_evaluation(0, 1000, 1000);
+        assert_eq!(filter.conjunct_order(), vec![0, 1]);
+        filter.report_evaluation(1, 1000, 10);
+        assert_eq!(filter.conjunct_order(), vec![1, 0]);
         Ok(())
     }
 }

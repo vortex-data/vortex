@@ -26,6 +26,7 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
+use crate::scan::filter::FieldByteSizes;
 use crate::scan::filter::FilterExpr;
 use crate::scan::splits::Splits;
 use crate::scan::tasks::TaskContext;
@@ -55,6 +56,8 @@ pub struct RepeatedScan<A: 'static + Send> {
     limit: Option<u64>,
     /// The dtype of the projected arrays.
     dtype: DType,
+    /// Uncompressed bytes per row of each top-level field
+    field_byte_sizes: Option<Arc<FieldByteSizes>>,
 }
 
 impl RepeatedScan<ArrayRef> {
@@ -102,6 +105,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
         limit: Option<u64>,
         dtype: DType,
+        field_byte_sizes: Option<Arc<FieldByteSizes>>,
     ) -> Self {
         Self {
             session,
@@ -116,6 +120,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             map_fn,
             limit,
             dtype,
+            field_byte_sizes,
         }
     }
 
@@ -174,7 +179,10 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let mut limit = self.limit;
         let mut tasks = Vec::new();
         let ctx = Arc::new(TaskContext {
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            filter: self
+                .filter
+                .clone()
+                .map(|f| Arc::new(FilterExpr::new(f, self.field_byte_sizes.as_deref()))),
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),

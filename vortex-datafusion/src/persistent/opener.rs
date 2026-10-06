@@ -341,6 +341,9 @@ impl FileOpener for VortexOpener {
             };
 
             let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
+            if let Some(field_byte_sizes) = vxf.field_byte_sizes() {
+                scan_builder = scan_builder.with_field_byte_sizes(field_byte_sizes);
+            }
 
             if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);

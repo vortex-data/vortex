@@ -40,6 +40,7 @@ use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::scan::filter::FieldByteSizes;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -79,6 +80,8 @@ pub struct ScanBuilder<A> {
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
+    /// Uncompressed bytes per row of each top-level field
+    field_byte_sizes: Option<Arc<FieldByteSizes>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -106,6 +109,7 @@ impl ScanBuilder<ArrayRef> {
             map_fn: Arc::new(Ok),
             metrics_registry: None,
             file_stats: None,
+            field_byte_sizes: None,
             limit: None,
             row_offset: 0,
         }
@@ -256,7 +260,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Set the maximum number of rows returned after filtering.
+    /// Provide uncompressed per-row byte sizes of file's top-level fields
+    pub fn with_field_byte_sizes(mut self, field_byte_sizes: Arc<FieldByteSizes>) -> Self {
+        self.field_byte_sizes = Some(field_byte_sizes);
+        self
+    }
+
     pub fn with_limit(mut self, limit: u64) -> Self {
         self.limit = Some(limit);
         self
@@ -291,6 +300,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
+            field_byte_sizes: self.field_byte_sizes,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -360,6 +370,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
+            self.field_byte_sizes,
         ))
     }
 
