@@ -133,6 +133,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "compare_sorted"
+harness = false
+
+[[bench]]
 name = "binary_ops"
 harness = false
 
