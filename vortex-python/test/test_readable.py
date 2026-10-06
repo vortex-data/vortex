@@ -9,11 +9,12 @@ import threading
 import time
 import weakref
 from pathlib import Path
-from typing import IO
+from typing import IO, cast
 
 import numpy as np
 import pyarrow as pa
 import pytest
+from typing_extensions import Buffer
 from vortex.io import ReadAt, ReadBytesAt
 
 import vortex as vx
@@ -262,7 +263,7 @@ class PReadBytes:
     def size(self) -> int:
         return len(self._data)
 
-    def read_at(self, offset: int, length: int) -> np.ndarray:
+    def read_at(self, offset: int, length: int) -> Buffer:
         if self._chunk is not None:
             length = min(length, self._chunk)
         # Allocate 64-byte aligned memory, then start one byte in to misalign it on request.
@@ -273,7 +274,8 @@ class PReadBytes:
         out[:] = np.frombuffer(self._data, dtype=np.uint8, count=length, offset=offset)
         out.flags.writeable = self._writable
         self.returned.append(weakref.ref(raw))
-        return out
+        # NumPy's stubs do not declare `__buffer__`, though `ndarray` implements the buffer protocol.
+        return cast(Buffer, out)
 
     def alive(self) -> int:
         gc.collect()
