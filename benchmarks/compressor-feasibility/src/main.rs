@@ -243,6 +243,7 @@ fn main() -> anyhow::Result<()> {
                             *bandwidth,
                             reads,
                             args.gate,
+                            1,
                             &input,
                             &session,
                             &mut ctx,
