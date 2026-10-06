@@ -8,24 +8,6 @@ Vortex provides a
 [DataFusion CLI](https://github.com/vortex-data/vortex-datafusion-cli) which
 allows you to query `.vortex` files via DataFusion.
 
-## Setup
-
-Add the dependency:
-
-```toml
-[dependencies]
-vortex-datafusion = "<version>"
-```
-
-Register the Vortex format with a `SessionContext`:
-
-:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
-:language: rust
-:dedent:
-:start-after: [setup]
-:end-before: [setup]
-:::
-
 ## Reading Vortex Files
 
 ### SQL
@@ -74,15 +56,3 @@ Filters and projections are pushed down into the Vortex scan:
 :start-after: [query]
 :end-before: [query]
 :::
-
-### Pushdown Support
-
-The integration pushes the following operations into the Vortex scan:
-
-- **Projections** — only referenced columns are read and decompressed.
-- **Filters** — comparison (`=`, `<`, `>`), logical (`AND`, `OR`, `NOT`), `IN`, `LIKE`,
-  `IS NULL`, and cast expressions are evaluated during the scan. Unsupported filters fall back
-  to DataFusion post-scan evaluation.
-- **Limits** — applied at the scan level when no filter is present.
-- **File pruning** — files are eliminated without being opened based on partition values and
-  file-level column statistics (min/max).

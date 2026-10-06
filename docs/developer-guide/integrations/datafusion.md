@@ -43,18 +43,6 @@ Layout readers are cached across partitions using a shared concurrent map keyed 
 This avoids redundant footer parsing when the same file is accessed by multiple partitions or
 repeated queries.
 
-## Threading Model
-
-DataFusion runs on Tokio, and the Vortex integration operates entirely within that async
-context. The Vortex session is configured with `with_tokio()` to capture the current Tokio
-runtime handle. All I/O -- file opens, segment reads, object store fetches -- is dispatched as
-Tokio tasks and scheduled across Tokio's multi-threaded executor.
-
-DataFusion's physical executor manages parallelism by assigning partitions to its own task pool.
-Each partition opens its files and drives a `ScanBuilder` that returns an async stream of
-record batches. Multiple partitions execute concurrently, with DataFusion controlling the degree
-of parallelism.
-
 ## Filter and Projection Pushdown
 
 The integration converts DataFusion physical expressions into Vortex expressions using an
