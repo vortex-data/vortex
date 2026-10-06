@@ -149,6 +149,4 @@ pub(super) fn integer_types(ptype: PType) -> [PType; 4] {
     } else {
         [PType::U8, PType::U16, PType::U32, PType::U64]
     }
-
-
 }
