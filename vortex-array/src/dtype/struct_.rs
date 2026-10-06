@@ -135,16 +135,7 @@ impl FieldDTypeInner {
     }
 
     fn value(&self) -> VortexResult<DType> {
-        match &self {
-            FieldDTypeInner::Owned(owned) => Ok(owned.clone()),
-            FieldDTypeInner::View(view, lock) => {
-                if let Some(dtype) = lock.get() {
-                    return Ok(dtype.clone());
-                }
-                let parsed = DType::try_from(view.clone())?;
-                Ok(lock.get_or_init(|| parsed).clone())
-            }
-        }
+        self.value_ref().cloned()
     }
 }
 
