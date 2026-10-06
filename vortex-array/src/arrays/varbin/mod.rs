@@ -8,6 +8,7 @@ pub use array::VarBinData;
 pub use array::VarBinDataParts;
 pub use array::VarBinSlots;
 pub use array::VarBinSlotsView;
+pub(crate) use array::offsets_tile_utf8;
 pub use vtable::VarBinArray;
 
 pub(crate) mod compute;
