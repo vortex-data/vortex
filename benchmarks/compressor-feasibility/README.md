@@ -233,6 +233,68 @@ To ship this, the decode-time measurement in step 3 should become a prediction (
 itself, or per-encoding throughput), because timing at write time is noisy. The proposer can be
 distilled to a shallow tree and code-generated.
 
+## End to end: the model-driven compressor
+
+`src/model.rs` is a model-driven compressor:
+
+1. Compute the chunk's features from the Vortex array, over 8 contiguous windows of 512 values.
+2. Evaluate the exported trees: per candidate, whether it is feasible, its size and its decode
+   time.
+3. Propose the cheapest candidate for the target bandwidth.
+4. Compress with production. If the proposal is predicted at least 10% cheaper, compress it too.
+5. Keep whichever has the lower *measured* cost: serialized bytes plus a timed decode.
+
+`train.py --export` writes the gradient-boosted trees as JSON. It checks that a plain tree walk
+(what the Rust side does) reproduces scikit-learn exactly. `models/int-v1.json` is a model
+trained on all 1,540 chunks.
+
+`run_e2e.sh <parquet-dir> <work-dir>` runs the whole loop:
+
+1. Generate training data.
+2. Fit one model per held-out source.
+3. Compress every chunk with the model that never saw its source.
+4. Report.
+
+Corpus: 1,540 integer chunks (372 MB canonical) from eight sources: ClickBench `hits_0`, NYC
+yellow, green and FHVHV taxi (November 2023), and TPC-H SF1 lineitem, orders, partsupp and
+customer. Every number below is a real compression: serialized bytes, decode time (median of 7),
+and compression time including features, inference and verification (median of 3).
+
+| Bandwidth | Compressor | Cost | Bytes | Decode | Compress time |
+|---|---|---|---|---|---|
+| S3 ~100 MB/s | size-model thresholds | −3.5% | −6.4% | +39% | 1.06× |
+| S3 ~100 MB/s | **model-driven** | **−15.7%** | −23.2% | +94% | 3.11× |
+| NVMe ~2 GB/s | size-model thresholds | +20.0% | −6.4% | +39% | 1.06× |
+| NVMe ~2 GB/s | **model-driven** | **−13.1%** | +12.3% | −32% | 1.98× |
+| Memory ~20 GB/s | size-model thresholds | +36.2% | −6.4% | +39% | 1.06× |
+| Memory ~20 GB/s | **model-driven** | **−43.5%** | +51.8% | −50% | 1.79× |
+
+Costs are relative to the production compressor's thresholds at the same bandwidth.
+
+- **No held-out source gets worse at any bandwidth.** The worst is −0.0% on the TPC-H tables at
+  NVMe. The biggest wins:
+  - ClickBench: −15% / −16% / −50% at S3 / NVMe / memory.
+  - Green taxi: −16% at NVMe, −30% in memory.
+  - TPC-H orders: −40% at S3.
+- **What it keeps:**
+  - At S3: Pco (191 chunks) and the size model (70).
+  - At NVMe: FOR (203 chunks), which decodes faster than production's choices.
+  - In memory: FOR and plain bit-packing.
+- **The size-model thresholds alone only make sense for a size-only preset.** They save 6.4% of
+  bytes but decode 39% slower, so they lose at NVMe and memory bandwidth.
+- **Compression time:**
+  - Features (0.10 ms per chunk) and inference (0.04 ms) add ~24% to production's 0.58 ms.
+  - The rest is the verification compression, done on the 50–64% of chunks where the model
+    predicts a 10%+ saving.
+  - Raising the threshold cuts that time but loses most of the NVMe and memory gains (at 50%:
+    −0.9% / −0.7%).
+
+Getting the end-to-end result right took two fixes the offline evaluation missed:
+
+- **Verifying with predicted decode times broke the "never worse" guarantee** (TPC-H lineitem
+  +61% at NVMe). Measuring one decode of each candidate fixed it.
+- **Features over the whole chunk cost 3–4× the compression.** Contiguous windows fixed it.
+
 ## Caveats
 
 - Integers only. The oracle is one step (root only), so the true headroom is at least this large.

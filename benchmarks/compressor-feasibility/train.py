@@ -198,10 +198,87 @@ def evaluate_verify(name, groups, X, bytes_, dec, comp, meta, schemes):
                       f"{chosen_d.sum() / pd_.sum() - 1:>+8.1%} {tried.mean():>7.0%} {extra / base_comp:>+15.0%}")
 
 
+def export_ensemble(est) -> dict:
+    """A boosted ensemble as plain arrays: go left when x[feature] <= threshold."""
+    trees = []
+    for (pred,) in est._predictors:
+        nodes = pred.nodes
+        trees.append({
+            "feature": nodes["feature_idx"].astype(int).tolist(),
+            "threshold": nodes["num_threshold"].astype(float).tolist(),
+            "left": nodes["left"].astype(int).tolist(),
+            "right": nodes["right"].astype(int).tolist(),
+            "leaf": nodes["is_leaf"].astype(bool).tolist(),
+            "value": nodes["value"].astype(float).tolist(),
+        })
+    return {"baseline": float(np.ravel(est._baseline_prediction)[0]), "trees": trees}
+
+
+def walk(ens: dict, x: np.ndarray) -> float:
+    total = ens["baseline"]
+    for t in ens["trees"]:
+        node = 0
+        while not t["leaf"][node]:
+            node = t["left"][node] if x[t["feature"][node]] <= t["threshold"][node] else t["right"][node]
+        total += t["value"][node]
+    return total
+
+
+def export_model(X, bytes_, dec, meta, train) -> dict:
+    """Fits every candidate on the training rows and exports it for the Rust compressor."""
+    canon = meta.canonical_bytes.to_numpy()
+    length = meta.len.to_numpy()
+    out = {"features": list(X.columns), "candidates": {}}
+    for scheme in bytes_.columns:
+        feasible = bytes_[scheme].notna().to_numpy()
+        tr = train & feasible
+        if tr.sum() < 20:
+            continue
+        feas = None
+        if not feasible[train].all():
+            clf = HistGradientBoostingClassifier(max_depth=4, max_iter=40, learning_rate=0.2, random_state=0).fit(
+                X[train], feasible[train])
+            if list(clf.classes_) != [False, True]:
+                continue
+            feas = export_ensemble(clf)
+        rb = HistGradientBoostingRegressor(max_depth=4, max_iter=40, learning_rate=0.2, random_state=0).fit(
+            X[tr], np.log2(bytes_[scheme].to_numpy()[tr] / canon[tr]))
+        rd = HistGradientBoostingRegressor(max_depth=4, max_iter=40, learning_rate=0.2, random_state=0).fit(
+            X[tr], np.log2(dec[scheme].to_numpy()[tr] / length[tr]))
+        eb, ed = export_ensemble(rb), export_ensemble(rd)
+        # Parity: the plain tree walk the Rust side does must reproduce scikit-learn.
+        sample = X[tr].to_numpy()[:50]
+        assert np.allclose([walk(eb, x) for x in sample], rb.predict(sample), atol=1e-9), scheme
+        assert np.allclose([walk(ed, x) for x in sample], rd.predict(sample), atol=1e-9), scheme
+        out["candidates"][scheme] = {"feasible": feas, "bytes": eb, "decode": ed}
+    return out
+
+
 def main() -> None:
-    out = sys.argv[1]
-    tag = sys.argv[2] if len(sys.argv) > 2 else "stock"
+    import json
+    from pathlib import Path
+
+    args = sys.argv[1:]
+    export_dir = None
+    if "--export" in args:
+        i = args.index("--export")
+        export_dir = Path(args[i + 1])
+        del args[i:i + 2]
+    out = args[0]
+    tag = args[1] if len(args) > 1 else "stock"
     X, bytes_, dec, meta = load(out, tag)
+    sources = X.index.get_level_values("source").to_numpy()
+
+    if export_dir is not None:
+        export_dir.mkdir(parents=True, exist_ok=True)
+        # One model per held-out source (trained without it), plus one on everything.
+        for held_out in [*np.unique(sources), "all"]:
+            train = sources != held_out
+            model = export_model(X, bytes_, dec, meta, train)
+            (export_dir / f"{held_out}.json").write_text(json.dumps(model))
+            print(f"exported {held_out}.json: {len(model['candidates'])} candidates, trained on {train.sum()} chunks")
+        return
+
     rows = pd.read_csv(f"{out}/rows-{tag}.csv")
     policies = {"default": "production", "model/runend+sparse": "sizemodel"}
     cand = rows[(rows.ok == 1) & (rows.variant.str.startswith("forced/") | rows.variant.isin(policies))].copy()
@@ -209,7 +286,6 @@ def main() -> None:
     comp = cand.pivot_table(index=KEY, columns="scheme", values="compress_ns", aggfunc="min").reindex(X.index)
     print(f"chunks {len(X)}, features {X.shape[1]}, candidates {list(bytes_.columns)}")
     print("Costs are relative to the production compressor at the same bandwidth (lower is better).")
-    sources = X.index.get_level_values("source").to_numpy()
     columns = pd.Series([f"{s}/{c}" for s, c, _ in X.index]).astype("category").cat.codes.to_numpy()
     schemes = [s for s in bytes_.columns]
     folds = {"5-fold grouped by column": columns % 5, "leave-one-source-out": sources}
