@@ -7,7 +7,7 @@
 //! - `segmented`: `decode_runs` from `src/fill.rs`, compiled for the build's target features.
 //! - `fearless`: the same algorithm on fearless_simd vectors, dispatched at runtime.
 
-#![expect(clippy::cast_possible_truncation)]
+#![expect(clippy::expect_used)]
 
 use std::fmt;
 
@@ -142,11 +142,7 @@ fn fearless<T: simd::Lane>(ends: &[usize], values: &[T]) -> BufferMut<T> {
     simd::decode_runs(ends.iter().copied().zip(values.iter().copied()), LENGTH)
 }
 
-fn bench_kernel<T: Value>(
-    bencher: Bencher,
-    pattern: Pattern,
-    kernel: Kernel<T>,
-) {
+fn bench_kernel<T: Value>(bencher: Bencher, pattern: Pattern, kernel: Kernel<T>) {
     let ends = ends(pattern);
     // Adjacent runs differ, and every value fits the narrowest type.
     let values: Vec<T> = (0..ends.len())
@@ -160,25 +156,16 @@ fn bench_kernel<T: Value>(
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = PATTERNS)]
-fn decode_baseline<T: Value>(
-    bencher: Bencher,
-    pattern: Pattern,
-) {
+fn decode_baseline<T: Value>(bencher: Bencher, pattern: Pattern) {
     bench_kernel::<T>(bencher, pattern, baseline);
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = PATTERNS)]
-fn decode_segmented<T: Value>(
-    bencher: Bencher,
-    pattern: Pattern,
-) {
+fn decode_segmented<T: Value>(bencher: Bencher, pattern: Pattern) {
     bench_kernel::<T>(bencher, pattern, segmented);
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = PATTERNS)]
-fn decode_fearless<T: Value>(
-    bencher: Bencher,
-    pattern: Pattern,
-) {
+fn decode_fearless<T: Value>(bencher: Bencher, pattern: Pattern) {
     bench_kernel::<T>(bencher, pattern, fearless);
 }

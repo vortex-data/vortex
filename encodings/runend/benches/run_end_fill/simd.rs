@@ -8,6 +8,9 @@
 //! runtime dispatch, which lets a portable build store heads with AVX2 or AVX-512, and that every
 //! chunked fill uses whole head-width vectors.
 
+// The helpers must inline into the dispatched `#[simd]` function to run with its target features.
+#![expect(clippy::inline_always)]
+
 use std::mem::MaybeUninit;
 
 use fearless_simd::Level;
@@ -111,7 +114,7 @@ fn decode_segments<S: Simd, T: Lane, I: Iterator<Item = (usize, T)>>(
 /// # Safety
 ///
 /// Every element of `slice` must be initialized.
-#[inline(always)]
+#[inline]
 unsafe fn assume_init<T>(slice: &[MaybeUninit<T>]) -> &[T] {
     // SAFETY: `MaybeUninit<T>` has the layout of `T`, and the caller guarantees initialization.
     unsafe { &*(std::ptr::from_ref(slice) as *const [T]) }
@@ -205,7 +208,13 @@ unsafe fn fill_exact<S: Simd, T: Lane>(simd: S, dst: *mut T, value: T, n: usize)
 ///
 /// `HEAD <= n`, `written <= n`, and `dst` must be valid for writes of `n` elements.
 #[inline(always)]
-unsafe fn fill_chunks<S: Simd, T: Lane>(simd: S, dst: *mut T, value: T, mut written: usize, n: usize) {
+unsafe fn fill_chunks<S: Simd, T: Lane>(
+    simd: S,
+    dst: *mut T,
+    value: T,
+    mut written: usize,
+    n: usize,
+) {
     let chunk = T::splat(simd, value);
     // SAFETY: every store lies in `[0, n)`.
     unsafe {
@@ -213,6 +222,8 @@ unsafe fn fill_chunks<S: Simd, T: Lane>(simd: S, dst: *mut T, value: T, mut writ
             dst.add(written).cast::<T::Head>().write_unaligned(chunk);
             written += T::HEAD;
         }
-        dst.add(n - T::HEAD).cast::<T::Head>().write_unaligned(chunk);
+        dst.add(n - T::HEAD)
+            .cast::<T::Head>()
+            .write_unaligned(chunk);
     }
 }
