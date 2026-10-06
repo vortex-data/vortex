@@ -88,6 +88,35 @@ enum Command {
         #[arg(long, default_value = "stock")]
         tag: String,
     },
+    /// Compare the model-driven compressor with production on a plan's chunks.
+    Eval {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        store: PathBuf,
+        /// Models from `train.py --export`: `<source>.json` held out per source.
+        #[arg(long)]
+        models: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// Target bandwidths as `label=bytes_per_sec`.
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "25MBps=2.5e7,100MBps=1e8,500MBps=5e8,2GBps=2e9,8GBps=8e9,32GBps=3.2e10"
+        )]
+        bandwidths: Vec<String>,
+        /// Reads per write; compression time is divided by this. The default ignores it.
+        #[arg(long, default_value_t = 1e12)]
+        reads: f64,
+        #[arg(long, default_value_t = 0.1)]
+        gate: f64,
+        /// Candidates the model may not use, e.g. `pco`.
+        #[arg(long, value_delimiter = ',')]
+        exclude: Vec<String>,
+        #[arg(long)]
+        shard: Option<Shard>,
+    },
     /// Print this machine's identity.
     Machine,
 }
@@ -322,6 +351,45 @@ fn main() -> anyhow::Result<()> {
                 &tag,
             )?;
             println!("{}", serde_json::to_string_pretty(&manifest)?);
+        }
+        Command::Eval {
+            plan,
+            store,
+            models,
+            out,
+            bandwidths,
+            reads,
+            gate,
+            exclude,
+            shard,
+        } => {
+            let run = PlannedRun::read(&plan)?;
+            let store = Store::open(store)?;
+            let bandwidths = bandwidths
+                .iter()
+                .map(|b| {
+                    let (label, value) = b
+                        .split_once('=')
+                        .ok_or_else(|| anyhow::anyhow!("bandwidths look like label=bytes_per_sec"))?;
+                    Ok((label.to_string(), value.parse::<f64>()?))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let n = compressor_lab::eval::evaluate(
+                &run,
+                &store,
+                &compressor_lab::eval::EvalOptions {
+                    models,
+                    bandwidths,
+                    reads,
+                    gate,
+                    exclude,
+                    compress_reps: run.plan.spec.measure.compress_reps,
+                    decode_reps: run.plan.spec.measure.reps,
+                    shard,
+                },
+                &out,
+            )?;
+            println!("evaluated {n} chunks into {}", out.display());
         }
         Command::Machine => println!(
             "{}",
