@@ -26,11 +26,13 @@ use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use parking_lot::Mutex;
 use vortex::file::multi::MultiFileDataSource;
+use vortex::file::multi::MultiFileSession;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
+use vortex::session::SessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -121,6 +123,11 @@ struct Args {
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
+
+    /// Cache Vortex segments in memory, up to this many MiB. The cache is cleared before each
+    /// query's first (cold) run, so only the later (hot) runs read from it.
+    #[arg(long, env = "VORTEX_BENCH_SEGMENT_CACHE_MB")]
+    segment_cache_mb: Option<u64>,
 }
 
 #[tokio::main]
@@ -158,6 +165,15 @@ async fn main() -> anyhow::Result<()> {
         args.track_memory,
         args.hide_progress_bar,
     )?;
+
+    if let Some(segment_cache_mb) = args.segment_cache_mb {
+        SESSION
+            .get_mut::<MultiFileSession>()
+            .enable_segment_cache(segment_cache_mb.saturating_mul(1 << 20));
+        runner = runner.with_before_cold_run(|| {
+            SESSION.get::<MultiFileSession>().clear_segment_cache();
+        });
+    }
 
     // Collect execution plans for metrics if show_metrics is enabled
     // Structure: (query_idx, format, execution_plan)

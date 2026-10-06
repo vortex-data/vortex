@@ -101,6 +101,11 @@ struct Args {
         to keep all work on the same threads"
     )]
     reuse: bool,
+
+    /// Cache Vortex segments in memory, up to this many MiB. The cache is cleared before each
+    /// query's first (cold) run, so only the later (hot) runs read from it.
+    #[arg(long, env = "VORTEX_BENCH_SEGMENT_CACHE_MB")]
+    segment_cache_mb: Option<u64>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -175,6 +180,11 @@ fn main() -> anyhow::Result<()> {
         args.track_memory,
         args.hide_progress_bar,
     )?;
+
+    if let Some(segment_cache_mb) = args.segment_cache_mb {
+        vortex_duckdb::enable_segment_cache(segment_cache_mb.saturating_mul(1 << 20));
+        runner = runner.with_before_cold_run(vortex_duckdb::clear_segment_cache);
+    }
 
     let benchmark_name = benchmark.dataset().to_string();
     let mut duckdb_init_sql = Vec::new();

@@ -15,9 +15,11 @@ use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::file::multi::MultiFileSession;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 
 use crate::duckdb::Database;
@@ -90,6 +92,19 @@ pub unsafe fn initialize_extension_from_raw(db: *mut c_void) {
         .register_vortex_scan_replacement()
         .vortex_expect("failed to register vortex scan replacement");
     initialize(database).vortex_expect("Failed to initialize Vortex extension");
+}
+
+/// Enable a segment cache, capped at `max_capacity_bytes`, shared by every Vortex file the
+/// extension opens in this process.
+pub fn enable_segment_cache(max_capacity_bytes: u64) {
+    SESSION
+        .get_mut::<MultiFileSession>()
+        .enable_segment_cache(max_capacity_bytes);
+}
+
+/// Remove every entry from the segment cache enabled by [`enable_segment_cache`].
+pub fn clear_segment_cache() {
+    SESSION.get::<MultiFileSession>().clear_segment_cache();
 }
 
 /// Returns the version of the DuckDB library the extension is built against.
