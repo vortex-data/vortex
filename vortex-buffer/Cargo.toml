@@ -25,6 +25,8 @@ allocator-api2 = { workspace = true }
 arrow-buffer = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 itertools = { workspace = true }
 memmap2 = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
