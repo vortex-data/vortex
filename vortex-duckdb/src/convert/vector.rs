@@ -305,7 +305,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
             let mask = vector.validity_ref(len).execute_mask();
-            let validity = Validity::from_mask(mask.clone(), Nullability::Nullable);
+            let validity = Validity::from_mask(mask, Nullability::Nullable);
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
             match precision_to_duckdb_storage_size(&decimal_dtype)? {
