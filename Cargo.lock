@@ -11244,6 +11244,7 @@ dependencies = [
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
+ "vortex-entropy-bins",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",

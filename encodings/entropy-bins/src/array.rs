@@ -70,7 +70,7 @@ use crate::decode::scratch;
 use crate::pack;
 use crate::pack::pack;
 
-const SIGN: u64 = 1 << 63;
+pub(crate) const SIGN: u64 = 1 << 63;
 
 /// An [`EntropyBins`]-encoded Vortex array.
 pub type EntropyBinsArray = Array<EntropyBins>;
@@ -236,6 +236,7 @@ impl VTable for EntropyBins {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let mut metadata = array.metadata.clone();
+        metadata.slice_start = u64::try_from(array.slice_start)?;
         for chunk in &mut metadata.chunks {
             // Ascending lowers serialize as their first and the gaps between them.
             for i in (1..chunk.lowers.len()).rev() {
@@ -254,7 +255,22 @@ impl VTable for EntropyBins {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
+        let DType::Primitive(ptype, _) = dtype else {
+            vortex_bail!("entropy bins expect a primitive dtype, got {dtype}");
+        };
         let mut metadata = EntropyBinsMetadata::decode(metadata)?;
+        let slice_start = usize::try_from(std::mem::take(&mut metadata.slice_start))?;
+        let unsliced_n_rows = metadata
+            .chunks
+            .iter()
+            .try_fold(0usize, |n, c| n.checked_add(c.n_values as usize))
+            .ok_or_else(|| vortex_err!("chunk sizes overflow"))?;
+        let slice_stop = slice_start
+            .checked_add(len)
+            .filter(|&stop| stop <= unsliced_n_rows)
+            .ok_or_else(|| {
+                vortex_err!("slice {slice_start}+{len} exceeds {unsliced_n_rows} rows")
+            })?;
         for chunk in &mut metadata.chunks {
             for i in 1..chunk.lowers.len() {
                 chunk.lowers[i] = chunk.lowers[i].wrapping_add(chunk.lowers[i - 1]);
@@ -263,7 +279,7 @@ impl VTable for EntropyBins {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
-            Validity::Array(children.get(0, &Validity::DTYPE, len)?)
+            Validity::Array(children.get(0, &Validity::DTYPE, unsliced_n_rows)?)
         } else {
             vortex_bail!(
                 "EntropyBinsArray expected 0 or 1 child, got {}",
@@ -283,13 +299,13 @@ impl VTable for EntropyBins {
             seed_values: Arc::default(),
             data: buffers[1].clone().try_to_host_sync()?,
             seeds: buffers[2].clone().try_to_host_sync()?,
-            ptype: dtype.as_ptype(),
-            unsliced_n_rows: len,
-            slice_start: 0,
-            slice_stop: len,
+            ptype: *ptype,
+            unsliced_n_rows,
+            slice_start,
+            slice_stop,
         };
         let slots = EntropyBinsSlots {
-            validity: validity_to_child(&validity, len),
+            validity: validity_to_child(&validity, unsliced_n_rows),
         }
         .into_slots();
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
@@ -365,7 +381,7 @@ impl EntropyBins {
             }
         }
         let (lag, coded) = best.ok_or_else(|| vortex_err!("no lags to plan"))?;
-        let fixed = TAIL_PADDING + 64 * 14 * n.div_ceil(CHUNK_VALUES);
+        let fixed = TAIL_PADDING + CHUNK_METADATA_BYTES * n.div_ceil(CHUNK_VALUES);
         let total = |block_values: usize| {
             let n_blocks = n.div_ceil(block_values);
             coded + fixed + n_blocks * (PER_BLOCK_BYTES + lag * ptype.byte_width())
@@ -500,10 +516,12 @@ pub struct EntropyBinsPlan {
 /// field, part-filled lane words and the block's offset.
 const PER_BLOCK_BYTES: usize = 37;
 
+/// Bytes budgeted for one chunk's serialized bins: up to 64 bins at about 14 bytes each.
+const CHUNK_METADATA_BYTES: usize = 64 * 14;
+
 /// Measured bytes per block that 8-bit refill words save over 16-bit ones.
 const NARROW_WORD_SAVING_BYTES: usize = 8;
 
-/// The estimated bytes of the coded ids and offsets alone.
 /// Up to 32 evenly spaced runs of rows (sign- or zero-extended), alternately for training and
 /// scoring the estimate's bins. Only these rows are read.
 fn sample_units(parray: ArrayView<'_, Primitive>) -> Vec<Vec<u64>> {
@@ -532,6 +550,7 @@ fn sample_units(parray: ArrayView<'_, Primitive>) -> Vec<Vec<u64>> {
     })
 }
 
+/// The estimated bytes of the coded ids and offsets alone.
 fn estimate_coded(
     units: &[Vec<u64>],
     n: usize,
@@ -604,7 +623,6 @@ impl Transform {
     }
 }
 
-/// Integers sign- or zero-extended to 64 bits.
 /// Serialize per-block seeds (`lag` per block) as described on [`EntropyBinsData::seeds`].
 fn pack_seeds(seeds: &[u64], lag: usize) -> Vec<u8> {
     if lag == 0 || seeds.is_empty() {
@@ -645,6 +663,7 @@ fn unpack_seeds(bytes: &[u8], lag: usize, n_blocks: usize) -> Vec<u64> {
     seeds
 }
 
+/// Integers sign- or zero-extended to 64 bits.
 pub(crate) trait Wide: NativePType {
     fn wide(self) -> u64;
 }
@@ -695,6 +714,7 @@ impl EntropyBinsData {
             lag: u32::try_from(lag)?,
             block_log,
             word_bits,
+            slice_start: 0,
         };
         let mut data = Vec::new();
         let mut lengths = Vec::with_capacity(n.div_ceil(block_values));
@@ -808,11 +828,11 @@ impl EntropyBinsData {
             .into_iter()
             .try_fold(0u64, u64::checked_add)
             .ok_or_else(|| vortex_err!("block lengths overflow"))?;
+        vortex_ensure!(u32::try_from(end).is_ok(), "blocks span more than 4 GiB");
         vortex_ensure!(
             end + TAIL_PADDING as u64 <= self.data.len() as u64,
             "data buffer lacks its tail padding"
         );
-        vortex_ensure!(u32::try_from(end).is_ok(), "blocks span more than 4 GiB");
         Ok(())
     }
 
@@ -950,18 +970,22 @@ impl EntropyBinsData {
             let decoder = self.decoder(ci)?;
             let chunk_stop = ((ci + 1) * blocks_per_chunk).min(stop);
             while b < chunk_stop {
-                let group = if b + 4 <= chunk_stop && (b + 4) * bv <= self.unsliced_n_rows {
-                    4
-                } else {
-                    1
+                let view = |k: usize| {
+                    let n = bv.min(self.unsliced_n_rows - (b + k) * bv);
+                    parse_block(data, self.block_start(b + k), n, decoder)
                 };
-                let views = (0..group)
-                    .map(|k| {
-                        let n = bv.min(self.unsliced_n_rows - (b + k) * bv);
-                        parse_block(data, self.block_start(b + k), n, decoder.table.as_ref())
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?;
-                decode_ids(decoder, &views, ids, slot);
+                let four;
+                let one;
+                let views: &[BlockView<'_>] =
+                    if b + 4 <= chunk_stop && (b + 4) * bv <= self.unsliced_n_rows {
+                        four = [view(0)?, view(1)?, view(2)?, view(3)?];
+                        &four
+                    } else {
+                        one = [view(0)?];
+                        &one
+                    };
+                let group = views.len();
+                decode_ids(decoder, views, ids, slot);
                 for (k, view) in views.iter().enumerate() {
                     let row0 = (b + k - first) * bv;
                     let (seeds, lag) = self.seeds_of(b + k);
@@ -989,12 +1013,7 @@ impl EntropyBinsData {
         let pos = row % bv;
         let decoder = self.decoder(row / CHUNK_VALUES)?;
         let len = bv.min(self.unsliced_n_rows - block * bv);
-        let view = parse_block(
-            self.data.as_slice(),
-            self.block_start(block),
-            len,
-            decoder.table.as_ref(),
-        )?;
+        let view = parse_block(self.data.as_slice(), self.block_start(block), len, decoder)?;
         let (mut stack, mut heap) = ([0u8; ids_slot(BLOCK_VALUES)], Vec::new());
         let ids = scratch(&mut stack, &mut heap, ids_slot(bv));
         decoder.ids(&view, ids, pos + 1);
@@ -1008,6 +1027,21 @@ impl EntropyBinsData {
             return Ok(tmp[pos]);
         }
         Ok(T::truncate_from(decoder.value_at(&view, ids, pos)))
+    }
+
+    /// The same rows read as `ptype`, an integer type of the same signedness and at least as
+    /// wide: latents and seeds are stored sign- or zero-extended to 64 bits, and the decoder's
+    /// base depends only on signedness, so only the output width changes.
+    pub(crate) fn widened(&self, ptype: PType) -> Self {
+        debug_assert!(
+            ptype.is_int()
+                && ptype.is_signed_int() == self.ptype.is_signed_int()
+                && ptype.byte_width() >= self.ptype.byte_width()
+        );
+        Self {
+            ptype,
+            ..self.clone()
+        }
     }
 
     pub(crate) fn sliced(&self, start: usize, stop: usize) -> Self {

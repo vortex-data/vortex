@@ -40,6 +40,7 @@ vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
+vortex-entropy-bins = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
@@ -88,4 +89,5 @@ tokio = [
 ]
 wasm-bindgen = ["vortex-layout/wasm-bindgen"]
 zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
+entropy-bins = ["dep:vortex-entropy-bins", "vortex-btrblocks/entropy-bins"]
 tensor = ["dep:vortex-tensor"]

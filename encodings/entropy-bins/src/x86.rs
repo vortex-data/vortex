@@ -129,12 +129,14 @@ unsafe fn ids16_kernel<const V: usize, const R: usize, const W: u32>(
         let kk = _mm512_set1_epi32(31 - t.s as i32);
         let ll = _mm512_set1_epi32(1i32 << t.s);
         let mut p = [std::ptr::null::<u8>(); V];
+        let mut end = [std::ptr::null::<u8>(); V];
         let mut buf = [_mm512_setzero_si512(); V];
         let mut avail = [_mm512_setzero_si512(); V];
         let mut x = [ll; V];
         let mut stop = [ll; V];
         for v in 0..V {
             p[v] = blocks[v].words.as_ptr();
+            end[v] = p[v].add(blocks[v].words_len);
             x[v] = _mm512_add_epi32(
                 _mm512_cvtepu8_epi32(_mm_loadu_si128(blocks[v].states.as_ptr().cast())),
                 ll,
@@ -156,7 +158,11 @@ unsafe fn ids16_kernel<const V: usize, const R: usize, const W: u32>(
                 let nw = _mm512_maskz_expand_epi32(need, words);
                 buf[v] = _mm512_or_si512(buf[v], sllv32(nw, avail[v]));
                 avail[v] = _mm512_mask_add_epi32(avail[v], need, avail[v], cw);
-                p[v] = p[v].add(need.count_ones() as usize * (W as usize / 8));
+                // A valid stream ends exactly at its last word; a corrupt one must not walk past
+                // it, so loads stay within the block's offsets, later blocks and tail padding.
+                p[v] = p[v]
+                    .add(need.count_ones() as usize * (W as usize / 8))
+                    .min(end[v]);
             }
             let end = (step + R).min(steps);
             while step < end {
@@ -231,6 +237,11 @@ pub(crate) fn merge<T: OutInt>(
     }
     // A chunk's widest bins are often rare outliers: when they would rule out a kernel, check
     // the widths this block uses instead.
+    // The merges load a 64-byte window that starts no later than the end of the block's offsets;
+    // valid blocks always have that much behind them (later blocks or tail padding).
+    if b.offsets.len() < 64 + offset_bytes(d, &ids[..n], b.offsets.len()) {
+        return false;
+    }
     let max_width = if (T::BYTES <= 4 && d.max_width > 31) || d.max_width > 62 {
         // SAFETY: AVX-512 is available and ids index the chunk's at most 64 bins.
         unsafe { widest(&d.wtab, &ids[..n]) }
@@ -528,6 +539,50 @@ pub(crate) unsafe fn classify_ids(ids: &[u8], class: &[u8], out: &mut [u64]) -> 
         }
         true
     }
+}
+
+/// The total offset bits of `ids`, from the 64-entry width table `wtab`.
+///
+/// # Safety
+///
+/// The CPU must support the features checked by [`has_avx512`]; every id must be below 64.
+#[target_feature(enable = "avx512f,avx512bw,avx512vbmi")]
+unsafe fn offset_bits(wtab: &[u8; 64], ids: &[u8]) -> u64 {
+    // SAFETY: loads are masked to `ids` and read the 64-byte table.
+    unsafe {
+        let table = _mm512_loadu_si512(wtab.as_ptr().cast());
+        let mut acc = _mm512_setzero_si512();
+        let n = ids.len();
+        let mut i = 0;
+        while i < n {
+            let k: u64 = if i + 64 <= n {
+                u64::MAX
+            } else {
+                (1u64 << (n - i)) - 1
+            };
+            let id = _mm512_maskz_loadu_epi8(k, ids.as_ptr().add(i).cast());
+            let w = _mm512_maskz_permutexvar_epi8(k, id, table);
+            acc = _mm512_add_epi64(acc, _mm512_sad_epu8(w, _mm512_setzero_si512()));
+            i += 64;
+        }
+        _mm512_reduce_add_epi64(acc).cast_unsigned()
+    }
+}
+
+/// Bytes of offsets the block's `ids` read, or `limit` when the bound is not cheap to prove
+/// below it. `n * max_width` usually settles it; only blocks near the end of the buffer sum
+/// their widths.
+fn offset_bytes(d: &ChunkDecoder, ids: &[u8], limit: usize) -> usize {
+    let bound = ids.len() as u64 * u64::from(d.max_width);
+    if bound.div_ceil(8) + 64 <= limit as u64 {
+        return 0;
+    }
+    if d.widths.len() > 64 {
+        return limit;
+    }
+    // SAFETY: AVX-512 is available (checked by the caller) and ids index at most 64 bins.
+    let bits = unsafe { offset_bits(&d.wtab, ids) };
+    usize::try_from(bits.div_ceil(8)).unwrap_or(limit)
 }
 
 /// The widest offset among the bins of `ids`, from the 64-entry width table `wtab`.

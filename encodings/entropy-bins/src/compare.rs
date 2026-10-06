@@ -29,14 +29,13 @@ use vortex_error::VortexResult;
 use crate::EntropyBins;
 use crate::EntropyBinsChunk;
 use crate::array::EntropyBinsData;
+use crate::array::SIGN;
 use crate::array::Wide;
 use crate::coder::CHUNK_VALUES;
 use crate::decode::OutInt;
 use crate::decode::ids_slot;
 use crate::decode::merge_block;
 use crate::decode::parse_block;
-
-const SIGN: u64 = 1 << 63;
 
 /// The answer for every value of a bin.
 const FALSE: u8 = 0;
@@ -247,6 +246,17 @@ fn predicate_typed<T: NativePType + OutInt + Wide>(
         let class = classes(chunk, &accept);
         let seg =
             &mut words[(b - first) * words_per_block..(chunk_last + 1 - first) * words_per_block];
+        // Every bin of the chunk gets the same answer: so does every row, with no decoding.
+        let n_bins = chunk.lowers.len();
+        if n_bins > 0 && class[1..n_bins].iter().all(|&c| c == class[0]) && class[0] != STRADDLES {
+            if class[0] == TRUE {
+                for (k, out) in seg.chunks_mut(words_per_block).enumerate() {
+                    fill_true(out, bv.min(n_rows - (b + k) * bv));
+                }
+            }
+            b = chunk_last + 1;
+            continue;
+        }
         // A straddle-heavy chunk next to lighter ones: decode its blocks in bulk.
         if expected_straddlers(chunk, &class) * bv as f64 >= 1.0 {
             let stop_row = ((chunk_last + 1) * bv).min(n_rows);
@@ -259,7 +269,7 @@ fn predicate_typed<T: NativePType + OutInt + Wide>(
         for (k, out) in seg.chunks_mut(words_per_block).enumerate() {
             let block = b + k;
             let n = bv.min(n_rows - block * bv);
-            let view = parse_block(bytes, data.block_start(block), n, decoder.table.as_ref())?;
+            let view = parse_block(bytes, data.block_start(block), n, decoder)?;
             if let Some(u) = view.uniform {
                 match class[usize::from(u)] {
                     TRUE => fill_true(out, n),

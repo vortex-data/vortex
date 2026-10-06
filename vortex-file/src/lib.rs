@@ -175,6 +175,8 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_zigzag::initialize(session);
     #[cfg(feature = "zstd")]
     vortex_zstd::initialize(session);
+    #[cfg(feature = "entropy-bins")]
+    vortex_entropy_bins::initialize(session);
 
     {
         let arrays = session.arrays();

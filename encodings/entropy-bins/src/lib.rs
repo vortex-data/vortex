@@ -31,10 +31,12 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 mod array;
+mod cast;
 mod coder;
 mod compare;
 mod decode;
 mod gather;
+mod mask;
 mod pack;
 mod rules;
 mod slice;
@@ -45,6 +47,7 @@ pub use array::*;
 pub use coder::BLOCK_VALUES;
 pub use coder::CHUNK_VALUES;
 pub use coder::MAX_BLOCK_VALUES;
+pub use coder::MAX_LAG;
 
 /// Register the encoding and its compute kernels with `session`.
 pub fn initialize(session: &VortexSession) {
@@ -105,6 +108,10 @@ pub struct EntropyBinsMetadata {
     /// Bits per tANS refill word: 8 or 16.
     #[prost(uint32, tag = "4")]
     pub word_bits: u32,
+    /// First stored row of a sliced array, which covers `slice_start..slice_start + len` of the
+    /// rows its chunks hold. Set only when serializing.
+    #[prost(uint64, tag = "5")]
+    pub slice_start: u64,
 }
 
 #[cfg(test)]

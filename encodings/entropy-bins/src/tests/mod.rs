@@ -47,6 +47,10 @@ pub(crate) fn skewed(len: usize, seed: u64) -> Vec<i64> {
         .collect()
 }
 
+mod conformance;
+mod malformed;
+mod pushdown;
+
 const LAGS: [usize; 6] = [0, 1, 2, 3, 4, 8];
 
 const BLOCK_SIZES: [usize; 3] = [BLOCK_VALUES, 2 * BLOCK_VALUES, MAX_BLOCK_VALUES];
@@ -202,22 +206,27 @@ fn serde_roundtrip_with<T: NativePType>(values: Vec<T>, nullable: bool) -> Vorte
             EntropyBinsOptions::new(lag, BLOCK_VALUES),
         )?
         .into_array();
-        let ctx = ArrayContext::empty();
-        let mut bytes = ByteBufferMut::empty();
-        for buffer in encoded.serialize(&ctx, &session, &SerializeOptions::default())? {
-            bytes.extend_from_slice(buffer.as_ref());
+        let n = encoded.len();
+        // A slice keeps the unsliced buffers and validity, so it serializes its start.
+        for range in [0..n, 37.min(n)..n.saturating_sub(11).max(37.min(n))] {
+            let sliced = encoded.slice(range.clone())?;
+            let ctx = ArrayContext::empty();
+            let mut bytes = ByteBufferMut::empty();
+            for buffer in sliced.serialize(&ctx, &session, &SerializeOptions::default())? {
+                bytes.extend_from_slice(buffer.as_ref());
+            }
+            let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+                sliced.dtype(),
+                sliced.len(),
+                &ReadContext::new(ctx.to_ids()),
+                &session,
+            )?;
+            assert_arrays_eq!(
+                decoded,
+                array.clone().into_array().slice(range)?,
+                &mut session.create_execution_ctx()
+            );
         }
-        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
-            encoded.dtype(),
-            encoded.len(),
-            &ReadContext::new(ctx.to_ids()),
-            &session,
-        )?;
-        assert_arrays_eq!(
-            decoded,
-            array.clone().into_array(),
-            &mut session.create_execution_ctx()
-        );
     }
     Ok(())
 }

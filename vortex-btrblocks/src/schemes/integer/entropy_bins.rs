@@ -196,10 +196,6 @@ impl Scheme for EntropyBinsScheme {
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array_as_primitive();
         let plan = cached_plan(primitive, &self.config)?;
-        // Bins that do not fit the encoding's limits leave the array as it is.
-        match EntropyBins::from_primitive(primitive, self.config.level, plan.options) {
-            Ok(array) => Ok(array.into_array()),
-            Err(_) => Ok(primitive.array().clone()),
-        }
+        Ok(EntropyBins::from_primitive(primitive, self.config.level, plan.options)?.into_array())
     }
 }

@@ -187,6 +187,9 @@ impl IdTable {
             vortex_bail!("entropy bins support at most {} bins, got {k}", 1 << MAX_S);
         }
         let s_in = chunk.ans_log;
+        if s_in > 32 {
+            vortex_bail!("tANS table log {s_in} exceeds 32");
+        }
         let s = s_in
             .min(MAX_S)
             .max(usize::BITS - (k - 1).leading_zeros())
@@ -197,9 +200,10 @@ impl IdTable {
             .weights
             .iter()
             .map(|&w| {
+                // Capping each weight at the table size bounds the requantizing loop below.
                 u32::try_from(((u64::from(w) << s) + half) >> s_in)
                     .unwrap_or(l)
-                    .max(1)
+                    .clamp(1, l)
             })
             .collect();
         loop {

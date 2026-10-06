@@ -26,6 +26,8 @@ pub(crate) struct BlockView<'a> {
     /// Absolute round from which each lane stops refilling.
     pub(crate) stop: [u16; LANES],
     pub(crate) words: &'a [u8],
+    /// Bytes of `words` that belong to this block; the id kernels never read words past them.
+    pub(crate) words_len: usize,
     pub(crate) offsets: &'a [u8],
 }
 
@@ -35,6 +37,9 @@ pub(crate) fn read_bits(bytes: &[u8], pos: usize, w: u32) -> u64 {
         return 0;
     }
     let start = pos >> 3;
+    if start >= bytes.len() {
+        return 0;
+    }
     let mut buf = [0u8; 16];
     let avail = bytes.len().saturating_sub(start).min(16);
     buf[..avail].copy_from_slice(&bytes[start..start + avail]);
@@ -45,12 +50,12 @@ pub(crate) fn read_bits(bytes: &[u8], pos: usize, w: u32) -> u64 {
     if w == 64 { v } else { v & ((1u64 << w) - 1) }
 }
 
-/// Parse the block starting at `start` in `data`.
+/// Parse the block of `n` rows starting at `start` in `data`, coded with `decoder`'s bins.
 pub(crate) fn parse_block<'a>(
     data: &'a [u8],
     start: usize,
     n: usize,
-    table: Option<&IdTable>,
+    decoder: &ChunkDecoder,
 ) -> VortexResult<BlockView<'a>> {
     if start >= data.len() {
         vortex_bail!("block start {start} out of bounds");
@@ -60,16 +65,20 @@ pub(crate) fn parse_block<'a>(
         let Some(&sym) = data.get(start + 1) else {
             vortex_bail!("truncated uniform block");
         };
+        if usize::from(sym) >= decoder.widths.len() {
+            vortex_bail!("uniform block id {sym} out of range");
+        }
         return Ok(BlockView {
             n,
             uniform: Some(sym),
             states: [0; LANES],
             stop: [0; LANES],
             words: &[],
+            words_len: 0,
             offsets: &data[start + 2..],
         });
     }
-    let Some(t) = table else {
+    let Some(t) = decoder.table.as_ref() else {
         vortex_bail!("coded block in a single-bin chunk");
     };
     let Some(header) = data.get(start..start + 2) else {
@@ -104,6 +113,7 @@ pub(crate) fn parse_block<'a>(
         states,
         stop,
         words: &data[p..],
+        words_len: word_bytes * n_words,
         offsets: &data[p + word_bytes * n_words..],
     })
 }

@@ -14,10 +14,31 @@ residuals.
 ## Compute
 
 Compare and between against constants run on the bin ids: a bin covers a contiguous range of
-values, so most blocks are answered from their ids without reading offsets (lag 0 only). Filter
-and take decode only the blocks holding a selected row; sparse selections decode ids only up to
-the last selected row of a block. Random access decodes a block's ids up to the row, and a
-repeated probe caches the block it touched twice.
+values, so most blocks are answered from their ids without reading offsets (lag 0 only), and a
+chunk whose bins all get the same answer is answered from its metadata alone. Filter and take
+decode only the blocks holding a selected row; sparse selections decode ids only up to the last
+selected row of a block. Random access decodes a block's ids up to the row, and a repeated probe
+caches the block it touched twice. Casts that change only nullability or widen to an integer of
+the same signedness, and masks, rewrite the array without decoding it, so later operations
+still push down.
+
+Against FoR + BitPacked on the same columns (1 MB arrays, BALANCED, one AVX-512 core; total time
+over all arrays, EntropyBins / BitPacked; arrays whose range overflows FoR are left out):
+
+| Operation | 64-bit | narrow |
+|---|---|---|
+| Compression ratio | 6.39x vs 2.79x | 18.1x vs 3.87x |
+| Decode | 1.9x slower | 3.9x slower |
+| Filter 0.1% / 1% / 10% / 50% | 24x / 6.2x / 2.5x / 1.4x | 40x / 9.4x / 4.8x / 2.8x |
+| Take 64 random rows / 4096 sorted | 14x / 2.8x | 21x / 5.1x |
+| Compare `<` median / `==` value | 2.2x / 4.3x | 2.6x / 3.7x |
+| Between (10% selected) | 1.8x | 2.9x |
+| Sum, min/max (no kernels: decode first) | 2.1x, 2.4x | 4.3x, 5.2x |
+
+Every row costs an entropy decode of its block's ids up to the row, because a value's offset
+position depends on all earlier ids in its block; that is ~0.7 µs per isolated row at 1K blocks
+and ~2.4 µs at 4K, against ~70 ns for BitPacked. FAST (1K blocks) is the preset for workloads
+dominated by sparse access.
 
 ## Dials
 

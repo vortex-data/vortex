@@ -265,7 +265,7 @@ fn gather_block<T: OutInt>(
         data.data.as_slice(),
         data.block_start(block),
         block_len,
-        decoder.table.as_ref(),
+        decoder,
     )?;
     // The position in the block of a row relative to the slice.
     let (start, _) = data.slice_range();
