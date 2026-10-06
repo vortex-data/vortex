@@ -1,5 +1,7 @@
 # DataFusion
 
+https://github.com/vortex-data/vortex-datafusion-cli
+
 The `vortex-datafusion` crate integrates Vortex as a native DataFusion `FileFormat`, supporting
 both reads and writes with filter, projection, and limit pushdown.
 
