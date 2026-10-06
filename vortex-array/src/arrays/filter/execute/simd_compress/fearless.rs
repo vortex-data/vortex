@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Portable `fearless_simd` compress kernels for 1-, 2- and 8-byte elements.
+//! Portable `fearless_simd` compress kernels for 1- and 2-byte elements.
 //!
-//! Each sub-word of 8 (1- and 2-byte) or 2 (8-byte) lanes is compacted with one 16-byte
-//! `swizzle_dyn` driven by a byte-index lookup table, which lowers to `pshufb` (or `vpermb` on
-//! Ice Lake-class AVX-512). Dispatch wraps the whole mask walk, so the per-word body inlines into
-//! one target-feature function rather than being called once per mask word.
+//! Each sub-word of 8 lanes is compacted with one 16-byte `swizzle_dyn` driven by a byte-index
+//! lookup table. Dispatch wraps the whole mask walk, so the per-word body inlines into one
+//! target-feature function rather than being called once per mask word.
 
 use std::ptr;
-use std::sync::LazyLock;
 
 use fearless_simd::Level;
 use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd::prelude::*;
 use fearless_simd::u8x16;
+use fearless_simd_macros::simd;
 use vortex_mask::MaskValues;
 
 use super::super::slice::for_each_mask_word;
@@ -24,12 +23,8 @@ use super::bulk_copy;
 use super::compress_lut;
 use super::compress_tail;
 
-/// Detected once: `Level::new` probes every feature of its widest level on each call.
-static SIMD_LEVEL: LazyLock<Level> = LazyLock::new(Level::new);
-
 static IDX_LUT_8: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 1);
 static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
-static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(2, 8);
 
 /// Compact one mask word of `ELEM`-byte elements, `LANES` elements per shuffle.
 ///
@@ -41,8 +36,8 @@ static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(2, 8);
     clippy::cast_possible_truncation,
     reason = "deliberate submask narrowing"
 )]
-#[allow(clippy::inline_always, clippy::too_many_arguments)]
-#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+#[simd]
 unsafe fn compress_word<S: Simd, const IN_PLACE: bool, const ELEM: usize, const LANES: usize>(
     simd: S,
     idx_lut: &[[u8; 16]],
@@ -114,7 +109,7 @@ macro_rules! fearless_compress_kernel {
             dst: *mut u8,
             mask: &MaskValues,
         ) -> usize {
-            dispatch!(*SIMD_LEVEL, simd => {
+            dispatch!(Level::new(), simd => {
                 let mut write_pos = 0;
                 for_each_mask_word(mask, |word, word_start, word_len| {
                     // SAFETY: forwarded from the caller contract.
@@ -132,4 +127,3 @@ macro_rules! fearless_compress_kernel {
 
 fearless_compress_kernel!(compress_fearless_8, elem_size: 1, lanes: 8, idx_lut: IDX_LUT_8);
 fearless_compress_kernel!(compress_fearless_16, elem_size: 2, lanes: 8, idx_lut: IDX_LUT_16);
-fearless_compress_kernel!(compress_fearless_64, elem_size: 8, lanes: 2, idx_lut: IDX_LUT_64);

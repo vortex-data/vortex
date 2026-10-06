@@ -170,8 +170,8 @@ fn avx2_kernels_match_scalar() {
                     mask,
                 );
                 check_kernel(
-                    fearless::compress_fearless_64::<false>,
-                    fearless::compress_fearless_64::<true>,
+                    x86::compress_avx2_epi64::<false>,
+                    x86::compress_avx2_epi64::<true>,
                     &u64_values,
                     mask,
                 );

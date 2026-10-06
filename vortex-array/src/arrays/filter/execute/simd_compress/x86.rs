@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! AVX-512 `vpcompress` and AVX2 `vpermd` compress kernels. The 1-, 2- and 8-byte AVX2 paths use
-//! the portable kernels in [`fearless`](super::fearless).
+//! AVX-512 `vpcompress` and AVX2 `vpermd` compress kernels. The 1- and 2-byte AVX2 paths use the
+//! portable kernels in [`fearless`](super::fearless).
 //!
 //! See the [module docs](super) for how these fit the shared dispatch.
 
 use std::arch::x86_64::_mm256_loadu_si256;
 use std::arch::x86_64::_mm256_maskload_epi32;
+use std::arch::x86_64::_mm256_maskload_epi64;
 use std::arch::x86_64::_mm256_maskstore_epi32;
+use std::arch::x86_64::_mm256_maskstore_epi64;
 use std::arch::x86_64::_mm256_permutevar8x32_epi32;
 use std::arch::x86_64::_mm256_storeu_si256;
 use std::arch::x86_64::_mm512_loadu_epi8;
@@ -40,7 +42,6 @@ use super::Kernel;
 use super::bulk_copy;
 use super::fearless::compress_fearless_8;
 use super::fearless::compress_fearless_16;
-use super::fearless::compress_fearless_64;
 
 /// Choose the widest available kernel above its benchmarked density crossover.
 ///
@@ -56,7 +57,7 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
         1 if avx2() => (compress_fearless_8::<IN_PLACE> as Kernel, 0.15),
         2 if avx2() => (compress_fearless_16::<IN_PLACE> as Kernel, 0.25),
         4 if avx2() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
-        8 if avx2() => (compress_fearless_64::<IN_PLACE> as Kernel, 0.45),
+        8 if avx2() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
         _ => return None,
     };
 
@@ -256,11 +257,47 @@ static PERM_LUT_32: [[u32; 8]; 256] = {
     lut
 };
 
+/// For each mask nibble, `vpermd` lane indices compacting the selected 8-byte lanes (as pairs
+/// of 4-byte lanes) to the front.
+static PERM_LUT_64: [[u32; 8]; 16] = {
+    let mut lut = [[0u32; 8]; 16];
+    let mut m = 0;
+    while m < 16 {
+        let mut out_lane = 0;
+        let mut bit = 0;
+        while bit < 4 {
+            if m & (1 << bit) != 0 {
+                lut[m][out_lane * 2] = (bit * 2) as u32;
+                lut[m][out_lane * 2 + 1] = (bit * 2 + 1) as u32;
+                out_lane += 1;
+            }
+            bit += 1;
+        }
+        m += 1;
+    }
+    lut
+};
+
 /// Lane-enable vectors for `vpmaskmov` loads/stores of the first `count` 4-byte lanes.
 static LANE_MASK_32: [[i32; 8]; 9] = {
     let mut lut = [[0i32; 8]; 9];
     let mut count = 0;
     while count <= 8 {
+        let mut lane = 0;
+        while lane < count {
+            lut[count][lane] = -1;
+            lane += 1;
+        }
+        count += 1;
+    }
+    lut
+};
+
+/// Lane-enable vectors for `vpmaskmov` loads/stores of the first `count` 8-byte lanes.
+static LANE_MASK_64: [[i64; 4]; 5] = {
+    let mut lut = [[0i64; 4]; 5];
+    let mut count = 0;
+    while count <= 4 {
         let mut lane = 0;
         while lane < count {
             lut[count][lane] = -1;
@@ -398,4 +435,14 @@ avx2_compress_kernel!(
     lane_masks: LANE_MASK_32,
     maskload: _mm256_maskload_epi32,
     maskstore: _mm256_maskstore_epi32
+);
+
+avx2_compress_kernel!(
+    compress_word_avx2_epi64, compress_avx2_epi64,
+    elem: i64,
+    lanes: 4,
+    perm_lut: PERM_LUT_64,
+    lane_masks: LANE_MASK_64,
+    maskload: _mm256_maskload_epi64,
+    maskstore: _mm256_maskstore_epi64
 );
