@@ -13,14 +13,31 @@ INSTALL vortex; LOAD vortex;
 
 ```sql
 SELECT * FROM 'data.vortex';
-# this syntax supports arguments like hive_partitioning=true
+
+# alternative syntax
 SELECT * FROM read_vortex('data.vortex');
+
+# globbing is also supported
+SELECT * FROM 'foo/*.vortex';
+
+# you can pass lists of files
+SELECT * FROM read_vortex(['1.vortex', '2.vortex']);
+
+# hive_partitioning is supported.
+# assuming folder structure data/year=2000/1.vortex, data/year=2001/2.vortex
+SELECT * FROM 'data/*/*.vortex';
+
+# alternative syntax supports hive_partitioning, filename, and allow_empty
+# parameters
+SELECT * FROM read_vortex(['1.vortex.csv', '2.vortex'], filename = true);
 ```
 
 ## Writing files
 
 ```sql
 COPY (SELECT * FROM my_table) TO 'output.vortex';
+# you can also get file statistics
+COPY (SELECT * FROM my_table) TO 'output.vortex' (FORMAT vortex, RETURN_STATS)
 ```
 
 Make sure to call `LOAD vortex` before writing any files. Duckdb writes CSV
