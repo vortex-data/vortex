@@ -54,6 +54,7 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -2122,6 +2123,41 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::I64))]),
+        Nullability::NonNullable,
+    );
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_file_statistics(vec![Stat::Sum])
+        .writer(&mut buf, dtype);
+
+    // The first chunk overflows, so the file sum must not be the second chunk's sum of 2.
+    for chunk in [buffer![i64::MAX, 1], buffer![2i64]] {
+        writer
+            .push(StructArray::from_fields(&[("numbers", chunk.into_array())])?.into_array())
+            .await?;
+    }
+
+    let summary = writer.finish().await?;
+    let footer_stats = summary
+        .footer()
+        .statistics()
+        .vortex_expect("file statistics were requested");
+    assert!(footer_stats.stats_sets()[0].get(Stat::Sum).is_absent());
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    assert!(file_stats.stats_sets()[0].get(Stat::Sum).is_absent());
 
     Ok(())
 }

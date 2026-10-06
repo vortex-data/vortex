@@ -425,7 +425,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             slots,
         );
         let encoding_id = self.vtable.id();
-        let stats = this.statistics().to_array_stats();
+        let stats = this.statistics().share_existing();
         let uninit = Arc::new_uninit();
 
         // SAFETY: `uninit` is new.
@@ -492,7 +492,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_array_stats();
+        let stats = this.statistics().to_owned();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
@@ -511,10 +511,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+            result.array().statistics().set_iter(stats.into_iter());
         }
 
         Ok(result)

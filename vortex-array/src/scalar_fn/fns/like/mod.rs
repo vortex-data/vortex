@@ -77,7 +77,7 @@ impl Like {
         pattern: ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Like.bind(options), vec![input, pattern])
+        ScalarFnArray::try_new(Like.bind(options), [input, pattern])
     }
 }
 

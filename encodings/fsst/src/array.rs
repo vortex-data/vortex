@@ -28,6 +28,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
@@ -42,6 +43,8 @@ use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::require_child;
+use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -321,6 +324,17 @@ impl VTable for FSST {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(
+            array,
+            array.uncompressed_lengths(),
+            FSSTSlots::UNCOMPRESSED_LENGTHS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.codes_offsets(),
+            FSSTSlots::CODES_OFFSETS => Primitive
+        );
+        require_validity!(array, FSSTSlots::CODES_VALIDITY);
         canonicalize_fsst(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
@@ -845,8 +859,14 @@ impl FSSTData {
             vortex_bail!(InvalidArgument: "codes nullability must match outer dtype nullability");
         }
 
-        // Validate that last offset doesn't exceed bytes length (when host-resident).
-        if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
+        // Validate that last offset doesn't exceed bytes length (when host-resident). A
+        // compressed offsets child would have to be decoded to read its last offset, so it is
+        // checked by the decode plan instead, once `execute` has made it primitive.
+        if codes_bytes.is_on_host()
+            && codes_offsets.is_host()
+            && codes_offsets.is::<Primitive>()
+            && !codes_offsets.is_empty()
+        {
             let last_offset: usize = (&codes_offsets
                 .execute_scalar(codes_offsets.len() - 1, ctx)
                 .vortex_expect("offsets must support scalar_at"))

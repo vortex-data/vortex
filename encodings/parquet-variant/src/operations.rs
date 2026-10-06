@@ -396,6 +396,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
+    use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -548,7 +549,7 @@ mod tests {
 
         let inner_pv = vortex_arr.as_opt::<ParquetVariant>().unwrap();
         let mut ctx = array_session().create_execution_ctx();
-        let roundtripped = inner_pv.to_arrow(&mut ctx)?;
+        let roundtripped = inner_pv.to_arrow(&ArrowExportOptions::default(), &mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);
 
         Ok(())

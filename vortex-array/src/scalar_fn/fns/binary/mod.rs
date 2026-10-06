@@ -63,7 +63,7 @@ impl Binary {
         rhs: ArrayRef,
         operator: Operator,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Binary.bind(operator), vec![lhs, rhs])
+        ScalarFnArray::try_new(Binary.bind(operator), [lhs, rhs])
     }
 }
 

@@ -39,6 +39,7 @@ mod tests;
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
+use crate::bitpack_compress::bitpack_encode_blocked;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -404,6 +405,29 @@ impl BitPackedData {
             .try_downcast::<Primitive>()
             .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
         bitpack_encode(&parray, bit_width, None, ctx)
+    }
+
+    /// Bit-pack an array of primitive integers, packing each 1024-value block at its width in
+    /// `bit_widths`.
+    ///
+    /// Values wider than their block's width become patches.
+    ///
+    /// # Errors
+    ///
+    /// If the provided array is not a primitive integer array or contains negative values, or if
+    /// `bit_widths` does not hold one width per block of at most the array's bit width, an error
+    /// will be returned. Nonempty arrays must have at least one block narrower than the array's
+    /// native bit width.
+    pub fn encode_blocked(
+        array: &ArrayRef,
+        bit_widths: &[u8],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BitPackedArray> {
+        let parray: PrimitiveArray = array
+            .clone()
+            .try_downcast::<Primitive>()
+            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        bitpack_encode_blocked(&parray, bit_widths, None, ctx)
     }
 }
 

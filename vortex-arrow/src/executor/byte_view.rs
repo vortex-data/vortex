@@ -14,6 +14,8 @@ use vortex_array::dtype::Nullability;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
+use crate::ArrowExporter;
+use crate::CompactBuffers;
 use crate::dtype::from_arrow_data_type;
 use crate::null_buffer::to_null_buffer;
 
@@ -52,6 +54,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
 
 pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     array: ArrayRef,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the array into the desired ByteView type.
@@ -62,7 +65,11 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
 
     let array = array.execute::<ArrayRef>(ctx)?;
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;
-    execute_varbinview_to_arrow::<T>(&varbinview, ctx)
+    if exporter.options().get_or_default::<CompactBuffers>().0 {
+        execute_varbinview_to_arrow::<T>(&varbinview, ctx)
+    } else {
+        canonical_varbinview_to_arrow::<T>(&varbinview, ctx)
+    }
 }
 
 #[cfg(test)]

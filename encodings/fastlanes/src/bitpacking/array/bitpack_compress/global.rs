@@ -27,6 +27,7 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use super::ensure_non_negative_integers;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
@@ -40,27 +41,17 @@ pub fn bitpack_to_best_bit_width(
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq), ctx)
 }
 
-#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
 pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitPackedArray> {
+    ensure_non_negative_integers(array, ctx)?;
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array.as_view(), ctx)?,
     };
-
-    // Check array contains no negative values.
-    if array.ptype().is_signed_int() {
-        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
-        });
-        if has_negative_values {
-            vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
-        }
-    }
 
     let num_exceptions = bitpack_decompress::count_exceptions(bit_width, bit_width_freq);
 
