@@ -402,7 +402,9 @@ fn step_limit_is_enforced() -> VortexResult<()> {
 #[rstest]
 #[case(IoIntent::Announce)]
 #[case(IoIntent::Prefetch)]
-fn optional_publication_does_not_park_or_receive_bytes(#[case] intent: IoIntent) -> VortexResult<()> {
+fn optional_publication_does_not_park_or_receive_bytes(
+    #[case] intent: IoIntent,
+) -> VortexResult<()> {
     let log = Log::default();
     let source = source();
     let mut optional = request(0, 0);
@@ -440,7 +442,10 @@ fn optional_requests_cannot_be_wait_dependencies() -> VortexResult<()> {
         vec![PlannerStep::Io(vec![optional])],
         &Log::default(),
     );
-    let error = driver(&source).run(root).err().map(|error| error.to_string());
+    let error = driver(&source)
+        .run(root)
+        .err()
+        .map(|error| error.to_string());
     assert!(error.is_some_and(|error| error.contains("waits with no outstanding fetch")));
     assert!(source.performed().is_empty());
     Ok(())
