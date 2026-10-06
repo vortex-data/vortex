@@ -143,8 +143,7 @@ struct Fixture {
 
 impl Fixture {
     fn new(columns: usize, chunks: usize) -> Self {
-        let chunk =
-            PrimitiveArray::from_iter(0..i32::try_from(CHUNK_ROWS).unwrap()).into_array();
+        let chunk = PrimitiveArray::from_iter(0..i32::try_from(CHUNK_ROWS).unwrap()).into_array();
         let array_ctx = ArrayContext::empty();
         let buffers = chunk
             .serialize(
@@ -182,12 +181,8 @@ impl Fixture {
                 );
             }
             column_layouts.push(
-                ChunkedLayout::new(
-                    rows,
-                    chunk.dtype().clone(),
-                    layout_children(chunk_layouts),
-                )
-                .into_layout(),
+                ChunkedLayout::new(rows, chunk.dtype().clone(), layout_children(chunk_layouts))
+                    .into_layout(),
             );
         }
         let fields: Vec<(String, ArrayRef)> = (0..columns)
@@ -456,7 +451,10 @@ impl<'a> V1<'a> {
             }
             let answered = self.answer();
             let woken = self.wake.0.swap(false, Ordering::AcqRel);
-            assert!(answered > 0 || woken, "projection is pending with no reads in flight");
+            assert!(
+                answered > 0 || woken,
+                "projection is pending with no reads in flight"
+            );
         }
     }
 
@@ -482,8 +480,7 @@ impl<'a> V1<'a> {
             }
             for chunk in 0..self.fixture.chunks {
                 for column in 0..self.fixture.columns {
-                    if let Some(request) = by_segment[column * self.fixture.chunks + chunk].take()
-                    {
+                    if let Some(request) = by_segment[column * self.fixture.chunks + chunk].take() {
                         self.send(request);
                     }
                 }
@@ -599,24 +596,22 @@ fn pipe_io_wait_by_row<const C: usize>(bencher: Bencher, chunks: usize) {
 #[divan::bench(consts = COLUMNS, args = CHUNKS)]
 fn decode_only<const C: usize>(bencher: Bencher, chunks: usize) {
     let fixture = Fixture::new(C, chunks);
-    bencher
-        .counter(ItemsCount::new(fixture.nodes))
-        .bench(|| {
-            let mut rows = 0;
-            for segment in &fixture.segments {
-                let array = SerializedArray::try_from(segment.clone())
-                    .unwrap()
-                    .decode(
-                        &fixture.chunk_dtype,
-                        CHUNK_ROWS,
-                        &fixture.read_ctx,
-                        &SESSION,
-                    )
-                    .unwrap();
-                rows += array.len();
-            }
-            rows
-        });
+    bencher.counter(ItemsCount::new(fixture.nodes)).bench(|| {
+        let mut rows = 0;
+        for segment in &fixture.segments {
+            let array = SerializedArray::try_from(segment.clone())
+                .unwrap()
+                .decode(
+                    &fixture.chunk_dtype,
+                    CHUNK_ROWS,
+                    &fixture.read_ctx,
+                    &SESSION,
+                )
+                .unwrap();
+            rows += array.len();
+        }
+        rows
+    });
 }
 
 /// Builds the V1 projection future and drops it: every read is requested.

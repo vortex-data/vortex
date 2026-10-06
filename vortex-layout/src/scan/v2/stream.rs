@@ -76,9 +76,8 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let concurrency = builder.concurrency() * num_workers;
                     let handle = builder.session().handle();
                     let prepared = handle.spawn_cpu(move || builder.prepare());
-                    let task = handle.spawn(async move {
-                        prepared.await?.execute_batches_pruned(None).await
-                    });
+                    let task = handle
+                        .spawn(async move { prepared.await?.execute_batches_pruned(None).await });
                     self.state = State::Preparing {
                         ordered,
                         concurrency,

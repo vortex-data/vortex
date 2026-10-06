@@ -122,21 +122,24 @@ impl Deref for TableGuard<'_> {
 
 impl DerefMut for TableGuard<'_> {
     fn deref_mut(&mut self) -> &mut Table {
-        self.guard.as_deref_mut().vortex_expect("table guard is held")
+        self.guard
+            .as_deref_mut()
+            .vortex_expect("table guard is held")
     }
 }
 
 impl Drop for TableGuard<'_> {
     fn drop(&mut self) {
-        let hold = self.timing.map(|(acquired, _, _)| acquired.elapsed());
+        let hold = self.timing.map(|(acquired, ..)| acquired.elapsed());
         drop(self.guard.take());
         if let Some((_, wait, contended)) = self.timing {
             trace!(
                 target: "vortex_file::io_lock",
                 operation = self.operation,
                 contended,
-                wait_ns = wait.as_nanos() as u64,
-                hold_ns = hold.vortex_expect("timed guard has hold duration").as_nanos() as u64,
+                wait_ns = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX),
+                hold_ns = u64::try_from(hold.vortex_expect("timed guard has hold duration").as_nanos())
+                    .unwrap_or(u64::MAX),
                 "file IO table lock"
             );
         }
@@ -201,7 +204,7 @@ struct PhysicalRead {
 }
 
 impl FileIoService {
-    /// Whether [`ENV_VAR`] selects this service. Read once per process.
+    /// Whether `VORTEX_SCAN_BATCH_IO=1` selects this service. Read once per process.
     pub fn enabled() -> bool {
         *ENABLED
     }
@@ -354,7 +357,8 @@ impl Table {
 
 impl Inner {
     fn lock_table(&self, operation: &'static str) -> TableGuard<'_> {
-        let (guard, timing) = if tracing::enabled!(target: "vortex_file::io_lock", tracing::Level::TRACE) {
+        let (guard, timing) = if tracing::enabled!(target: "vortex_file::io_lock", tracing::Level::TRACE)
+        {
             let start = Instant::now();
             let (guard, contended) = match self.table.try_lock() {
                 Some(guard) => (guard, false),

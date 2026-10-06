@@ -84,7 +84,11 @@ pub struct ScanBuilder<A> {
 impl ScanBuilder<ArrayRef> {
     /// Create a scan builder over `layout_reader`, opened over `file`, using `session` for
     /// runtime and execution state.
-    pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>, file: ScanFile) -> Self {
+    pub fn new(
+        session: VortexSession,
+        layout_reader: Arc<dyn LayoutReader>,
+        file: ScanFile,
+    ) -> Self {
         Self::from_default(scan_builder::ScanBuilder::new(session, layout_reader), file)
     }
 

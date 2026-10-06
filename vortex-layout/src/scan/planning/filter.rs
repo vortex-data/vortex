@@ -63,7 +63,7 @@ pub struct SelectedRows {
 /// them.
 ///
 /// Every row must satisfy every conjunct, so the planner may evaluate them in any order, each over
-/// the rows the previous ones kept. With a [`FilterExpr`], the order adapts to each conjunct's
+/// the rows the previous ones kept. With a filter expression, the order adapts to each conjunct's
 /// selectivity as splits report it, shared across the whole scan.
 #[derive(Clone)]
 pub struct FilterPlans {

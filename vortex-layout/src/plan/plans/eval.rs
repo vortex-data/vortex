@@ -96,7 +96,11 @@ impl EvalPlan {
 
     /// Applies the whole predicate to encoded values before expanding row results. Layout
     /// planning cannot push into encodings discovered only when a segment is decoded.
-    pub(crate) fn apply(&self, mut array: ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
+    pub(crate) fn apply(
+        &self,
+        mut array: ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
         if !self.data().encoded_predicate {
             return array.apply_bound(self.expression());
         }

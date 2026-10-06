@@ -325,7 +325,7 @@ impl PlanVTable for Zoned {
         }
     }
 
-    /// A pruning plan runs as a [`ZonePruneNode`]; a data plan runs as its data child.
+    /// A pruning plan runs as a zone-pruning node; a data plan runs as its data child.
     fn exec(
         plan: &Plan<Self>,
         rows: Range<u64>,

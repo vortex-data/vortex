@@ -265,7 +265,7 @@ mod tests {
         let request = adapter.request(SegmentId::from(0));
         assert_eq!(source.requests.load(Ordering::Relaxed), requests);
         assert_eq!(source.polls.load(Ordering::Relaxed), 0);
-        assert_eq!(request.await?.try_into_host().await?, bytes);
+        assert_eq!(request.await?.try_into_host()?.await?, bytes);
         assert_eq!(source.polls.load(Ordering::Relaxed), polls);
         Ok(())
     }

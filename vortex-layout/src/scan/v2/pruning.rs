@@ -53,7 +53,8 @@ impl PrunedFile {
             return Ok(None);
         }
         let selected = &self.ranges[lo..hi];
-        let rows = rows.start.max(selected[0].start)..rows.end.min(selected[selected.len() - 1].end);
+        let rows =
+            rows.start.max(selected[0].start)..rows.end.min(selected[selected.len() - 1].end);
         let len = usize::try_from(rows.end - rows.start)?;
         if selected.len() == 1 {
             return Ok(Some((rows, Mask::new_true(len))));

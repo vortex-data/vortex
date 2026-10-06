@@ -62,7 +62,11 @@ impl ProjectionPlanner {
     fn prefetch(&self) -> VortexResult<IoBatch> {
         let mut ids = Vec::new();
         for selected in &self.pending {
-            plan_segments(&self.plans.projection, selected.scope.rows.clone(), &mut ids)?;
+            plan_segments(
+                &self.plans.projection,
+                selected.scope.rows.clone(),
+                &mut ids,
+            )?;
         }
         ids.sort_unstable();
         ids.dedup();
@@ -280,9 +284,8 @@ mod tests {
             .collect();
         // More than 64 runs used to fall back to prefetching the entire bounding range,
         // including the empty middle chunk, after enumerating every run.
-        let mask = Mask::from_iter(
-            (0..3000).map(|row| row % 2 == 0 && !(1000..2000).contains(&row)),
-        );
+        let mask =
+            Mask::from_iter((0..3000).map(|row| row % 2 == 0 && !(1000..2000).contains(&row)));
         let mut planner = ProjectionPlanner::new(
             ScanPlans {
                 session: new_session(),

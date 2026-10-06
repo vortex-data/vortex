@@ -5,7 +5,7 @@
 //!
 //! A copy of the test-only [`plan::lower`](crate::plan::lower) with two modes for zoned layouts:
 //! data plans lower them to their data child, and pruning plans keep them as a
-//! [`ZonedPlan`](crate::plan::ZonedPlan) so pruning proofs can reach the zone statistics.
+//! [`ZonedPlan`] so pruning proofs can reach the zone statistics.
 
 use std::sync::Arc;
 

@@ -97,8 +97,8 @@ impl PlanVTable for Filter {
         }
     }
 
-    /// Runs fused with a segment-scan child, as one [`SegmentScanNode`] that keeps the selected
-    /// rows itself; over any other child, as a [`FilterNode`] that filters the child's whole
+    /// Runs fused with a segment-scan child, as one node that keeps the selected
+    /// rows itself; over any other child, as a filter node that filters the child's whole
     /// pieces.
     fn exec(
         plan: &Plan<Self>,

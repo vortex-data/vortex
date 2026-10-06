@@ -343,13 +343,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 let io = Arc::clone(&self.io);
                 let map_fn = Arc::clone(&self.map_fn);
                 let run = split.run(io);
-                async move {
-                    run.await?
-                        .into_iter()
-                        .map(|array| map_fn(array))
-                        .collect()
-                }
-                .boxed()
+                async move { run.await?.into_iter().map(|array| map_fn(array)).collect() }.boxed()
             })
             .collect())
     }
@@ -358,9 +352,8 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<SplitPlan>> {
-        static FILE_PRUNING: LazyLock<bool> = LazyLock::new(|| {
-            env::var("VORTEX_SCAN_FILE_PRUNING").is_ok_and(|value| value == "1")
-        });
+        static FILE_PRUNING: LazyLock<bool> =
+            LazyLock::new(|| env::var("VORTEX_SCAN_FILE_PRUNING").is_ok_and(|value| value == "1"));
         if *FILE_PRUNING {
             self.pruned_split_plans(row_range).await
         } else {

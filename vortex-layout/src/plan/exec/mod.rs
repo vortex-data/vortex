@@ -267,9 +267,7 @@ impl<'a> StepCx<'a> {
     /// Takes the events that arrived since the node's previous `compute`, in arrival order.
     ///
     /// Events still here when `compute` returns are discarded.
-    pub fn events(
-        &mut self,
-    ) -> impl ExactSizeIterator<Item = Event> + DoubleEndedIterator + use<> {
+    pub fn events(&mut self) -> impl ExactSizeIterator<Item = Event> + DoubleEndedIterator + use<> {
         mem::take(&mut self.events).into_iter()
     }
 
@@ -394,10 +392,14 @@ impl ExecGraph {
 
     /// Ids of requests returned by [`compute`](Self::compute) whose results are not yet delivered.
     pub fn outstanding(&self) -> impl Iterator<Item = IoRequestId> + '_ {
-        self.io_routes.iter().enumerate().filter_map(|(index, node)| {
-            let id = IoRequestId(index as u64);
-            (node.is_some() && !self.new_io.iter().any(|request| request.id == id)).then_some(id)
-        })
+        self.io_routes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                let id = IoRequestId(index as u64);
+                (node.is_some() && !self.new_io.iter().any(|request| request.id == id))
+                    .then_some(id)
+            })
     }
 
     /// Runs ready nodes until a piece reaches the root, requests should be flushed, a node

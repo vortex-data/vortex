@@ -181,11 +181,10 @@ impl ProtocolGraph {
     /// published, so anything else is a driver bug. Bytes the graph cannot take fail the owner's
     /// next compute.
     pub(crate) fn set_io_result(&mut self, id: request::IoRequestId, result: IoResult) {
-        let pending = id
-            .0
-            .checked_sub(self.first_id)
-            .and_then(|index| self.outstanding.get_mut(index as usize))
-            .and_then(Option::take);
+        let pending =
+            id.0.checked_sub(self.first_id)
+                .and_then(|index| self.outstanding.get_mut(index as usize))
+                .and_then(Option::take);
         let Some((graph_id, segment_id)) = pending else {
             vortex_panic!("ProtocolGraph: delivery of {id:?}, which is not outstanding");
         };

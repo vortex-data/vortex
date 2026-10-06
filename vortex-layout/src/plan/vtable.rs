@@ -106,9 +106,6 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
         cx: &mut GraphBuilder<'_>,
     ) -> VortexResult<()> {
         drop((rows, mask, cx));
-        vortex_bail!(
-            "Plan {} has no pipeline implementation",
-            plan.vtable().id()
-        )
+        vortex_bail!("Plan {} has no pipeline implementation", plan.vtable().id())
     }
 }

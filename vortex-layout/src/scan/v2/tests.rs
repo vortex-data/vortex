@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[path = "list_tests.rs"]
-mod lists;
 #[path = "legacy_tests.rs"]
 mod legacy;
+#[path = "list_tests.rs"]
+mod lists;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
@@ -496,7 +496,7 @@ async fn write_dict_layout(
         FlatLayoutStrategy::default(),
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
         DictLayoutOptions::default(),
-        Arc::new(BtrBlocksCompressor::default()),
+        Arc::new(BtrBlocksCompressor::from_session(session)),
     )
     .write_stream(
         ArrayContext::empty().into(),
@@ -763,7 +763,10 @@ async fn file_pruning_precedes_data_split_creation(
     )?;
     let splits = scan.pruned_split_plans(None).await?;
     assert_eq!(
-        splits.iter().map(|split| split.scope.rows.clone()).collect::<Vec<_>>(),
+        splits
+            .iter()
+            .map(|split| split.scope.rows.clone())
+            .collect::<Vec<_>>(),
         expected_scope.into_iter().collect::<Vec<_>>()
     );
     let zones = layout
@@ -828,7 +831,6 @@ async fn file_pruning_rechecks_dynamic_bounds_after_splitting() -> VortexResult<
     assert_eq!(splits[0].scope.rows, 0..4000);
     Ok(())
 }
-
 
 #[tokio::test(flavor = "multi_thread")]
 async fn file_pruning_keeps_disjoint_zones_in_one_filter_task() -> VortexResult<()> {

@@ -10,9 +10,9 @@ use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_io::request::IoService;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
@@ -55,7 +55,9 @@ impl SplitPlan {
             match self.root.compute()? {
                 PlannerOutput::NeedsIO(batch) => {
                     vortex_ensure!(
-                        batch.iter().all(|request| request.intent == IoIntent::Announce),
+                        batch
+                            .iter()
+                            .all(|request| request.intent == IoIntent::Announce),
                         "early announcement encountered an active read"
                     );
                     source.submit(IoOwnerId(0), batch)?;

@@ -77,7 +77,16 @@ fn compound_encoded_predicate_preserves_nulls_and_slices(
     session.arrays().register(Pco);
     let mut ctx = session.create_execution_ctx();
     let expected = PrimitiveArray::from_option_iter([
-        Some(1_i32), Some(1), None, None, Some(3), Some(3), Some(3), Some(5), Some(5), None,
+        Some(1_i32),
+        Some(1),
+        None,
+        None,
+        Some(3),
+        Some(3),
+        Some(3),
+        Some(5),
+        Some(5),
+        None,
     ]);
     let encoded = if pco {
         Pco::from_primitive(expected.as_view(), 0, 128, &mut ctx)?.into_array()
@@ -102,7 +111,10 @@ fn compound_encoded_predicate_preserves_nulls_and_slices(
     );
     let plan = EvalPlan::try_new(expression.clone(), source.into_plan())?;
     let actual = plan.apply(encoded, &session)?;
-    let expected = expected.into_array().slice(rows)?.apply_bound(&expression)?;
+    let expected = expected
+        .into_array()
+        .slice(rows)?
+        .apply_bound(&expression)?;
     assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
@@ -236,9 +248,9 @@ impl Graph {
             Executor::Nodes => {
                 Self::Nodes(ExecGraph::try_new(session, plan, rows, mask, 0, decoded)?)
             }
-            Executor::Pipelines => {
-                Self::Pipelines(PipelineGraph::try_new(session, plan, rows, mask, 0, decoded)?)
-            }
+            Executor::Pipelines => Self::Pipelines(PipelineGraph::try_new(
+                session, plan, rows, mask, 0, decoded,
+            )?),
         })
     }
 
@@ -449,7 +461,14 @@ fn views_of_one_plan(
     let (plan, expected) = fixture(&mut store)?;
     let mask = sel.mask((rows.end - rows.start) as usize);
 
-    let run = run(executor, &store, &plan, rows.clone(), mask.clone(), delivery(order))?;
+    let run = run(
+        executor,
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(order),
+    )?;
     assert_view(&expected, &rows, &mask, run.pieces)
 }
 
@@ -573,7 +592,14 @@ fn pack_emits_once_every_field_has_closed(
     let (plan, expected) = two_columns(&mut store)?;
     let mask = Mask::new_true(ROWS as usize);
 
-    let run = run(executor, &store, &plan, 0..ROWS, mask.clone(), scripted(order))?;
+    let run = run(
+        executor,
+        &store,
+        &plan,
+        0..ROWS,
+        mask.clone(),
+        scripted(order),
+    )?;
 
     let mut events = vec![Event::Io(vec![0, 1, 2, 3])];
     events.extend(order.iter().map(|segment| Event::Delivered(*segment)));
@@ -770,10 +796,9 @@ fn dictionary_predicate_preserves_nullable_codes(
     .into_array();
     let array = DictArray::try_new(codes, values)?.into_array();
     let expression = and(gt(root(), lit(0i32)), lt(root(), lit(4i32))).bind(array.dtype())?;
-    let expected = BoolArray::from_iter(
-        (0..ROWS).map(|row| (row % 4 != 0).then_some(row % 3 == 1)),
-    )
-    .into_array();
+    let expected =
+        BoolArray::from_iter((0..ROWS).map(|row| (row % 4 != 0).then_some(row % 3 == 1)))
+            .into_array();
     let plan = EvalPlan::try_new(expression, lower(&store.flat(&array)?)?)?.into_plan();
     let result = run(
         executor,
@@ -801,8 +826,7 @@ fn dictionary_predicate_does_not_evaluate_unused_fallible_values(
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|row| 1 + (row % 2) as u8)).into_array();
     let array = DictArray::try_new(codes, values)?.into_array();
     let quotient = binary(Operator::Div, lit(100i32), root());
-    let expression =
-        and(gt(quotient, lit(20i32)), lt(root(), lit(100i32))).bind(array.dtype())?;
+    let expression = and(gt(quotient, lit(20i32)), lt(root(), lit(100i32))).bind(array.dtype())?;
     let plan = EvalPlan::try_new(expression, lower(&store.flat(&array)?)?)?.into_plan();
     let result = run(
         executor,
@@ -843,10 +867,8 @@ fn dictionary_predicate_preserves_non_strict_null_results(
         Mask::new_true(ROWS as usize),
         delivery(Delivery::Fifo),
     )?;
-    let expected = BoolArray::from_iter(
-        (0..ROWS).map(|row| Some(row % 4 == 0 || row % 3 != 0)),
-    )
-    .into_array();
+    let expected =
+        BoolArray::from_iter((0..ROWS).map(|row| Some(row % 4 == 0 || row % 3 != 0))).into_array();
     assert_view(
         &expected,
         &(0..ROWS),
@@ -861,7 +883,14 @@ fn dictionary_boolean_fusion_respects_code_identity(
     #[values(Operator::And, Operator::Or)] operator: Operator,
 ) -> VortexResult<()> {
     let indices = [
-        Some(0u8), Some(1), Some(2), None, Some(2), Some(1), Some(0), None,
+        Some(0u8),
+        Some(1),
+        Some(2),
+        None,
+        Some(2),
+        Some(1),
+        Some(0),
+        None,
     ];
     let codes = PrimitiveArray::from_option_iter(indices).into_array();
     let other_codes = if shared_codes {

@@ -201,8 +201,8 @@ async fn main() -> anyhow::Result<()> {
                         for table in benchmark.table_specs().iter() {
                             let df = session.table(table.name).await?;
                             let column = df.schema().field(0).name().clone();
-                            let mut batches = df.select_columns(&[&column])?
-                                .execute_stream().await?;
+                            let mut batches =
+                                df.select_columns(&[&column])?.execute_stream().await?;
                             while let Some(batch) = batches.try_next().await? {
                                 drop(batch);
                             }

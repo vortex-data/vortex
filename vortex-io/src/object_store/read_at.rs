@@ -145,12 +145,12 @@ async fn read_object_store_range(
                     path = %path,
                     offset,
                     length,
-                    prepare_ns = submitted.duration_since(start).as_nanos() as u64,
-                    allocation_ns = allocated.duration_since(start).as_nanos() as u64,
-                    get_ns = submitted.duration_since(allocated).as_nanos() as u64,
-                    queue_ns = started.duration_since(submitted).as_nanos() as u64,
-                    read_ns = finished.duration_since(started).as_nanos() as u64,
-                    resume_ns = resumed.duration_since(finished).as_nanos() as u64,
+                    prepare_ns = u64::try_from(submitted.duration_since(start).as_nanos()).unwrap_or(u64::MAX),
+                    allocation_ns = u64::try_from(allocated.duration_since(start).as_nanos()).unwrap_or(u64::MAX),
+                    get_ns = u64::try_from(submitted.duration_since(allocated).as_nanos()).unwrap_or(u64::MAX),
+                    queue_ns = u64::try_from(started.duration_since(submitted).as_nanos()).unwrap_or(u64::MAX),
+                    read_ns = u64::try_from(finished.duration_since(started).as_nanos()).unwrap_or(u64::MAX),
+                    resume_ns = u64::try_from(resumed.duration_since(finished).as_nanos()).unwrap_or(u64::MAX),
                     "local object-store read"
                 );
             }

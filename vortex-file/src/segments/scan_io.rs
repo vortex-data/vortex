@@ -55,7 +55,7 @@ use crate::segments::source::SharedDriver;
 type SharedRead = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
 type ReadKey = (u64, usize, Alignment);
 
-/// Serves a scan's splits from a file's coalescing read driver, one [`FileSplitIo`] per split.
+/// Serves a scan's splits from a file's coalescing read driver, one IO session per split.
 ///
 /// Every split's reads go to the same driver, so reads of different splits coalesce with each
 /// other as the default scan's do.
@@ -236,7 +236,7 @@ impl IoSource for FileSplitIo {
                 requests,
                 registered,
                 wanted,
-                elapsed_ns = start.elapsed().as_nanos() as u64,
+                elapsed_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                 "scan IO submit"
             );
         }
@@ -394,7 +394,9 @@ mod tests {
             })
             .await?;
         reads.store(0, Ordering::Relaxed);
-        let service = file.scan_io().ok_or_else(|| vortex_err!("missing file IO"))?;
+        let service = file
+            .scan_io()
+            .ok_or_else(|| vortex_err!("missing file IO"))?;
         let spec = file.footer().segment_map()[0];
         let request = |intent, id| IoRequest {
             intent,

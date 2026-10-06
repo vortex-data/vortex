@@ -96,7 +96,8 @@ pub(crate) fn fuse_dictionary_predicate(
                 let values = left.values().binary(right.values().clone(), operator)?;
                 return Ok(DictArray::try_new(left.codes().clone(), values)?.into_array());
             }
-            if ArrayRef::ptr_eq(&lhs, scalar.child_at(0)) && ArrayRef::ptr_eq(&rhs, scalar.child_at(1))
+            if ArrayRef::ptr_eq(&lhs, scalar.child_at(0))
+                && ArrayRef::ptr_eq(&rhs, scalar.child_at(1))
             {
                 return Ok(array);
             }

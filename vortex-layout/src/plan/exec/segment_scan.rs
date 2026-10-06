@@ -225,7 +225,8 @@ mod tests {
         )?
         .into_array();
         let values = PrimitiveArray::from_option_iter([Some(10_i32), None, Some(30)]).into_array();
-        let array = RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
+        let array =
+            RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
         let array_ctx = ArrayContext::empty();
         let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
         for buffer in array.serialize(
