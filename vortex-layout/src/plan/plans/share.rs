@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
-use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_error::VortexResult;
@@ -44,13 +44,13 @@ pub struct Share;
 /// A plan rebuilt with new children starts empty.
 #[derive(Clone, Default)]
 pub struct ShareData {
-    value: Arc<Mutex<Option<ArrayRef>>>,
+    value: Arc<OnceLock<ArrayRef>>,
 }
 
 impl fmt::Debug for ShareData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShareData")
-            .field("cached", &self.value.lock().is_some())
+            .field("cached", &self.value.get().is_some())
             .finish()
     }
 }
@@ -78,12 +78,17 @@ impl SharePlan {
 
     /// The value an earlier execution produced, if any.
     pub(crate) fn cached(&self) -> Option<ArrayRef> {
-        self.data().value.lock().clone()
+        self.data().value.get().cloned()
+    }
+
+    /// Whether an earlier execution populated the cache.
+    pub(crate) fn has_cached(&self) -> bool {
+        self.data().value.get().is_some()
     }
 
     /// Records the value for later executions, keeping the first when two race.
     pub(crate) fn cache(&self, value: ArrayRef) -> ArrayRef {
-        self.data().value.lock().get_or_insert(value).clone()
+        self.data().value.get_or_init(|| value).clone()
     }
 }
 

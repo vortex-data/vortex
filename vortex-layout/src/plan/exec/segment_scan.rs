@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
+use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArrayExt;
 use vortex_runend::RunEndArraySlotsExt;
@@ -160,8 +161,15 @@ pub(crate) fn decode_segment(
     if runend.ends().is_canonical() {
         return Ok(array);
     }
-    // Slicing searches the run ends with scalar probes. A compressed index can decompress
-    // a page for every probe, then repeat that work for each slice of this segment.
+    if !runend
+        .ends()
+        .depth_first_traversal()
+        .any(|array| array.is::<Pco>())
+    {
+        return Ok(array);
+    }
+    // PCO scalar probes decompress pages, which slicing repeats during binary search.
+    // Other encodings can probe cheaply; eagerly decoding their whole index wastes work.
     let mut ctx = session.create_execution_ctx();
     let ends = runend.ends().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let prepared = RunEnd::try_new_offset_length(
@@ -199,6 +207,7 @@ mod tests {
     use vortex_array::arrays::DictArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
@@ -215,18 +224,24 @@ mod tests {
     fn compressed_run_ends_preserve_offsets_and_nulls(
         #[case] offset: usize,
         #[case] len: usize,
+        #[values(false, true)] pco: bool,
     ) -> VortexResult<()> {
         let session = crate::test::new_session();
         vortex_runend::initialize(&session);
+        session.arrays().register(Pco);
         let mut ctx = session.create_execution_ctx();
-        let ends = DictArray::try_new(
-            Buffer::from(vec![0_u8, 1, 2]).into_array(),
-            Buffer::from(vec![5_u32, 9, 15]).into_array(),
-        )?
-        .into_array();
+        let ends = if pco {
+            let ends = PrimitiveArray::new(Buffer::from(vec![5_u32, 9, 15]), Validity::NonNullable);
+            Pco::from_primitive(ends.as_view(), 0, 128, &mut ctx)?.into_array()
+        } else {
+            DictArray::try_new(
+                Buffer::from(vec![0_u8, 1, 2]).into_array(),
+                Buffer::from(vec![5_u32, 9, 15]).into_array(),
+            )?
+            .into_array()
+        };
         let values = PrimitiveArray::from_option_iter([Some(10_i32), None, Some(30)]).into_array();
-        let array =
-            RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
+        let array = RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
         let array_ctx = ArrayContext::empty();
         let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
         for buffer in array.serialize(

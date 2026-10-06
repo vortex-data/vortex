@@ -69,25 +69,25 @@ pub(crate) fn plan_segments(
             .skip(first.saturating_sub(1))
             .take_while(|&(_, &offset)| offset < rows.end)
         {
-            let child = concat.child_required(index)?;
+            let child = plan.child_ref_required(index)?;
             let start = cmp::max(rows.start, offset);
             let end = cmp::min(rows.end, offset + child.row_count());
-            plan_segments(&child, start - offset..end - offset, segments)?;
+            plan_segments(child, start - offset..end - offset, segments)?;
         }
     } else if let Some(take) = plan.as_opt::<Take>() {
-        plan_segments(&take.codes()?, rows, segments)?;
-        if take.cached_values().is_none() {
-            let values = take.values()?;
+        plan_segments(plan.child_ref_required(0)?, rows, segments)?;
+        if !take.has_cached_values() {
+            let values = plan.child_ref_required(1)?;
             let len = values.row_count();
-            plan_segments(&values, 0..len, segments)?;
+            plan_segments(values, 0..len, segments)?;
         }
     } else if let Some(share) = plan.as_opt::<Share>() {
-        if share.cached().is_none() {
-            plan_segments(&share.child_plan()?, rows, segments)?;
+        if !share.has_cached() {
+            plan_segments(plan.child_ref_required(0)?, rows, segments)?;
         }
     } else if plan.is::<Pack>() || plan.is::<Filter>() || plan.is::<Eval>() {
-        for child in plan.children().iter() {
-            plan_segments(&child?, rows.clone(), segments)?;
+        for child in plan.children().iter_refs() {
+            plan_segments(child?, rows.clone(), segments)?;
         }
     }
     Ok(())

@@ -21,6 +21,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::scan::scan_builder;
 use crate::scan::v2::ScanBuilder;
 use crate::scan::v2::ScanFile;
+use crate::scan::v2::pruning::file_pruning_enabled;
 
 /// Returns a stream that prepares the scan over `file` on first poll and spawns its split tasks.
 ///
@@ -75,9 +76,15 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency() * num_workers;
                     let handle = builder.session().handle();
-                    let prepared = handle.spawn_cpu(move || builder.prepare());
-                    let task = handle
-                        .spawn(async move { prepared.await?.execute_batches_pruned(None).await });
+                    let task = if file_pruning_enabled() {
+                        let prepared = handle.spawn_cpu(move || builder.prepare());
+                        handle
+                            .spawn(async move { prepared.await?.execute_batches_pruned(None).await })
+                    } else {
+                        handle.spawn_cpu(move || {
+                            builder.prepare().and_then(|scan| scan.execute_batches(None))
+                        })
+                    };
                     self.state = State::Preparing {
                         ordered,
                         concurrency,

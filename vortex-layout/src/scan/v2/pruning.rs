@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env;
 use std::future;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use futures::channel::oneshot;
 use vortex_array::ArrayRef;
@@ -37,6 +39,12 @@ use crate::scan::planning::ScanPlans;
 use crate::scan::planning::graph::GraphStep;
 use crate::scan::planning::graph::ProtocolGraph;
 use crate::scan::planning::graph::ScanGraph;
+
+pub(super) fn file_pruning_enabled() -> bool {
+    static ENABLED: LazyLock<bool> =
+        LazyLock::new(|| env::var("VORTEX_SCAN_FILE_PRUNING").is_ok_and(|value| value == "1"));
+    *ENABLED
+}
 
 pub(super) struct PrunedFile {
     pub ranges: Vec<Range<u64>>,

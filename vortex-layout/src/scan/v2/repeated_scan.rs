@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp;
-use std::env;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -56,6 +54,7 @@ use crate::scan::v2::file::shared_file;
 use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::pruning::PrunedFile;
+use crate::scan::v2::pruning::file_pruning_enabled;
 use crate::scan::v2::pruning::prune_file;
 use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitPlan;
@@ -352,9 +351,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<SplitPlan>> {
-        static FILE_PRUNING: LazyLock<bool> =
-            LazyLock::new(|| env::var("VORTEX_SCAN_FILE_PRUNING").is_ok_and(|value| value == "1"));
-        if *FILE_PRUNING {
+        if file_pruning_enabled() {
             self.pruned_split_plans(row_range).await
         } else {
             self.split_plans(row_range)

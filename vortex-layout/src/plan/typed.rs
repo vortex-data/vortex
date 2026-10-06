@@ -101,6 +101,14 @@ impl PlanRef {
             .ok_or_else(|| vortex_err!("Missing plan child {index}"))
     }
 
+    /// Borrows the child at `index`, or returns an error if it is out of bounds.
+    pub(crate) fn child_ref_required(&self, index: usize) -> VortexResult<&PlanRef> {
+        self.0
+            .children
+            .get_ref(index)?
+            .ok_or_else(|| vortex_err!("Missing plan child {index}"))
+    }
+
     /// Rebuilds this plan with `children` stored outside its erased operator data.
     pub fn with_children(&self, children: impl Into<PlanChildren>) -> VortexResult<PlanRef> {
         self.dyn_plan().dyn_with_children(self, children.into())
