@@ -91,19 +91,6 @@ fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = 
     (0..len).map(move |i| unsafe { base.add(i).read_unaligned() })
 }
 
-/// Convert a duckdb i16 decimal which can be a Vortex i8 decimal, fill NULL
-/// values to 0
-fn i16_to_i8(values: &[i16], validity: &Mask) -> Buffer<i8> {
-    let mut buffer: BufferMut<i8> =
-        BufferMut::from_trusted_len_iter(values.iter().map(|&v| v.as_()));
-    match validity {
-        Mask::AllTrue(_) => {}
-        Mask::AllFalse(_) => buffer.fill(0),
-        Mask::Values(mask) => (!mask.bit_buffer()).for_each_set_index(|idx| buffer[idx] = 0),
-    }
-    buffer.freeze()
-}
-
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
     vector: &VectorRef,
     len: usize,
@@ -325,7 +312,10 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
                     if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8 {
-                        DecimalArray::try_new(i16_to_i8(data, &mask), decimal_dtype, validity)
+                        // Lossy conversion is defined behavior in Rust so this is fine
+                        let buf =
+                            Buffer::<i8>::from_trusted_len_iter(data.iter().map(|&v| v.as_()));
+                        DecimalArray::try_new(buf, decimal_dtype, validity)
                     } else {
                         DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
                     }
