@@ -11,7 +11,6 @@ use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
 
 use crate::planning::morsel::Morsel;
-use crate::planning::next::PendingPlanner;
 
 /// Logical position carried with work and output for future driver ordering policies.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,9 +50,22 @@ pub enum PlannerOutput {
     /// Requests the planner publishes: fetches it needs, and optional hints.
     NeedsIO(IoBatch),
     /// A child planner, with the scope it is responsible for.
-    Planner(WorkScope, Box<dyn PendingPlanner>),
+    Planner(WorkScope, Box<dyn Planner>),
     /// A morsel authorised to produce arrays for the scope.
     Morsel(WorkScope, Box<dyn Morsel>),
+}
+
+/// A planner decides which work is needed.
+///
+/// It privately owns cursors, selections, and pending inputs. `compute()` advances CPU work
+/// when `state()` reports `NeedsCompute` and may produce one child, one IO batch, a checkpoint,
+/// or finish. A planner moves between threads with the run that owns it.
+pub trait Planner: IoConsumer + Send {
+    /// Reports what the planner needs next without doing work.
+    fn state(&self) -> State;
+
+    /// Advances CPU work. Only called when [`state`](Self::state) is `NeedsCompute`.
+    fn compute(&mut self) -> VortexResult<PlannerOutput>;
 }
 
 impl fmt::Debug for PlannerOutput {
@@ -66,17 +78,4 @@ impl fmt::Debug for PlannerOutput {
             Self::Morsel(scope, _) => f.debug_tuple("Morsel").field(scope).finish(),
         }
     }
-}
-
-/// A planner decides which work is needed.
-///
-/// It privately owns cursors, selections, and pending inputs. `compute()` advances CPU work
-/// when `state()` reports `NeedsCompute` and may produce one child, one IO batch, a checkpoint,
-/// or finish. A live planner moves between threads with the run that owns it.
-pub trait Planner: IoConsumer + Send {
-    /// Reports what the planner needs next without doing work.
-    fn state(&self) -> State;
-
-    /// Advances CPU work. Only called when [`state`](Self::state) is `NeedsCompute`.
-    fn compute(&mut self) -> VortexResult<PlannerOutput>;
 }

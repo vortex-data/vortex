@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[path = "list_tests.rs"]
+mod lists;
+#[path = "legacy_tests.rs"]
+mod legacy;
+
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -253,6 +258,47 @@ async fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
     Ok(())
 }
 
+/// The executor's own builder, configured directly rather than copied from a default builder,
+/// returns what the default scan returns.
+#[rstest]
+#[case::everything(None, None)]
+#[case::filter_and_row_range(Some(gt(root(), lit(1500_i32))), Some(500..2500))]
+#[tokio::test(flavor = "multi_thread")]
+async fn own_builder_matches_default(
+    #[case] filter: Option<Expression>,
+    #[case] row_range: Option<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let reader = || {
+        layout.new_reader(
+            "".into(),
+            Arc::clone(&segments),
+            &session,
+            &Default::default(),
+        )
+    };
+    let filter = filter.map(|filter| filter.bind(&DTYPE)).transpose()?;
+
+    let mut default = ScanBuilder::new(session.clone(), reader()?).with_some_filter(filter.clone());
+    let mut own = v2::ScanBuilder::new(session.clone(), reader()?, scan_file(&segments, &layout)?)
+        .with_some_filter(filter);
+    if let Some(row_range) = row_range {
+        default = default.with_row_range(row_range.clone());
+        own = own.with_row_range(row_range);
+    }
+    assert_eq!(own.dtype()?, default.dtype()?);
+
+    let expected = default.into_stream()?.try_collect::<Vec<_>>().await?;
+    let actual = own.into_stream()?.try_collect::<Vec<_>>().await?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(actual, DTYPE)?,
+        ChunkedArray::try_new(expected, DTYPE)?,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
 #[rstest]
 #[case::whole_scan(case(true, None, None), None)]
 #[case::execute_range(case(true, None, None), Some(700..3300))]
@@ -296,11 +342,13 @@ async fn filter_with_limit_is_rejected() -> VortexResult<()> {
 /// alone reads nothing, so only awaited reads are recorded.
 struct RecordingSegments {
     inner: Arc<dyn SegmentSource>,
+    registered: Arc<Mutex<BTreeSet<u32>>>,
     reads: Arc<Mutex<BTreeSet<u32>>>,
 }
 
 impl SegmentSource for RecordingSegments {
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        self.registered.lock().insert(*id);
         let read = self.inner.request(id);
         let reads = Arc::clone(&self.reads);
         async move {
@@ -309,6 +357,34 @@ impl SegmentSource for RecordingSegments {
         }
         .boxed()
     }
+}
+
+/// Building tasks announces all their ranges without polling a single read.
+#[tokio::test]
+async fn tasks_announce_before_they_run() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let registered = Arc::new(Mutex::new(BTreeSet::new()));
+    let reads = Arc::new(Mutex::new(BTreeSet::new()));
+    let segments: Arc<dyn SegmentSource> = Arc::new(RecordingSegments {
+        inner: segments,
+        registered: Arc::clone(&registered),
+        reads: Arc::clone(&reads),
+    });
+    let scan = v2::prepare(
+        builder(&session, &segments, &layout, &Case::default())?,
+        scan_file(&segments, &layout)?,
+    )?;
+    let tasks = scan.execute(None)?;
+    assert_eq!(*registered.lock(), segment_ids(&layout)?);
+    assert!(reads.lock().is_empty());
+    let actual = await_tasks(DTYPE, tasks).await?;
+    assert_arrays_eq!(
+        actual,
+        Buffer::from_iter(0..4 * CHUNK_ROWS).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
 }
 
 /// The ids of the segments below `layout`.
@@ -380,6 +456,7 @@ async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
         .await?;
 
     let recording = Arc::new(RecordingSegments {
+        registered: Default::default(),
         inner: Arc::clone(&segments),
         reads: Arc::default(),
     });
@@ -508,6 +585,17 @@ async fn scans_over_one_reader_share_the_file() -> VortexResult<()> {
         &shared,
         &shared_file(&reader()?, scan_file(&segments, &layout)?)?
     ));
+    let projection = root().bind(layout.dtype())?;
+    let prepared = shared.prepare_plans(&projection, &None, &session)?;
+    assert!(Arc::ptr_eq(
+        &prepared,
+        &shared.prepare_plans(&root().bind(layout.dtype())?, &None, &session)?
+    ));
+    let filter = Some(gt(root(), lit(500_i32)).bind(layout.dtype())?);
+    assert!(!Arc::ptr_eq(
+        &prepared,
+        &shared.prepare_plans(&projection, &filter, &session)?
+    ));
     Ok(())
 }
 
@@ -535,6 +623,7 @@ async fn zone_pruning_follows_dynamic_comparisons() -> VortexResult<()> {
         )
     };
     let recording = Arc::new(RecordingSegments {
+        registered: Default::default(),
         inner: Arc::clone(&segments),
         reads: Arc::default(),
     });

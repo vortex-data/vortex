@@ -11,6 +11,8 @@ use std::cmp;
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::plan::Concat;
 use crate::plan::Eval;
@@ -21,6 +23,28 @@ use crate::plan::SegmentScan;
 use crate::plan::Share;
 use crate::plan::Take;
 use crate::segments::SegmentId;
+
+/// The most row ranges reads are asked for ahead of time one by one; a more scattered selection
+/// is asked for as the range spanning it.
+const MAX_PREFETCH_RANGES: usize = 64;
+
+/// The row ranges to ask for ahead of time when `mask` selects rows of `rows`.
+pub(crate) fn selected_ranges(rows: &Range<u64>, mask: &Mask) -> Vec<Range<u64>> {
+    let start = rows.start;
+    match mask.slices() {
+        AllOr::All => vec![rows.clone()],
+        AllOr::None => Vec::new(),
+        AllOr::Some(slices) if slices.len() <= MAX_PREFETCH_RANGES => slices
+            .iter()
+            .map(|&(begin, end)| start + begin as u64..start + end as u64)
+            .collect(),
+        AllOr::Some(slices) => {
+            let first = slices.first().map_or(0, |slice| slice.0);
+            let last = slices.last().map_or(0, |slice| slice.1);
+            vec![start + first as u64..start + last as u64]
+        }
+    }
+}
 
 /// Adds the segments `plan` is likely to read over `rows` to `segments`.
 ///

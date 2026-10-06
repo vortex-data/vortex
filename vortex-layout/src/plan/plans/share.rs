@@ -26,6 +26,8 @@ use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
 use crate::plan::exec::ShareNode;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 /// Produces its child's whole value once, as a [`SharedArray`](vortex_array::arrays::SharedArray)
 /// that every execution of the plan reuses.
@@ -132,5 +134,14 @@ impl PlanVTable for Share {
             plan.clone(),
             Selection::try_new(rows, mask)?,
         )))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::share(plan, rows, mask, cx)
     }
 }

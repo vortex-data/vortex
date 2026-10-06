@@ -196,6 +196,7 @@ fn lower_zoned(layout: &LayoutRef, zones: Zones) -> VortexResult<ZonedPlan> {
         lazy_children(Arc::clone(layout), vec![0, 1], zones),
         u64::try_from(metadata.zone_len())?,
         metadata.aggregate_fns(),
+        metadata.legacy_stats(),
     ))
 }
 

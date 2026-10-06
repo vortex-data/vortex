@@ -24,6 +24,7 @@
 
 mod access_plan;
 mod cache;
+mod diagnostics;
 mod format;
 pub mod metrics;
 mod opener;

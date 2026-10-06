@@ -359,6 +359,13 @@ impl ZonedLayout {
 }
 
 impl ZonedData {
+    pub(crate) fn legacy_stats(&self) -> Option<Arc<[Stat]>> {
+        match &self.zone_map_schema {
+            ZoneMapSchema::LegacyStats(stats) => Some(Arc::clone(stats)),
+            ZoneMapSchema::AggregateFns(_) => None,
+        }
+    }
+
     pub(crate) fn zone_len(&self) -> usize {
         self.zone_len
     }

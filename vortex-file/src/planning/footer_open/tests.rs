@@ -16,7 +16,6 @@ use vortex_io::request::ReadAtIoSource;
 use vortex_io::runtime::current::CurrentThreadRuntime;
 use vortex_scan::planning::driver::Driver;
 use vortex_scan::planning::next::next_fn;
-use vortex_scan::planning::next::pending;
 
 use super::*;
 use crate::planning::tests::fixtures::DonePlanner;
@@ -241,10 +240,7 @@ fn child_receives_size_and_footer() -> VortexResult<()> {
         Ok(DonePlanner)
     });
     let mut stage = open(Arc::clone(&read), None, None, next);
-    let PlannerOutput::Planner(_, child) = run_to_child(&mut stage, &read)? else {
-        vortex_bail!("expected a child");
-    };
-    child.start()?;
+    run_to_child(&mut stage, &read)?;
     assert_eq!(*seen.lock(), Some((size, 4)));
     Ok(())
 }
@@ -265,23 +261,19 @@ fn through_the_driver(#[case] cached: bool) -> VortexResult<()> {
         Arc::new(buffer)
     };
     let (next, invoked) = recording_child();
-    let session = SESSION.clone();
-    let root_read = Arc::clone(&read);
-    let root = pending(move || {
-        Ok(Box::new(FooterOpen::new(
-            FileSource {
-                read: root_read,
-                size: Some(size),
-                footer,
-            },
-            DEFAULT_INITIAL_READ_SIZE,
-            session,
-            next,
-        )) as Box<dyn Planner>)
-    });
+    let root = FooterOpen::new(
+        FileSource {
+            read: Arc::clone(&read),
+            size: Some(size),
+            footer,
+        },
+        DEFAULT_INITIAL_READ_SIZE,
+        SESSION.clone(),
+        next,
+    );
     let batches = Driver::new(Arc::new(io_source(&read)))
         .with_step_limit(64)
-        .run(root)?;
+        .run(Box::new(root))?;
     assert!(batches.is_empty());
     assert!(invoked.load(Ordering::SeqCst));
     Ok(())

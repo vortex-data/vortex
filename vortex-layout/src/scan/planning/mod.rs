@@ -31,9 +31,7 @@ use vortex_error::VortexResult;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
 use vortex_scan::planning::next::Next;
-use vortex_scan::planning::next::PendingPlanner;
 use vortex_scan::planning::next::next_fn;
-use vortex_scan::planning::next::pending;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_session::VortexSession;
@@ -92,19 +90,48 @@ pub fn plan_split(
     filter: Option<FilterPlans>,
     scope: WorkScope,
     mask: Mask,
-) -> VortexResult<Box<dyn PendingPlanner>> {
-    // The split's pruning, filter, and projection graphs share one cache, so a segment several of
-    // them read is fetched and decoded once.
+) -> VortexResult<Box<dyn Planner>> {
+    Ok(Box::new(AnnouncePlanner::for_split(
+        plans,
+        pruning,
+        filter,
+        SelectedRows { scope, mask },
+    )))
+}
+
+/// Builds execution stages only after the announcement. Split construction and early IO
+/// announcements happen before tasks run; allocating continuations and the decode cache here
+/// lets the split's execution task do that work.
+fn plan_selected(
+    plans: ScanPlans,
+    pruning: Option<PlanRef>,
+    filter: Option<FilterPlans>,
+    selected: SelectedRows,
+) -> VortexResult<Box<dyn Planner>> {
     let plans = ScanPlans {
         decoded: DecodeCache::default(),
         ..plans
     };
+    if pruning.is_none() && filter.is_none() {
+        return Ok(Box::new(ProjectionPlanner::new(plans, selected)));
+    }
     let project: Next<SelectedRows> = {
         let plans = plans.clone();
         next_fn(move |selected| Ok(ProjectionPlanner::new(plans.clone(), selected)))
     };
-    let announced = filter.clone();
-    let filter: Next<SelectedRows> = match filter {
+    let Some(pruning) = pruning else {
+        return Ok(match filter {
+            Some(filter) => Box::new(FilterPlanner::new(
+                plans,
+                filter,
+                selected.scope,
+                selected.mask,
+                project,
+            )),
+            None => Box::new(ProjectionPlanner::new(plans, selected)),
+        });
+    };
+    let next = match filter {
         None => project,
         Some(filter) => {
             let plans = plans.clone();
@@ -119,27 +146,11 @@ pub fn plan_split(
             })
         }
     };
-    let evaluate: Next<SelectedRows> = match pruning {
-        None => filter,
-        Some(pruning) => {
-            let plans = plans.clone();
-            next_fn(move |selected: SelectedRows| {
-                Ok(FilterPlanner::pruning(
-                    plans.clone(),
-                    pruning.clone(),
-                    selected.scope,
-                    selected.mask,
-                    Arc::clone(&filter),
-                ))
-            })
-        }
-    };
-    Ok(pending(move || {
-        Ok(Box::new(AnnouncePlanner::new(
-            plans,
-            announced,
-            SelectedRows { scope, mask },
-            evaluate,
-        )) as Box<dyn Planner>)
-    }))
+    Ok(Box::new(FilterPlanner::pruning(
+        plans,
+        pruning,
+        selected.scope,
+        selected.mask,
+        next,
+    )))
 }

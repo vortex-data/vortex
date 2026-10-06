@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::SerializedArray;
@@ -9,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::plan::SegmentScanPlan;
 use crate::plan::exec::Event;
@@ -92,14 +95,14 @@ impl ExecNode for SegmentScanNode {
             }
             ScanState::Requested(expected) => {
                 let mut events = cx.events();
-                let Some(event) = events.pop() else {
+                let Some(event) = events.next_back() else {
                     self.state = ScanState::Requested(expected);
                     return Ok(NodeState::Wait);
                 };
                 let Event::Delivered(id, segment) = event else {
                     return Err(event.unexpected("SegmentScan"));
                 };
-                if id != expected || !events.is_empty() {
+                if id != expected || events.len() != 0 {
                     vortex_bail!("SegmentScan did not expect {id:?}");
                 }
                 let array = self.decode(segment)?;
@@ -117,28 +120,13 @@ impl ExecNode for SegmentScanNode {
 impl SegmentScanNode {
     /// Decodes the whole segment.
     fn decode(&self, segment: BufferHandle) -> VortexResult<ArrayRef> {
-        let serialized = match self.plan.array_tree() {
-            Some(tree) => SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?,
-            None => SerializedArray::try_from(segment)?,
-        };
-        let row_count =
-            usize::try_from(self.plan.row_count()).vortex_expect("row count must fit in usize");
-        serialized.decode(
-            self.plan.dtype(),
-            row_count,
-            self.plan.array_ctx(),
-            self.ctx.session(),
-        )
+        decode_segment(&self.plan, self.ctx.session(), segment)
     }
 
     /// Slices the whole decoded segment to the node's rows, filtered when the node has a filter.
-    fn select(&self, mut array: ArrayRef) -> VortexResult<Piece> {
+    fn select(&self, array: ArrayRef) -> VortexResult<Piece> {
         let rows = self.selection.rows().clone();
-        if rows.start > 0 || rows.end < self.plan.row_count() {
-            let start = usize::try_from(rows.start).vortex_expect("row must fit in usize");
-            let end = usize::try_from(rows.end).vortex_expect("row must fit in usize");
-            array = array.slice(start..end)?;
-        }
+        let mut array = slice_rows(&self.plan, array, &rows)?;
         if let Some(filter) = &self.filter
             && !filter.all_true()
         {
@@ -146,4 +134,32 @@ impl SegmentScanNode {
         }
         Ok(Piece { rows, array })
     }
+}
+
+/// Decodes the whole segment `plan` reads from its bytes.
+pub(crate) fn decode_segment(
+    plan: &SegmentScanPlan,
+    session: &VortexSession,
+    segment: BufferHandle,
+) -> VortexResult<ArrayRef> {
+    let serialized = match plan.array_tree() {
+        Some(tree) => SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?,
+        None => SerializedArray::try_from(segment)?,
+    };
+    let row_count = usize::try_from(plan.row_count()).vortex_expect("row count must fit in usize");
+    serialized.decode(plan.dtype(), row_count, plan.array_ctx(), session)
+}
+
+/// Slices the whole decoded segment of `plan` to `rows`.
+pub(crate) fn slice_rows(
+    plan: &SegmentScanPlan,
+    array: ArrayRef,
+    rows: &Range<u64>,
+) -> VortexResult<ArrayRef> {
+    if rows.start == 0 && rows.end == plan.row_count() {
+        return Ok(array);
+    }
+    let start = usize::try_from(rows.start).vortex_expect("row must fit in usize");
+    let end = usize::try_from(rows.end).vortex_expect("row must fit in usize");
+    array.slice(start..end)
 }

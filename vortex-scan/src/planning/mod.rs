@@ -3,8 +3,8 @@
 
 //! Composable scan planning through explicit IO and CPU state machines.
 //!
-//! Pending planners can move between workers. Live planners and morsels belong to
-//! their worker; stage-specific phases remain private to those implementations.
+//! Planners and morsels are `Send` and move between threads with the run that owns them;
+//! stage-specific phases remain private to those implementations.
 
 pub mod driver;
 pub mod morsel;

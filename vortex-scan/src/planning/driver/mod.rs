@@ -4,17 +4,19 @@
 //! A single-worker driver for the protocol.
 //!
 //! A [`Run`] drives any number of root planners, each with its own IO session, and hands their
-//! batches to its caller as they are produced. Runnable items sit in a FIFO run queue, taking at
-//! most one CPU step per visit. Published IO is registered immediately and state is inspected
-//! again before parking. Output follows completion order; FIFO scheduling does not imply row
-//! ordering. Waiting work is parked, and comes back to the run queue when a delivery makes it
-//! runnable, in whatever order the sources finish their reads.
+//! batches to its caller as they are produced. Runnable items are prioritised in DFS preorder,
+//! with roots ordered by admission and children by emission. Each visit takes at most one CPU
+//! step. A parent's continuation follows its emitted child's entire subtree. Waiting work is
+//! skipped and regains its priority when IO makes it runnable. Published IO is registered
+//! immediately and state is inspected again before parking. Output follows emission order,
+//! not global row order. An earlier runnable branch can starve later branches.
 //!
 //! A run never blocks: [`Run::advance`] returns [`Progress::Waiting`] when every live item waits
 //! for IO, and the caller decides how to wait, by awaiting [`Run::poll_completion`] or by handing
 //! a completion it took from a source to [`Run::complete`]. [`Driver::run`] is the blocking
 //! convenience for one root.
 
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::task::Context;
@@ -38,7 +40,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
-use crate::planning::next::PendingPlanner;
 use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
@@ -72,8 +73,7 @@ pub enum Progress {
 }
 
 enum Item {
-    Pending(Box<dyn PendingPlanner>),
-    Live(Box<dyn Planner>),
+    Planner(Box<dyn Planner>),
     Morsel(Box<dyn Morsel>),
 }
 
@@ -90,25 +90,40 @@ struct Work {
     root: RootId,
     scope: WorkScope,
     item: Item,
+    /// Stable child-ordinal path, beginning with the root's admission ordinal.
+    path: Vec<u64>,
+    /// The parent continuation sorts after all previously emitted child subtrees.
+    next_child: u64,
     /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
     outstanding: HashMap<IoRequestId, IoTarget>,
 }
 
 impl Work {
+    fn priority(&self) -> Vec<u64> {
+        let mut priority = self.path.clone();
+        priority.push(self.next_child);
+        priority
+    }
+
+    // Child k takes the continuation's old key as its path. Its subtree then sorts before
+    // the parent's new continuation at k + 1, even if descendants are discovered after IO.
+    fn child_path(&mut self) -> Vec<u64> {
+        let path = self.priority();
+        self.next_child += 1;
+        path
+    }
+
     fn state(&self) -> State {
         match &self.item {
-            // Pending work is started by its next visit.
-            Item::Pending(_) => State::NeedsCompute,
-            Item::Live(planner) => planner.state(),
+            Item::Planner(planner) => planner.state(),
             Item::Morsel(morsel) => morsel.state(),
         }
     }
 
-    fn consumer(&mut self) -> VortexResult<&mut dyn IoConsumer> {
+    fn consumer(&mut self) -> &mut dyn IoConsumer {
         match &mut self.item {
-            Item::Live(planner) => Ok(&mut **planner),
-            Item::Morsel(morsel) => Ok(&mut **morsel),
-            Item::Pending(_) => vortex_bail!("pending work cannot receive IO"),
+            Item::Planner(planner) => &mut **planner,
+            Item::Morsel(morsel) => &mut **morsel,
         }
     }
 
@@ -123,10 +138,42 @@ impl Work {
         if !result.matches(&target) {
             vortex_bail!("IO source answered {target:?} with {}", result.kind());
         }
-        self.consumer()?.set_io_result(request, result);
+        self.consumer().set_io_result(request, result);
         Ok(())
     }
 }
+
+/// Keeps scheduling order separate from lookup for deliveries to runnable work.
+#[derive(Default)]
+struct ReadyQueue {
+    priorities: BTreeMap<Vec<u64>, IoOwnerId>,
+    work: HashMap<IoOwnerId, Box<Work>>,
+}
+
+impl ReadyQueue {
+    fn insert(&mut self, work: Box<Work>) {
+        self.priorities.insert(work.priority(), work.id);
+        self.work.insert(work.id, work);
+    }
+
+    fn pop(&mut self) -> Option<Box<Work>> {
+        let (_, owner) = self.priorities.pop_first()?;
+        self.work.remove(&owner)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.priorities.is_empty()
+    }
+
+    fn cancel(&mut self, root: RootId) {
+        self.work.retain(|_, work| work.root != root);
+        self.priorities
+            .retain(|_, owner| self.work.contains_key(owner));
+    }
+}
+
+/// Poll IO even when one high-priority branch keeps producing CPU work.
+const IO_POLL_INTERVAL: usize = 64;
 
 /// One admitted root: the session its descendants read through, and how many of them are live.
 struct Root {
@@ -142,12 +189,12 @@ pub struct Run {
     roots: HashMap<RootId, Root>,
     next_root: u64,
     next_owner: u64,
-    queue: VecDeque<Box<Work>>,
+    queue: ReadyQueue,
     parked: HashMap<IoOwnerId, Box<Work>>,
     /// Batches and finished roots not yet returned by [`advance`](Self::advance).
     events: VecDeque<Progress>,
     /// Visits left before the sources are polled for completions again.
-    round: usize,
+    visits_until_poll: usize,
     step_limit: Option<usize>,
     steps: usize,
 }
@@ -179,14 +226,14 @@ impl Run {
     /// and clears it once they have all retired or the root is cancelled.
     pub fn admit(
         &mut self,
-        root: Box<dyn PendingPlanner>,
+        root: Box<dyn Planner>,
         scope: WorkScope,
         io: Arc<dyn IoSource>,
     ) -> RootId {
         let id = RootId(self.next_root);
         self.next_root += 1;
         self.roots.insert(id, Root { io, live: 0 });
-        self.spawn(id, scope, Item::Pending(root));
+        self.spawn(id, scope, Item::Planner(root), vec![id.0]);
         id
     }
 
@@ -196,7 +243,7 @@ impl Run {
         let Some(cancelled) = self.roots.remove(&root) else {
             return;
         };
-        self.queue.retain(|work| work.root != root);
+        self.queue.cancel(root);
         self.parked.retain(|_, work| work.root != root);
         cancelled.io.clear();
     }
@@ -213,11 +260,10 @@ impl Run {
             if let Some(event) = self.events.pop_front() {
                 return Ok(event);
             }
-            if self.round == 0 {
-                // Every ready item has been visited once: take what the sources finished.
+            if self.visits_until_poll == 0 || self.queue.is_empty() {
                 self.take_completions()?;
-                self.round = self.queue.len();
-                if self.round == 0 {
+                self.visits_until_poll = IO_POLL_INTERVAL;
+                if self.queue.is_empty() {
                     return Ok(if self.parked.is_empty() {
                         Progress::Idle
                     } else {
@@ -225,9 +271,8 @@ impl Run {
                     });
                 }
             }
-            self.round -= 1;
-            let Some(work) = self.queue.pop_front() else {
-                self.round = 0;
+            self.visits_until_poll -= 1;
+            let Some(work) = self.queue.pop() else {
                 continue;
             };
             self.steps += 1;
@@ -253,7 +298,8 @@ impl Run {
             work.deliver(request, result)?;
             // An item that still waits for other requests stays parked.
             if work.state() != State::Waiting {
-                self.queue.push_back(parked.remove());
+                let work = parked.remove();
+                self.queue.insert(work);
             } else if work.outstanding.is_empty() {
                 vortex_bail!(
                     "work for scope {:?} waits with no outstanding fetch",
@@ -263,7 +309,7 @@ impl Run {
             return Ok(());
         }
         // An item that published fetches and had CPU work left is still in the run queue.
-        let Some(work) = self.queue.iter_mut().find(|work| work.id == owner) else {
+        let Some(work) = self.queue.work.get_mut(&owner) else {
             vortex_bail!("completion for unknown work {owner:?}");
         };
         work.deliver(request, result)
@@ -329,17 +375,19 @@ impl Run {
         Ok(())
     }
 
-    fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item) {
+    fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item, path: Vec<u64>) {
         let id = IoOwnerId(self.next_owner);
         self.next_owner += 1;
         if let Some(root) = self.roots.get_mut(&root) {
             root.live += 1;
         }
-        self.queue.push_back(Box::new(Work {
+        self.queue.insert(Box::new(Work {
             id,
             root,
             scope,
             item,
+            path,
+            next_child: 0,
             outstanding: HashMap::default(),
         }));
     }
@@ -373,26 +421,16 @@ impl Run {
     fn settle(&mut self, work: Box<Work>) -> VortexResult<()> {
         match work.state() {
             State::Done => self.retire(&work),
-            State::NeedsCompute => self.queue.push_back(work),
+            State::NeedsCompute => self.queue.insert(work),
             State::Waiting => self.park(work)?,
         }
         Ok(())
     }
 
-    /// Visits one item: starts it, or computes once if it is ready.
+    /// Visits one item: computes once if it is ready, and settles it otherwise.
     fn visit(&mut self, mut work: Box<Work>) -> VortexResult<()> {
         let output = match &mut work.item {
-            Item::Pending(_) => {
-                let Item::Pending(pending) =
-                    std::mem::replace(&mut work.item, Item::Live(Box::new(Finished)))
-                else {
-                    unreachable!("matched pending above");
-                };
-                work.item = Item::Live(pending.start()?);
-                self.queue.push_back(work);
-                return Ok(());
-            }
-            Item::Live(planner) => match planner.state() {
+            Item::Planner(planner) => match planner.state() {
                 State::NeedsCompute => Output::Planner(planner.compute()?),
                 _ => return self.settle(work),
             },
@@ -406,7 +444,7 @@ impl Run {
                 self.retire(&work);
             }
             Output::Planner(PlannerOutput::Continue) | Output::Morsel(MorselOutput::Continue) => {
-                self.queue.push_back(work);
+                self.queue.insert(work);
             }
             Output::Planner(PlannerOutput::NeedsIO(batch))
             | Output::Morsel(MorselOutput::NeedsIO(batch)) => {
@@ -414,12 +452,14 @@ impl Run {
                 self.settle(work)?;
             }
             Output::Planner(PlannerOutput::Planner(scope, child)) => {
-                self.spawn(work.root, scope, Item::Pending(child));
-                self.queue.push_back(work);
+                let path = work.child_path();
+                self.spawn(work.root, scope, Item::Planner(child), path);
+                self.queue.insert(work);
             }
             Output::Planner(PlannerOutput::Morsel(scope, morsel)) => {
-                self.spawn(work.root, scope, Item::Morsel(morsel));
-                self.queue.push_back(work);
+                let path = work.child_path();
+                self.spawn(work.root, scope, Item::Morsel(morsel), path);
+                self.queue.insert(work);
             }
             Output::Morsel(MorselOutput::Batch(array)) => {
                 if array.is_empty() {
@@ -430,7 +470,7 @@ impl Run {
                     scope: work.scope.clone(),
                     array,
                 }));
-                self.queue.push_back(work);
+                self.queue.insert(work);
             }
         }
         Ok(())
@@ -487,7 +527,7 @@ impl Driver {
     }
 
     /// Runs `root` and everything it spawns, returning batches in emission order.
-    pub fn run(&self, root: Box<dyn PendingPlanner>) -> VortexResult<Vec<Batch>> {
+    pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
         let mut run = Run::new();
         run.step_limit = self.step_limit;
         let scope = WorkScope {
@@ -503,23 +543,6 @@ impl Driver {
                 Progress::Waiting => run.complete(self.io.wait()?)?,
             }
         }
-    }
-}
-
-/// Placeholder while a pending item is being started.
-struct Finished;
-
-impl IoConsumer for Finished {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
-}
-
-impl Planner for Finished {
-    fn state(&self) -> State {
-        State::Done
-    }
-
-    fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        Ok(PlannerOutput::Done)
     }
 }
 

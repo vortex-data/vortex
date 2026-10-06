@@ -21,6 +21,8 @@ use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::SegmentScanNode;
 use crate::plan::exec::Selection;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -113,5 +115,15 @@ impl PlanVTable for SegmentScan {
             None,
             ctx.clone(),
         )?))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        _mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        // A bare scan produces every row; a Filter over it keeps the selected ones.
+        ops::segment_scan(plan, rows, cx)
     }
 }

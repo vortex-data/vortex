@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::plan::FilterPlan;
@@ -40,6 +42,31 @@ impl FilterNode {
     }
 }
 
+/// Keeps the rows of `array` that `mask` selects. `predicate` says the array is a predicate's
+/// result.
+pub(crate) fn keep_selected(
+    array: ArrayRef,
+    mask: Mask,
+    predicate: bool,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    if mask.all_true() {
+        return Ok(array);
+    }
+    if predicate && mask.density() >= EXPR_EVAL_THRESHOLD {
+        // A predicate over a mostly selected piece runs over every row and its result is
+        // filtered, as the default scan's flat reader does. Filtering lazily would push the
+        // filter back through the predicate onto the encoded input, which for some encodings
+        // costs more than the predicate.
+        let mut ctx = session.create_execution_ctx();
+        return array
+            .execute::<Canonical>(&mut ctx)?
+            .into_array()
+            .filter(mask);
+    }
+    array.filter(mask)
+}
+
 impl ExecNode for FilterNode {
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         if !self.started {
@@ -55,27 +82,10 @@ impl ExecNode for FilterNode {
             match event {
                 Event::Piece(_, piece) => {
                     let mask = self.selection.slice(&piece.rows);
-                    let array = if mask.all_true() {
-                        piece.array
-                    } else if self.plan.dtype().is_boolean()
-                        && mask.density() >= EXPR_EVAL_THRESHOLD
-                    {
-                        // A predicate over a mostly selected piece runs over every row and its
-                        // result is filtered, as the default scan's flat reader does. Filtering
-                        // lazily would push the filter back through the predicate onto the
-                        // encoded input, which for some encodings costs more than the predicate.
-                        let mut ctx = self.session.create_execution_ctx();
-                        piece
-                            .array
-                            .execute::<Canonical>(&mut ctx)?
-                            .into_array()
-                            .filter(mask)?
-                    } else {
-                        piece.array.filter(mask)?
-                    };
+                    let predicate = self.plan.dtype().is_boolean();
                     cx.emit(Piece {
                         rows: piece.rows,
-                        array,
+                        array: keep_selected(piece.array, mask, predicate, &self.session)?,
                     });
                 }
                 Event::Closed(_) => return Ok(NodeState::Done),

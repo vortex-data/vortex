@@ -32,15 +32,20 @@ impl RowIdxNode {
 
 impl ExecNode for RowIdxNode {
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
-        let rows = self.selection.rows().clone();
-        let offset = self.row_offset;
-        let indices = Buffer::from_iter(rows.start + offset..rows.end + offset).into_array();
-        let array = if self.selection.mask().all_true() {
-            indices
-        } else {
-            indices.filter(self.selection.mask().clone())?
-        };
-        cx.emit(Piece { rows, array });
+        cx.emit(row_indices(&self.selection, self.row_offset)?);
         Ok(NodeState::Done)
     }
+}
+
+/// The global row index of every selected row, where `row_offset` is the global index of the
+/// first plan row.
+pub(crate) fn row_indices(selection: &Selection, row_offset: u64) -> VortexResult<Piece> {
+    let rows = selection.rows().clone();
+    let indices = Buffer::from_iter(rows.start + row_offset..rows.end + row_offset).into_array();
+    let array = if selection.mask().all_true() {
+        indices
+    } else {
+        indices.filter(selection.mask().clone())?
+    };
+    Ok(Piece { rows, array })
 }

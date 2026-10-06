@@ -13,6 +13,7 @@ pub mod exec;
 mod lower;
 mod optimize;
 pub mod optimizer;
+pub mod pipeline;
 mod plans;
 mod typed;
 mod vtable;

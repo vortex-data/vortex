@@ -16,6 +16,7 @@ use vortex_session::registry::Id;
 use crate::plan::PlanChildren;
 use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
+use crate::plan::pipeline::GraphBuilder;
 use crate::plan::typed::Plan;
 
 /// A unique identifier for a plan operator.
@@ -75,10 +76,11 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Builds the push-based exec node that runs this plan over `rows` of its row domain,
-    /// restricted to `mask`, with the graph's `ctx`.
+    /// restricted to `mask`, with the graph's `ctx`. `rows` lies within the plan's row domain
+    /// and `mask` is as long as `rows`.
     ///
     /// Construction does no IO. Children are spawned and requests published when the graph
-    /// starts the node.
+    /// starts the node. [`ExecNode`] says what the node must then do.
     fn exec(
         plan: &Plan<Self>,
         rows: Range<u64>,
@@ -87,5 +89,26 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     ) -> VortexResult<Box<dyn ExecNode>> {
         drop((rows, mask, ctx));
         vortex_bail!("Plan {} has no exec implementation", plan.vtable().id())
+    }
+
+    /// Compiles this plan over `rows` of its row domain, restricted to `mask`, into the pipeline
+    /// graph `cx` builds. `rows` lies within the plan's row domain and `mask` is as long as
+    /// `rows`.
+    ///
+    /// This is the hook of the experimental [`pipeline`](crate::plan::pipeline) executor, kept
+    /// beside [`exec`](Self::exec) until one of the two is chosen. The plan adds a source, a
+    /// transform, or a sink for itself and compiles its children through `cx`; between them they
+    /// produce every row of `rows` exactly once.
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        drop((rows, mask, cx));
+        vortex_bail!(
+            "Plan {} has no pipeline implementation",
+            plan.vtable().id()
+        )
     }
 }

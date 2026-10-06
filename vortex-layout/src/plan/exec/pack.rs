@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeMap;
-use std::ops::Range;
+use std::mem;
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
@@ -22,15 +21,16 @@ use crate::plan::exec::piece::Selection;
 use crate::plan::exec::piece::empty_piece;
 use crate::plan::exec::piece::join;
 
-/// Assembles struct pieces from fields that arrive with different row alignments and in any order.
+/// Assembles one struct piece from fields that arrive with different row alignments and in any
+/// order.
 ///
-/// Each port buffers its pieces keyed by first row. A step emits one struct piece for every
-/// maximal row range that all ports cover, slicing pieces at the boundaries and keeping the
-/// remainders for later ranges.
+/// Each port keeps its pieces until every port has closed, then each field is joined in row order
+/// and the struct is emitted once. Whether the struct is ready is a count of open ports, so a
+/// piece costs the same to take however many are held and whatever order they arrive in.
 pub(crate) struct PackNode {
     plan: PackPlan,
     selection: Selection,
-    ports: Vec<BTreeMap<u64, Piece>>,
+    ports: Vec<Vec<Piece>>,
     open: usize,
     started: bool,
 }
@@ -41,77 +41,62 @@ impl PackNode {
         Self {
             plan,
             selection,
-            ports: vec![BTreeMap::new(); nports],
+            ports: vec![Vec::new(); nports],
             open: nports,
             started: false,
         }
     }
+}
 
-    /// Row ranges covered by every port.
-    fn aligned(&self) -> Vec<Range<u64>> {
-        let mut ports = self.ports.iter();
-        let Some(first) = ports.next() else {
-            return Vec::new();
-        };
-        ports.fold(coverage(first), |acc, port| {
-            intersect(&acc, &coverage(port))
-        })
-    }
-
-    /// Removes the parts of each port's pieces covering `rows`, keeping any remainders.
-    fn take(&mut self, rows: &Range<u64>) -> VortexResult<Vec<Vec<Piece>>> {
-        let mut taken = Vec::with_capacity(self.ports.len());
-        for port in &mut self.ports {
-            let overlapping = port
-                .range(..rows.end)
-                .filter(|(_, piece)| piece.rows.end > rows.start)
-                .map(|(start, _)| *start)
-                .collect::<Vec<_>>();
-            let mut parts = Vec::with_capacity(overlapping.len());
-            for start in overlapping {
-                let Some(piece) = port.remove(&start) else {
-                    continue;
-                };
-                if piece.rows.start < rows.start {
-                    let before = piece.slice_rows(&self.selection, piece.rows.start..rows.start)?;
-                    port.insert(before.rows.start, before);
-                }
-                if piece.rows.end > rows.end {
-                    let after = piece.slice_rows(&self.selection, rows.end..piece.rows.end)?;
-                    port.insert(after.rows.start, after);
-                }
-                let inner = rows.start.max(piece.rows.start)..rows.end.min(piece.rows.end);
-                parts.push(piece.slice_rows(&self.selection, inner)?);
+/// Builds the struct of `plan` over `selection` from the pieces each of its ports produced.
+pub(crate) fn assemble(
+    plan: &PackPlan,
+    selection: &Selection,
+    ports: Vec<Vec<Piece>>,
+) -> VortexResult<Piece> {
+    let fields = plan.fields();
+    let rows = selection.rows().clone();
+    let mut arrays = Vec::with_capacity(ports.len());
+    for (index, mut pieces) in ports.into_iter().enumerate() {
+        pieces.sort_by_key(|piece| piece.rows.start);
+        let mut covered = rows.start;
+        for piece in &pieces {
+            if piece.rows.start != covered {
+                vortex_bail!(
+                    "Pack field {index} closed without rows {:?}",
+                    covered..piece.rows.start
+                );
             }
-            taken.push(parts);
+            covered = piece.rows.end;
         }
-        Ok(taken)
-    }
-
-    fn assemble(&self, rows: Range<u64>, ports: Vec<Vec<Piece>>) -> VortexResult<Piece> {
-        let fields = self.plan.fields();
-        let len = self.selection.count(&rows);
-        let mut arrays = Vec::with_capacity(ports.len());
-        for (index, parts) in ports.into_iter().enumerate() {
-            let dtype = fields
-                .field_by_index(index)
-                .unwrap_or(DType::Bool(Nullability::NonNullable));
-            arrays.push(join(&dtype, parts.into_iter().map(|p| p.array).collect())?);
+        if covered != rows.end {
+            vortex_bail!(
+                "Pack field {index} closed without rows {:?}",
+                covered..rows.end
+            );
         }
-        let validity = if self.plan.dtype().is_nullable() {
-            match arrays.pop() {
-                Some(validity) => Validity::Array(validity),
-                None => vortex_bail!("Nullable Pack is missing its validity port"),
-            }
-        } else {
-            Validity::NonNullable
-        };
-        let array = StructArray::try_new_with_dtype(arrays, fields.clone(), len, validity)?;
-        Ok(Piece {
-            rows,
-            array: array.into_array(),
-        })
+        let dtype = fields
+            .field_by_index(index)
+            .unwrap_or(DType::Bool(Nullability::NonNullable));
+        arrays.push(join(
+            &dtype,
+            pieces.into_iter().map(|piece| piece.array).collect(),
+        )?);
     }
+    let validity = if plan.dtype().is_nullable() {
+        match arrays.pop() {
+            Some(validity) => Validity::Array(validity),
+            None => vortex_bail!("Nullable Pack is missing its validity port"),
+        }
+    } else {
+        Validity::NonNullable
+    };
+    let len = selection.mask().true_count();
+    let array = StructArray::try_new_with_dtype(arrays, fields.clone(), len, validity)?;
+    Ok(Piece {
+        rows,
+        array: array.into_array(),
+    })
 }
 
 impl ExecNode for PackNode {
@@ -121,7 +106,7 @@ impl ExecNode for PackNode {
             let rows = self.selection.rows().clone();
             if self.selection.mask().all_false() || self.ports.is_empty() {
                 let piece = if self.ports.is_empty() {
-                    self.assemble(rows, Vec::new())?
+                    assemble(&self.plan, &self.selection, Vec::new())?
                 } else {
                     empty_piece(self.plan.dtype(), rows)
                 };
@@ -140,54 +125,21 @@ impl ExecNode for PackNode {
 
         for event in cx.events() {
             match event {
-                Event::Piece(port, piece) => {
-                    self.ports[port].insert(piece.rows.start, piece);
+                Event::Piece(port, piece) => self.ports[port].push(piece),
+                Event::Closed(port) => {
+                    if self.open == 0 {
+                        vortex_bail!("Pack field {port} closed twice");
+                    }
+                    self.open -= 1;
                 }
-                Event::Closed(_) => self.open -= 1,
                 event => return Err(event.unexpected("Pack")),
             }
         }
-        for rows in self.aligned() {
-            let ports = self.take(&rows)?;
-            cx.emit(self.assemble(rows, ports)?);
+        if self.open > 0 {
+            return Ok(NodeState::Wait);
         }
-        if self.open == 0 {
-            if self.ports.iter().any(|port| !port.is_empty()) {
-                vortex_bail!("Pack fields closed with unaligned rows left over");
-            }
-            return Ok(NodeState::Done);
-        }
-        Ok(NodeState::Wait)
+        let ports = mem::take(&mut self.ports);
+        cx.emit(assemble(&self.plan, &self.selection, ports)?);
+        Ok(NodeState::Done)
     }
-}
-
-/// Merges a port's pieces into maximal contiguous row ranges.
-fn coverage(port: &BTreeMap<u64, Piece>) -> Vec<Range<u64>> {
-    let mut ranges: Vec<Range<u64>> = Vec::new();
-    for piece in port.values() {
-        match ranges.last_mut() {
-            Some(last) if last.end == piece.rows.start => last.end = piece.rows.end,
-            _ => ranges.push(piece.rows.clone()),
-        }
-    }
-    ranges
-}
-
-/// Intersects two sorted, disjoint range lists.
-fn intersect(lhs: &[Range<u64>], rhs: &[Range<u64>]) -> Vec<Range<u64>> {
-    let mut out = Vec::new();
-    let (mut i, mut j) = (0, 0);
-    while i < lhs.len() && j < rhs.len() {
-        let start = lhs[i].start.max(rhs[j].start);
-        let end = lhs[i].end.min(rhs[j].end);
-        if start < end {
-            out.push(start..end);
-        }
-        if lhs[i].end < rhs[j].end {
-            i += 1;
-        } else {
-            j += 1;
-        }
-    }
-    out
 }

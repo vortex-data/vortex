@@ -25,6 +25,8 @@ use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -159,6 +161,15 @@ impl PlanVTable for Concat {
             plan.clone(),
             Selection::try_new(rows, mask)?,
         )))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::concat(plan, rows, mask, cx)
     }
 }
 

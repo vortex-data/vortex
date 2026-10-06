@@ -29,17 +29,6 @@ pub enum MorselOutput {
     Batch(ArrayRef),
 }
 
-impl fmt::Debug for MorselOutput {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Done => f.write_str("Done"),
-            Self::Continue => f.write_str("Continue"),
-            Self::NeedsIO(batch) => f.debug_tuple("NeedsIO").field(batch).finish(),
-            Self::Batch(array) => f.debug_tuple("Batch").field(&array.len()).finish(),
-        }
-    }
-}
-
 /// A morsel produces arrays for an authorised piece of work.
 ///
 /// `state()` is called before every `compute()`, and `compute()` only when `state()` is
@@ -51,4 +40,15 @@ pub trait Morsel: IoConsumer + Send {
 
     /// Advances CPU work. Only called when [`state`](Self::state) is `NeedsCompute`.
     fn compute(&mut self) -> VortexResult<MorselOutput>;
+}
+
+impl fmt::Debug for MorselOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Done => f.write_str("Done"),
+            Self::Continue => f.write_str("Continue"),
+            Self::NeedsIO(batch) => f.debug_tuple("NeedsIO").field(batch).finish(),
+            Self::Batch(array) => f.debug_tuple("Batch").field(&array.len()).finish(),
+        }
+    }
 }

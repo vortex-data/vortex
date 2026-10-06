@@ -24,6 +24,8 @@ use crate::plan::exec::ExecNode;
 use crate::plan::exec::FilterNode;
 use crate::plan::exec::SegmentScanNode;
 use crate::plan::exec::Selection;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -119,5 +121,14 @@ impl PlanVTable for Filter {
             filter,
             ctx.clone(),
         )?))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::filter(plan, rows, mask, cx)
     }
 }

@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env;
+use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
+use smallvec::SmallVec;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -12,16 +16,76 @@ use vortex_io::request;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoResult;
+use vortex_mask::Mask;
 use vortex_scan::planning::planner::State;
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_session::VortexSession;
 
+use crate::plan::PlanRef;
 use crate::plan::exec;
+use crate::plan::exec::DecodeCache;
 use crate::plan::exec::ExecGraph;
 use crate::plan::exec::ExecOutput;
 use crate::plan::exec::ExecState;
 use crate::plan::exec::Piece;
+use crate::plan::pipeline::PipelineGraph;
 use crate::scan::planning::SegmentLocation;
 use crate::segments::SegmentId;
+
+/// The environment variable that runs plans on the experimental [`PipelineGraph`] when set to
+/// `pipeline`, in place of [`ExecGraph`]. It exists to compare the two executors.
+pub const EXEC_ENV_VAR: &str = "VORTEX_SCAN_EXEC";
+
+static PIPELINES: LazyLock<bool> =
+    LazyLock::new(|| env::var(EXEC_ENV_VAR).is_ok_and(|v| v == "pipeline"));
+
+/// A running plan on the executor [`EXEC_ENV_VAR`] selects. Both are driven the same way.
+pub(crate) enum ScanGraph {
+    Nodes(ExecGraph),
+    Pipelines(PipelineGraph),
+}
+
+impl ScanGraph {
+    /// Builds the graph for `plan` as [`ExecGraph::try_new`] does.
+    pub(crate) fn try_new(
+        session: VortexSession,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+        row_offset: u64,
+        decoded: DecodeCache,
+    ) -> VortexResult<Self> {
+        Ok(if *PIPELINES {
+            Self::Pipelines(PipelineGraph::try_new(
+                session, plan, rows, mask, row_offset, decoded,
+            )?)
+        } else {
+            Self::Nodes(ExecGraph::try_new(
+                session, plan, rows, mask, row_offset, decoded,
+            )?)
+        })
+    }
+
+    fn state(&self) -> ExecState {
+        match self {
+            Self::Nodes(graph) => graph.state(),
+            Self::Pipelines(graph) => graph.state(),
+        }
+    }
+
+    fn compute(&mut self) -> VortexResult<ExecOutput> {
+        match self {
+            Self::Nodes(graph) => graph.compute(),
+            Self::Pipelines(graph) => graph.compute(),
+        }
+    }
+
+    fn set_io_result(&mut self, id: exec::IoRequestId, result: BufferHandle) -> VortexResult<()> {
+        match self {
+            Self::Nodes(graph) => graph.set_io_result(id, result),
+            Self::Pipelines(graph) => graph.set_io_result(id, result),
+        }
+    }
+}
 
 /// What one [`ProtocolGraph::compute`] produced.
 pub(crate) enum GraphStep {
@@ -33,16 +97,17 @@ pub(crate) enum GraphStep {
     Piece(Piece),
 }
 
-/// An [`ExecGraph`] whose segment reads are published as protocol requests.
+/// A [`ScanGraph`] whose segment reads are published as protocol requests.
 ///
 /// The graph names segments by id; the protocol names byte ranges. Each graph request becomes a
 /// `Fetch` of the segment's range at the segment's alignment, and each delivery is handed back to
 /// the graph under its own id.
 pub(crate) struct ProtocolGraph {
-    graph: ExecGraph,
+    graph: ScanGraph,
     locations: Arc<[SegmentLocation]>,
     /// Published and undelivered requests, with the graph request and segment each one answers.
-    outstanding: HashMap<request::IoRequestId, (exec::IoRequestId, SegmentId)>,
+    outstanding: SmallVec<[Option<(exec::IoRequestId, SegmentId)>; 2]>,
+    first_id: u32,
     /// A delivery the graph could not take, reported by the next compute.
     failed: Option<VortexError>,
     /// The protocol id the next published request gets.
@@ -54,11 +119,12 @@ impl ProtocolGraph {
     ///
     /// Request ids must be unique over an owner's lifetime, so an owner that runs several graphs
     /// starts each where the previous one's [`next_id`](Self::next_id) left off.
-    pub(crate) fn new(graph: ExecGraph, locations: Arc<[SegmentLocation]>, first_id: u32) -> Self {
+    pub(crate) fn new(graph: ScanGraph, locations: Arc<[SegmentLocation]>, first_id: u32) -> Self {
         Self {
             graph,
             locations,
-            outstanding: HashMap::default(),
+            outstanding: SmallVec::new(),
+            first_id,
             failed: None,
             next_id: first_id,
         }
@@ -99,7 +165,7 @@ impl ProtocolGraph {
                         .checked_add(1)
                         .ok_or_else(|| vortex_err!("ProtocolGraph ran out of request ids"))?;
                     self.outstanding
-                        .insert(id, (graph_request.id, graph_request.segment_id));
+                        .push(Some((graph_request.id, graph_request.segment_id)));
                     batch.push(request::IoRequest {
                         intent: IoIntent::Fetch,
                         request: id,
@@ -115,7 +181,12 @@ impl ProtocolGraph {
     /// published, so anything else is a driver bug. Bytes the graph cannot take fail the owner's
     /// next compute.
     pub(crate) fn set_io_result(&mut self, id: request::IoRequestId, result: IoResult) {
-        let Some((graph_id, segment_id)) = self.outstanding.remove(&id) else {
+        let pending = id
+            .0
+            .checked_sub(self.first_id)
+            .and_then(|index| self.outstanding.get_mut(index as usize))
+            .and_then(Option::take);
+        let Some((graph_id, segment_id)) = pending else {
             vortex_panic!("ProtocolGraph: delivery of {id:?}, which is not outstanding");
         };
         let IoResult::Bytes(bytes) = result else {
