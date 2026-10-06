@@ -119,7 +119,7 @@ impl ListContains {
         needle: ArrayRef,
         options: ListContainsOptions,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(ListContains.bind(options), vec![list, needle])
+        ScalarFnArray::try_new(ListContains.bind(options), [list, needle])
     }
 }
 

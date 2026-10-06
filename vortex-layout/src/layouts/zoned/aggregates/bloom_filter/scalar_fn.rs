@@ -481,7 +481,7 @@ mod tests {
             ConstantArray::new(Scalar::primitive(42_i64, Nullability::Nullable), 1).into_array();
         let mut ctx = array_session().create_execution_ctx();
 
-        let planned = ScalarFnArray::try_new(BloomContains.bind(options), vec![filters, needle])?;
+        let planned = ScalarFnArray::try_new(BloomContains.bind(options), [filters, needle])?;
         let expected_dtype = planned.dtype().clone();
 
         // If the validity types are wrong (e.g. `bool? != bool`), `execute` will raise an error.
