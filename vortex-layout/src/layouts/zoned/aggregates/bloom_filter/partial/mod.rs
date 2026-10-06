@@ -230,27 +230,52 @@ impl BloomPartial {
     /// write; a call into this method costs more instructions than the write itself.
     #[inline]
     fn add_hash(&mut self, hash: u64) {
-        // 1. Use the lower 32 bits to construct a mask.
-        let mask = Self::make_mask(Self::lower_hash_bits(hash));
-
-        // 2. Use the upper 32 bits from the hash value to select a block. The blocks are fetched
+        // 1. Use the upper 32 bits from the hash value to select a block. The blocks are fetched
         //    once, so an insert checks whether the partial is thawed exactly once.
         let blocks = self.blocks_mut();
         let block = &mut blocks[Self::block_index(hash, blocks.len())];
 
-        // 3. Apply the mask to the block selected in step 2.
-        for i in 0..8 {
-            block[i] |= mask[i];
-        }
+        // 2. Use the lower 32 bits to construct a mask and apply it to the block.
+        Self::block_insert(block, Self::lower_hash_bits(hash));
     }
 
     /// Checks whether a hash is (probably) present in the filter.
     #[inline]
     fn find_hash(&self, hash: u64) -> bool {
-        let mask = Self::make_mask(Self::lower_hash_bits(hash));
         let blocks = self.blocks();
         let block = &blocks[Self::block_index(hash, blocks.len())];
+        Self::block_contains(block, Self::lower_hash_bits(hash))
+    }
 
+    /// Sets the mask bits of `lower` in `block`.
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[inline]
+    fn block_insert(block: &mut Block, lower: u32) {
+        simd::block_insert(block, lower);
+    }
+
+    /// Sets the mask bits of `lower` in `block`.
+    #[cfg(not(all(target_arch = "x86_64", not(miri))))]
+    #[inline]
+    fn block_insert(block: &mut Block, lower: u32) {
+        let mask = Self::make_mask(lower);
+        for i in 0..8 {
+            block[i] |= mask[i];
+        }
+    }
+
+    /// Whether every mask bit of `lower` is set in `block`.
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[inline]
+    fn block_contains(block: &Block, lower: u32) -> bool {
+        simd::block_contains(block, lower)
+    }
+
+    /// Whether every mask bit of `lower` is set in `block`.
+    #[cfg(not(all(target_arch = "x86_64", not(miri))))]
+    #[inline]
+    fn block_contains(block: &Block, lower: u32) -> bool {
+        let mask = Self::make_mask(lower);
         let mut missing = 0u32;
 
         // The original solution uses _mm256_testc_si256
@@ -265,6 +290,7 @@ impl BloomPartial {
 
     /// Takes a hash value and creates a mask with one bit set in each 32-bit lane.
     /// These are the bits to set or check when accessing the block.
+    #[cfg(any(test, not(all(target_arch = "x86_64", not(miri)))))]
     #[inline]
     fn make_mask(hash: u32) -> Block {
         let mut out = [0u32; 8];
@@ -307,16 +333,84 @@ impl From<&BloomOptions> for BloomPartial {
     }
 }
 
+/// SIMD form of `make_mask` with the block update or test: the per-lane multiply and variable
+/// shift become `vpmulld` and `vpsllvd` on AVX2, which have no SSE2 equivalent.
+#[cfg(all(target_arch = "x86_64", not(miri)))]
+mod simd {
+    use std::sync::LazyLock;
+
+    use fearless_simd::Level;
+    use fearless_simd::Simd;
+    use fearless_simd::dispatch;
+    use fearless_simd::prelude::*;
+    use fearless_simd::u32x8;
+
+    use super::Block;
+    use super::SALT;
+
+    /// Detected once: `Level::new` probes every feature of its widest level on each call.
+    static SIMD_LEVEL: LazyLock<Level> = LazyLock::new(Level::new);
+
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn mask<S: Simd>(simd: S, lower: u32) -> u32x8<S> {
+        let shifts = (u32x8::splat(simd, lower) * u32x8::from_slice(simd, &SALT)) >> 27;
+        u32x8::splat(simd, 1) << shifts
+    }
+
+    #[inline]
+    pub(super) fn block_insert(block: &mut Block, lower: u32) {
+        dispatch!(*SIMD_LEVEL, simd => {
+            (u32x8::from_slice(simd, block) | mask(simd, lower)).store_slice(block);
+        })
+    }
+
+    #[inline]
+    pub(super) fn block_contains(block: &Block, lower: u32) -> bool {
+        dispatch!(*SIMD_LEVEL, simd => {
+            let missing = mask(simd, lower) & !u32x8::from_slice(simd, block);
+            missing.simd_eq(u32x8::splat(simd, 0)).all_true()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
 
     use rstest::rstest;
 
+    use super::Block;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomPartial;
     use crate::layouts::zoned::aggregates::bloom_filter::DEFAULT_BLOCKS_COUNT;
     use crate::layouts::zoned::aggregates::bloom_filter::HashFn;
+
+    /// The dispatched block update and test must agree bit-for-bit with `make_mask`, since the
+    /// block bits are serialized.
+    #[test]
+    fn block_ops_match_scalar_mask() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..10_000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let bytes = state.to_le_bytes();
+            let lower = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            let mask = BloomPartial::make_mask(lower);
+
+            let mut block: Block = [0; 8];
+            BloomPartial::block_insert(&mut block, lower);
+            assert_eq!(block, mask);
+            assert!(BloomPartial::block_contains(&block, lower));
+
+            for lane in 0..8 {
+                let mut missing_one = mask;
+                missing_one[lane] = 0;
+                assert!(!BloomPartial::block_contains(&missing_one, lower));
+            }
+        }
+    }
 
     #[test]
     fn bigger_filter_size() {
