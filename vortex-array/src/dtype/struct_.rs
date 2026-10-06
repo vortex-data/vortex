@@ -424,7 +424,7 @@ impl StructFields {
     /// Returns an ordered iterator over references to the field dtypes.
     ///
     /// Unlike [`Self::fields`], this does not clone each [`DType`].
-    pub(crate) fn field_dtypes(&self) -> impl ExactSizeIterator<Item = &DType> + '_ {
+    pub fn field_dtypes(&self) -> impl ExactSizeIterator<Item = &DType> + '_ {
         self.0.dtypes.iter().map(|dt| {
             dt.inner
                 .value_ref()
