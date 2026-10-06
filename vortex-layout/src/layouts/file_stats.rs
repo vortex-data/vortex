@@ -159,8 +159,10 @@ impl StatsAccumulator {
                     continue;
                 }
                 Stat::Sum if !values.all_valid(ctx)? => {
-                    // A chunk sum is only null when that chunk overflowed, so the file sum is
-                    // unknown. Aggregating by skipping nulls would return a wrong exact sum.
+                    // `values` holds each chunk's `Stat::Sum` from `push_chunk`. The legacy `Sum`
+                    // aggregate behind it returns zero for empty input and null only on overflow.
+                    // Summing `values` below would skip those nulls and report a wrong exact
+                    // total, so leave the file sum unset.
                     continue;
                 }
                 Stat::Min | Stat::Max | Stat::Sum => {
