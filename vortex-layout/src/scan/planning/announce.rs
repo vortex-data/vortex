@@ -16,6 +16,7 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 
 use crate::plan::PlanRef;
+use crate::plan::exec::SplitSegments;
 use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::SelectedRows;
@@ -33,6 +34,8 @@ pub struct AnnouncePlanner {
     /// The split, until it is handed to `next`.
     selected: Option<SelectedRows>,
     announced: bool,
+    /// The split's demand for the segments it announced, handed to the split's decode cache.
+    demand: Option<SplitSegments>,
     next: Option<Continuation>,
 }
 
@@ -54,6 +57,7 @@ impl AnnouncePlanner {
             filter,
             selected: Some(selected),
             announced: false,
+            demand: None,
             next: Some(Continuation::Next(next)),
         }
     }
@@ -69,11 +73,14 @@ impl AnnouncePlanner {
             filter,
             selected: Some(selected),
             announced: false,
+            demand: None,
             next: Some(Continuation::Split(pruning)),
         }
     }
 
-    fn announce(&self, selected: &SelectedRows) -> VortexResult<IoBatch> {
+    /// Announces the segments the split reads, other than those another split already decoded,
+    /// and registers the split's demand for all of them.
+    fn announce(&mut self, selected: &SelectedRows) -> VortexResult<IoBatch> {
         let plans = self
             .plans
             .as_ref()
@@ -86,6 +93,11 @@ impl AnnouncePlanner {
         plan_segments(&plans.projection, rows.clone(), &mut ids)?;
         ids.sort_unstable();
         ids.dedup();
+        if let Some(segments) = &plans.segments {
+            let demand = segments.register(ids.clone());
+            ids.retain(|&id| !demand.contains(id));
+            self.demand = Some(demand);
+        }
         ids.into_iter()
             .enumerate()
             .map(|(index, id)| {
@@ -119,8 +131,12 @@ impl Planner for AnnouncePlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         if !self.announced {
             self.announced = true;
-            let batch = match &self.selected {
-                Some(selected) => self.announce(selected)?,
+            let batch = match self.selected.take() {
+                Some(selected) => {
+                    let batch = self.announce(&selected);
+                    self.selected = Some(selected);
+                    batch?
+                }
                 None => Vec::new(),
             };
             if !batch.is_empty() {
@@ -138,7 +154,13 @@ impl Planner for AnnouncePlanner {
                     .plans
                     .take()
                     .ok_or_else(|| vortex_err!("AnnouncePlanner has no plans"))?;
-                plan_selected(plans, pruning, self.filter.take(), selected)?
+                plan_selected(
+                    plans,
+                    pruning,
+                    self.filter.take(),
+                    selected,
+                    self.demand.take(),
+                )?
             }
             None => vortex_bail!("AnnouncePlanner has no continuation"),
         };

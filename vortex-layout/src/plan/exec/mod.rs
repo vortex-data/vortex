@@ -47,6 +47,7 @@ mod filter;
 mod list_pack;
 mod pack;
 mod piece;
+mod planned_segments;
 mod row_idx;
 mod segment_scan;
 mod share;
@@ -226,18 +227,49 @@ impl ExecContext {
 /// read is fetched and decoded once.
 ///
 /// A segment decodes the same way wherever it appears, so entries are keyed by segment id alone.
+/// A split's cache can also reach the [`PlannedSegments`] of its file, through the demand the
+/// split registered there, to share segments with the other splits planned to read them.
 #[derive(Clone, Default)]
-pub struct DecodeCache(Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>);
+pub struct DecodeCache {
+    local: Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>,
+    shared: Option<Arc<SplitSegments>>,
+}
 
 impl DecodeCache {
-    /// The whole decoded array of `id`, if a graph sharing this cache decoded it.
-    pub(crate) fn get(&self, id: SegmentId) -> Option<ArrayRef> {
-        self.0.lock().get(&id).cloned()
+    /// A cache for one split that shares segments through the demand it registered.
+    pub(crate) fn with_shared(shared: Option<SplitSegments>) -> Self {
+        Self {
+            local: Arc::default(),
+            shared: shared.map(Arc::new),
+        }
     }
 
-    /// Shares the whole decoded array of `id` with the graphs sharing this cache.
+    /// The whole decoded array of `id`, if a graph sharing this cache or another split decoded it.
+    pub(crate) fn get(&self, id: SegmentId) -> Option<ArrayRef> {
+        if let Some(array) = self.local.lock().get(&id) {
+            return Some(array.clone());
+        }
+        let array = self.shared.as_ref()?.get(id)?;
+        self.local.lock().insert(id, array.clone());
+        Some(array)
+    }
+
+    /// Whether `id` is decoded already, so reading it again would be wasted.
+    pub(crate) fn contains(&self, id: SegmentId) -> bool {
+        self.local.lock().contains_key(&id)
+            || self
+                .shared
+                .as_ref()
+                .is_some_and(|shared| shared.contains(id))
+    }
+
+    /// Shares the whole decoded array of `id` with the graphs sharing this cache, and with the
+    /// other splits planned to read it.
     pub(crate) fn insert(&self, id: SegmentId, array: ArrayRef) {
-        self.0.lock().insert(id, array);
+        if let Some(shared) = &self.shared {
+            shared.offer(id, &array);
+        }
+        self.local.lock().insert(id, array);
     }
 }
 
@@ -610,6 +642,8 @@ pub(crate) use pack::assemble;
 pub(crate) use piece::Selection;
 pub(crate) use piece::empty_piece;
 pub(crate) use piece::join;
+pub use planned_segments::PlannedSegments;
+pub use planned_segments::SplitSegments;
 pub(crate) use row_idx::RowIdxNode;
 pub(crate) use row_idx::row_indices;
 pub(crate) use segment_scan::SegmentScanNode;

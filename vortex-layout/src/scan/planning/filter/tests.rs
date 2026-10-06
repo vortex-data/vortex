@@ -72,6 +72,7 @@ fn predicate_selection(
             projection_starts: Arc::from([]),
             row_offset: 0,
             decoded: DecodeCache::default(),
+            segments: None,
         },
         filters,
         WorkScope {

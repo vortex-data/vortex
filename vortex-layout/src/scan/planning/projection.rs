@@ -70,6 +70,7 @@ impl ProjectionPlanner {
         }
         ids.sort_unstable();
         ids.dedup();
+        ids.retain(|&id| !self.plans.decoded.contains(id));
         ids.into_iter()
             .enumerate()
             .map(|(index, id)| {
@@ -294,6 +295,7 @@ mod tests {
                 projection_starts: Arc::from([0, 1000, 2000]),
                 row_offset: 0,
                 decoded: DecodeCache::default(),
+                segments: None,
             },
             SelectedRows {
                 scope: WorkScope {

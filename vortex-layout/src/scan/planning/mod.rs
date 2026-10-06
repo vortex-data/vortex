@@ -38,6 +38,8 @@ use vortex_session::VortexSession;
 
 use crate::plan::PlanRef;
 use crate::plan::exec::DecodeCache;
+use crate::plan::exec::PlannedSegments;
+use crate::plan::exec::SplitSegments;
 
 /// Where a segment's bytes live in its source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +81,8 @@ pub struct ScanPlans {
     /// Segments already decoded by the graphs of one split. [`plan_split`] gives each split its
     /// own.
     pub decoded: DecodeCache,
+    /// The decoded segments shared by every split planned to read them, if sharing is on.
+    pub segments: Option<Arc<PlannedSegments>>,
 }
 
 /// The work for one split: announce its likely reads, prune the rows of `scope` selected by
@@ -107,9 +111,10 @@ fn plan_selected(
     pruning: Option<PlanRef>,
     filter: Option<FilterPlans>,
     selected: SelectedRows,
+    demand: Option<SplitSegments>,
 ) -> VortexResult<Box<dyn Planner>> {
     let plans = ScanPlans {
-        decoded: DecodeCache::default(),
+        decoded: DecodeCache::with_shared(demand),
         ..plans
     };
     if pruning.is_none() && filter.is_none() {

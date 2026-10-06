@@ -277,6 +277,7 @@ impl FilterPlanner {
         }
         ids.sort_unstable();
         ids.dedup();
+        ids.retain(|&id| !self.plans.decoded.contains(id));
         ids.into_iter()
             .enumerate()
             .map(|(index, id)| {

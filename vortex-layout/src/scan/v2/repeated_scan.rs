@@ -36,6 +36,7 @@ use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::Zoned;
 use crate::plan::exec::DecodeCache;
+use crate::plan::exec::PlannedSegments;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
@@ -98,6 +99,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
         projection_starts: Arc::clone(&prepared.projection_starts),
         row_offset: builder.row_offset,
         decoded: DecodeCache::default(),
+        segments: PlannedSegments::for_layout(&shared.file.layout),
     };
 
     let splits = match attempt_split_ranges(&builder.selection, builder.row_range.as_ref()) {
