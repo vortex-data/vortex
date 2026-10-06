@@ -5,7 +5,7 @@ use fearless_simd::Level;
 use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd::prelude::*;
-use fearless_simd::u8x16;
+use fearless_simd::u8x64;
 use fearless_simd::u64x8;
 use fearless_simd_macros::simd;
 use vortex_error::VortexExpect;
@@ -101,12 +101,9 @@ fn scan_chunks_simd<S: Simd>(
     mut pos: usize,
 ) -> (usize, usize, usize) {
     for (idx, chunk) in chunks.iter().enumerate() {
-        let total: usize = chunk
-            .as_chunks::<16>()
-            .0
-            .iter()
-            .map(|bytes| usize::from(u8x16::from_slice(simd, bytes).count_ones().reduce_sum()))
-            .sum();
+        let words: u64x8<S> = u8x64::from_slice(simd, chunk).bitcast();
+        let total = usize::try_from(words.count_ones().reduce_sum())
+            .vortex_expect("chunk popcount fits in usize");
         if remaining < total {
             return (remaining, pos, idx);
         }
