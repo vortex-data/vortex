@@ -74,7 +74,7 @@ impl L2Normalize {
     /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
     /// [`Vector`]: crate::vector::Vector
     pub fn try_new(child: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(L2Normalize.bind(EmptyOptions), vec![child])
+        ScalarFnArray::try_new(L2Normalize.bind(EmptyOptions), [child])
     }
 }
 

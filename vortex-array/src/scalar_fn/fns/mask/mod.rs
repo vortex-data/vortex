@@ -54,7 +54,7 @@ impl Mask {
     /// Returns an error if the children have different lengths or `mask` is not non-nullable
     /// boolean data.
     pub fn try_new(input: ArrayRef, mask: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Mask.bind(EmptyOptions), vec![input, mask])
+        ScalarFnArray::try_new(Mask.bind(EmptyOptions), [input, mask])
     }
 }
 

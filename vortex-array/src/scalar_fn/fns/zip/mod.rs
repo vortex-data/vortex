@@ -62,7 +62,7 @@ impl Zip {
         if_false: ArrayRef,
         mask: ArrayRef,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Zip.bind(EmptyOptions), vec![if_true, if_false, mask])
+        ScalarFnArray::try_new(Zip.bind(EmptyOptions), [if_true, if_false, mask])
     }
 }
 
