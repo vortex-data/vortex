@@ -17,3 +17,6 @@ broad testing; independently evolving work remains in its own family until then.
 pub mod v2026_08;
 
 pub use v2026_08::PREVIEW_2026_08_0;
+
+pub mod v2026_10;
+pub use v2026_10::PREVIEW_2026_10_0;

@@ -10,10 +10,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
@@ -92,7 +92,8 @@ impl Scheme for TemporalScheme {
             subseconds,
         } = split_temporal(temporal_array, exec_ctx)?;
 
-        let days_primitive = days.execute::<PrimitiveArray>(exec_ctx)?.narrow(exec_ctx)?;
+        let days_primitive =
+            NarrowArray::encode_values(days.execute::<PrimitiveArray>(exec_ctx)?, exec_ctx)?;
         let days = compressor.compress_child(
             &days_primitive.into_array(),
             &compress_ctx,
@@ -100,9 +101,8 @@ impl Scheme for TemporalScheme {
             0,
             exec_ctx,
         )?;
-        let seconds_primitive = seconds
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let seconds_primitive =
+            NarrowArray::encode_values(seconds.execute::<PrimitiveArray>(exec_ctx)?, exec_ctx)?;
         let seconds = compressor.compress_child(
             &seconds_primitive.into_array(),
             &compress_ctx,
@@ -110,9 +110,8 @@ impl Scheme for TemporalScheme {
             1,
             exec_ctx,
         )?;
-        let subseconds_primitive = subseconds
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let subseconds_primitive =
+            NarrowArray::encode_values(subseconds.execute::<PrimitiveArray>(exec_ctx)?, exec_ctx)?;
         let subseconds = compressor.compress_child(
             &subseconds_primitive.into_array(),
             &compress_ctx,

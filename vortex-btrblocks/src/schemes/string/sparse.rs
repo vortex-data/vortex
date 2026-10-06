@@ -9,8 +9,8 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -101,12 +101,14 @@ impl Scheme for NullDominatedSparseScheme {
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
-            let indices = sparse
-                .patches()
-                .indices()
-                .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow(exec_ctx)?;
+            let indices = NarrowArray::encode_values(
+                sparse
+                    .patches()
+                    .indices()
+                    .clone()
+                    .execute::<PrimitiveArray>(exec_ctx)?,
+                exec_ctx,
+            )?;
             let compressed_indices = compressor.compress_child(
                 &indices.into_array(),
                 &compress_ctx,

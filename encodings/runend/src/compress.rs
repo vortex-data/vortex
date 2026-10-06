@@ -9,6 +9,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -87,9 +88,7 @@ pub fn runend_encode(
         }
     };
 
-    let ends = ends
-        .narrow(ctx)
-        .vortex_expect("Ends must succeed downcasting");
+    let ends = NarrowArray::encode_values(ends, ctx).vortex_expect("Ends must succeed downcasting");
 
     ends.statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));

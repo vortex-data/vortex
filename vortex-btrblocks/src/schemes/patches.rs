@@ -5,8 +5,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -14,12 +14,11 @@ use vortex_error::VortexResult;
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
     // Downscale the patch indices.
-    let indices = patches
-        .indices()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?
-        .narrow(ctx)?
-        .into_array();
+    let indices = NarrowArray::encode_values(
+        patches.indices().clone().execute::<PrimitiveArray>(ctx)?,
+        ctx,
+    )?
+    .into_array();
 
     // Check if the values are constant.
     let values = patches.values();
@@ -36,11 +35,9 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         .chunk_offsets()
         .as_ref()
         .map(|offsets| {
-            let offsets_primitive = offsets
-                .clone()
-                .execute::<PrimitiveArray>(ctx)?
-                .narrow(ctx)?
-                .into_array();
+            let offsets_primitive =
+                NarrowArray::encode_values(offsets.clone().execute::<PrimitiveArray>(ctx)?, ctx)?
+                    .into_array();
             Ok::<ArrayRef, VortexError>(offsets_primitive)
         })
         .transpose()?;

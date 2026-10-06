@@ -11,10 +11,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -79,11 +79,12 @@ impl Scheme for FSSTScheme {
         let compressor_fsst = fsst_train_compressor(&utf8, exec_ctx)?;
         let fsst = fsst_compress(&utf8, &compressor_fsst, exec_ctx)?;
 
-        let uncompressed_lengths_primitive = fsst
-            .uncompressed_lengths()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let uncompressed_lengths_primitive = NarrowArray::encode_values(
+            fsst.uncompressed_lengths()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?;
         let compressed_original_lengths = compressor.compress_child(
             &uncompressed_lengths_primitive.into_array(),
             &compress_ctx,
@@ -92,12 +93,13 @@ impl Scheme for FSSTScheme {
             exec_ctx,
         )?;
 
-        let codes_offsets_primitive = fsst
-            .codes()
-            .offsets()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let codes_offsets_primitive = NarrowArray::encode_values(
+            fsst.codes()
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?;
         let compressed_codes_offsets = compressor.compress_child(
             &codes_offsets_primitive.into_array(),
             &compress_ctx,

@@ -467,3 +467,35 @@ fn test_reject_malformed_metadata(#[case] metadata: Vec<u8>) {
             .is_err()
     );
 }
+
+#[test]
+fn test_encode_values_changes_only_internal_dtype() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let input = PrimitiveArray::from_option_iter([Some(0i64), None, Some(127)]);
+    let values = NarrowArray::encode_values(input.clone(), &mut ctx)?;
+    let wrapped = NarrowArray::encode(input.clone(), &mut ctx)?;
+    assert_eq!(
+        values.dtype(),
+        &DType::Primitive(PType::I8, Nullability::Nullable)
+    );
+    assert_eq!(wrapped.dtype(), input.dtype());
+    assert_arrays_eq!(
+        values,
+        PrimitiveArray::from_option_iter([Some(0i8), None, Some(127)]),
+        &mut ctx
+    );
+    assert_arrays_eq!(wrapped, input, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn test_encode_values_preserves_floats() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let input = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0]);
+    let values = NarrowArray::encode_values(input.clone(), &mut ctx)?;
+    assert_eq!(values.dtype(), input.dtype());
+    assert_arrays_eq!(values, input, &mut ctx);
+
+    Ok(())
+}

@@ -9,8 +9,8 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -58,11 +58,13 @@ pub(crate) fn rle_compress(
 
     // TODO(joe): re-apply Delta to these monotone indices once the compressor can say whether a
     // scheme is eligible for a given child; applying it by hand bypassed the exclusion rules.
-    let rle_indices_primitive = rle_array
-        .indices()
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?;
+    let rle_indices_primitive = NarrowArray::encode_values(
+        rle_array
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?,
+        exec_ctx,
+    )?;
     let compressed_indices = compressor.compress_child(
         &rle_indices_primitive.into_array(),
         &compress_ctx,
@@ -71,11 +73,13 @@ pub(crate) fn rle_compress(
         exec_ctx,
     )?;
 
-    let rle_offsets_primitive = rle_array
-        .values_idx_offsets()
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?;
+    let rle_offsets_primitive = NarrowArray::encode_values(
+        rle_array
+            .values_idx_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?,
+        exec_ctx,
+    )?;
     let compressed_offsets = compressor.compress_child(
         &rle_offsets_primitive.into_array(),
         &compress_ctx,

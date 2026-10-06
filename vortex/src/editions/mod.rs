@@ -43,6 +43,7 @@ pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
+pub use vortex_edition::declarations::preview::PREVIEW_2026_10_0;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -51,7 +52,7 @@ use vortex_session::VortexSession;
 pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
 
 /// The newest `preview` edition. The default Vortex session registers it but does not enable it.
-pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
+pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_10_0;
 
 /// Register the Vortex edition families and declarations with the session's
 /// [`EditionSession`].

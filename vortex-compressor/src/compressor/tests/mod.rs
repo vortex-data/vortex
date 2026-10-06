@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compression selection, cascades, and logical dtype preservation.
+
+mod narrow;
+
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;

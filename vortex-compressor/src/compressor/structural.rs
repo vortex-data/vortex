@@ -12,11 +12,11 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -47,11 +47,13 @@ impl CascadingCompressor {
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx =
             compress_ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
-        let list_offsets_primitive = list_array
-            .offsets()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let list_offsets_primitive = NarrowArray::encode_values(
+            list_array
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_offsets_primitive),
             offset_ctx,
@@ -77,11 +79,13 @@ impl CascadingCompressor {
         let offset_ctx = compress_ctx
             .clone()
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
-        let list_view_offsets_primitive = list_view
-            .offsets()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let list_view_offsets_primitive = NarrowArray::encode_values(
+            list_view
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
@@ -89,11 +93,13 @@ impl CascadingCompressor {
         )?;
 
         let sizes_ctx = compress_ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
-        let list_view_sizes_primitive = list_view
-            .sizes()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+        let list_view_sizes_primitive = NarrowArray::encode_values(
+            list_view
+                .sizes()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?;
         let compressed_sizes = self.compress_canonical(
             Canonical::Primitive(list_view_sizes_primitive),
             sizes_ctx,

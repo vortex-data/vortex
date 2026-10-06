@@ -33,32 +33,60 @@ impl NarrowArray {
             "Narrow requires integer values, got {ptype}"
         );
 
-        if ptype.byte_width() == 1 {
-            return Ok(array.into_array());
+        let dtype = array.dtype().clone();
+        let values = Self::encode_values(array, ctx)?;
+        if values.dtype() == &dtype {
+            return Ok(values.into_array());
         }
 
+        Ok(Self::try_new(values.into_array(), dtype)?.into_array())
+    }
+
+    /// Selects the stored primitive width for internal buffers whose dtype is chosen at construction.
+    ///
+    /// This changes the returned dtype while preserving signedness and validity. For arrays with
+    /// an existing logical dtype contract, use [`Self::encode`] to retain that dtype. Floating-point
+    /// arrays are returned unchanged. Empty and all-null integers use the smallest width of the
+    /// same signedness.
+    pub fn encode_values(
+        array: PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<PrimitiveArray> {
+        let ptype = array.ptype();
+        if !ptype.is_int() || ptype.byte_width() == 1 {
+            return Ok(array);
+        }
         let bounds = min_max(array.as_ref(), ctx, NumericalAggregateOpts::default())?;
-        for candidate in integer_types(ptype) {
-            if candidate.byte_width() >= ptype.byte_width() {
-                break;
+        let storage_type = if let Some(bounds) = bounds {
+            let smallest = if ptype.is_signed_int() {
+                (
+                    PType::min_signed_ptype_for_value(i64::try_from(&bounds.min)?),
+                    PType::min_signed_ptype_for_value(i64::try_from(&bounds.max)?),
+                )
+            } else {
+                (
+                    PType::min_unsigned_ptype_for_value(u64::try_from(&bounds.min)?),
+                    PType::min_unsigned_ptype_for_value(u64::try_from(&bounds.max)?),
+                )
+            };
+            if smallest.0.byte_width() >= smallest.1.byte_width() {
+                smallest.0
+            } else {
+                smallest.1
             }
-
-            let storage_dtype = DType::Primitive(candidate, array.dtype().nullability());
-            if bounds.as_ref().is_some_and(|bounds| {
-                bounds.min.cast(&storage_dtype).is_err() || bounds.max.cast(&storage_dtype).is_err()
-            }) {
-                continue;
-            }
-
-            let values = array
-                .as_ref()
-                .cast(storage_dtype)?
-                .execute::<PrimitiveArray>(ctx)?;
-
-            return Ok(Self::try_new(values.into_array(), array.dtype().clone())?.into_array());
+        } else if ptype.is_signed_int() {
+            PType::I8
+        } else {
+            PType::U8
+        };
+        if storage_type.byte_width() >= ptype.byte_width() {
+            return Ok(array);
         }
 
-        Ok(array.into_array())
+        array
+            .as_ref()
+            .cast(DType::Primitive(storage_type, array.dtype().nullability()))?
+            .execute(ctx)
     }
 }
 
