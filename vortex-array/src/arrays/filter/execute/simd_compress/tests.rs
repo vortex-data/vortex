@@ -152,14 +152,14 @@ fn avx2_kernels_match_scalar() {
                 let u32_values: Vec<u32> = (0..len as u32).collect();
                 let u64_values: Vec<u64> = (0..len as u64).collect();
                 check_kernel(
-                    fearless::compress_fearless_8::<false>,
-                    fearless::compress_fearless_8::<true>,
+                    generic::compress_generic_8::<false>,
+                    generic::compress_generic_8::<true>,
                     &u8_values,
                     mask,
                 );
                 check_kernel(
-                    fearless::compress_fearless_16::<false>,
-                    fearless::compress_fearless_16::<true>,
+                    generic::compress_generic_16::<false>,
+                    generic::compress_generic_16::<true>,
                     &u16_values,
                     mask,
                 );

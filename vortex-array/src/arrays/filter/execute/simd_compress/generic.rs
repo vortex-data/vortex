@@ -98,7 +98,7 @@ unsafe fn compress_word<S: Simd, const IN_PLACE: bool, const ELEM: usize, const 
 }
 
 /// Generate a mask-walking entry point for one element width.
-macro_rules! fearless_compress_kernel {
+macro_rules! generic_compress_kernel {
     ($walk_fn:ident,elem_size: $elem_size:literal,lanes: $lanes:literal,idx_lut: $idx_lut:ident) => {
         /// # Safety
         ///
@@ -125,5 +125,5 @@ macro_rules! fearless_compress_kernel {
     };
 }
 
-fearless_compress_kernel!(compress_fearless_8, elem_size: 1, lanes: 8, idx_lut: IDX_LUT_8);
-fearless_compress_kernel!(compress_fearless_16, elem_size: 2, lanes: 8, idx_lut: IDX_LUT_16);
+generic_compress_kernel!(compress_generic_8, elem_size: 1, lanes: 8, idx_lut: IDX_LUT_8);
+generic_compress_kernel!(compress_generic_16, elem_size: 2, lanes: 8, idx_lut: IDX_LUT_16);

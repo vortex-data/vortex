@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! AVX-512 `vpcompress` and AVX2 `vpermd` compress kernels. The 1- and 2-byte AVX2 paths use the
-//! portable kernels in [`fearless`](super::fearless).
+//! portable kernels in [`generic`](super::generic).
 //!
 //! See the [module docs](super) for how these fit the shared dispatch.
 
@@ -40,8 +40,8 @@ use super::super::slice::for_each_mask_word;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
-use super::fearless::compress_fearless_8;
-use super::fearless::compress_fearless_16;
+use super::generic::compress_generic_8;
+use super::generic::compress_generic_16;
 
 /// Choose the widest available kernel above its benchmarked density crossover.
 ///
@@ -54,8 +54,8 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
         4 if avx512f() => (compress_avx512_epi32::<IN_PLACE> as Kernel, 0.25),
         8 if avx512f() => (compress_avx512_epi64::<IN_PLACE> as Kernel, 0.30),
         // AVX-512F without VBMI2 (e.g. Skylake-X) falls through to these too.
-        1 if avx2() => (compress_fearless_8::<IN_PLACE> as Kernel, 0.15),
-        2 if avx2() => (compress_fearless_16::<IN_PLACE> as Kernel, 0.25),
+        1 if avx2() => (compress_generic_8::<IN_PLACE> as Kernel, 0.15),
+        2 if avx2() => (compress_generic_16::<IN_PLACE> as Kernel, 0.25),
         4 if avx2() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
         8 if avx2() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
         _ => return None,
