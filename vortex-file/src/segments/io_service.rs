@@ -524,9 +524,16 @@ impl FileIoSession {
                 continue;
             };
             let entry = occupied.get_mut();
+            let pending = entry.waiters.len();
             entry
                 .waiters
                 .retain(|waiter| !Arc::ptr_eq(&waiter.session, &self.delivery));
+            let cancelled = pending - entry.waiters.len();
+            if cancelled > 0 {
+                self.delivery
+                    .outstanding
+                    .fetch_sub(cancelled, Ordering::Relaxed);
+            }
             entry.claims = entry.claims.saturating_sub(1);
             // A read in flight keeps its entry until it completes, which then removes it.
             if entry.claims == 0 && !matches!(entry.state, State::Reading) {
@@ -572,6 +579,7 @@ impl IoSource for FileIoSession {
                 if claimed.insert(range) {
                     entry.claims += 1;
                 }
+                entry.alignment = entry.alignment.max(alignment);
                 if request.intent == IoIntent::Announce {
                     continue;
                 }
@@ -579,15 +587,15 @@ impl IoSource for FileIoSession {
                 let fetch = request.intent == IoIntent::Fetch;
                 match &entry.state {
                     State::Ready(bytes) if fetch => {
-                        self.delivery
-                            .push(owner, request.request, Ok(bytes.clone()));
+                        let bytes = bytes.clone().ensure_aligned(alignment);
                         self.delivery.outstanding.fetch_add(1, Ordering::Relaxed);
+                        self.delivery.push(owner, request.request, bytes);
                         continue;
                     }
                     State::Failed(error) if fetch => {
                         let error = VortexError::from(Arc::clone(error));
-                        self.delivery.push(owner, request.request, Err(error));
                         self.delivery.outstanding.fetch_add(1, Ordering::Relaxed);
+                        self.delivery.push(owner, request.request, Err(error));
                         continue;
                     }
                     State::Ready(_) | State::Failed(_) | State::Reading => {}
@@ -858,6 +866,81 @@ mod tests {
         late.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0, 100, 4)])?;
         assert_eq!(completions(&late, 1).await?, bytes);
         assert_eq!(reader.reads(), vec![(100, 4)]);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_ready_range_honours_a_stricter_alignment() -> VortexResult<()> {
+        let session = session();
+        let (service, reader) = service(&session);
+        let io = service.session();
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0, 1, 8)])?;
+        completions(&io, 1).await?;
+
+        io.submit(
+            IoOwnerId(0),
+            vec![IoRequest {
+                intent: IoIntent::Fetch,
+                request: IoRequestId(1),
+                target: IoTarget::Range {
+                    offset: 1,
+                    len: 8,
+                    alignment: Alignment::new(64),
+                },
+            }],
+        )?;
+        let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
+        let IoResult::Bytes(bytes) = completion.result? else {
+            vortex_bail!("expected bytes");
+        };
+        let bytes = bytes.try_into_host_sync()?;
+        assert_eq!(bytes.as_slice(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(bytes.alignment() >= Alignment::new(64));
+        assert_eq!(reader.reads(), vec![(1, 8)]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn clearing_in_flight_fetches_does_not_leave_a_waiter() -> VortexResult<()> {
+        let session = session();
+        let (service, _) = service(&session);
+        let range = (0, 4);
+        let io = FileIoSession {
+            service: service.clone(),
+            delivery: Arc::default(),
+            claimed: Mutex::new(HashSet::from_iter([range])),
+        };
+        io.delivery.outstanding.store(1, Ordering::Relaxed);
+        {
+            let mut table = service.0.table.lock();
+            table.active = 1;
+            table.entries.insert(
+                range,
+                Entry {
+                    alignment: Alignment::none(),
+                    state: State::Reading,
+                    claims: 1,
+                    waiters: vec![Waiter {
+                        session: Arc::clone(&io.delivery),
+                        owner: IoOwnerId(0),
+                        request: IoRequestId(0),
+                    }],
+                },
+            );
+        }
+
+        io.clear();
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        assert!(matches!(io.poll_completion(&mut cx), Poll::Ready(Err(_))));
+        service.0.complete(
+            PhysicalRead {
+                request: ReadAtRequest::new(0, 4, Alignment::none()),
+                members: vec![range],
+            },
+            Ok(BufferHandle::new_host(ByteBuffer::from(vec![0, 1, 2, 3]))),
+        );
+        assert!(io.poll()?.is_none());
+        assert!(service.0.table.lock().entries.is_empty());
         Ok(())
     }
 
