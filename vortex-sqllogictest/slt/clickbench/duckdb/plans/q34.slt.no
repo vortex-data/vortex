@@ -160,7 +160,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -212,7 +212,7 @@ logical_opt [
                                 ],
                                 "extra_info": {
                                     "Groups": [
-                                        "__internal_compress_integral_utinyint(1, 1)",
+                                        "CAST(1 AS TINYINT)",
                                         "URL"
                                     ],
                                     "Expressions": "count_star()",
@@ -222,7 +222,7 @@ logical_opt [
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_decompress_integral_integer(#0, 1)",
+                                "CAST(#0 AS INTEGER)",
                                 "#1",
                                 "#2"
                             ],
@@ -271,7 +271,7 @@ physical_plan [
                                 ],
                                 "extra_info": {
                                     "Projections": [
-                                        "__internal_compress_integral_utinyint(1, 1)",
+                                        "CAST(1 AS TINYINT)",
                                         "URL"
                                     ],
                                     "Estimated Cardinality": "1000000"
@@ -290,7 +290,7 @@ physical_plan [
                 ],
                 "extra_info": {
                     "Projections": [
-                        "__internal_decompress_integral_integer(#0, 1)",
+                        "CAST(#0 AS INTEGER)",
                         "#1",
                         "#2"
                     ],
@@ -300,7 +300,8 @@ physical_plan [
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

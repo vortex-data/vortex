@@ -156,7 +156,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count(DISTINCT memory.main.hits.UserID)"
+                    "Order By": "u"
                 }
             }
         ],
@@ -173,34 +173,71 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "PROJECTION",
                         "children": [
                             {
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
+                                        "name": "AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "1000000"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "RegionID",
+                                                                "UserID"
+                                                            ],
+                                                            "Estimated Cardinality": "1000000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": [
+                                                        "RegionID",
+                                                        "UserID"
+                                                    ],
+                                                    "Expressions": "",
+                                                    "Estimated Cardinality": "500000"
+                                                }
+                                            }
+                                        ],
                                         "extra_info": {
-                                            "Filters": "",
-                                            "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "1000000"
+                                            "Groups": "#0",
+                                            "Expressions": "count_star()",
+                                            "Estimated Cardinality": "250000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Expressions": [
-                                        "RegionID",
-                                        "UserID"
+                                        "#0",
+                                        "#1"
                                     ],
-                                    "Estimated Cardinality": "1000000"
+                                    "Estimated Cardinality": "250000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": "RegionID",
-                            "Expressions": "count(DISTINCT UserID)",
-                            "Estimated Cardinality": "632120"
+                            "Expressions": [
+                                "#0",
+                                "#1"
+                            ],
+                            "Estimated Cardinality": "250000"
                         }
                     }
                 ],
@@ -209,7 +246,7 @@ logical_opt [
                         "RegionID",
                         "u"
                     ],
-                    "Estimated Cardinality": "632120"
+                    "Estimated Cardinality": "250000"
                 }
             }
         ],
@@ -230,37 +267,60 @@ physical_plan [
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "HASH_GROUP_BY",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Projections": [
+                                                        "RegionID",
+                                                        "UserID"
+                                                    ],
+                                                    "Estimated Cardinality": "1000000"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "RegionID",
+                                                "UserID"
+                                            ],
+                                            "Estimated Cardinality": "1000000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Function": "Vortex Scan",
-                                    "Projections": [
-                                        "RegionID",
-                                        "UserID"
+                                    "Groups": [
+                                        "#0",
+                                        "#1"
                                     ],
-                                    "Estimated Cardinality": "1000000"
+                                    "Aggregates": "",
+                                    "Estimated Cardinality": "500000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "RegionID",
-                                "UserID"
-                            ],
-                            "Estimated Cardinality": "1000000"
+                            "Projections": "#0",
+                            "Estimated Cardinality": "500000"
                         }
                     }
                 ],
                 "extra_info": {
                     "Groups": "#0",
-                    "Aggregates": "count(DISTINCT #1)",
-                    "Estimated Cardinality": "632120"
+                    "Aggregates": "count_star()",
+                    "Estimated Cardinality": "250000"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count(DISTINCT memory.main.hits.UserID) DESC"
+            "Order By": "u DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

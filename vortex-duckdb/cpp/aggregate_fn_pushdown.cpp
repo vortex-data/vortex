@@ -4,7 +4,6 @@
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/operator/logical_aggregate.hpp"
-#include "optimizer.hpp"
 #include "table_function.hpp"
 
 using enum LogicalOperatorType;
@@ -37,8 +36,6 @@ static bool IsUngrouped(const LogicalAggregate &agg) {
            !agg.expressions.empty();
 }
 
-constexpr inline idx_t COUNT_STAR_PROJ_IDX = std::numeric_limits<TableColumnStorageIndex>::max();
-
 LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
                                        LogicalOperatorPtr op,
                                        Analyses &analyses,
@@ -53,7 +50,7 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
         return op;
     }
 
-    vector<std::pair<TableColumnScanIndex, const Expression &>> input;
+    vector<std::pair<idx_t, const Expression &>> input;
     const idx_t aggregates_len = agg.expressions.size();
     input.reserve(aggregates_len);
 
@@ -62,21 +59,22 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
             return op;
         }
         const auto &bound_aggr = expr->Cast<BoundAggregateExpression>();
-        if (bound_aggr.IsDistinct() || bound_aggr.filter != nullptr || bound_aggr.order_bys != nullptr) {
+        if (bound_aggr.IsDistinct() || bound_aggr.GetFilter() != nullptr ||
+            bound_aggr.GetOrderBys() != nullptr) {
             return op;
         }
 
-        if (bound_aggr.function.name == "count_star") {
+        if (bound_aggr.Function().GetName() == "count_star") {
             input.emplace_back(COUNT_STAR_PROJ_IDX, *expr);
             continue;
         }
 
-        if (bound_aggr.children.size() != 1 ||
-            bound_aggr.children[0]->GetExpressionType() != ExpressionType::BOUND_COLUMN_REF) {
+        if (bound_aggr.GetChildren().size() != 1 ||
+            bound_aggr.GetChildren()[0]->GetExpressionType() != ExpressionType::BOUND_COLUMN_REF) {
             return op;
         }
-        const auto &bound_col = bound_aggr.children[0]->Cast<BoundColumnRefExpression>();
-        const auto binding = Resolve(bound_col.binding, analyses, projections);
+        const auto &bound_col = bound_aggr.GetChildren()[0]->Cast<BoundColumnRefExpression>();
+        const auto binding = Resolve(bound_col.Binding(), analyses, projections);
         if (!binding || &binding->analysis.get != get) {
             return op;
         }
@@ -87,28 +85,24 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
         return op;
     }
 
-    vector<string> names(aggregates_len); // need a copy because we reference original names
+    // GET now returns one column per aggregate. Expand existing columns
+    auto &column_ids = get->GetMutableColumnIds();
+    get->types.resize(aggregates_len);
+    get->returned_types.resize(aggregates_len);
+    column_ids.resize(aggregates_len);
 
-    const vector<ColumnIndex> original_column_ids = get->GetColumnIds();
+    vector<Identifier> names(aggregates_len); // need a copy because we reference original names
+
     for (idx_t i = 0; i < aggregates_len; i++) {
         const auto &[column_index, expr] = input[i];
         if (column_index == COUNT_STAR_PROJ_IDX) {
             names[i] = "count_star()";
         } else {
-            const TableColumnStorageIndex storage_index = original_column_ids[column_index].GetPrimaryIndex();
+            const idx_t storage_index = get->GetColumnIds()[column_index].GetPrimaryIndex();
             names[i] = get->names[storage_index];
         }
-    }
-
-    // GET now returns one column per aggregate.
-    auto &column_ids = get->GetMutableColumnIds();
-    get->types.resize(aggregates_len);
-    get->returned_types.resize(aggregates_len);
-    column_ids.resize(aggregates_len);
-    for (idx_t i = 0; i < aggregates_len; i++) {
-        const auto &[_, expr] = input[i];
-        get->types[i] = expr.return_type;
-        get->returned_types[i] = expr.return_type;
+        get->types[i] = expr.GetReturnType();
+        get->returned_types[i] = expr.GetReturnType();
         column_ids[i] = ColumnIndex {i};
     }
     get->names = std::move(names);

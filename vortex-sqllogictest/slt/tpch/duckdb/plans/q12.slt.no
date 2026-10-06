@@ -146,7 +146,7 @@ logical_plan [
             }
         ],
         "extra_info": {
-            "Order By": "memory.main.lineitem.l_shipmode"
+            "Order By": "l_shipmode"
         }
     }
 ]
@@ -164,51 +164,27 @@ logical_opt [
                                 "name": "COMPARISON_JOIN",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
-                                        "children": [
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Filters": "",
-                                                    "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "150000"
-                                                }
-                                            }
-                                        ],
+                                        "name": "READ_VORTEX",
+                                        "children": [],
                                         "extra_info": {
-                                            "Expressions": [
-                                                "o_orderkey",
-                                                "o_orderpriority"
-                                            ],
+                                            "Filters": "",
+                                            "Function": "Vortex Scan",
                                             "Estimated Cardinality": "150000"
                                         }
                                     },
                                     {
-                                        "name": "PROJECTION",
-                                        "children": [
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Filters": [
-                                                        "vortex.list.contains([\"MAIL\", \"SHIP\"], $.l_shipmode)",
-                                                        "($.l_commitdate < $.l_receiptdate)",
-                                                        "($.l_shipdate < $.l_commitdate)",
-                                                        "(1994-01-01 <= $.l_receiptdate < 1995-01-01)",
-                                                        "($.l_commitdate < 1995-01-01)",
-                                                        "($.l_shipdate < 1995-01-01)"
-                                                    ],
-                                                    "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "120114"
-                                                }
-                                            }
-                                        ],
+                                        "name": "READ_VORTEX",
+                                        "children": [],
                                         "extra_info": {
-                                            "Expressions": [
-                                                "l_orderkey",
-                                                "l_shipmode"
+                                            "Filters": [
+                                                "vortex.list.contains([\"MAIL\", \"SHIP\"], $.l_shipmode)",
+                                                "($.l_commitdate < $.l_receiptdate)",
+                                                "($.l_shipdate < $.l_commitdate)",
+                                                "(1994-01-01 <= $.l_receiptdate < 1995-01-01)",
+                                                "($.l_commitdate < 1995-01-01)",
+                                                "($.l_shipdate < 1995-01-01)"
                                             ],
+                                            "Function": "Vortex Scan",
                                             "Estimated Cardinality": "120114"
                                         }
                                     }
@@ -216,7 +192,7 @@ logical_opt [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "(o_orderkey = l_orderkey)",
-                                    "Estimated Cardinality": "150000"
+                                    "Estimated Cardinality": "120114"
                                 }
                             }
                         ],
@@ -226,7 +202,7 @@ logical_opt [
                                 "sum(CASE  WHEN (((o_orderpriority = '1-URGENT') OR (o_orderpriority = '2-HIGH'))) THEN (1) ELSE 0 END)",
                                 "sum(CASE  WHEN (((o_orderpriority != '1-URGENT') AND (o_orderpriority != '2-HIGH'))) THEN (1) ELSE 0 END)"
                             ],
-                            "Estimated Cardinality": "85659"
+                            "Estimated Cardinality": "75926"
                         }
                     }
                 ],
@@ -236,12 +212,13 @@ logical_opt [
                         "high_line_count",
                         "low_line_count"
                     ],
-                    "Estimated Cardinality": "85659"
+                    "Estimated Cardinality": "75926"
                 }
             }
         ],
         "extra_info": {
-            "Order By": "memory.main.lineitem.l_shipmode"
+            "Order By": "l_shipmode",
+            "Estimated Cardinality": "75926"
         }
     }
 ]
@@ -294,7 +271,7 @@ physical_plan [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "o_orderkey = l_orderkey",
-                                    "Estimated Cardinality": "150000"
+                                    "Estimated Cardinality": "120114"
                                 }
                             }
                         ],
@@ -304,7 +281,7 @@ physical_plan [
                                 "CASE  WHEN (((o_orderpriority = '1-URGENT') OR (o_orderpriority = '2-HIGH'))) THEN (1) ELSE 0 END",
                                 "CASE  WHEN (((o_orderpriority != '1-URGENT') AND (o_orderpriority != '2-HIGH'))) THEN (1) ELSE 0 END"
                             ],
-                            "Estimated Cardinality": "150000"
+                            "Estimated Cardinality": "120114"
                         }
                     }
                 ],
@@ -314,12 +291,13 @@ physical_plan [
                         "sum(#1)",
                         "sum(#2)"
                     ],
-                    "Estimated Cardinality": "85659"
+                    "Estimated Cardinality": "75926"
                 }
             }
         ],
         "extra_info": {
-            "Order By": "memory.main.lineitem.l_shipmode ASC"
+            "Order By": "l_shipmode ASC",
+            "Estimated Cardinality": "75926"
         }
     }
 ]

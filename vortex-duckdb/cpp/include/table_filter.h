@@ -75,6 +75,7 @@ typedef struct {
 
 void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_filter,
                                         duckdb_vx_table_filter_dynamic *out);
+void duckdb_vx_expr_get_bound_dynamic(duckdb_vx_expr ffi, duckdb_vx_table_filter_dynamic *out);
 
 duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter);
 

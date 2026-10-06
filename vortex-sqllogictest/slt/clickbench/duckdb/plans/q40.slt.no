@@ -175,7 +175,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "PageViews"
                 }
             }
         ],
@@ -209,7 +209,7 @@ logical_opt [
                                                 "($.RefererHash = 3594120000172545465i64)"
                                             ],
                                             "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
@@ -218,7 +218,7 @@ logical_opt [
                                         "EventDate",
                                         "URLHash"
                                     ],
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
@@ -228,7 +228,7 @@ logical_opt [
                                 "EventDate"
                             ],
                             "Expressions": "count_star()",
-                            "Estimated Cardinality": "39999"
+                            "Estimated Cardinality": "123686"
                         }
                     }
                 ],
@@ -238,7 +238,7 @@ logical_opt [
                         "EventDate",
                         "PageViews"
                     ],
-                    "Estimated Cardinality": "39999"
+                    "Estimated Cardinality": "123686"
                 }
             }
         ],
@@ -264,15 +264,17 @@ physical_plan [
                                 "extra_info": {
                                     "Function": "Vortex Scan",
                                     "Filters": [
-                                        "CounterID=62",
-                                        "IsRefresh=0",
-                                        "RefererHash=3594120000172545465"
+                                        "vortex.list.contains([-1i16, 6i16], $.TraficSourceID)",
+                                        "($.CounterID = 62i32)",
+                                        "(2013-07-01T00:00:00Z <= $.EventDate <= 2013-07-31T00:00:00Z)",
+                                        "($.IsRefresh = 0i16)",
+                                        "($.RefererHash = 3594120000172545465i64)"
                                     ],
                                     "Projections": [
                                         "EventDate",
                                         "URLHash"
                                     ],
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
@@ -281,7 +283,7 @@ physical_plan [
                                 "URLHash",
                                 "EventDate"
                             ],
-                            "Estimated Cardinality": "40000"
+                            "Estimated Cardinality": "200000"
                         }
                     }
                 ],
@@ -291,14 +293,15 @@ physical_plan [
                         "#1"
                     ],
                     "Aggregates": "count_star()",
-                    "Estimated Cardinality": "39999"
+                    "Estimated Cardinality": "123686"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
             "Offset": "100",
-            "Order By": "count_star() DESC"
+            "Order By": "PageViews DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

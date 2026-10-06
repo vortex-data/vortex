@@ -355,8 +355,7 @@ logical_plan [
                                                             }
                                                         ],
                                                         "extra_info": {
-                                                            "Join Type": "MARK",
-                                                            "Conditions": ""
+                                                            "Expressions": ""
                                                         }
                                                     },
                                                     {
@@ -449,8 +448,7 @@ logical_plan [
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Join Type": "MARK",
-                                                    "Conditions": ""
+                                                    "Expressions": ""
                                                 }
                                             }
                                         ],
@@ -489,7 +487,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count(DISTINCT cs1.cs_order_number)"
+                    "Order By": "order count"
                 }
             }
         ],
@@ -506,251 +504,489 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "CTE",
                         "children": [
                             {
-                                "name": "DELIM_JOIN",
+                                "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "DELIM_JOIN",
+                                        "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "PROJECTION",
+                                                "name": "CTE",
                                                 "children": [
                                                     {
                                                         "name": "PROJECTION",
                                                         "children": [
                                                             {
-                                                                "name": "COMPARISON_JOIN",
+                                                                "name": "PROJECTION",
                                                                 "children": [
                                                                     {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
+                                                                        "name": "CTE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "COMPARISON_JOIN",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Filters": "",
+                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                            "Estimated Cardinality": "143657"
+                                                                                                                        }
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Filters": "($.ca_state = \"GA\")",
+                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                            "Estimated Cardinality": "1000"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Join Type": "INNER",
+                                                                                                                    "Conditions": "(cs_ship_addr_sk = ca_address_sk)",
+                                                                                                                    "Estimated Cardinality": "28731"
+                                                                                                                }
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Filters": "($.cc_county = \"Williamson County\")",
+                                                                                                                    "Function": "Vortex Scan",
+                                                                                                                    "Estimated Cardinality": "1"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Join Type": "INNER",
+                                                                                                            "Conditions": "(cs_call_center_sk = cc_call_center_sk)",
+                                                                                                            "Estimated Cardinality": "28731"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": [
+                                                                                                                "(2002-02-01 <= $.d_date <= 2002-04-02)",
+                                                                                                                "(2450817i64 <= $.d_date_sk <= 2452740i64)"
+                                                                                                            ],
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Estimated Cardinality": "14609"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "INNER",
+                                                                                                    "Conditions": "(cs_ship_date_sk = d_date_sk)",
+                                                                                                    "Estimated Cardinality": "28731"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "#0",
+                                                                                                "#1",
+                                                                                                "#2",
+                                                                                                "#3"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "28731"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "#0",
+                                                                                        "#1",
+                                                                                        "#2",
+                                                                                        "#3"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "28731"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "FILTER",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "COMPARISON_JOIN",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "CTE_SCAN",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "CTE Index": "66",
+                                                                                                                    "Estimated Cardinality": "28731"
+                                                                                                                }
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "name": "EMPTY_RESULT",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": ""
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Join Type": "MARK",
+                                                                                                            "Conditions": [
+                                                                                                                "(cs_warehouse_sk IS NOT DISTINCT FROM cs_warehouse_sk)",
+                                                                                                                "(cs_order_number IS NOT DISTINCT FROM cs_order_number)"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "28731"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": "SUBQUERY",
+                                                                                                    "Estimated Cardinality": "5746"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "#0",
+                                                                                                "#1",
+                                                                                                "#2"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "5746"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "#0",
+                                                                                        "#1",
+                                                                                        "#2"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "5746"
+                                                                                }
+                                                                            }
+                                                                        ],
                                                                         "extra_info": {
-                                                                            "Filters": "",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "143657"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "name": "DELIM_GET",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Expressions": "",
-                                                                            "Estimated Cardinality": "28730"
+                                                                            "CTE Name": "__duckdb_delim_66",
+                                                                            "Table Index": "66",
+                                                                            "Estimated Cardinality": "5746"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
-                                                                    "Join Type": "INNER",
-                                                                    "Conditions": [
-                                                                        "(cs_order_number = cs_order_number)",
-                                                                        "(cs_warehouse_sk != cs_warehouse_sk)"
+                                                                    "Expressions": [
+                                                                        "#0",
+                                                                        "#1",
+                                                                        "#2"
                                                                     ],
-                                                                    "Estimated Cardinality": "1504681"
+                                                                    "Estimated Cardinality": "5746"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": [
-                                                                "cs_warehouse_sk",
-                                                                "cs_order_number"
+                                                                "#0",
+                                                                "#1",
+                                                                "#2"
                                                             ],
-                                                            "Estimated Cardinality": "1504681"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expressions": [
-                                                        "cs_warehouse_sk",
-                                                        "cs_order_number"
-                                                    ],
-                                                    "Estimated Cardinality": "1504681"
-                                                }
-                                            },
-                                            {
-                                                "name": "COMPARISON_JOIN",
-                                                "children": [
-                                                    {
-                                                        "name": "COMPARISON_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "COMPARISON_JOIN",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "PROJECTION",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": "",
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "143657"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Expressions": [
-                                                                                "cs_ship_date_sk",
-                                                                                "cs_ship_addr_sk",
-                                                                                "cs_call_center_sk",
-                                                                                "cs_warehouse_sk",
-                                                                                "cs_order_number",
-                                                                                "cs_ext_ship_cost",
-                                                                                "cs_net_profit"
-                                                                            ],
-                                                                            "Estimated Cardinality": "143657"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "name": "PROJECTION",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": "($.ca_state = \"GA\")",
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "200"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Expressions": "ca_address_sk",
-                                                                            "Estimated Cardinality": "200"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Join Type": "INNER",
-                                                                    "Conditions": "(cs_ship_addr_sk = ca_address_sk)",
-                                                                    "Estimated Cardinality": "28731"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "PROJECTION",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": [
-                                                                                "(2002-02-01 <= $.d_date <= 2002-04-02)",
-                                                                                "(2450817i64 <= $.d_date_sk <= 2452740i64)"
-                                                                            ],
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "14609"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Expressions": "d_date_sk",
-                                                                    "Estimated Cardinality": "14609"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "(cs_ship_date_sk = d_date_sk)",
-                                                            "Estimated Cardinality": "28731"
+                                                            "Estimated Cardinality": "5746"
                                                         }
                                                     },
                                                     {
                                                         "name": "PROJECTION",
                                                         "children": [
                                                             {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "FILTER",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "COMPARISON_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "CTE_SCAN",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "CTE Index": "75",
+                                                                                            "Estimated Cardinality": "5746"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": "",
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Estimated Cardinality": "14275"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "AGGREGATE",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "FILTER",
+                                                                                                                                        "children": [
+                                                                                                                                            {
+                                                                                                                                                "name": "CTE_SCAN",
+                                                                                                                                                "children": [],
+                                                                                                                                                "extra_info": {
+                                                                                                                                                    "CTE Index": "75",
+                                                                                                                                                    "Estimated Cardinality": "5746"
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        ],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Expressions": "(CAST(#[72.17] AS BIGINT) BETWEEN 2 AND 15999)",
+                                                                                                                                            "Estimated Cardinality": "5746"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": "CAST(#0 AS SMALLINT)",
+                                                                                                                                    "Estimated Cardinality": "5746"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Groups": "#[72.17]",
+                                                                                                                            "Expressions": "",
+                                                                                                                            "Estimated Cardinality": "2873"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": "CAST(#0 AS BIGINT)",
+                                                                                                                    "Estimated Cardinality": "2873"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": "#0",
+                                                                                                            "Estimated Cardinality": "2873"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "SEMI",
+                                                                                                    "Conditions": "(cr_order_number = cs_order_number)",
+                                                                                                    "Estimated Cardinality": "2855"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": "cs_order_number",
+                                                                                            "Estimated Cardinality": "2855"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Join Type": "MARK",
+                                                                                    "Conditions": "(cs_order_number IS NOT DISTINCT FROM cs_order_number)",
+                                                                                    "Estimated Cardinality": "5746"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "(NOT SUBQUERY)",
+                                                                            "Estimated Cardinality": "1149"
+                                                                        }
+                                                                    }
+                                                                ],
                                                                 "extra_info": {
-                                                                    "Filters": "($.cc_county = \"Williamson County\")",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "1"
+                                                                    "Expressions": [
+                                                                        "#0",
+                                                                        "#1",
+                                                                        "#2"
+                                                                    ],
+                                                                    "Estimated Cardinality": "1149"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
-                                                            "Expressions": "cc_call_center_sk",
-                                                            "Estimated Cardinality": "1"
+                                                            "Expressions": [
+                                                                "#0",
+                                                                "#1",
+                                                                "#2"
+                                                            ],
+                                                            "Estimated Cardinality": "1149"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Join Type": "INNER",
-                                                    "Conditions": "(cs_call_center_sk = cc_call_center_sk)",
-                                                    "Estimated Cardinality": "28731"
+                                                    "CTE Name": "__duckdb_delim_75",
+                                                    "Table Index": "75",
+                                                    "Estimated Cardinality": "1149"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Join Type": "RIGHT_SEMI",
-                                            "Conditions": [
-                                                "(cs_warehouse_sk IS NOT DISTINCT FROM cs_warehouse_sk)",
-                                                "(cs_order_number IS NOT DISTINCT FROM cs_order_number)"
+                                            "Expressions": [
+                                                "#0",
+                                                "#1",
+                                                "#2"
                                             ],
-                                            "Estimated Cardinality": "5746"
+                                            "Estimated Cardinality": "1149"
                                         }
-                                    },
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "#0",
+                                        "#1",
+                                        "#2"
+                                    ],
+                                    "Estimated Cardinality": "1149"
+                                }
+                            },
+                            {
+                                "name": "PROJECTION",
+                                "children": [
                                     {
-                                        "name": "PROJECTION",
+                                        "name": "CROSS_PRODUCT",
                                         "children": [
                                             {
                                                 "name": "PROJECTION",
                                                 "children": [
                                                     {
-                                                        "name": "COMPARISON_JOIN",
+                                                        "name": "AGGREGATE",
                                                         "children": [
                                                             {
-                                                                "name": "READ_VORTEX",
+                                                                "name": "CTE_SCAN",
                                                                 "children": [],
                                                                 "extra_info": {
-                                                                    "Filters": "",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "14275"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "DELIM_GET",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Expressions": "",
-                                                                    "Estimated Cardinality": "5632"
+                                                                    "CTE Index": "82",
+                                                                    "Estimated Cardinality": "1149"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "(cr_order_number = cs_order_number)",
-                                                            "Estimated Cardinality": "5632"
+                                                            "Groups": "",
+                                                            "Expressions": [
+                                                                "sum(cs_ext_ship_cost)",
+                                                                "sum(cs_net_profit)"
+                                                            ],
+                                                            "Estimated Cardinality": "1"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Expressions": "cs_order_number",
-                                                    "Estimated Cardinality": "5632"
+                                                    "Expressions": [
+                                                        "#0",
+                                                        "#1"
+                                                    ],
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "AGGREGATE",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "AGGREGATE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "CTE_SCAN",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "CTE Index": "82",
+                                                                                            "Estimated Cardinality": "1149"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": "CAST(#0 AS SMALLINT)",
+                                                                                    "Estimated Cardinality": "1149"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": "cs_order_number",
+                                                                            "Expressions": "",
+                                                                            "Estimated Cardinality": "574"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "42",
+                                                                    "Estimated Cardinality": "574"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": "",
+                                                            "Expressions": "count_star()",
+                                                            "Estimated Cardinality": "1"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "#0",
+                                                    "Estimated Cardinality": "1"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Expressions": "cs_order_number",
-                                            "Estimated Cardinality": "5632"
+                                            "Expressions": "",
+                                            "Estimated Cardinality": "1"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Join Type": "ANTI",
-                                    "Conditions": "(cs_order_number IS NOT DISTINCT FROM cs_order_number)",
-                                    "Estimated Cardinality": "1149"
+                                    "Expressions": [
+                                        "#2",
+                                        "#0",
+                                        "#1"
+                                    ],
+                                    "Estimated Cardinality": "1"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": "",
-                            "Expressions": [
-                                "count(DISTINCT cs_order_number)",
-                                "sum(cs_ext_ship_cost)",
-                                "sum(cs_net_profit)"
-                            ],
+                            "CTE Name": "__aggregate_cte_82",
+                            "Table Index": "82",
                             "Estimated Cardinality": "1"
                         }
                     }
@@ -776,16 +1012,16 @@ physical_plan [
         "name": "TOP_N",
         "children": [
             {
-                "name": "UNGROUPED_AGGREGATE",
+                "name": "CTE",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "CTE",
                         "children": [
                             {
-                                "name": "LEFT_DELIM_JOIN",
+                                "name": "CTE",
                                 "children": [
                                     {
-                                        "name": "RIGHT_DELIM_JOIN",
+                                        "name": "PROJECTION",
                                         "children": [
                                             {
                                                 "name": "HASH_JOIN",
@@ -818,9 +1054,9 @@ physical_plan [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "Function": "Vortex Scan",
-                                                                            "Filters": "ca_state='GA'",
+                                                                            "Filters": "($.ca_state = \"GA\")",
                                                                             "Projections": "ca_address_sk",
-                                                                            "Estimated Cardinality": "200"
+                                                                            "Estimated Cardinality": "1000"
                                                                         }
                                                                     }
                                                                 ],
@@ -835,18 +1071,15 @@ physical_plan [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Function": "Vortex Scan",
-                                                                    "Filters": [
-                                                                        "(2002-02-01 <= $.d_date <= 2002-04-02)",
-                                                                        "(2450817i64 <= $.d_date_sk <= 2452740i64)"
-                                                                    ],
-                                                                    "Projections": "d_date_sk",
-                                                                    "Estimated Cardinality": "14609"
+                                                                    "Filters": "($.cc_county = \"Williamson County\")",
+                                                                    "Projections": "cc_call_center_sk",
+                                                                    "Estimated Cardinality": "1"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
-                                                            "Conditions": "cs_ship_date_sk = d_date_sk",
+                                                            "Conditions": "cs_call_center_sk = cc_call_center_sk",
                                                             "Estimated Cardinality": "28731"
                                                         }
                                                     },
@@ -855,117 +1088,105 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
-                                                            "Filters": "cc_county='Williamson County'",
-                                                            "Projections": "cc_call_center_sk",
-                                                            "Estimated Cardinality": "1"
+                                                            "Filters": [
+                                                                "(2002-02-01 <= $.d_date <= 2002-04-02)",
+                                                                "(2450817i64 <= $.d_date_sk <= 2452740i64)"
+                                                            ],
+                                                            "Projections": "d_date_sk",
+                                                            "Estimated Cardinality": "14609"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "cs_call_center_sk = cc_call_center_sk",
+                                                    "Conditions": "cs_ship_date_sk = d_date_sk",
                                                     "Estimated Cardinality": "28731"
-                                                }
-                                            },
-                                            {
-                                                "name": "HASH_JOIN",
-                                                "children": [
-                                                    {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "HASH_JOIN",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Function": "Vortex Scan",
-                                                                            "Projections": [
-                                                                                "cs_warehouse_sk",
-                                                                                "cs_order_number"
-                                                                            ],
-                                                                            "Estimated Cardinality": "143657"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "name": "DELIM_SCAN",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Delim Index": "1",
-                                                                            "Estimated Cardinality": "28730"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Join Type": "INNER",
-                                                                    "Conditions": [
-                                                                        "cs_order_number = cs_order_number",
-                                                                        "cs_warehouse_sk != cs_warehouse_sk"
-                                                                    ],
-                                                                    "Estimated Cardinality": "1504681"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Projections": [
-                                                                "cs_warehouse_sk",
-                                                                "cs_order_number"
-                                                            ],
-                                                            "Estimated Cardinality": "1504681"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "DUMMY_SCAN",
-                                                        "children": [],
-                                                        "extra_info": {}
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Join Type": "RIGHT_SEMI",
-                                                    "Conditions": [
-                                                        "cs_warehouse_sk IS NOT DISTINCT FROM cs_warehouse_sk",
-                                                        "cs_order_number IS NOT DISTINCT FROM cs_order_number"
-                                                    ],
-                                                    "Estimated Cardinality": "5746"
-                                                }
-                                            },
-                                            {
-                                                "name": "HASH_GROUP_BY",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Groups": [
-                                                        "#0",
-                                                        "#1"
-                                                    ],
-                                                    "Aggregates": "",
-                                                    "Estimated Cardinality": "28730"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Join Type": "RIGHT_SEMI",
-                                            "Conditions": [
-                                                "cs_warehouse_sk IS NOT DISTINCT FROM cs_warehouse_sk",
-                                                "cs_order_number IS NOT DISTINCT FROM cs_order_number"
+                                            "Projections": [
+                                                "#0",
+                                                "#1",
+                                                "#2",
+                                                "#3"
                                             ],
-                                            "Estimated Cardinality": "5746",
-                                            "Delim Index": "1"
+                                            "Estimated Cardinality": "28731"
                                         }
                                     },
                                     {
-                                        "name": "HASH_JOIN",
+                                        "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "COLUMN_DATA_SCAN",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Estimated Cardinality": "1149"
-                                                }
-                                            },
-                                            {
-                                                "name": "PROJECTION",
+                                                "name": "FILTER",
                                                 "children": [
+                                                    {
+                                                        "name": "HASH_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "CTE_SCAN",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "CTE Index": "66",
+                                                                    "Estimated Cardinality": "28731"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "EMPTY_RESULT",
+                                                                "children": [],
+                                                                "extra_info": {}
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "MARK",
+                                                            "Conditions": [
+                                                                "cs_warehouse_sk IS NOT DISTINCT FROM cs_warehouse_sk",
+                                                                "cs_order_number IS NOT DISTINCT FROM cs_order_number"
+                                                            ],
+                                                            "Estimated Cardinality": "28731"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expression": "SUBQUERY",
+                                                    "Estimated Cardinality": "5746"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "#0",
+                                                "#1",
+                                                "#2"
+                                            ],
+                                            "Estimated Cardinality": "5746"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "CTE Name": "__duckdb_delim_66",
+                                    "Table Index": "66",
+                                    "Execution Mode": "PIPELINE_DEPENDENT",
+                                    "Estimated Cardinality": "5746"
+                                }
+                            },
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "FILTER",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "75",
+                                                            "Estimated Cardinality": "5746"
+                                                        }
+                                                    },
                                                     {
                                                         "name": "HASH_JOIN",
                                                         "children": [
@@ -979,73 +1200,224 @@ physical_plan [
                                                                 }
                                                             },
                                                             {
-                                                                "name": "DELIM_SCAN",
-                                                                "children": [],
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "HASH_GROUP_BY",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "FILTER",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "CTE_SCAN",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "CTE Index": "75",
+                                                                                                                    "Estimated Cardinality": "5746"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expression": "(CAST(#[72.17] AS BIGINT) BETWEEN 2 AND 15999)",
+                                                                                                            "Estimated Cardinality": "5746"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Projections": "#0",
+                                                                                                    "Estimated Cardinality": "5746"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Projections": "CAST(#0 AS SMALLINT)",
+                                                                                            "Estimated Cardinality": "5746"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Projections": "#[72.17]",
+                                                                                    "Estimated Cardinality": "5746"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": "#0",
+                                                                            "Aggregates": "",
+                                                                            "Estimated Cardinality": "2873"
+                                                                        }
+                                                                    }
+                                                                ],
                                                                 "extra_info": {
-                                                                    "Delim Index": "2",
-                                                                    "Estimated Cardinality": "5632"
+                                                                    "Projections": "CAST(#0 AS BIGINT)",
+                                                                    "Estimated Cardinality": "2873"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
-                                                            "Join Type": "INNER",
+                                                            "Join Type": "SEMI",
                                                             "Conditions": "cr_order_number = cs_order_number",
-                                                            "Estimated Cardinality": "5632"
+                                                            "Estimated Cardinality": "2855"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Projections": "cs_order_number",
-                                                    "Estimated Cardinality": "5632"
+                                                    "Join Type": "MARK",
+                                                    "Conditions": "cs_order_number IS NOT DISTINCT FROM cs_order_number",
+                                                    "Estimated Cardinality": "5746"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Join Type": "ANTI",
-                                            "Conditions": "cs_order_number IS NOT DISTINCT FROM cs_order_number",
+                                            "Expression": "(NOT SUBQUERY)",
                                             "Estimated Cardinality": "1149"
-                                        }
-                                    },
-                                    {
-                                        "name": "HASH_GROUP_BY",
-                                        "children": [],
-                                        "extra_info": {
-                                            "Groups": "#0",
-                                            "Aggregates": "",
-                                            "Estimated Cardinality": "5632"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Join Type": "ANTI",
-                                    "Conditions": "cs_order_number IS NOT DISTINCT FROM cs_order_number",
-                                    "Estimated Cardinality": "1149",
-                                    "Delim Index": "2"
+                                    "Projections": [
+                                        "#0",
+                                        "#1",
+                                        "#2"
+                                    ],
+                                    "Estimated Cardinality": "1149"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "cs_order_number",
-                                "cs_ext_ship_cost",
-                                "cs_net_profit"
-                            ],
+                            "CTE Name": "__duckdb_delim_75",
+                            "Table Index": "75",
+                            "Execution Mode": "PIPELINE_DEPENDENT",
                             "Estimated Cardinality": "1149"
+                        }
+                    },
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "UNGROUPED_AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "82",
+                                                            "Estimated Cardinality": "1149"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": [
+                                                        "cs_ext_ship_cost",
+                                                        "cs_net_profit"
+                                                    ],
+                                                    "Estimated Cardinality": "1149"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Aggregates": [
+                                                "sum(#0)",
+                                                "sum(#1)"
+                                            ],
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    },
+                                    {
+                                        "name": "UNGROUPED_AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "HASH_GROUP_BY",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "CTE_SCAN",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "CTE Index": "82",
+                                                                                    "Estimated Cardinality": "1149"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Projections": "CAST(#0 AS SMALLINT)",
+                                                                            "Estimated Cardinality": "1149"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Projections": "cs_order_number",
+                                                                    "Estimated Cardinality": "1149"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": "#0",
+                                                            "Aggregates": "",
+                                                            "Estimated Cardinality": "574"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": "42",
+                                                    "Estimated Cardinality": "574"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Aggregates": "count_star()",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {}
+                            }
+                        ],
+                        "extra_info": {
+                            "Projections": [
+                                "#2",
+                                "#0",
+                                "#1"
+                            ],
+                            "Estimated Cardinality": "1"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Aggregates": [
-                        "count(DISTINCT #0)",
-                        "sum(#1)",
-                        "sum(#2)"
-                    ]
+                    "CTE Name": "__aggregate_cte_82",
+                    "Table Index": "82",
+                    "Execution Mode": "PIPELINE_DEPENDENT",
+                    "Estimated Cardinality": "1"
                 }
             }
         ],
         "extra_info": {
             "Top": "100",
-            "Order By": "count(DISTINCT cs1.cs_order_number) ASC"
+            "Order By": "order count ASC",
+            "Estimated Cardinality": "1"
         }
     }
 ]

@@ -343,7 +343,7 @@ logical_opt [
                             "Function": "Vortex Scan",
                             "Aggregations": [
                                 "sum(ResolutionWidth)",
-                                "count(ResolutionWidth)"
+                                "count(*)"
                             ],
                             "Estimated Cardinality": "1000000"
                         }
@@ -554,7 +554,7 @@ physical_plan [
                     "Function": "Vortex Scan",
                     "Aggregations": [
                         "sum(ResolutionWidth)",
-                        "count(ResolutionWidth)"
+                        "count(*)"
                     ],
                     "Projections": "",
                     "Estimated Cardinality": "1000000"

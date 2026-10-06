@@ -179,7 +179,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "PageViews"
                 }
             }
         ],
@@ -217,7 +217,8 @@ logical_opt [
                                                                 "($.IsRefresh = 0i16)"
                                                             ],
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "40000"
+                                                            "SELECT projections": "TraficSourceID: cast($.TraficSourceID as i8?)",
+                                                            "Estimated Cardinality": "200000"
                                                         }
                                                     }
                                                 ],
@@ -229,7 +230,7 @@ logical_opt [
                                                         "SearchEngineID",
                                                         "AdvEngineID"
                                                     ],
-                                                    "Estimated Cardinality": "40000"
+                                                    "Estimated Cardinality": "200000"
                                                 }
                                             }
                                         ],
@@ -237,11 +238,11 @@ logical_opt [
                                             "Expressions": [
                                                 "#0",
                                                 "#1",
-                                                "__internal_compress_integral_utinyint(#2, -1)",
+                                                "#2",
                                                 "#3",
                                                 "#4"
                                             ],
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
@@ -254,20 +255,20 @@ logical_opt [
                                         "Dst"
                                     ],
                                     "Expressions": "count_star()",
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "199999"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_decompress_integral_smallint(#0, -1)",
+                                "CAST(#0 AS SMALLINT)",
                                 "#1",
                                 "#2",
                                 "#3",
                                 "#4",
                                 "#5"
                             ],
-                            "Estimated Cardinality": "40000"
+                            "Estimated Cardinality": "199999"
                         }
                     }
                 ],
@@ -280,7 +281,7 @@ logical_opt [
                         "4",
                         "PageViews"
                     ],
-                    "Estimated Cardinality": "40000"
+                    "Estimated Cardinality": "199999"
                 }
             }
         ],
@@ -304,37 +305,24 @@ physical_plan [
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
-                                        "children": [
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Function": "Vortex Scan",
-                                                    "Filters": [
-                                                        "CounterID=62",
-                                                        "IsRefresh=0"
-                                                    ],
-                                                    "Projections": [
-                                                        "URL",
-                                                        "Referer",
-                                                        "TraficSourceID",
-                                                        "SearchEngineID",
-                                                        "AdvEngineID"
-                                                    ],
-                                                    "Estimated Cardinality": "40000"
-                                                }
-                                            }
-                                        ],
+                                        "name": "READ_VORTEX",
+                                        "children": [],
                                         "extra_info": {
-                                            "Projections": [
-                                                "#0",
-                                                "#1",
-                                                "__internal_compress_integral_utinyint(#2, -1)",
-                                                "#3",
-                                                "#4"
+                                            "Function": "Vortex Scan",
+                                            "Filters": [
+                                                "($.CounterID = 62i32)",
+                                                "(2013-07-01T00:00:00Z <= $.EventDate <= 2013-07-31T00:00:00Z)",
+                                                "($.IsRefresh = 0i16)"
                                             ],
-                                            "Estimated Cardinality": "40000"
+                                            "SELECT projections": "TraficSourceID: cast($.TraficSourceID as i8?)",
+                                            "Projections": [
+                                                "URL",
+                                                "Referer",
+                                                "TraficSourceID",
+                                                "SearchEngineID",
+                                                "AdvEngineID"
+                                            ],
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
@@ -346,7 +334,7 @@ physical_plan [
                                         "Src",
                                         "Dst"
                                     ],
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
@@ -359,27 +347,28 @@ physical_plan [
                                 "#4"
                             ],
                             "Aggregates": "count_star()",
-                            "Estimated Cardinality": "40000"
+                            "Estimated Cardinality": "199999"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "__internal_decompress_integral_smallint(#0, -1)",
+                        "CAST(#0 AS SMALLINT)",
                         "#1",
                         "#2",
                         "#3",
                         "#4",
                         "#5"
                     ],
-                    "Estimated Cardinality": "40000"
+                    "Estimated Cardinality": "199999"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
             "Offset": "1000",
-            "Order By": "count_star() DESC"
+            "Order By": "PageViews DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

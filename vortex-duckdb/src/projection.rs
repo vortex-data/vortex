@@ -25,6 +25,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
+use crate::duckdb::ExpressionClass;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
@@ -218,7 +219,14 @@ impl Filter {
                 let idx_u: usize = idx.as_();
                 !is_virtual_column(column_ids[idx_u])
             }) {
-                has_non_optional_filter |= !matches!(ex.as_class(), TableFilterClass::Optional(_));
+                has_non_optional_filter |= match ex.as_class() {
+                    TableFilterClass::Optional(_) => false,
+                    TableFilterClass::ExpressionRef(expr) => match expr.as_class() {
+                        Some(ExpressionClass::BoundFunction(bfn)) => bfn.optional().is_none(),
+                        _ => true,
+                    },
+                    _ => true,
+                };
 
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();

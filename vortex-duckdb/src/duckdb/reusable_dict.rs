@@ -11,7 +11,7 @@ use crate::lifetime_wrapper;
 lifetime_wrapper!(
     /// A reusable dictionary buffer that can be used to efficiently create dictionary vectors.
     ///
-    /// This wraps DuckDB's `buffer_ptr<VectorChildBuffer>` which is created by
+    /// This wraps DuckDB's `buffer_ptr<DictionaryEntry>` which is created by
     /// `DictionaryVector::CreateReusableDictionary` and can be reused with
     /// `Vector::Dictionary` to create dictionary vectors without copying the values.
     ReusableDict,
@@ -62,12 +62,18 @@ impl VectorRef {
     ///
     /// This is more efficient than `dictionary` when the same dictionary values are
     /// used multiple times with different selection vectors.
-    pub fn reuse_dictionary(&mut self, reusable: &ReusableDict, sel_vec: &SelectionVector) {
+    pub fn reuse_dictionary(
+        &mut self,
+        reusable: &ReusableDict,
+        sel_vec: &SelectionVector,
+        sel_count: usize,
+    ) {
         unsafe {
             cpp::duckdb_vx_vector_dictionary_reusable(
                 self.as_ptr(),
                 reusable.as_ptr(),
                 sel_vec.as_ptr(),
+                sel_count as _,
             )
         }
     }

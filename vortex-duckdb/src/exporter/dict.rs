@@ -125,7 +125,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             *dst = src
         }
 
-        vector.reuse_dictionary(&self.values, &sel_vec);
+        vector.reuse_dictionary(&self.values, &sel_vec, len);
 
         Ok(())
     }

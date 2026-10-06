@@ -19,7 +19,7 @@ SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
