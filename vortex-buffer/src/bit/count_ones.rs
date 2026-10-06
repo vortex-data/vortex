@@ -8,6 +8,7 @@ use fearless_simd::Simd;
 use fearless_simd::prelude::*;
 use fearless_simd::u8x64;
 use fearless_simd::u64x8;
+use fearless_simd_macros::simd;
 use vortex_error::VortexExpect;
 
 #[inline]
@@ -108,8 +109,7 @@ fn count_ones_aligned_scalar(bytes: &[u8]) -> usize {
 
 /// Lane-wise `u64` popcount over 64-byte vectors: VPOPCNTQ on Ice Lake-class AVX-512, a nibble
 /// lookup with `vpsadbw` on AVX2, `vcnt` on NEON. The total is independent of lane byte order.
-#[allow(clippy::inline_always)]
-#[inline(always)]
+#[simd]
 fn count_ones_aligned_simd<S: Simd>(simd: S, bytes: &[u8]) -> usize {
     let (chunks, tail) = bytes.as_chunks::<64>();
     let mut accum = u64x8::splat(simd, 0);
