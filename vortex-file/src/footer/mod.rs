@@ -328,7 +328,10 @@ mod tests {
     #[test]
     fn segments_end_is_the_furthest_end_not_the_last() {
         // Segments are sorted by offset, but an earlier segment can end after a later one.
-        assert_eq!(segments_end(&[segment(0, 300), segment(100, 50)]), Some(300));
+        assert_eq!(
+            segments_end(&[segment(0, 300), segment(100, 50)]),
+            Some(300)
+        );
         assert_eq!(segments_end(&[]), Some(0));
         assert_eq!(segments_end(&[segment(0, 1), segment(u64::MAX, 1)]), None);
     }

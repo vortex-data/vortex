@@ -6,6 +6,7 @@
 use std::ops::Not;
 use std::ops::Range;
 
+use vortex_buffer::BitBufferMut;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -68,45 +69,35 @@ impl Selection {
                 RowMask::new(range.start, index_mask(range, range_len, exclude).not())
             }
             Selection::IncludeRoaring(roaring) => {
-                use std::ops::BitAnd;
-
-                // First we perform a cheap is_disjoint check
-                let mut range_treemap = roaring::RoaringTreemap::new();
-                range_treemap.insert_range(range.clone());
-
-                if roaring.is_disjoint(&range_treemap) {
-                    return RowMask::new(range.start, Mask::new_false(range_len));
-                }
-
-                // Otherwise, intersect with the selected range and shift to relativize.
-                let roaring = roaring.bitand(range_treemap);
-                let mask =
-                    Mask::from_indices(range_len, roaring.iter().map(|idx| relativize(range, idx)));
-
-                RowMask::new(range.start, mask)
+                RowMask::new(range.start, roaring_mask(roaring, range, range_len))
             }
             Selection::ExcludeRoaring(roaring) => {
-                use std::ops::BitAnd;
-
-                let mut range_treemap = roaring::RoaringTreemap::new();
-                range_treemap.insert_range(range.clone());
-
-                // If all indices in range are excluded, return all false mask
-                if roaring.intersection_len(&range_treemap) == range_len as u64 {
-                    return RowMask::new(range.start, Mask::new_false(range_len));
-                }
-
-                // Otherwise, intersect with the selected range and shift to relativize.
-                let roaring = roaring.bitand(range_treemap);
-                let mask = Mask::from_excluded_indices(
-                    range_len,
-                    roaring.iter().map(|idx| relativize(range, idx)),
-                );
-
-                RowMask::new(range.start, mask)
+                RowMask::new(range.start, roaring_mask(roaring, range, range_len).not())
             }
         }
     }
+}
+
+/// Build the mask of positions within `range` that are set in `roaring`.
+///
+/// Seeks straight to `range` rather than intersecting the whole treemap, and short-circuits splits
+/// that are entirely outside or inside the selection.
+fn roaring_mask(roaring: &roaring::RoaringTreemap, range: &Range<u64>, range_len: usize) -> Mask {
+    let selected = roaring.range_cardinality(range.clone());
+    if selected == 0 {
+        return Mask::new_false(range_len);
+    }
+    if selected == range_len as u64 {
+        return Mask::new_true(range_len);
+    }
+
+    let mut bits = BitBufferMut::new_unset(range_len);
+    let mut iter = roaring.iter();
+    iter.advance_to(range.start);
+    for idx in iter.take_while(|&idx| idx < range.end) {
+        bits.set(relativize(range, idx));
+    }
+    Mask::from_buffer(bits.freeze())
 }
 
 /// Build the mask of positions within `range` that are named by the given sorted row indices.
