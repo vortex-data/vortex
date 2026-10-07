@@ -23,6 +23,7 @@ use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -57,7 +58,6 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
-use crate::convert::dynamic::as_column_dynamic_filter;
 use crate::convert::dynamic::dynamic_filter_to_vortex;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
@@ -351,9 +351,9 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
-            // Dynamic filters (TopK, hash join, ...) become live Vortex comparisons that track the
-            // DataFusion filter as it tightens. They only relax the filter, so any we can't
-            // track are dropped.
+            // Dynamic filters (TopK, hash join, ...) become Vortex comparisons that track the
+            // DataFusion filter. They are only an optimization, so any we can't convert (e.g.
+            // after the expression adapter rewrote their columns) are dropped.
             let (dynamic_filters, filter): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) = filter
                 .as_ref()
                 .map(|f| {
@@ -364,7 +364,7 @@ impl FileOpener for VortexOpener {
                 })
                 .unwrap_or_default()
                 .into_iter()
-                .partition(|expr| as_column_dynamic_filter(expr).is_some());
+                .partition(|expr| expr.downcast_ref::<DynamicFilterPhysicalExpr>().is_some());
             let filter = (!filter.is_empty()).then(|| conjunction(filter));
             let dynamic_filter = vxf.dtype().as_struct_fields_opt().and_then(|fields| {
                 and_collect(dynamic_filters.iter().filter_map(|expr| {

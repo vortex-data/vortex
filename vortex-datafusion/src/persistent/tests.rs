@@ -775,3 +775,37 @@ async fn hash_join_dynamic_filter_pushdown() -> anyhow::Result<()> {
     ");
     Ok(())
 }
+
+/// When the file's type differs from the table's, the expression adapter wraps the dynamic
+/// filter's columns in casts. The filter must still be handled rather than rejected by the scan.
+#[rstest]
+#[case("ORDER BY a DESC LIMIT 3", "499, 498, 497")]
+#[case("ORDER BY a ASC LIMIT 3", "1, 2, 3")]
+#[tokio::test]
+async fn topk_dynamic_filter_with_cast_column(
+    #[case] order: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    // Files store `a` as INT while the table declares BIGINT.
+    register_dynamic_filter_table(&ctx, 5).await?;
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE t_wide (a BIGINT) STORED AS vortex LOCATION '/dyn/'")
+        .await?;
+
+    let result = ctx
+        .session
+        .sql(&format!("SELECT a FROM t_wide WHERE a IS NOT NULL {order}"))
+        .await?
+        .collect()
+        .await?;
+    let actual = pretty_format_batches(&result)?
+        .to_string()
+        .lines()
+        .filter_map(|line| line.trim_matches('|').trim().parse::<i64>().ok())
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert_eq!(actual, expected);
+    Ok(())
+}

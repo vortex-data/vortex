@@ -59,17 +59,27 @@ const TEMPLATE_OPS: [CompareOperator; 4] = [
     CompareOperator::Gte,
 ];
 
-/// Returns the dynamic filter if `expr` is one whose children are all plain columns.
+/// The column referenced by `expr`, looking through casts the expression adapter adds when a
+/// file's type differs from the table's (e.g. a different timestamp unit).
+///
+/// Bounds on the cast column are converted back to the file type and only kept when that
+/// conversion is exact, see [`LiveBounds::comparison`].
+fn column_of(expr: &Arc<dyn PhysicalExpr>) -> Option<&df_expr::Column> {
+    expr.downcast_ref::<df_expr::Column>().or_else(|| {
+        expr.downcast_ref::<df_expr::CastExpr>()?
+            .expr()
+            .downcast_ref::<df_expr::Column>()
+    })
+}
+
+/// Returns the dynamic filter if `expr` is one whose children are all (possibly cast) columns.
 pub(crate) fn as_column_dynamic_filter(
     expr: &Arc<dyn PhysicalExpr>,
 ) -> Option<&DynamicFilterPhysicalExpr> {
     let dynamic = expr.downcast_ref::<DynamicFilterPhysicalExpr>()?;
     let children = dynamic.children();
-    (!children.is_empty()
-        && children
-            .iter()
-            .all(|child| child.downcast_ref::<df_expr::Column>().is_some()))
-    .then_some(dynamic)
+    (!children.is_empty() && children.iter().all(|child| column_of(child).is_some()))
+        .then_some(dynamic)
 }
 
 /// Converts a DataFusion dynamic filter into a Vortex expression over a file with `file_fields`.
@@ -87,7 +97,7 @@ pub(crate) fn dynamic_filter_to_vortex(
     let columns: Vec<(String, DType)> = dynamic_filter
         .children()
         .into_iter()
-        .filter_map(|child| child.downcast_ref::<df_expr::Column>())
+        .filter_map(|child| column_of(child))
         .filter_map(|col| {
             let dtype = file_fields.field(col.name())?;
             Some((col.name().to_owned(), dtype))
@@ -250,7 +260,7 @@ impl LiveBounds {
             let Some(null_col) = binary
                 .left()
                 .downcast_ref::<df_expr::IsNullExpr>()
-                .and_then(|is_null| is_null.arg().downcast_ref::<df_expr::Column>())
+                .and_then(|is_null| column_of(is_null.arg()))
             else {
                 continue;
             };
@@ -273,12 +283,12 @@ impl LiveBounds {
         let op = compare_op(binary.op())?;
 
         let (col, literal, op) = match (
-            binary.left().downcast_ref::<df_expr::Column>(),
+            column_of(binary.left()),
             binary.right().downcast_ref::<df_expr::Literal>(),
         ) {
             (Some(col), Some(literal)) => (col, literal, op),
             _ => (
-                binary.right().downcast_ref::<df_expr::Column>()?,
+                column_of(binary.right())?,
                 binary.left().downcast_ref::<df_expr::Literal>()?,
                 op.swap(),
             ),
@@ -298,7 +308,13 @@ impl LiveBounds {
         let scalar = if scalar.dtype().eq_ignore_nullability(dtype) {
             scalar
         } else {
-            scalar.cast(&dtype.as_nullable()).ok()?
+            // A lossy cast (e.g. truncating a timestamp to a coarser unit) could make the bound
+            // stricter than the original, so only accept casts that round-trip exactly.
+            let cast = scalar.cast(&dtype.as_nullable()).ok()?;
+            if cast.cast(scalar.dtype()).ok()? != scalar {
+                return None;
+            }
+            cast
         };
         Some((idx, op, scalar.into_value()?))
     }
@@ -339,6 +355,7 @@ fn compare_op(op: &DFOperator) -> Option<CompareOperator> {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_schema::DataType;
     use datafusion_common::ScalarValue;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_physical_expr::PhysicalExpr;
@@ -490,6 +507,30 @@ mod tests {
         // The comparison is nullable, but the `IS NULL` branch makes every row non-null.
         let expected = BoolArray::from_iter([Some(false), Some(true), Some(true)]);
         assert_filter(&session, &input, &filter, expected)
+    }
+
+    /// Bounds on a cast column are applied only when the literal converts exactly to the file type.
+    #[rstest]
+    #[case(DataType::Int64, ScalarValue::Int64(Some(5)), [true, false, false])]
+    // 4.5 has no exact INT equivalent; truncating to `a < 4` would wrongly drop `a = 4`.
+    #[case(DataType::Float64, ScalarValue::Float64(Some(4.5)), [true, true, true])]
+    fn cast_column_bounds(
+        #[case] cast_to: DataType,
+        #[case] value: ScalarValue,
+        #[case] expected: [bool; 3],
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input =
+            StructArray::from_fields(&[("a", buffer![1i32, 5, 10].into_array())])?.into_array();
+        let cast_a: PhysicalExprRef = Arc::new(df_expr::CastExpr::new(col_a(), cast_to, None));
+        let current = binary(
+            Arc::clone(&cast_a),
+            DFOperator::Lt,
+            Arc::new(df_expr::Literal::new(value)),
+        );
+        let filter: PhysicalExprRef =
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![cast_a], current));
+        assert_filter(&session, &input, &filter, BoolArray::from_iter(expected))
     }
 
     fn complete_filter(current: PhysicalExprRef) -> PhysicalExprRef {
