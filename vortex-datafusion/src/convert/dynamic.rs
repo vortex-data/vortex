@@ -19,13 +19,13 @@
 //! when the file's statistics suggest they will skip a meaningful share of rows, because
 //! evaluating a non-selective filter costs more than it saves.
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
-use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_plan::expressions as df_expr;
 use parking_lot::Mutex;
 use vortex::dtype::DType;
@@ -149,11 +149,14 @@ pub(crate) fn dynamic_filter_to_vortex(
     and_collect(per_column)
 }
 
+/// `(column index, operator, value)`, with the value already cast to the column's file dtype.
+type Bound = (usize, CompareOperator, ScalarValue);
+
 /// The bounds extracted from the current generation of a dynamic filter.
 struct Snapshot {
     generation: u64,
     /// `(column index, operator, value)` with values already cast to the column's file dtype.
-    bounds: Vec<(usize, CompareOperator, ScalarValue)>,
+    bounds: Vec<Bound>,
 }
 
 struct LiveBounds {
@@ -230,58 +233,112 @@ impl LiveBounds {
     }
 
     /// Reads `col <op> literal` bounds from the filter's current predicate.
-    ///
-    /// Only bounds that every row kept by the predicate satisfies are returned; anything else
-    /// is dropped, which can only make the Vortex filter keep more rows.
-    fn extract_bounds(&self) -> Vec<(usize, CompareOperator, ScalarValue)> {
-        let Some(Ok(current)) = self
-            .filter
+    fn extract_bounds(&self) -> Vec<Bound> {
+        self.filter
             .downcast_ref::<DynamicFilterPhysicalExpr>()
-            .map(DynamicFilterPhysicalExpr::current)
-        else {
+            .and_then(|filter| filter.current().ok())
+            .map(|current| self.bounds_of(&current))
+            .unwrap_or_default()
+    }
+
+    /// Bounds that every row satisfying `expr` also satisfies, unless the bound's column is null.
+    ///
+    /// Anything not understood yields no bounds, which can only make the Vortex filter keep more
+    /// rows.
+    fn bounds_of(&self, expr: &Arc<dyn PhysicalExpr>) -> Vec<Bound> {
+        let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() else {
             return vec![];
         };
+        match binary.op() {
+            DFOperator::And => {
+                let mut bounds = self.bounds_of(binary.left());
+                bounds.extend(self.bounds_of(binary.right()));
+                bounds
+            }
+            DFOperator::Or => {
+                // `col IS NULL OR <rest>`: nulls always pass our template, so bounds `<rest>`
+                // places on the same column still hold.
+                if let Some(null_col) = binary
+                    .left()
+                    .downcast_ref::<df_expr::IsNullExpr>()
+                    .and_then(|is_null| column_of(is_null.arg()))
+                {
+                    let idx = self.column_index(null_col.name());
+                    return self
+                        .bounds_of(binary.right())
+                        .into_iter()
+                        .filter(|(c, ..)| Some(*c) == idx)
+                        .collect();
+                }
+                // E.g. multi-column TopK, `a < v OR (a = v AND b < w)`, implies `a <= v`.
+                self.hull(
+                    &self.bounds_of(binary.left()),
+                    &self.bounds_of(binary.right()),
+                )
+            }
+            _ => self.comparison(binary),
+        }
+    }
 
+    /// Bounds implied by either side holding: for each column and direction bounded on both
+    /// sides, the looser of the two.
+    fn hull(&self, left: &[Bound], right: &[Bound]) -> Vec<Bound> {
         let mut bounds = vec![];
-        for conjunct in split_conjunction(&current) {
-            if let Some(bound) = self.comparison(conjunct, None) {
-                bounds.push(bound);
-                continue;
+        for (idx, (_, dtype)) in self.columns.iter().enumerate() {
+            for upper in [true, false] {
+                let tightest = |side: &[Bound]| {
+                    side.iter()
+                        .filter(|(c, op, _)| *c == idx && is_upper(*op) == Some(upper))
+                        .filter_map(|(_, op, value)| {
+                            Some((
+                                *op,
+                                Scalar::try_new(dtype.clone(), Some(value.clone())).ok()?,
+                            ))
+                        })
+                        // Every bound on one side holds, so any of them is safe to keep.
+                        .reduce(|a, b| {
+                            if looser(&a, &b, upper) == Some(false) {
+                                b
+                            } else {
+                                a
+                            }
+                        })
+                };
+                if let (Some(l), Some(r)) = (tightest(left), tightest(right))
+                    && let Some(r_is_looser) = looser(&l, &r, upper)
+                    && let Some(value) = if r_is_looser { r.1 } else { l.1 }.into_value()
+                {
+                    let op = if r_is_looser { r.0 } else { l.0 };
+                    bounds.push((idx, op, value));
+                }
             }
-
-            // `col IS NULL OR <comparisons on col>`: our template always keeps nulls, so the
-            // comparisons on the same column are valid bounds for it.
-            let Some(binary) = conjunct.downcast_ref::<df_expr::BinaryExpr>() else {
-                continue;
-            };
-            if *binary.op() != DFOperator::Or {
-                continue;
-            }
-            let Some(null_col) = binary
-                .left()
-                .downcast_ref::<df_expr::IsNullExpr>()
-                .and_then(|is_null| column_of(is_null.arg()))
-            else {
-                continue;
-            };
-            bounds.extend(
-                split_conjunction(binary.right())
-                    .into_iter()
-                    .filter_map(|expr| self.comparison(expr, Some(null_col.name()))),
-            );
         }
         bounds
     }
 
-    /// Parses `col <op> literal` or `literal <op> col` into a bound on a tracked column.
-    fn comparison(
-        &self,
-        expr: &Arc<dyn PhysicalExpr>,
-        only_column: Option<&str>,
-    ) -> Option<(usize, CompareOperator, ScalarValue)> {
-        let binary = expr.downcast_ref::<df_expr::BinaryExpr>()?;
-        let op = compare_op(binary.op())?;
+    fn column_index(&self, name: &str) -> Option<usize> {
+        self.columns.iter().position(|(column, _)| column == name)
+    }
 
+    /// Parses `col <op> literal` or `literal <op> col` into bounds on a tracked column, reading
+    /// `col = literal` as both `<=` and `>=`.
+    fn comparison(&self, binary: &df_expr::BinaryExpr) -> Vec<Bound> {
+        let Some(op) = compare_op(binary.op()) else {
+            return vec![];
+        };
+        let Some((idx, op, value)) = self.parse_comparison(binary, op) else {
+            return vec![];
+        };
+        match op {
+            CompareOperator::Eq => vec![
+                (idx, CompareOperator::Lte, value.clone()),
+                (idx, CompareOperator::Gte, value),
+            ],
+            op => vec![(idx, op, value)],
+        }
+    }
+
+    fn parse_comparison(&self, binary: &df_expr::BinaryExpr, op: CompareOperator) -> Option<Bound> {
         let (col, literal, op) = match (
             column_of(binary.left()),
             binary.right().downcast_ref::<df_expr::Literal>(),
@@ -294,14 +351,7 @@ impl LiveBounds {
             ),
         };
 
-        if only_column.is_some_and(|name| name != col.name()) {
-            return None;
-        }
-
-        let idx = self
-            .columns
-            .iter()
-            .position(|(name, _)| name == col.name())?;
+        let idx = self.column_index(col.name())?;
         let dtype = &self.columns[idx].1;
 
         let scalar = scalar_from_df(literal.value(), &self.session).ok()?;
@@ -341,12 +391,39 @@ fn kept_fraction(bounds: &[(CompareOperator, Scalar)], min: &Scalar, max: &Scala
     Some(((upper - lower) / (max - min)).clamp(0.0, 1.0))
 }
 
+/// `Some(true)` for upper bounds (`<`, `<=`), `Some(false)` for lower bounds (`>`, `>=`).
+fn is_upper(op: CompareOperator) -> Option<bool> {
+    match op {
+        CompareOperator::Lt | CompareOperator::Lte => Some(true),
+        CompareOperator::Gt | CompareOperator::Gte => Some(false),
+        CompareOperator::Eq | CompareOperator::NotEq => None,
+    }
+}
+
+/// Whether bound `b` keeps more values than bound `a` (both upper or both lower), or `None` when
+/// their values can't be compared.
+fn looser(
+    a: &(CompareOperator, Scalar),
+    b: &(CompareOperator, Scalar),
+    upper: bool,
+) -> Option<bool> {
+    Some(match a.1.partial_cmp(&b.1)? {
+        Ordering::Equal => {
+            matches!(a.0, CompareOperator::Lt | CompareOperator::Gt)
+                && matches!(b.0, CompareOperator::Lte | CompareOperator::Gte)
+        }
+        Ordering::Less => upper,
+        Ordering::Greater => !upper,
+    })
+}
+
 fn compare_op(op: &DFOperator) -> Option<CompareOperator> {
     Some(match op {
         DFOperator::Lt => CompareOperator::Lt,
         DFOperator::LtEq => CompareOperator::Lte,
         DFOperator::Gt => CompareOperator::Gt,
         DFOperator::GtEq => CompareOperator::Gte,
+        DFOperator::Eq => CompareOperator::Eq,
         _ => return None,
     })
 }
@@ -486,6 +563,65 @@ mod tests {
             StructArray::from_fields(&[("a", buffer![1i32, 5, 10].into_array())])?.into_array();
         let filter: PhysicalExprRef =
             Arc::new(DynamicFilterPhysicalExpr::new(vec![col_a()], current));
+        assert_filter(&session, &input, &filter, BoolArray::from_iter(expected))
+    }
+
+    fn col_b() -> PhysicalExprRef {
+        Arc::new(df_expr::Column::new("b", 1))
+    }
+
+    /// Multi-column TopK filters are disjunctions over the sort keys; the leading key still gets
+    /// a bound from the loosest side of each disjunction.
+    #[rstest]
+    // ORDER BY a, b: `a < 5 OR (a = 5 AND b < 3)` implies `a <= 5`.
+    #[case(
+        binary(
+            binary(col_a(), DFOperator::Lt, lit_i32(5)),
+            DFOperator::Or,
+            binary(
+                binary(col_a(), DFOperator::Eq, lit_i32(5)),
+                DFOperator::And,
+                binary(col_b(), DFOperator::Lt, lit_i32(3)),
+            ),
+        ),
+        [true, true, false],
+    )]
+    // ORDER BY a DESC, b DESC: `a > 5 OR (a = 5 AND b > 3)` implies `a >= 5`.
+    #[case(
+        binary(
+            binary(col_a(), DFOperator::Gt, lit_i32(5)),
+            DFOperator::Or,
+            binary(
+                binary(col_a(), DFOperator::Eq, lit_i32(5)),
+                DFOperator::And,
+                binary(col_b(), DFOperator::Gt, lit_i32(3)),
+            ),
+        ),
+        [false, true, true],
+    )]
+    // The hull keeps the looser bound: `a < 2 OR a <= 5` implies `a <= 5`.
+    #[case(
+        binary(
+            binary(col_a(), DFOperator::Lt, lit_i32(2)),
+            DFOperator::Or,
+            binary(col_a(), DFOperator::LtEq, lit_i32(5)),
+        ),
+        [true, true, false],
+    )]
+    fn disjunction_bounds(
+        #[case] current: PhysicalExprRef,
+        #[case] expected: [bool; 3],
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input = StructArray::from_fields(&[
+            ("a", buffer![1i32, 5, 10].into_array()),
+            ("b", buffer![0i32, 0, 0].into_array()),
+        ])?
+        .into_array();
+        let filter: PhysicalExprRef = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![col_a(), col_b()],
+            current,
+        ));
         assert_filter(&session, &input, &filter, BoolArray::from_iter(expected))
     }
 
