@@ -64,7 +64,8 @@ impl ArrayExporter {
         cache: &ConversionCache,
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        debug_assert!(
+        #[cfg(debug_assertions)]
+        assert!(
             array
                 .validity()?
                 .execute_mask(array.len(), &mut ctx)?
