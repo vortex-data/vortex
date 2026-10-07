@@ -61,3 +61,7 @@ harness = false
 [[bench]]
 name = "run_end_sum"
 harness = false
+
+[[bench]]
+name = "run_end_dict_bool_filter"
+harness = false
