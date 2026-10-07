@@ -323,7 +323,10 @@ fn buffer_at_most(
     let chunk = PyBuffer::<u8>::get(result)?;
     let n = chunk.len_bytes();
     if n > length {
-        return Err(PyBufferError::new_err(format!("{} returned {n} bytes", call())));
+        return Err(PyBufferError::new_err(format!(
+            "{} returned {n} bytes",
+            call()
+        )));
     }
 
     Ok(chunk)
