@@ -355,15 +355,9 @@ impl FileOpener for VortexOpener {
             // DataFusion filter. They are only an optimization, so any we can't convert (e.g.
             // after the expression adapter rewrote their columns) are dropped.
             let (dynamic_filters, filter): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) = filter
-                .as_ref()
-                .map(|f| {
-                    split_conjunction(f)
-                        .into_iter()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-                .into_iter()
+                .iter()
+                .flat_map(split_conjunction)
+                .cloned()
                 .partition(|expr| expr.downcast_ref::<DynamicFilterPhysicalExpr>().is_some());
             let filter = (!filter.is_empty()).then(|| conjunction(filter));
             let dynamic_filter = vxf.dtype().as_struct_fields_opt().and_then(|fields| {

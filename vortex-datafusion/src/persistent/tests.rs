@@ -4,9 +4,12 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use arrow_schema::Field;
+use arrow_schema::Schema;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::util::display::array_value_to_string;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -680,10 +683,9 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
 }
 
 /// Writes `files` Vortex files of a nullable `a` column under `/dyn/` and registers them as `t`.
+///
+/// File `f` holds `f * 100 + i` for `i` in `0..100`, with nulls wherever `i % 17 == 0`.
 async fn register_dynamic_filter_table(ctx: &TestSessionContext, files: i32) -> anyhow::Result<()> {
-    use arrow_schema::Field;
-    use arrow_schema::Schema;
-
     let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
     for file in 0..files {
         let values = (0..100).map(|i| (i % 17 != 0).then_some(file * 100 + i));
@@ -698,6 +700,23 @@ async fn register_dynamic_filter_table(ctx: &TestSessionContext, files: i32) -> 
         .sql("CREATE EXTERNAL TABLE t (a INT) STORED AS vortex LOCATION '/dyn/'")
         .await?;
     Ok(())
+}
+
+/// Runs `sql` and renders its single output column as comma-separated values.
+async fn query_values(ctx: &TestSessionContext, sql: &str) -> anyhow::Result<String> {
+    let batches = ctx.session.sql(sql).await?.collect().await?;
+    let mut values = vec![];
+    for batch in &batches {
+        let column = batch.column(0);
+        for row in 0..column.len() {
+            values.push(if column.is_null(row) {
+                "NULL".to_owned()
+            } else {
+                array_value_to_string(column, row)?
+            });
+        }
+    }
+    Ok(values.join(", "))
 }
 
 /// The scan accepts TopK dynamic filters and still returns the right rows, including nulls.
@@ -729,50 +748,28 @@ async fn topk_dynamic_filter_pushdown(
         "expected the scan to accept the dynamic filter:\n{plan_str}"
     );
 
-    let result = ctx.session.sql(&query).await?.collect().await?;
-    let actual = result
-        .iter()
-        .flat_map(|batch| {
-            let array = batch
-                .column(0)
-                .as_any()
-                .downcast_ref::<Int32Array>()
-                .expect("Int32 column");
-            array
-                .iter()
-                .map(|v| v.map_or_else(|| "NULL".to_owned(), |v| v.to_string()))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    assert_eq!(actual, expected);
+    assert_eq!(query_values(&ctx, &query).await?, expected);
     Ok(())
 }
 
-/// Hash join dynamic filters on the probe side keep the join result correct.
+/// Hash join dynamic filters on the probe side keep the join result correct, whether or not
+/// their bounds are selective enough to be applied.
+#[rstest]
+// 151 and 17 are null in the table, and the bounds [17, 352] span most files.
+#[case("(150), (151), (352), (17)", "150, 352")]
+// Bounds [150, 152] skip all but one file's worth of values, so they are applied.
+#[case("(150), (152)", "150, 152")]
 #[tokio::test]
-async fn hash_join_dynamic_filter_pushdown() -> anyhow::Result<()> {
+async fn hash_join_dynamic_filter_pushdown(
+    #[case] build_values: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
     register_dynamic_filter_table(&ctx, 5).await?;
 
-    let result = ctx
-        .session
-        .sql(
-            "SELECT t.a FROM t JOIN (VALUES (150), (151), (352), (17)) AS b(x) ON t.a = b.x \
-             ORDER BY t.a",
-        )
-        .await?
-        .collect()
-        .await?;
-    // 151 and 17 are null in the table (`i % 17 == 0`), so only 150 and 352 match.
-    assert_snapshot!(pretty_format_batches(&result)?, @r"
-    +-----+
-    | a   |
-    +-----+
-    | 150 |
-    | 352 |
-    +-----+
-    ");
+    let query =
+        format!("SELECT t.a FROM t JOIN (VALUES {build_values}) AS b(x) ON t.a = b.x ORDER BY t.a");
+    assert_eq!(query_values(&ctx, &query).await?, expected);
     Ok(())
 }
 
@@ -787,25 +784,13 @@ async fn topk_dynamic_filter_with_cast_column(
     #[case] expected: &str,
 ) -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
-    // Files store `a` as INT while the table declares BIGINT.
+    // Files store `a` as INT while this table declares BIGINT.
     register_dynamic_filter_table(&ctx, 5).await?;
     ctx.session
         .sql("CREATE EXTERNAL TABLE t_wide (a BIGINT) STORED AS vortex LOCATION '/dyn/'")
         .await?;
 
-    let result = ctx
-        .session
-        .sql(&format!("SELECT a FROM t_wide WHERE a IS NOT NULL {order}"))
-        .await?
-        .collect()
-        .await?;
-    let actual = pretty_format_batches(&result)?
-        .to_string()
-        .lines()
-        .filter_map(|line| line.trim_matches('|').trim().parse::<i64>().ok())
-        .map(|v| v.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    assert_eq!(actual, expected);
+    let query = format!("SELECT a FROM t_wide WHERE a IS NOT NULL {order}");
+    assert_eq!(query_values(&ctx, &query).await?, expected);
     Ok(())
 }

@@ -4,10 +4,12 @@
 //! Conversion of DataFusion [`DynamicFilterPhysicalExpr`]s into live Vortex dynamic comparisons.
 //!
 //! DataFusion operators such as TopK and hash joins push a [`DynamicFilterPhysicalExpr`] into the
-//! scan and tighten it while the query runs. The filter's shape is unknown when a file is opened
-//! (it usually starts as `true`), but its column children are fixed. For each child column we
-//! therefore emit a fixed template of [`dynamic`] comparisons (`<`, `<=`, `>`, `>=`), whose
-//! right-hand sides are re-read from the DataFusion filter whenever its generation changes.
+//! scan and tighten it while the query runs. Its column children are fixed, so for each child we
+//! emit [`dynamic`] comparisons whose right-hand sides are re-read from the DataFusion filter
+//! whenever its generation changes. If the filter already has bounds when a file is opened, only
+//! the comparisons those bounds use are emitted, since a TopK filter keeps its shape as it
+//! tightens. Before its first update (it starts as `true`) the shape is unknown, so every column
+//! gets the full template (`<`, `<=`, `>`, `>=`).
 //!
 //! Every comparison defaults to `true` when the current DataFusion predicate has no matching
 //! bound, so the Vortex filter only ever keeps a superset of the rows DataFusion's filter keeps.
@@ -22,6 +24,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use datafusion_common::ScalarValue as DFScalarValue;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
@@ -63,7 +66,7 @@ const TEMPLATE_OPS: [CompareOperator; 4] = [
 /// file's type differs from the table's (e.g. a different timestamp unit).
 ///
 /// Bounds on the cast column are converted back to the file type and only kept when that
-/// conversion is exact, see [`LiveBounds::comparison`].
+/// conversion is exact, see [`LiveBounds::parse_comparison`].
 fn column_of(expr: &Arc<dyn PhysicalExpr>) -> Option<&df_expr::Column> {
     expr.downcast_ref::<df_expr::Column>().or_else(|| {
         expr.downcast_ref::<df_expr::CastExpr>()?
@@ -121,12 +124,22 @@ pub(crate) fn dynamic_filter_to_vortex(
         return bounds.selective_static_filter(file_fields, file_stats?);
     }
 
+    let current = bounds.current_bounds();
     let per_column = columns
         .into_iter()
         .enumerate()
         .filter_map(|(idx, (name, dtype))| {
+            // Once the filter has bounds, columns and operators it doesn't bound are skipped.
+            let ops: Vec<_> = if current.is_empty() {
+                TEMPLATE_OPS.to_vec()
+            } else {
+                TEMPLATE_OPS
+                    .into_iter()
+                    .filter(|op| current.iter().any(|(c, o, _)| *c == idx && o == op))
+                    .collect()
+            };
             let lhs = get_item(name, root());
-            let comparisons = TEMPLATE_OPS.map(|op| {
+            let comparisons = and_collect(ops.into_iter().map(|op| {
                 let bounds = Arc::clone(&bounds);
                 dynamic(
                     op,
@@ -135,8 +148,7 @@ pub(crate) fn dynamic_filter_to_vortex(
                     true,
                     lhs.clone(),
                 )
-            });
-            let comparisons = and_collect(comparisons)?;
+            }))?;
             // Nulls always pass: the DataFusion filter may keep them (e.g. TopK with NULLS FIRST),
             // and keeping extra rows is always safe.
             Some(if dtype.is_nullable() {
@@ -152,11 +164,10 @@ pub(crate) fn dynamic_filter_to_vortex(
 /// `(column index, operator, value)`, with the value already cast to the column's file dtype.
 type Bound = (usize, CompareOperator, ScalarValue);
 
-/// The bounds extracted from the current generation of a dynamic filter.
+/// The bounds extracted from one generation of a dynamic filter.
 struct Snapshot {
     generation: u64,
-    /// `(column index, operator, value)` with values already cast to the column's file dtype.
-    bounds: Vec<Bound>,
+    bounds: Arc<[Bound]>,
 }
 
 struct LiveBounds {
@@ -216,20 +227,27 @@ impl LiveBounds {
     }
 
     fn value(&self, column: usize, op: CompareOperator) -> Option<ScalarValue> {
-        let generation = self.filter.snapshot_generation();
-        let mut cache = self.cache.lock();
-        if cache.as_ref().is_none_or(|s| s.generation != generation) {
-            *cache = Some(Snapshot {
-                generation,
-                bounds: self.extract_bounds(),
-            });
-        }
-        cache
-            .as_ref()?
-            .bounds
+        self.current_bounds()
             .iter()
             .find(|(c, o, _)| *c == column && *o == op)
             .map(|(_, _, value)| value.clone())
+    }
+
+    /// The bounds of the filter's current generation, re-read only when the generation changes.
+    fn current_bounds(&self) -> Arc<[Bound]> {
+        let generation = self.filter.snapshot_generation();
+        let mut cache = self.cache.lock();
+        match cache.as_ref() {
+            Some(snapshot) if snapshot.generation == generation => Arc::clone(&snapshot.bounds),
+            _ => {
+                let bounds: Arc<[Bound]> = self.extract_bounds().into();
+                *cache = Some(Snapshot {
+                    generation,
+                    bounds: Arc::clone(&bounds),
+                });
+                bounds
+            }
+        }
     }
 
     /// Reads `col <op> literal` bounds from the filter's current predicate.
@@ -237,23 +255,44 @@ impl LiveBounds {
         self.filter
             .downcast_ref::<DynamicFilterPhysicalExpr>()
             .and_then(|filter| filter.current().ok())
-            .map(|current| self.bounds_of(&current))
+            .and_then(|current| self.bounds_of(&current))
             .unwrap_or_default()
     }
 
-    /// Bounds that every row satisfying `expr` also satisfies, unless the bound's column is null.
+    /// Bounds that every row satisfying `expr` also satisfies, unless the bound's column is null,
+    /// or `None` if no row can satisfy `expr` (it is `false` or `NULL`).
     ///
     /// Anything not understood yields no bounds, which can only make the Vortex filter keep more
     /// rows.
-    fn bounds_of(&self, expr: &Arc<dyn PhysicalExpr>) -> Vec<Bound> {
+    fn bounds_of(&self, expr: &Arc<dyn PhysicalExpr>) -> Option<Vec<Bound>> {
+        if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
+            return match literal.value() {
+                DFScalarValue::Boolean(Some(true)) => Some(vec![]),
+                DFScalarValue::Boolean(Some(false) | None) | DFScalarValue::Null => None,
+                _ => Some(vec![]),
+            };
+        }
+        if let Some(case) = expr.downcast_ref::<df_expr::CaseExpr>() {
+            // Rows the CASE keeps satisfy one of its results. Without an ELSE, unmatched rows are
+            // NULL and so not kept. Partitioned hash joins route each key to its partition's
+            // bounds this way.
+            return case
+                .when_then_expr()
+                .iter()
+                .map(|(_, then)| then)
+                .chain(case.else_expr())
+                .map(|branch| self.bounds_of(branch))
+                .reduce(|a, b| self.hull(a, b))
+                .flatten();
+        }
         let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() else {
-            return vec![];
+            return Some(vec![]);
         };
         match binary.op() {
             DFOperator::And => {
-                let mut bounds = self.bounds_of(binary.left());
-                bounds.extend(self.bounds_of(binary.right()));
-                bounds
+                let mut bounds = self.bounds_of(binary.left())?;
+                bounds.extend(self.bounds_of(binary.right())?);
+                Some(bounds)
             }
             DFOperator::Or => {
                 // `col IS NULL OR <rest>`: nulls always pass our template, so bounds `<rest>`
@@ -264,25 +303,31 @@ impl LiveBounds {
                     .and_then(|is_null| column_of(is_null.arg()))
                 {
                     let idx = self.column_index(null_col.name());
-                    return self
-                        .bounds_of(binary.right())
-                        .into_iter()
-                        .filter(|(c, ..)| Some(*c) == idx)
-                        .collect();
+                    return Some(
+                        self.bounds_of(binary.right())
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|(c, ..)| Some(*c) == idx)
+                            .collect(),
+                    );
                 }
                 // E.g. multi-column TopK, `a < v OR (a = v AND b < w)`, implies `a <= v`.
                 self.hull(
-                    &self.bounds_of(binary.left()),
-                    &self.bounds_of(binary.right()),
+                    self.bounds_of(binary.left()),
+                    self.bounds_of(binary.right()),
                 )
             }
-            _ => self.comparison(binary),
+            _ => Some(self.comparison(binary)),
         }
     }
 
     /// Bounds implied by either side holding: for each column and direction bounded on both
-    /// sides, the looser of the two.
-    fn hull(&self, left: &[Bound], right: &[Bound]) -> Vec<Bound> {
+    /// sides, the looser of the two. A side no row can satisfy (`None`) contributes nothing.
+    fn hull(&self, left: Option<Vec<Bound>>, right: Option<Vec<Bound>>) -> Option<Vec<Bound>> {
+        let (left, right) = match (left, right) {
+            (Some(left), Some(right)) => (left, right),
+            (side, None) | (None, side) => return side,
+        };
         let mut bounds = vec![];
         for (idx, (_, dtype)) in self.columns.iter().enumerate() {
             for upper in [true, false] {
@@ -304,7 +349,7 @@ impl LiveBounds {
                             }
                         })
                 };
-                if let (Some(l), Some(r)) = (tightest(left), tightest(right))
+                if let (Some(l), Some(r)) = (tightest(&left), tightest(&right))
                     && let Some(r_is_looser) = looser(&l, &r, upper)
                     && let Some(value) = if r_is_looser { r.1 } else { l.1 }.into_value()
                 {
@@ -313,7 +358,7 @@ impl LiveBounds {
                 }
             }
         }
-        bounds
+        Some(bounds)
     }
 
     fn column_index(&self, name: &str) -> Option<usize> {
@@ -524,6 +569,45 @@ mod tests {
         Ok(())
     }
 
+    /// A filter that already has bounds when the file opens only gets the comparisons it uses,
+    /// which keep tracking later updates, and stay safe if the filter's shape changes.
+    #[test]
+    fn narrowed_template_after_first_update() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let input = StructArray::from_fields(&[
+            ("a", buffer![1i32, 5, 10].into_array()),
+            ("b", buffer![7i32, 0, 0].into_array()),
+        ])?
+        .into_array();
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![col_a(), col_b()],
+            binary(col_a(), DFOperator::Lt, lit_i32(10)),
+        ));
+        let filter: PhysicalExprRef = Arc::clone(&dynamic) as _;
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+        let converted = dynamic_filter_to_vortex(&filter, fields, None, &session)
+            .expect("filter should convert");
+        assert_eq!(converted.to_string().matches("dynamic(").count(), 1);
+        let mut ctx = session.create_execution_ctx();
+
+        dynamic.update(binary(col_a(), DFOperator::Lt, lit_i32(5)))?;
+        assert_arrays_eq!(
+            input.clone().apply(&converted)?,
+            BoolArray::from_iter([true, false, false]),
+            &mut ctx
+        );
+
+        // `b` was not part of the filter when the file opened, so it is not tracked, and `a` no
+        // longer has a bound: every row passes.
+        dynamic.update(binary(col_b(), DFOperator::Lt, lit_i32(3)))?;
+        assert_arrays_eq!(
+            input.apply(&converted)?,
+            BoolArray::from_iter([true, true, true]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
     #[rstest]
     // Literal on the left flips the operator.
     #[case(binary(lit_i32(10), DFOperator::Gt, col_a()), [true, true, false])]
@@ -623,6 +707,56 @@ mod tests {
             current,
         ));
         assert_filter(&session, &input, &filter, BoolArray::from_iter(expected))
+    }
+
+    fn range(lower: i32, upper: i32) -> PhysicalExprRef {
+        binary(
+            binary(col_a(), DFOperator::GtEq, lit_i32(lower)),
+            DFOperator::And,
+            binary(col_a(), DFOperator::LtEq, lit_i32(upper)),
+        )
+    }
+
+    fn lit_bool(value: bool) -> PhysicalExprRef {
+        Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(value))))
+    }
+
+    /// Partitioned hash joins route each key to its partition's bounds with a CASE; every kept
+    /// row lies within the hull of the partitions' bounds.
+    #[rstest]
+    // Partitions [2, 4] and [5, 6], plus an empty partition (`false`): `2 <= a <= 6`.
+    #[case(vec![range(2, 4), lit_bool(false)], Some(range(5, 6)), [false, true, false])]
+    // Without an ELSE, unmatched rows are NULL and not kept.
+    #[case(vec![range(2, 4), range(5, 6)], None, [false, true, false])]
+    // A partition with unknown contents (`true`) keeps every row.
+    #[case(vec![range(2, 4), lit_bool(true)], None, [true, true, true])]
+    fn partitioned_join_case_bounds(
+        #[case] thens: Vec<PhysicalExprRef>,
+        #[case] else_expr: Option<PhysicalExprRef>,
+        #[case] expected: [bool; 3],
+    ) -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let input =
+            StructArray::from_fields(&[("a", buffer![1i32, 5, 10].into_array())])?.into_array();
+        let when_then = thens
+            .into_iter()
+            .enumerate()
+            .map(|(partition, then)| {
+                let partition = u64::try_from(partition).expect("small partition index");
+                let when: PhysicalExprRef =
+                    Arc::new(df_expr::Literal::new(ScalarValue::UInt64(Some(partition))));
+                (when, then)
+            })
+            .collect();
+        let current: PhysicalExprRef = Arc::new(df_expr::CaseExpr::try_new(
+            Some(col_a()),
+            when_then,
+            else_expr,
+        )?);
+        let filter: PhysicalExprRef =
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![col_a()], current));
+        assert_filter(&session, &input, &filter, BoolArray::from_iter(expected))?;
+        Ok(())
     }
 
     /// Nulls always pass, matching TopK's `a IS NULL OR a > v` for NULLS FIRST and staying safe
