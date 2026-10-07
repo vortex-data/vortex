@@ -57,6 +57,11 @@ import pandas as pd
 # cutoff that is closer to a 99% two-sided interval before calling a change real.
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
+COMPACT_FORMAT = "vortex-compact"
+# PR comments are split by format so each comment always holds the same rows, whichever
+# benchmark label produced them: Vortex Compact in one, every other format in the other.
+# Parquet is the control both verdicts subtract drift against, so both groups keep it.
+FORMAT_GROUPS = ("vortex", "compact")
 FILE_SIZE_METRIC = "file_size"
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
 FORMAT_DISPLAY_NAMES = {
@@ -331,6 +336,30 @@ def select_latest_baseline_rows(
 
     baseline_commit_id = matches["commit_id"].iloc[-1]
     return base[base["commit_id"] == baseline_commit_id].copy()
+
+
+def row_file_format(row: pd.Series) -> str:
+    """Return the display format of a timing or file-size row."""
+
+    file_size = row.get("file_size")
+    if isinstance(file_size, dict):
+        return str(normalize_format_name(file_size.get("format")) or "unknown")
+    return comparison_target(row.get("name"), row.get("target"))[1]
+
+
+def select_format_group(df: pd.DataFrame, group: str) -> pd.DataFrame:
+    """Keep the rows a format group's PR comment reports, or none if it measured nothing of its own."""
+
+    if df.empty:
+        return df
+    formats = df.apply(row_file_format, axis=1)
+    if group == "compact":
+        own = formats.eq(COMPACT_FORMAT)
+    else:
+        own = ~formats.isin([COMPACT_FORMAT, CONTROL_FORMAT])
+    if not own.any():
+        return df.iloc[0:0]
+    return df[own | formats.eq(CONTROL_FORMAT)]
 
 
 def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -1161,8 +1190,16 @@ def main() -> None:
     """Render the benchmark comparison markdown used in CI PR comments."""
 
     benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
+    format_group = sys.argv[4] if len(sys.argv) > 4 else None
+    if format_group is not None and format_group not in FORMAT_GROUPS:
+        raise SystemExit(f"Unknown format group {format_group!r}. Available: {', '.join(FORMAT_GROUPS)}")
 
     pr = pd.read_json(sys.argv[2], lines=True)
+    if format_group is not None:
+        pr = select_format_group(pr, format_group)
+        if pr.empty:
+            # This run measured nothing for the group, so there is no comment to write.
+            return
     title = format_title(benchmark_name, pr)
     base = read_latest_baseline_rows(sys.argv[1], pr, git_tree_commit_ids())
 

@@ -26,19 +26,9 @@ def _data_formats(coverage: Coverage) -> list[Format]:
     return [fmt for fmt in _FORMAT_ORDER if fmt in present and fmt not in _NOT_GENERATED]
 
 
-def _comment_key(benchmark: BenchmarkCase, coverage: Coverage) -> str:
-    # PR benchmark comments are upserted by this key, so every preset that runs a benchmark updates
-    # one comment. Runs without regular Vortex (Vortex Compact plus Parquet controls) report
-    # different formats, so they get their own comment instead of replacing the Vortex results.
-    if any(target.format == Format.VORTEX for target in coverage.targets):
-        return benchmark.id
-    return f"{benchmark.id}-compact"
-
-
 def _matrix_entry(benchmark: BenchmarkCase, coverage: Coverage) -> dict[str, object]:
     entry: dict[str, object] = {
         "id": benchmark.id,
-        "comment_key": _comment_key(benchmark, coverage),
         "subcommand": benchmark.subcommand,
         "name": benchmark.name,
         "targets": [target.to_dict() for target in coverage.targets],

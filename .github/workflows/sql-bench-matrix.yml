@@ -240,6 +240,7 @@ jobs:
           cat sizes.json >> results.json
 
       - name: Compare results
+        id: compare
         if: inputs.mode == 'pr'
         shell: bash
         run: |
@@ -248,20 +249,34 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
-            > comment.md
-          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+          # One report per format group: Vortex Compact rows go to their own comment and every
+          # other format to the main one, so each comment always holds the same rows whichever
+          # label ran. A group this run did not measure renders nothing and is not posted.
+          for group in vortex compact; do
+            uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" "$group" \
+              > "comment-$group.md"
+            cat "comment-$group.md" >> "$GITHUB_STEP_SUMMARY"
+            if [ -s "comment-$group.md" ]; then
+              echo "$group=true" >> "$GITHUB_OUTPUT"
+            fi
+          done
 
+      # There is exactly one comment per comment-tag. If a comment with this tag already exists, the
+      # action *updates* it instead of posting a new one. The tags ignore the preset, so every label
+      # that measures a format group updates that group's comment for the benchmark.
       - name: Comment PR
-        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: steps.compare.outputs.vortex == 'true' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
-          file-path: comment.md
-          # There is exactly one comment per comment-tag. If a comment with this tag already exists,
-          # this action will *update* the comment instead of posting a new comment. `comment_key`
-          # ignores the preset, so every label that runs a benchmark updates the same comment, but
-          # separates compact-only runs, whose formats differ (see bench-orchestrator ci_matrix).
-          comment-tag: bench-pr-comment-${{ matrix.comment_key }}
+          file-path: comment-vortex.md
+          comment-tag: bench-pr-comment-${{ matrix.id }}
+
+      - name: Comment PR (Vortex Compact)
+        if: steps.compare.outputs.compact == 'true' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment-compact.md
+          comment-tag: bench-pr-comment-${{ matrix.id }}-compact
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -271,7 +286,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.comment_key }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'

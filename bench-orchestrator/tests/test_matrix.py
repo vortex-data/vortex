@@ -125,20 +125,6 @@ def test_pr_full_covers_pr() -> None:
         assert set(cast("list[str]", entry["data_formats"])) <= set(cast("list[str]", full_entry["data_formats"]))
 
 
-def test_comment_keys_share_pr_comments_by_format() -> None:
-    keys: dict[str, set[str]] = {}
-    for preset in ("pr", "pr-compact", "pr-all", "pr-full"):
-        for entry in _entries(preset):
-            formats = {file_format for _engine, file_format in _targets(entry)}
-            benchmark_id = cast("str", entry["id"])
-            expected = benchmark_id if "vortex" in formats else f"{benchmark_id}-compact"
-            assert entry["comment_key"] == expected
-            keys.setdefault(benchmark_id, set()).add(cast("str", entry["comment_key"]))
-
-    assert keys["tpch-nvme"] == {"tpch-nvme", "tpch-nvme-compact"}
-    assert keys["polarsignals"] == {"polarsignals"}
-
-
 def test_resolver_rejects_empty_targets() -> None:
     benchmark = replace(
         CATALOG.benchmarks[0],
