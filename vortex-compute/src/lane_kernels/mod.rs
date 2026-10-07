@@ -31,6 +31,7 @@ pub mod source;
 
 pub use map_in_place::IndexedSinkExt;
 pub use map_into::IndexedSourceExt;
+pub use mask_words::MaskWords;
 pub use mask_words::for_each_mask_word;
 pub use mask_words::for_each_masked_value;
 pub use mask_words::low_bits_mask;

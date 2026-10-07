@@ -5,44 +5,72 @@
 
 use vortex_buffer::BitBufferView;
 
-/// Invokes `f` with each `(word, start, len)` of `mask`, where `word` holds the mask bits for
-/// lanes `start..start + len` in its low `len` bits and its other bits are unset.
+/// The words of a mask, as `(word, start, len)`: `word` holds the mask bits for lanes
+/// `start..start + len` in its low `len` bits, and its other bits are unset.
 ///
-/// `mask` is a [`BitBuffer`](vortex_buffer::BitBuffer) or a [`BitBufferView`], whose slices
-/// cost nothing. The words come from [`BitBufferView::unaligned_chunks`], which reads the 8-byte
-/// aligned body as a plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a
-/// shorter first and last word, so every other word covers 64 lanes.
-// This does not delegate to `try_for_each_mask_word`: wrapping `f` in a second closure kept large
-// callers from being inlined, and the ListView zip ran 6% slower.
+/// The words come from [`BitBufferView::unaligned_chunks`], which reads the 8-byte aligned body
+/// as a plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a shorter
+/// first and last word, so every other word covers 64 lanes.
+pub struct MaskWords<'a> {
+    prefix: Option<(u64, usize)>,
+    body: std::slice::Iter<'a, u64>,
+    suffix: Option<(u64, usize)>,
+    start: usize,
+}
+
+impl<'a> MaskWords<'a> {
+    /// The words of `mask`, a [`BitBuffer`](vortex_buffer::BitBuffer) or a [`BitBufferView`],
+    /// whose slices cost nothing.
+    #[inline]
+    pub fn new(mask: impl Into<BitBufferView<'a>>) -> Self {
+        let mask = mask.into();
+        let unaligned = mask.unaligned_chunks();
+        let lead = unaligned.lead_padding();
+        let prefix_len = unaligned
+            .prefix()
+            .map_or(0, |_| (64 - lead).min(mask.len()));
+        let suffix_len = mask.len() - prefix_len - 64 * unaligned.chunks().len();
+        Self {
+            prefix: unaligned
+                .prefix()
+                .map(|prefix| (prefix >> lead, prefix_len)),
+            body: unaligned.chunks().iter(),
+            suffix: unaligned.suffix().map(|suffix| (suffix, suffix_len)),
+            start: 0,
+        }
+    }
+}
+
+impl Iterator for MaskWords<'_> {
+    type Item = (u64, usize, usize);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let (word, len) = match self.prefix.take() {
+            Some(prefix) => prefix,
+            None => match self.body.next() {
+                Some(&word) => (word, 64),
+                None => self.suffix.take()?,
+            },
+        };
+        let start = self.start;
+        self.start += len;
+        Some((word, start, len))
+    }
+}
+
+/// Invokes `f` with each `(word, start, len)` of [`MaskWords`].
+///
+/// `f` is called from a single place, so it inlines like the body of a plain loop.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn for_each_mask_word<'a>(
     mask: impl Into<BitBufferView<'a>>,
     mut f: impl FnMut(u64, usize, usize),
 ) {
-    let mask = mask.into();
-    let unaligned = mask.unaligned_chunks();
-    let lead = unaligned.lead_padding();
-    let mut start = 0;
-
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
-        f(prefix >> lead, start, len);
-        start += len;
+    for (word, start, len) in MaskWords::new(mask) {
+        f(word, start, len);
     }
-
-    for &word in unaligned.chunks() {
-        f(word, start, 64);
-        start += 64;
-    }
-
-    if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - start;
-        f(suffix, start, len);
-        start += len;
-    }
-
-    debug_assert_eq!(start, mask.len());
 }
 
 /// Like [`for_each_mask_word`], stopping at and returning the first error from `f`.
@@ -52,38 +80,18 @@ pub fn try_for_each_mask_word<'a, E>(
     mask: impl Into<BitBufferView<'a>>,
     mut f: impl FnMut(u64, usize, usize) -> Result<(), E>,
 ) -> Result<(), E> {
-    let mask = mask.into();
-    let unaligned = mask.unaligned_chunks();
-    let lead = unaligned.lead_padding();
-    let mut start = 0;
-
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
-        f(prefix >> lead, start, len)?;
-        start += len;
+    for (word, start, len) in MaskWords::new(mask) {
+        f(word, start, len)?;
     }
-
-    for &word in unaligned.chunks() {
-        f(word, start, 64)?;
-        start += 64;
-    }
-
-    if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - start;
-        f(suffix, start, len)?;
-        start += len;
-    }
-
-    debug_assert_eq!(start, mask.len());
     Ok(())
 }
 
 /// Invokes `f(index, value, valid)` for each of `values`, where `valid` is mask bit `index`.
 ///
 /// Every value is visited, valid or not, so callers can combine `valid` with the value without
-/// branching. The mask is read a word at a time, as in [`for_each_mask_word`], and each full word
-/// is a fixed 64-value loop that unrolls and vectorizes. Each bit is read from its byte of the word
-/// rather than by shifting the whole `u64`, which keeps the vectorized loop in 8-bit lanes.
+/// branching. Each full word of [`MaskWords`] is a fixed 64-value loop that unrolls and
+/// vectorizes. Each bit is read from its byte of the word rather than by shifting the whole
+/// `u64`, which keeps the vectorized loop in 8-bit lanes.
 ///
 /// # Panics
 ///
@@ -101,43 +109,19 @@ pub fn for_each_masked_value<'a, T: Copy>(
         mask.len(),
         "values and mask must have the same length"
     );
-
-    /// Visits the values of a partial first or last word, which at most two words per mask are.
-    #[inline]
-    fn partial<T: Copy>(values: &[T], word: u64, start: usize, f: &mut impl FnMut(usize, T, bool)) {
+    for_each_mask_word(mask, |word, start, len| {
         let bytes = word.to_le_bytes();
-        for (j, &value) in values.iter().enumerate() {
-            f(start + j, value, (bytes[j / 8] >> (j % 8)) & 1 == 1);
+        let values = &values[start..start + len];
+        if let Ok(block) = <&[T; 64]>::try_from(values) {
+            for j in 0..64 {
+                f(start + j, block[j], (bytes[j / 8] >> (j % 8)) & 1 == 1);
+            }
+        } else {
+            for (j, &value) in values.iter().enumerate() {
+                f(start + j, value, (bytes[j / 8] >> (j % 8)) & 1 == 1);
+            }
         }
-    }
-
-    // Written out rather than through `for_each_mask_word`, so the hot loop over full words is the
-    // only place `f` is inlined into. Nesting `f` in a word closure kept captured state, such as a
-    // running minimum, in memory and made FoR's encoding 17% slower.
-    let unaligned = mask.unaligned_chunks();
-    let mut start = 0;
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - unaligned.lead_padding()).min(mask.len());
-        partial(
-            &values[..len],
-            prefix >> unaligned.lead_padding(),
-            0,
-            &mut f,
-        );
-        start = len;
-    }
-    let words = unaligned.chunks();
-    let (blocks, _) = values[start..].as_chunks::<64>();
-    for (block, &word) in blocks.iter().zip(words) {
-        let bytes = word.to_le_bytes();
-        for j in 0..64 {
-            f(start + j, block[j], (bytes[j / 8] >> (j % 8)) & 1 == 1);
-        }
-        start += 64;
-    }
-    if let Some(suffix) = unaligned.suffix() {
-        partial(&values[start..], suffix, start, &mut f);
-    }
+    });
 }
 
 /// A `u64` with the low `len` bits set.
