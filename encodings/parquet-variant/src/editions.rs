@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The `parquet-variant` edition family.
+//! The `variant` edition family.
 //!
 //! [`crate::initialize`] registers and enables the edition together with the layout.
 
@@ -11,9 +11,9 @@ use vortex_edition::EditionFamily;
 use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
 
-/// The `parquet-variant` family: the Parquet Variant storage layout.
+/// The `variant` family: the Parquet Variant storage layout.
 pub static FAMILY: EditionFamily = EditionFamily {
-    name: "parquet-variant",
+    name: "variant",
     origin: "vortex-parquet-variant",
     doc: "The layout that stores Parquet Variant columns as their decomposed storage struct. A \
 reader built without `vortex-parquet-variant` cannot resolve `vortex.parquet_variant`, so the \
@@ -21,15 +21,15 @@ layout is versioned independently of `core` and a session enables this family on
 initializing the crate.",
 };
 
-/// The August 2026 draft edition of the `parquet-variant` family.
-pub const PARQUET_VARIANT_2026_08: EditionId = EditionId::new("parquet-variant", 2026, 8, 0);
+/// The August 2026 draft edition of the `variant` family.
+pub const VARIANT_2026_08: EditionId = EditionId::new("variant", 2026, 8, 0);
 
-/// The declaration of [`PARQUET_VARIANT_2026_08`] and the components that join the family at it.
+/// The declaration of [`VARIANT_2026_08`] and the components that join the family at it.
 ///
 /// A draft: no Vortex release yet guarantees this member forever.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
-        id: PARQUET_VARIANT_2026_08,
+        id: VARIANT_2026_08,
         min_library_version: None,
     },
     added: &[EditionMember::layout(&"vortex.parquet_variant")],
@@ -48,7 +48,7 @@ mod tests {
         crate::initialize(&session);
         validate_edition(
             &vortex_edition::EditionSessionExt::editions(&session),
-            &PARQUET_VARIANT_2026_08,
+            &VARIANT_2026_08,
         )
     }
 }

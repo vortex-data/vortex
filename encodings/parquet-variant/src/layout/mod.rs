@@ -15,6 +15,8 @@
 
 mod expr;
 mod reader;
+#[cfg(test)]
+mod tests;
 mod writer;
 
 use std::sync::Arc;
@@ -62,7 +64,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     // `initialize` is idempotent, so a repeated call must not re-declare the edition.
     if session
         .editions()
-        .find(&editions::PARQUET_VARIANT_2026_08)
+        .find(&editions::VARIANT_2026_08)
         .is_none()
     {
         if session
@@ -74,17 +76,17 @@ pub(crate) fn initialize(session: &VortexSession) {
                 .editions()
                 .declare_family(&editions::FAMILY)
                 .map_err(|error| vortex_err!("{error}"))
-                .vortex_expect("parquet-variant edition family is valid");
+                .vortex_expect("variant edition family is valid");
         }
         session
             .register_edition(&editions::DECLARATION)
             .map_err(|error| vortex_err!("{error}"))
-            .vortex_expect("parquet-variant edition declaration is valid");
+            .vortex_expect("variant edition declaration is valid");
     }
     session
-        .enable_edition(editions::PARQUET_VARIANT_2026_08)
+        .enable_edition(editions::VARIANT_2026_08)
         .map_err(|error| vortex_err!("{error}"))
-        .vortex_expect("parquet-variant edition is registered");
+        .vortex_expect("variant edition is registered");
     session
         .layouts()
         .register_variant_strategy(Arc::new(|storage| {

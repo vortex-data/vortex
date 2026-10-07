@@ -3,3 +3,4 @@
 
 mod nested_projection;
 mod schema_evolution;
+mod variant;

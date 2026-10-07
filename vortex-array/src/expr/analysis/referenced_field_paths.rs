@@ -163,6 +163,8 @@ mod tests {
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
+    use crate::expr::variant_get;
+    use crate::scalar_fn::fns::variant_get::VariantPath;
 
     fn scope() -> DType {
         DType::Struct(
@@ -241,6 +243,45 @@ mod tests {
         let expr = get_item("x", pack([("x", root())], NonNullable));
 
         assert_eq!(referenced(&expr)?, HashSet::from_iter([FieldPath::root()]));
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_references_its_object_path() -> VortexResult<()> {
+        let scope = DType::Struct(
+            StructFields::from_iter([("v", DType::Variant(NonNullable))]),
+            NonNullable,
+        );
+        let path = VariantPath::new([
+            VariantPathElement::field("p"),
+            VariantPathElement::field("q"),
+        ]);
+        let expr = variant_get(get_item("v", root()), path, None);
+
+        assert_eq!(
+            referenced_field_paths(&expr.bind(&scope)?)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([FieldPath::from_name("v").push("p").push("q")])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_with_index_references_whole_variant() -> VortexResult<()> {
+        let scope = DType::Struct(
+            StructFields::from_iter([("v", DType::Variant(NonNullable))]),
+            NonNullable,
+        );
+        let path = VariantPath::new([VariantPathElement::field("p"), VariantPathElement::index(0)]);
+        let expr = variant_get(get_item("v", root()), path, None);
+
+        assert_eq!(
+            referenced_field_paths(&expr.bind(&scope)?)?
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([FieldPath::from_name("v")])
+        );
         Ok(())
     }
 
