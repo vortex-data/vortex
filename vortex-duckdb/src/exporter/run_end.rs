@@ -191,4 +191,24 @@ mod tests {
         assert!(!exporter.export(&mut chunk, None)?);
         Ok(())
     }
+
+    #[test]
+    fn run_end_with_struct_values_is_rejected_cleanly() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = StructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_iter([10i32, 20]).into_array(),
+        )])?
+        .into_array();
+        let array = RunEnd::try_new(buffer![1u32, 2].into_array(), values, &mut ctx)?.into_array();
+
+        let result = new_array_exporter(array, &ConversionCache::default(), &mut ctx);
+        assert!(matches!(
+            result,
+            Err(err) if err
+                .to_string()
+                .contains("reusable dictionaries do not support STRUCT values")
+        ));
+        Ok(())
+    }
 }

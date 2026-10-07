@@ -19,6 +19,7 @@ use crate::duckdb::Vector;
 #[derive(Default)]
 pub struct ConversionCache {
     pub dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
+    pub nullable_dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
 }

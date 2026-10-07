@@ -29,13 +29,18 @@ pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::Chunked;
+use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::Constant;
+use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::buffer::BitChunks;
+use vortex::dtype::DType;
 use vortex::encodings::fastlanes::RLE;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
@@ -43,6 +48,8 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
+use vortex::scalar::Scalar;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::ReusableDict;
@@ -196,8 +203,17 @@ fn cached_values_dict(
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ReusableDict> {
+    vortex_ensure!(
+        !matches!(values.dtype(), DType::Struct(..)),
+        "DuckDB reusable dictionaries do not support STRUCT values"
+    );
     let key = values.addr();
     if let Some(entry) = cache.dict_cache.get(&key) {
+        return Ok(entry.value().1.clone());
+    }
+    // The N+1 dictionary is also valid for all-valid codes, which only select
+    // indices in 0..N. Prefer it when a mixed-null chunk populated it first.
+    if let Some(entry) = cache.nullable_dict_cache.get(&key) {
         return Ok(entry.value().1.clone());
     }
     let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len());
@@ -212,7 +228,46 @@ fn cached_values_dict(
         dict.vector(),
         ctx,
     )?;
+    dict.vector().flatten(values.len() as u64);
     cache.dict_cache.insert(key, (values, dict.clone()));
+    Ok(dict)
+}
+
+fn cached_values_dict_with_null(
+    values: ArrayRef,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ReusableDict> {
+    let key = values.addr();
+    if let Some(entry) = cache.nullable_dict_cache.get(&key) {
+        return Ok(entry.value().1.clone());
+    }
+
+    let capacity = values
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("dictionary length overflow"))?;
+    let nullable_dtype = values.dtype().as_nullable();
+    let values_with_null = ChunkedArray::try_new(
+        [
+            values.cast(nullable_dtype.clone())?,
+            ConstantArray::new(Scalar::null(nullable_dtype.clone()), 1).into_array(),
+        ],
+        nullable_dtype,
+    )?
+    .into_array();
+    let mut dict = ReusableDict::new(values.dtype().try_into()?, capacity);
+    new_array_exporter_with_flatten(values_with_null, cache, ctx, true)?.export(
+        0,
+        capacity,
+        dict.vector(),
+        ctx,
+    )?;
+    dict.vector().flatten(capacity as u64);
+
+    cache
+        .nullable_dict_cache
+        .insert(key, (values, dict.clone()));
     Ok(dict)
 }
 
