@@ -331,6 +331,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            reverse_splits: self.reverse_splits,
         }
     }
 
@@ -445,6 +446,7 @@ pub(crate) struct ScanParts<A> {
     pub(crate) file_stats: Option<Arc<[StatsSet]>>,
     pub(crate) limit: Option<u64>,
     pub(crate) row_offset: u64,
+    pub(crate) reverse_splits: bool,
 }
 
 enum LazyScanState<A: 'static + Send> {

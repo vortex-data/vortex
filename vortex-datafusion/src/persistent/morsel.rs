@@ -272,7 +272,11 @@ impl Debug for SplitMorsel {
         f.debug_struct("SplitMorsel")
             .field(
                 "rows",
-                &self.batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+                &self
+                    .batches
+                    .iter()
+                    .map(RecordBatch::num_rows)
+                    .sum::<usize>(),
             )
             .finish_non_exhaustive()
     }

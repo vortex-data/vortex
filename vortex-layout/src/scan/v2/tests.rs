@@ -81,11 +81,20 @@ const DTYPE: DType = DType::Primitive(PType::I32, NonNullable);
 async fn write_layout(
     session: &VortexSession,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    write_chunks(session, 4, CHUNK_ROWS).await
+}
+
+/// `count` chunks of `rows` consecutive integers each, starting from zero.
+async fn write_chunks(
+    session: &VortexSession,
+    count: i32,
+    rows: i32,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
-    let chunks = (0..4)
+    let chunks = (0..count)
         .map(|chunk| {
-            let values = Buffer::from_iter(chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS);
+            let values = Buffer::from_iter(chunk * rows..(chunk + 1) * rows);
             Ok((sequence_id.advance(), values.into_array()))
         })
         .collect::<Vec<_>>();
@@ -324,6 +333,43 @@ async fn execute_matches_default(
     let expected = await_tasks(dtype.clone(), default.execute(execute_range.clone())?).await?;
     let actual = await_tasks(dtype, replacement.execute(execute_range)?).await?;
     assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    Ok(())
+}
+
+/// Reversed splits run back to front, each keeping its rows in file order.
+#[rstest]
+#[case::everything(case(false, None, None))]
+#[case::filter(case(true, None, None))]
+#[case::row_range(case(false, Some(20_000..50_000), None))]
+#[tokio::test(flavor = "multi_thread")]
+async fn reverse_splits_run_back_to_front(#[case] case: Case) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, 8, 1 << 13).await?;
+
+    let splits = async |reverse: bool| -> VortexResult<Vec<ArrayRef>> {
+        let scan = v2::prepare(
+            builder(&session, &segments, &layout, &case)?.with_reverse_splits(reverse),
+            scan_file(&segments, &layout)?,
+        )?;
+        let mut splits = Vec::new();
+        for task in scan.execute_batches(None)? {
+            splits.push(ChunkedArray::try_new(task.await?, DTYPE)?.into_array());
+        }
+        Ok(splits)
+    };
+
+    let mut forward = splits(false).await?;
+    let reversed = splits(true).await?;
+    assert!(
+        forward.len() > 1,
+        "expected several splits, got {}",
+        forward.len()
+    );
+    assert_eq!(forward.len(), reversed.len());
+    forward.reverse();
+    for (reversed, forward) in reversed.iter().zip(&forward) {
+        assert_arrays_eq!(reversed, forward, &mut session.create_execution_ctx());
+    }
     Ok(())
 }
 

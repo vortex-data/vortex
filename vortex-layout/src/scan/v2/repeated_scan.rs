@@ -133,6 +133,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
         splits,
         map_fn: builder.map_fn,
         limit: builder.limit,
+        reverse_splits: builder.reverse_splits,
         dtype,
     })
 }
@@ -251,6 +252,8 @@ pub struct RepeatedScanV2<A: 'static + Send> {
     splits: Splits,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     limit: Option<u64>,
+    /// Whether the execute methods return their tasks back to front.
+    reverse_splits: bool,
     dtype: DType,
 }
 
@@ -300,6 +303,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self,
         splits: Vec<SplitPlan>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        let splits = self.execution_order(splits);
         let dtype = self.plans.projection.dtype().clone();
         Ok(splits
             .into_iter()
@@ -340,7 +344,8 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self,
         splits: Vec<SplitPlan>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {
-        Ok(splits
+        Ok(self
+            .execution_order(splits)
             .into_iter()
             .map(|split| {
                 let io = Arc::clone(&self.io);
@@ -349,6 +354,13 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 async move { run.await?.into_iter().map(|array| map_fn(array)).collect() }.boxed()
             })
             .collect())
+    }
+
+    fn execution_order(&self, mut splits: Vec<SplitPlan>) -> Vec<SplitPlan> {
+        if self.reverse_splits {
+            splits.reverse();
+        }
+        splits
     }
 
     async fn execution_splits(

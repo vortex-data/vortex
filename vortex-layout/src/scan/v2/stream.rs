@@ -78,11 +78,14 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let handle = builder.session().handle();
                     let task = if file_pruning_enabled() {
                         let prepared = handle.spawn_cpu(move || builder.prepare());
-                        handle
-                            .spawn(async move { prepared.await?.execute_batches_pruned(None).await })
+                        handle.spawn(
+                            async move { prepared.await?.execute_batches_pruned(None).await },
+                        )
                     } else {
                         handle.spawn_cpu(move || {
-                            builder.prepare().and_then(|scan| scan.execute_batches(None))
+                            builder
+                                .prepare()
+                                .and_then(|scan| scan.execute_batches(None))
                         })
                     };
                     self.state = State::Preparing {

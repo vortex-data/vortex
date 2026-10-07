@@ -79,6 +79,9 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     pub(super) row_offset: u64,
+    /// Whether to run splits back to front, see
+    /// [`ScanBuilder::with_reverse_splits`](scan_builder::ScanBuilder::with_reverse_splits).
+    pub(super) reverse_splits: bool,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -137,6 +140,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: parts.file_stats,
             limit: parts.limit,
             row_offset: parts.row_offset,
+            reverse_splits: parts.reverse_splits,
         }
     }
 
@@ -290,6 +294,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            reverse_splits: self.reverse_splits,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
