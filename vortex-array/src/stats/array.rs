@@ -126,6 +126,30 @@ impl StatsSetRef<'_> {
         }
     }
 
+    /// Copy every statistic of `stats` into this set, overwriting existing entries, without
+    /// cloning the source set. A no-op when both refer to the same stats or the source is empty.
+    pub(crate) fn transfer_from(&self, stats: &ArrayStats) {
+        let Some(source) = stats.inner.get() else {
+            return;
+        };
+        if self
+            .array_stats
+            .inner
+            .get()
+            .is_some_and(|shared| Arc::ptr_eq(shared, source))
+        {
+            return;
+        }
+        let source = source.read();
+        if source.is_empty() {
+            return;
+        }
+        let mut guard = self.array_stats.shared().write();
+        for (stat, value) in source.iter() {
+            guard.set(*stat, value.clone());
+        }
+    }
+
     pub fn inherit_from(&self, stats: StatsSetRef<'_>) {
         let Some(source) = stats.array_stats.inner.get() else {
             return;
@@ -367,8 +391,11 @@ impl StatsProvider for StatsSetRef<'_> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
     use super::ArrayStats;
     use super::StatsSet;
+    use crate::IntoArray;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::scalar::ScalarValue;
@@ -401,6 +428,49 @@ mod tests {
         assert_eq!(
             StatsSet::from(stats).get(Stat::NullCount),
             Precision::exact(ScalarValue::from(7u64))
+        );
+    }
+
+    #[test]
+    fn transfer_from_copies_entries_without_touching_the_source() {
+        let source = buffer![1i32, 2, 3].into_array();
+        let target = buffer![4i32, 5, 6].into_array();
+        source.statistics().set(Stat::Max, Precision::exact(3i32));
+        target.statistics().set(Stat::Max, Precision::inexact(9i32));
+        target.statistics().set(Stat::Min, Precision::exact(4i32));
+
+        target
+            .statistics()
+            .transfer_from(&source.statistics().to_array_stats());
+
+        assert_eq!(
+            target.statistics().to_owned().get(Stat::Max),
+            Precision::exact(3i32)
+        );
+        assert_eq!(
+            target.statistics().to_owned().get(Stat::Min),
+            Precision::exact(4i32)
+        );
+        assert_eq!(source.statistics().to_owned().len(), 1);
+    }
+
+    #[test]
+    fn transfer_from_empty_or_self_is_a_no_op() {
+        let empty = buffer![1i32].into_array();
+        let target = buffer![2i32].into_array();
+        target.statistics().set(Stat::Max, Precision::exact(2i32));
+
+        target
+            .statistics()
+            .transfer_from(&empty.statistics().to_array_stats());
+        target
+            .statistics()
+            .transfer_from(&target.statistics().to_array_stats());
+
+        assert_eq!(target.statistics().to_owned().len(), 1);
+        assert_eq!(
+            target.statistics().to_owned().get(Stat::Max),
+            Precision::exact(2i32)
         );
     }
 }

@@ -26,6 +26,7 @@ use std::sync::atomic::Ordering;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -46,7 +47,7 @@ use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
 use crate::optimizer::optimize_with_kernels;
-use crate::stats::StatsSet;
+use crate::stats::ArrayStats;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
@@ -274,8 +275,10 @@ impl ArrayRef {
             }
 
             let expected_len = current_array.len();
-            let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_owned();
+            // Only the debug postcondition compares dtypes, so skip the clone otherwise.
+            let expected_dtype = cfg!(debug_assertions).then(|| current_array.dtype().clone());
+            // Share the existing stats handle instead of cloning the set; uninitialised stats stay lazy.
+            let stats = current_array.statistics().share_existing();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -611,8 +614,8 @@ fn finalize_done(
     result: ArrayRef,
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
-    expected_dtype: DType,
-    stats: StatsSet,
+    expected_dtype: Option<DType>,
+    stats: ArrayStats,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
@@ -628,15 +631,16 @@ fn finalize_done(
             "Result length mismatch for {:?}",
             encoding_id
         );
-        vortex_ensure_eq!(
-            output.dtype(),
-            &expected_dtype,
-            "Executed canonical dtype mismatch for {:?}",
-            encoding_id
-        );
+        if let Some(expected_dtype) = expected_dtype {
+            vortex_ensure!(
+                output.dtype() == &expected_dtype,
+                "Executed canonical dtype mismatch for {:?}",
+                encoding_id
+            );
+        }
     }
 
-    output.statistics().set_iter(stats.into_iter());
+    output.statistics().transfer_from(&stats);
     Ok((output, None))
 }
 
