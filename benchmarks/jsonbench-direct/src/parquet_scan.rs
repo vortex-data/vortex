@@ -28,6 +28,7 @@ use parquet_variant_compute::GetOptions;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::fs::File;
+use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::agg::Partial;
 use crate::agg::Query;
@@ -57,7 +58,7 @@ pub async fn run(query: Query, storage: Storage, files: Vec<PathBuf>) -> anyhow:
         }
     }
 
-    let parallelism = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let parallelism = get_available_parallelism().unwrap_or(1);
     futures::stream::iter(row_groups)
         .map(|(path, row_group)| {
             tokio::spawn(async move { scan_row_group(query, storage, path, row_group).await })

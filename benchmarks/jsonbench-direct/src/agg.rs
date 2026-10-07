@@ -7,12 +7,11 @@
 //! Every format feeds rows into the same [`Partial`] aggregation, so the formats differ only in
 //! how they produce the extracted path values.
 
-use std::fmt::Write;
-
 use arrow_array::Array;
 use arrow_array::Int64Array;
 use arrow_array::StringViewArray;
 use rustc_hash::FxHashMap;
+use vortex::error::VortexExpect;
 
 /// `commit.collection` values Q2 keeps.
 pub const Q2_COLLECTIONS: [&str; 3] = [
@@ -157,7 +156,7 @@ impl<V> StrMap<V> {
                 if !self.values.contains_key(key) {
                     self.values.insert(Box::from(key), default());
                 }
-                self.values.get_mut(key).expect("just inserted")
+                self.values.get_mut(key).vortex_expect("just inserted")
             }
         }
     }
@@ -357,7 +356,8 @@ impl Partial {
 pub fn render(rows: &[String]) -> String {
     let mut out = String::new();
     for row in rows {
-        writeln!(out, "{row}").expect("writing to a String cannot fail");
+        out.push_str(row);
+        out.push('\n');
     }
     out
 }

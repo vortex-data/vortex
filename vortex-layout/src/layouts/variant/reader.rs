@@ -321,14 +321,17 @@ fn unshredded_core(core: ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> Vort
     })
 }
 
+/// A value and the path of the pruned shredded tree it is placed at.
+type Leaf<'a> = (&'a [FieldName], ArrayRef);
+
 /// A non-nullable struct tree holding each value at its path.
-fn pruned_tree(leaves: &[(&[FieldName], ArrayRef)], len: usize) -> VortexResult<ArrayRef> {
+fn pruned_tree(leaves: &[Leaf<'_>], len: usize) -> VortexResult<ArrayRef> {
     if let [(path, value)] = leaves
         && path.is_empty()
     {
         return Ok(value.clone());
     }
-    let mut groups: Vec<(FieldName, Vec<(&[FieldName], ArrayRef)>)> = Vec::new();
+    let mut groups: Vec<(FieldName, Vec<Leaf<'_>>)> = Vec::new();
     for (path, value) in leaves {
         let (head, tail) = path
             .split_first()

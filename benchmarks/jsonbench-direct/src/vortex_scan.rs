@@ -59,14 +59,13 @@ fn filter(query: Query) -> Option<Expression> {
         conjuncts.push(eq(str_path("kind"), lit("commit")));
         conjuncts.push(eq(str_path("commit.operation"), lit("create")));
     }
-    if let Some(collections) = query.collection_filter() {
-        conjuncts.push(
-            collections
-                .iter()
-                .map(|collection| eq(str_path("commit.collection"), lit(*collection)))
-                .reduce(or)
-                .expect("collection filters are non-empty"),
-        );
+    if let Some(collection_filter) = query.collection_filter().and_then(|collections| {
+        collections
+            .iter()
+            .map(|collection| eq(str_path("commit.collection"), lit(*collection)))
+            .reduce(or)
+    }) {
+        conjuncts.push(collection_filter);
     }
     conjuncts.into_iter().reduce(and)
 }

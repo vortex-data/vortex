@@ -34,6 +34,7 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
+use vortex::layout::layouts::variant::enable_variant_layout;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::spatialbench::SpatialBenchBenchmark;
@@ -84,8 +85,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
     // Store shredded Variant columns (JSONBench) as separate columns.
-    vortex::layout::layouts::variant::enable_variant_layout(&session)
-        .vortex_expect("the Variant layout edition is valid");
+    enable_variant_layout(&session).vortex_expect("the Variant layout edition is valid");
     session
 });
 
