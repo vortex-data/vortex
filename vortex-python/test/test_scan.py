@@ -74,3 +74,10 @@ def test_scanner_property_dataset_schema(vxfile: vx.VortexFile) -> None:
     assert vxfile.to_dataset().scanner().dataset_schema == pa.schema(
         [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
+
+
+def test_to_arrow_with_schema(vxfile: vx.VortexFile) -> None:
+    schema = pa.schema([("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string())])
+    table = pa.Table.from_batches(list(vxfile.scan(["bool", "float", "index", "string"]).to_arrow(schema=schema)))
+    assert table.schema == schema
+    assert table.column("string").to_pylist() == [str(x) for x in range(1_000)]
