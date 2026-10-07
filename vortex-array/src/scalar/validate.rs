@@ -354,10 +354,7 @@ mod tests {
             (DType::Bool(NonNullable), Some(ScalarValue::Bool(true))),
             (DType::Bool(NonNullable), i32_value()),
             (i32_dtype.clone(), i32_value()),
-            (
-                i32_dtype.clone(),
-                Some(ScalarValue::Primitive(PValue::I64(1))),
-            ),
+            (i32_dtype, Some(ScalarValue::Primitive(PValue::I64(1)))),
             (
                 DType::Primitive(PType::F16, NonNullable),
                 Some(ScalarValue::Primitive(PValue::U64(1))),

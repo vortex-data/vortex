@@ -334,7 +334,7 @@ impl StatsSetRef<'_> {
     /// Like [`Self::compute_as`], but reads a cached exact value without building a [`Scalar`].
     fn compute_bool(&self, stat: Stat, ctx: &mut ExecutionCtx) -> Option<bool> {
         // Bind the cached value first, so the read lock is released before any computation.
-        let cached = self.array_stats.inner.read().get_bool(stat);
+        let cached = self.array_stats.read(|stats| stats.get_bool(stat));
         if let Precision::Exact(value) = cached {
             return Some(value);
         }
@@ -345,7 +345,7 @@ impl StatsSetRef<'_> {
     /// Like [`Self::compute_as`], but reads a cached exact value without building a [`Scalar`].
     fn compute_usize(&self, stat: Stat, ctx: &mut ExecutionCtx) -> Option<usize> {
         // Bind the cached value first, so the read lock is released before any computation.
-        let cached = self.array_stats.inner.read().get_usize(stat);
+        let cached = self.array_stats.read(|stats| stats.get_usize(stat));
         if let Precision::Exact(value) = cached {
             return Some(value);
         }

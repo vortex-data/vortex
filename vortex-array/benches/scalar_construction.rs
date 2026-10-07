@@ -126,7 +126,7 @@ fn validate_struct8(bencher: Bencher) {
     let value = struct8_value(0);
     bencher.counter(ItemsCount::new(N)).bench_local(|| {
         for _ in 0..N {
-            black_box(Scalar::validate(black_box(&dtype), Some(black_box(&value))).unwrap());
+            black_box(Scalar::validate(black_box(&dtype), Some(black_box(&value)))).unwrap();
         }
     });
 }
