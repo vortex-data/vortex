@@ -247,22 +247,28 @@ where
             prev = chunk[63];
         }
         // Floats are not forward filled like integers, since a filled NaN would add a run.
+        // The valid values are gathered first, so their changes are counted branch-free.
         _ => {
-            // Locals keep the run state in registers across the bit walk.
-            let (mut chunk_prev, mut chunk_runs) = (prev, runs);
-            let mut valid = valid;
-            while valid != 0 {
-                let value = chunk[valid.trailing_zeros() as usize];
-                if count_distinct_values {
-                    distinct_values.insert(NativeValue(value));
-                }
-                if value != chunk_prev {
-                    chunk_prev = value;
-                    chunk_runs += 1;
-                }
-                valid &= valid - 1;
+            let mut gathered = *chunk;
+            let mut n = 0;
+            let mut bits = valid;
+            while bits != 0 {
+                gathered[n] = chunk[bits.trailing_zeros() as usize];
+                n += 1;
+                bits &= bits - 1;
             }
-            (prev, runs) = (chunk_prev, chunk_runs);
+            let gathered = &gathered[..n];
+            if count_distinct_values {
+                distinct_values.extend(gathered.iter().map(|&value| NativeValue(value)));
+            }
+            let transitions = u8::from(gathered[0] != prev)
+                + gathered
+                    .iter()
+                    .zip(&gathered[1..])
+                    .map(|(a, b)| u8::from(a != b))
+                    .sum::<u8>();
+            runs += u32::from(transitions);
+            prev = gathered[n - 1];
         }
     });
 
