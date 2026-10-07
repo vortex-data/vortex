@@ -3042,7 +3042,7 @@ async fn test_content_defined_chunking_roundtrip() -> VortexResult<()> {
     ])?;
     let expected = st.clone();
 
-    let strategy = crate::strategy::WriteStrategyBuilder::default()
+    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
         .with_content_defined_chunking(ContentDefinedChunkingOptions {
             min_chunk_bytes: 32 * 1024,
             max_chunk_bytes: 128 * 1024,

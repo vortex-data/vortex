@@ -113,11 +113,11 @@ async fn write_file(
     rows: &[Row],
 ) -> VortexResult<(Vec<u8>, Vec<u64>)> {
     let strategy = if cdc {
-        WriteStrategyBuilder::default()
+        WriteStrategyBuilder::from_session(session)
             .with_content_defined_chunking(ContentDefinedChunkingOptions::default())
             .build()
     } else {
-        WriteStrategyBuilder::default().build()
+        WriteStrategyBuilder::from_session(session).build()
     };
     let mut buf = ByteBufferMut::empty();
     let summary = session
