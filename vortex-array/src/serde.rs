@@ -664,6 +664,17 @@ impl SerializedArray {
         })
     }
 
+    /// Return this array tree with `buffers` attached, reusing the already validated flatbuffer.
+    ///
+    /// The buffers must be in the same order as the `Array.buffers` descriptor list.
+    pub fn with_buffers(&self, buffers: Vec<BufferHandle>) -> Self {
+        SerializedArray {
+            flatbuffer: self.flatbuffer.clone(),
+            flatbuffer_loc: self.flatbuffer_loc,
+            buffers: buffers.into(),
+        }
+    }
+
     /// Create an [`SerializedArray`] from a raw array tree flatbuffer (metadata only).
     ///
     /// This constructor creates a `SerializedArray` with no buffer data, useful for

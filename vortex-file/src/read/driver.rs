@@ -226,12 +226,6 @@ impl State {
         let first_req = self.next_uncoalesced()?;
 
         let mut requests = vec![first_req];
-        // Partial segment ranges carry a tighter gap limit so that pages of one segment are not
-        // merged back into a read of the whole segment.
-        let mut coalesce_distance = requests[0]
-            .coalesce_distance
-            .unwrap_or(window.distance)
-            .min(window.distance);
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
         let align = self.coalesced_buffer_alignment.as_usize() as u64;
@@ -247,8 +241,8 @@ impl State {
             found_new_requests = false;
 
             // Find the range we should scan for coalescing in this iteration
-            let scan_start = current_start.saturating_sub(coalesce_distance);
-            let scan_end = current_end.saturating_add(coalesce_distance);
+            let scan_start = current_start.saturating_sub(window.distance);
+            let scan_end = current_end.saturating_add(window.distance);
 
             // Look for requests that can be coalesced with our current range
             for &(req_offset, req_id) in self
@@ -276,12 +270,8 @@ impl State {
 
                 // Check if this request is within coalescing distance of our current range
                 let req_end = req_offset + req.length as u64;
-                let request_distance = req
-                    .coalesce_distance
-                    .unwrap_or(window.distance)
-                    .min(coalesce_distance);
-                if (req_offset <= current_end + request_distance && req_end >= current_start)
-                    || (req_end + request_distance >= current_start && req_offset <= current_end)
+                if (req_offset <= current_end + window.distance && req_end >= current_start)
+                    || (req_end + window.distance >= current_start && req_offset <= current_end)
                 {
                     // Calculate what the new range would be if we include this request
                     let new_start = current_start.min(req_offset);
@@ -296,7 +286,6 @@ impl State {
 
                     current_start = new_start;
                     current_end = new_end;
-                    coalesce_distance = request_distance;
                     let req = self
                         .polled_requests
                         .remove(&req_id)
@@ -373,7 +362,6 @@ mod tests {
                 offset,
                 length,
                 alignment: Alignment::none(),
-                coalesce_distance: None,
                 callback: tx,
             },
             rx,
@@ -535,56 +523,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_file_profile_coalesces_adjacent_pages() {
-        const PAGE_SIZE: usize = 64 * 1024;
-        let (mut req1, _rx1) = create_request(1, 0, PAGE_SIZE);
-        let (mut req2, _rx2) = create_request(2, PAGE_SIZE as u64, PAGE_SIZE);
-        req1.coalesce_distance = Some(16 * 1024);
-        req2.coalesce_distance = Some(16 * 1024);
-
-        let outputs = collect_outputs(
-            vec![
-                ReadEvent::Request(req1),
-                ReadEvent::Request(req2),
-                ReadEvent::Polled(1),
-                ReadEvent::Polled(2),
-            ],
-            Some(CoalesceConfig::file()),
-        )
-        .await;
-
-        assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0].range(), 0..(2 * PAGE_SIZE) as u64);
-    }
-
-    #[tokio::test]
-    async fn test_file_profile_does_not_cross_unrequested_page() {
-        const PAGE_SIZE: usize = 64 * 1024;
-        let (mut req1, _rx1) = create_request(1, 0, PAGE_SIZE);
-        let (mut req2, _rx2) = create_request(2, (2 * PAGE_SIZE) as u64, PAGE_SIZE);
-        req1.coalesce_distance = Some(16 * 1024);
-        req2.coalesce_distance = Some(16 * 1024);
-
-        let outputs = collect_outputs(
-            vec![
-                ReadEvent::Request(req1),
-                ReadEvent::Request(req2),
-                ReadEvent::Polled(1),
-                ReadEvent::Polled(2),
-            ],
-            Some(CoalesceConfig::file()),
-        )
-        .await;
-
-        assert_eq!(outputs.len(), 2);
-        assert_eq!(outputs[0].range(), 0..PAGE_SIZE as u64);
-        assert_eq!(
-            outputs[1].range(),
-            (2 * PAGE_SIZE) as u64..(3 * PAGE_SIZE) as u64
-        );
-    }
-
-    #[tokio::test]
     async fn test_coalesce_with_gap() {
         let (req1, _rx1) = create_request(1, 0, 10);
         let (req2, _rx2) = create_request(2, 15, 10); // 5 byte gap
@@ -621,7 +559,6 @@ mod tests {
             offset: 6,
             length: 5,
             alignment: Alignment::new(2),
-            coalesce_distance: None,
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -629,7 +566,6 @@ mod tests {
             offset: 12,
             length: 1,
             alignment: Alignment::new(4),
-            coalesce_distance: None,
             callback: tx2,
         };
 
@@ -698,7 +634,6 @@ mod tests {
             offset: 0,
             length: 10,
             alignment: Alignment::none(),
-            coalesce_distance: None,
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -706,7 +641,6 @@ mod tests {
             offset: 100,
             length: 10,
             alignment: Alignment::none(),
-            coalesce_distance: None,
             callback: tx2,
         };
 
@@ -736,7 +670,6 @@ mod tests {
             offset: 10,
             length: 4,
             alignment: Alignment::none(),
-            coalesce_distance: None,
             callback: tx1,
         };
         state.on_event(ReadEvent::Request(req1));
@@ -751,7 +684,6 @@ mod tests {
             offset: 20,
             length: 8,
             alignment: Alignment::none(),
-            coalesce_distance: None,
             callback: tx2,
         };
         state.on_event(ReadEvent::Request(req2));

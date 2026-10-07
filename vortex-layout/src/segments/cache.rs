@@ -203,13 +203,18 @@ impl SegmentSource for SegmentCacheSourceAdapter {
 
     fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<u64>>) -> Vec<SegmentFuture> {
         let delegates = self.source.request_ranges(id, ranges.clone());
+        // All ranges belong to one segment, so look it up in the cache once and share the result.
+        let cache = Arc::clone(&self.cache);
+        let cached = async move { cache.get(id).await.ok().flatten() }
+            .boxed()
+            .shared();
         ranges
             .into_iter()
             .zip(delegates)
             .map(|(range, delegate)| {
-                let cache = Arc::clone(&self.cache);
+                let cached = cached.clone();
                 async move {
-                    if let Ok(Some(segment)) = cache.get(id).await {
+                    if let Some(segment) = cached.await {
                         let start = usize::try_from(range.start)?;
                         let end = usize::try_from(range.end)?;
                         if start > end || end > segment.len() {

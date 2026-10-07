@@ -190,7 +190,23 @@ impl<A: 'static + Send> RepeatedScan<A> {
             partial_segment_reads: self.partial_segment_reads,
         });
 
+        // Row-index selections touch few of the splits, so skip the empty ones with a cursor over
+        // the sorted indices instead of building a mask for every split in the range.
+        let indices = match &self.selection {
+            Selection::IncludeByIndex(indices) => Some(indices.as_ref()),
+            _ => None,
+        };
+        let mut cursor = 0;
         for range in ranges {
+            if let Some(indices) = indices {
+                cursor += indices[cursor..].partition_point(|&idx| idx < range.start);
+                if indices.get(cursor).is_none_or(|&idx| idx >= range.end) {
+                    if cursor == indices.len() {
+                        break;
+                    }
+                    continue;
+                }
+            }
             let row_mask = self.selection.row_mask(&range);
             if row_mask.mask().all_false() {
                 continue;

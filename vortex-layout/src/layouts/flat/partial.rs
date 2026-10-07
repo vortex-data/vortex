@@ -47,7 +47,7 @@ use crate::segments::SegmentSource;
 
 #[derive(Clone)]
 pub(super) struct PartialReadPlan {
-    array_tree: ByteBuffer,
+    array_tree: SerializedArray,
     bytes_per_row: usize,
     row_granularity: usize,
     kind: PartialReadKind,
@@ -100,7 +100,7 @@ struct BitPackedReadPlan {
 }
 
 pub(super) struct RegisteredPartialRead {
-    array_tree: ByteBuffer,
+    array_tree: SerializedArray,
     kind: RegisteredReadKind,
 }
 
@@ -135,7 +135,7 @@ impl PartialReadPlan {
         let Some(array_tree) = layout.array_tree().cloned() else {
             return Ok(None);
         };
-        let serialized = SerializedArray::from_array_tree(array_tree.clone())?;
+        let serialized = SerializedArray::from_array_tree(array_tree)?;
         let descriptors: Arc<[SerializedBuffer]> = serialized.buffer_descriptors()?.into();
         let row_count = usize::try_from(layout.row_count())?;
 
@@ -147,7 +147,7 @@ impl PartialReadPlan {
             Arc::clone(&descriptors),
         )? {
             return Ok(Some(Self {
-                array_tree,
+                array_tree: serialized.clone(),
                 bytes_per_row,
                 row_granularity: 1,
                 kind: PartialReadKind::Alprd(Box::new(plan)),
@@ -196,7 +196,7 @@ impl PartialReadPlan {
             .map(|buffer| buffer.row_granularity)
             .try_fold(1usize, checked_lcm)?;
         Ok(Some(Self {
-            array_tree,
+            array_tree: serialized.clone(),
             bytes_per_row,
             row_granularity,
             kind: PartialReadKind::Fixed(planned.into()),
@@ -479,7 +479,7 @@ impl RegisteredPartialRead {
 }
 
 async fn resolve_fixed_pages(
-    array_tree: ByteBuffer,
+    array_tree: SerializedArray,
     pages: Vec<RegisteredPage>,
     context: PageResolveContext<'_>,
 ) -> VortexResult<Vec<ArrayRef>> {
@@ -500,8 +500,10 @@ async fn resolve_fixed_pages(
                 },
             ))
             .await?;
-            let array = SerializedArray::from_flatbuffer_with_buffers(array_tree, buffers)?
-                .decode(&dtype, page.rows.len(), &ctx, &session)?;
+            let array =
+                array_tree
+                    .with_buffers(buffers)
+                    .decode(&dtype, page.rows.len(), &ctx, &session)?;
             clear_stats(&array);
             apply_page_mask(array, local_mask)
         });
@@ -511,7 +513,7 @@ async fn resolve_fixed_pages(
 
 #[allow(clippy::too_many_arguments)]
 async fn resolve_alprd_pages(
-    array_tree: ByteBuffer,
+    array_tree: SerializedArray,
     pages: Vec<RegisteredALPRDPage>,
     patch_requests: Vec<(SegmentFuture, SerializedBuffer)>,
     plan: ALPRDReadPlan,
@@ -559,7 +561,7 @@ async fn resolve_alprd_pages(
     for (index, handle) in patch_handles {
         handles[index] = handle;
     }
-    let serialized = SerializedArray::from_flatbuffer_with_buffers(array_tree, handles)?;
+    let serialized = array_tree.with_buffers(handles);
     let alprd = serialized.child(0);
     let patch_len = plan.patch_metadata.len()?;
     let patch_indices =
