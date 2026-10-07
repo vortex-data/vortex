@@ -19,7 +19,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -28,7 +27,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -290,11 +289,7 @@ impl AggregateFnVTable for BoundedMax {
     ) -> VortexResult<()> {
         // Delegate to the existing min_max implementation for now. A dedicated bounded-max
         // aggregate would avoid computing min when only max is needed.
-        let array = match batch {
-            Columnar::Canonical(canonical) => canonical.clone().into_array(),
-            Columnar::Constant(constant) => constant.clone().into_array(),
-        };
-        let Some(result) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
+        let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
             return Ok(());
         };
         match truncate_max(result.max, args.options.max_bytes.get())? {

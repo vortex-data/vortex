@@ -26,6 +26,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -128,6 +129,27 @@ pub fn min_max(
     }
 
     Ok(result)
+}
+
+/// Compute the min and max of an already-executed batch without touching any statistics.
+///
+/// Aggregates that delegate to [`MinMax`] use this on the columnar form of their input, so that
+/// results are only ever cached on the array the aggregate was requested for, never on a
+/// temporary canonical array.
+pub(crate) fn columnar_min_max(
+    batch: &Columnar,
+    options: NumericalAggregateOpts,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<MinMaxResult>> {
+    if !minmax_compute_supported_dtype(batch.dtype()) {
+        return Ok(None);
+    }
+
+    let dtypes = AggregateDTypes::try_new(&MinMax, &options, batch.dtype().clone())?;
+    let args = dtypes.args(&options);
+    let mut partial = MinMax.empty_partial(args)?;
+    MinMax.accumulate(args, &mut partial, batch, ctx)?;
+    MinMaxResult::from_scalar(&MinMax.to_scalar(args, &partial)?)
 }
 
 /// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.

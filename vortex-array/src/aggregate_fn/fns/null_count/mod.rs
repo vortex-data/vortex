@@ -24,7 +24,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 /// Return the number of null values in an array.
 pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
@@ -41,13 +40,8 @@ pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usiz
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("null_count result should not be null");
-    let count_usize = usize::try_from(count).vortex_expect("Cannot be more nulls than usize::MAX");
-
-    array
-        .statistics()
-        .set(Stat::NullCount, Precision::Exact(ScalarValue::from(count)));
-
-    Ok(count_usize)
+    // The accumulator caches the null count on `array` as a statistic.
+    Ok(usize::try_from(count).vortex_expect("Cannot be more nulls than usize::MAX"))
 }
 
 /// Count the number of null values in an array.

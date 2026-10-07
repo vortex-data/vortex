@@ -17,6 +17,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -28,7 +29,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 /// Return the number of NaN values in an array.
 ///
@@ -64,14 +64,29 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("nan_count result should not be null");
-    let count_usize = usize::try_from(count).vortex_expect("Cannot be more nans than usize::MAX");
+    // The accumulator caches the NaN count on `array` as a statistic.
+    Ok(usize::try_from(count).vortex_expect("Cannot be more nans than usize::MAX"))
+}
 
-    // Cache the computed NaN count as a statistic.
-    array
-        .statistics()
-        .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(count)));
+/// Count the NaN values of an already-executed batch without touching any statistics.
+///
+/// Aggregates that delegate to [`NanCount`] use this on the columnar form of their input, so that
+/// results are only ever cached on the array the aggregate was requested for, never on a
+/// temporary canonical array.
+pub(crate) fn columnar_nan_count(batch: &Columnar, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+    // Non-float types have no NaN values.
+    if NanCount
+        .return_dtype(&EmptyOptions, batch.dtype())
+        .is_none()
+    {
+        return Ok(0);
+    }
 
-    Ok(count_usize)
+    let dtypes = AggregateDTypes::try_new(&NanCount, &EmptyOptions, batch.dtype().clone())?;
+    let args = dtypes.args(&EmptyOptions);
+    let mut count = NanCount.empty_partial(args)?;
+    NanCount.accumulate(args, &mut count, batch, ctx)?;
+    Ok(count)
 }
 
 /// Count the number of NaN values in an array.
