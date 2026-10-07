@@ -11754,6 +11754,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "object_store 0.13.2",
+ "parking_lot",
  "rstest",
  "tempfile",
  "tokio",

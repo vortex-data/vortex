@@ -39,6 +39,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
+use crate::convert::dynamic::as_column_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::persistent::reader::DefaultVortexReaderFactory;
@@ -325,6 +326,21 @@ impl VortexSource {
         self.vortex_predicate.as_ref()
     }
 
+    /// Whether `expr` is a dynamic filter (TopK, hash join, ...) that the opener can track live.
+    ///
+    /// The scan applies a relaxed form of the filter that may keep extra rows. That is safe to
+    /// report as pushed down because the producing operator enforces its own semantics and
+    /// ignores the pushdown result for its dynamic filters.
+    fn is_supported_dynamic_filter(&self, expr: &Arc<dyn PhysicalExpr>) -> bool {
+        let file_schema = self.table_schema.file_schema();
+        as_column_dynamic_filter(expr).is_some_and(|dynamic| {
+            dynamic.children().into_iter().all(|child| {
+                self.expression_convertor
+                    .can_be_pushed_down(child, file_schema)
+            })
+        })
+    }
+
     fn create_vortex_opener(
         &self,
         object_store: Arc<dyn ObjectStore>,
@@ -472,9 +488,11 @@ impl FileSource for VortexSource {
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
+                let file_schema = self.table_schema.file_schema();
                 if self
                     .expression_convertor
-                    .can_be_pushed_down(&expr, self.table_schema.file_schema())
+                    .can_be_pushed_down(&expr, file_schema)
+                    || self.is_supported_dynamic_filter(&expr)
                 {
                     PushedDownPredicate::supported(expr)
                 } else {
