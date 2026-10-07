@@ -325,6 +325,11 @@ where
     usize: AsPrimitive<O>,
 {
     let len = codes.as_ref().len();
+    vortex_ensure_eq!(
+        validity.len(),
+        len,
+        "Dictionary gather validity length mismatch"
+    );
 
     // Resolve the dictionary's storage once so that looking up a code is an O(1) read.
     let views = values.views();
@@ -353,7 +358,15 @@ where
             }
         };
 
-        builder.append_valid_slices(num_bytes, &validity, |row| view(row).bytes(&buffers))
+        builder.append_valid_slices(num_bytes, &validity, |row| {
+            // SAFETY: the byte-count pass checked every selected code against `views`, and
+            // append_valid_slices visits exactly those same rows. The slices and validity are
+            // immutable, and the length check above bounds every visited row within `codes`.
+            let value = unsafe {
+                views.get_unchecked(AsPrimitive::<usize>::as_(*codes.get_unchecked(row)))
+            };
+            value.bytes(&buffers)
+        })
     })
 }
 
@@ -369,6 +382,56 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
 
     const LONG: &str = "a string that is far too long to be inlined in a view";
+
+    #[test]
+    fn dictionary_gather_rejects_mismatched_validity() -> VortexResult<()> {
+        let ctx = array_session().create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 1]);
+        let values = VarBinViewArray::from_iter([Some("one"), Some("two")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        let result = append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::new_true(3),
+            &mut builder,
+        );
+        assert!(result.is_err());
+        assert_eq!(builder.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn dictionary_gather_does_not_read_null_row_codes() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 255, 1]);
+        let values = VarBinViewArray::from_iter([Some("one"), Some("two")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::from_iter([true, false, true]),
+            &mut builder,
+        )?;
+        let expected =
+            VarBinViewArray::from_iter([Some("one"), None, Some("two")], DType::Utf8(Nullable));
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn dictionary_gather_checks_selected_codes_before_copy() {
+        let ctx = array_session().create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 255]);
+        let values = VarBinViewArray::from_iter([Some("one")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        drop(append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::new_true(2),
+            &mut builder,
+        ));
+    }
 
     #[test]
     fn append_to_builder_gathers_through_the_dictionary() -> VortexResult<()> {
