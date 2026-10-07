@@ -51,6 +51,7 @@ class VortexFile:
         *,
         expr: Expr | None = None,
         limit: int | None = None,
+        indices: Array | None = None,
         batch_size: int | None = None,
         schema: pa.Schema | None = None,
     ) -> pa.RecordBatchReader: ...
