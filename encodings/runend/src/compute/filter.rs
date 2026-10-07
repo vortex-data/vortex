@@ -116,37 +116,22 @@ where
 {
     let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
     let mut retained_run_count = 0;
+    let mut ranker = RunRanker::new(mask, length, run_ends.len());
+    let mut selected_before = 0;
 
-    let values_mask: Mask = if length >= COUNT_RANGE_MIN_ROWS_PER_RUN * run_ends.len() as u64 {
-        let mut run_start = 0;
-        let mut selected_through_run = 0;
-        BitBuffer::collect_bool(run_ends.len(), |run_idx| {
-            let run_end = run_end_index(run_ends[run_idx], offset, length);
-            let selected_in_run = mask.count_range(run_start, run_end);
-            run_start = run_end;
-            selected_through_run += selected_in_run;
-            retain_run_end(
-                &mut filtered_run_ends,
-                &mut retained_run_count,
-                selected_through_run,
-                selected_in_run > 0,
-            )
-        })
-    } else {
-        let rank = PrefixRank::new(mask);
-        let mut selected_before = 0;
-        BitBuffer::collect_bool(run_ends.len(), |run_idx| {
-            let selected_through_run = rank.rank(run_end_index(run_ends[run_idx], offset, length));
-            let retain_run = selected_through_run > selected_before;
-            selected_before = selected_through_run;
-            retain_run_end(
-                &mut filtered_run_ends,
-                &mut retained_run_count,
-                selected_through_run,
-                retain_run,
-            )
-        })
-    }
+    let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
+        let selected_through_run =
+            ranker.selected_through(run_end_index(run_ends[run_idx], offset, length));
+        let retain_run = selected_through_run > selected_before;
+        selected_before = selected_through_run;
+
+        // Always write the current end, then advance only for a retained run. This keeps the loop
+        // branchless. The end is at most `length`, which the source run-end type already
+        // represents, so the cast cannot truncate.
+        filtered_run_ends[retained_run_count] = selected_through_run.as_();
+        retained_run_count += retain_run as usize;
+        retain_run
+    })
     .into();
 
     filtered_run_ends.truncate(retained_run_count);
@@ -167,24 +152,67 @@ fn run_end_index<R: AsPrimitive<u64>>(run_end: R, offset: u64, length: u64) -> u
         .vortex_expect("run end index must fit in usize")
 }
 
-/// Records a filtered run ending after `selected_through_run` rows and returns `retain_run`.
+/// Returns each run's end in the filtered output, which is the number of rows `mask` selects up to
+/// the end of that run.
 ///
-/// The end is always written and the count only advances for a retained run, which keeps the loop
-/// branchless. The end is at most `length`, which the source run-end type already represents, so
-/// the cast cannot truncate.
-#[inline]
-fn retain_run_end<R: Copy + 'static>(
-    filtered_run_ends: &mut [R],
-    retained_run_count: &mut usize,
-    selected_through_run: usize,
-    retain_run: bool,
-) -> bool
-where
-    usize: AsPrimitive<R>,
-{
-    filtered_run_ends[*retained_run_count] = selected_through_run.as_();
-    *retained_run_count += retain_run as usize;
-    retain_run
+/// Unlike [`filter_run_end_primitive`], runs without selected rows are kept as empty runs, so the
+/// ends still line up with the source run values. The caller supplies the same validated window as
+/// for [`filter_run_end_primitive`].
+pub(crate) fn filtered_run_ends<R: AsPrimitive<u64>>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mask: &BitBuffer,
+) -> Vec<usize> {
+    let mut ranker = RunRanker::new(mask, length, run_ends.len());
+    run_ends
+        .iter()
+        .map(|&end| ranker.selected_through(run_end_index(end, offset, length)))
+        .collect()
+}
+
+/// Counts the rows a mask selects up to each run end, visiting run ends in order.
+enum RunRanker<'a> {
+    /// Counts each run directly; cheap when runs span many words.
+    CountRange {
+        mask: &'a BitBuffer,
+        run_start: usize,
+        selected: usize,
+    },
+    /// Looks up per-word prefix counts; cheap when runs span few words.
+    Prefix(PrefixRank),
+}
+
+impl<'a> RunRanker<'a> {
+    fn new(mask: &'a BitBuffer, length: u64, run_count: usize) -> Self {
+        if length >= COUNT_RANGE_MIN_ROWS_PER_RUN * run_count as u64 {
+            Self::CountRange {
+                mask,
+                run_start: 0,
+                selected: 0,
+            }
+        } else {
+            Self::Prefix(PrefixRank::new(mask))
+        }
+    }
+
+    /// Returns the number of selected rows before `run_end`, which must not be less than the
+    /// previous run end or exceed the mask length.
+    #[inline]
+    fn selected_through(&mut self, run_end: usize) -> usize {
+        match self {
+            Self::CountRange {
+                mask,
+                run_start,
+                selected,
+            } => {
+                *selected += mask.count_range(*run_start, run_end);
+                *run_start = run_end;
+                *selected
+            }
+            Self::Prefix(rank) => rank.rank(run_end),
+        }
+    }
 }
 
 /// Counts the set bits before any position of a mask in constant time.

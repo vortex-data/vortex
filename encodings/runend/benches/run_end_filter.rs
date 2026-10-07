@@ -81,6 +81,21 @@ const FILTER_ARGS: &[FilterBenchArgs] = &[
         run_length: 16,
         density: 0.9,
     },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 256,
+        density: 0.5,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 1_024,
+        density: 0.1,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 1_024,
+        density: 0.5,
+    },
 ];
 
 /// Build the run-end boundaries (cumulative run lengths) for `length` rows.
