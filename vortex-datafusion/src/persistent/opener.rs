@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
@@ -8,6 +9,7 @@ use std::sync::Weak;
 use arrow_array::RecordBatchOptions;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -26,6 +28,7 @@ use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::projection::Projector;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr::utils::reassign_expr_columns;
@@ -38,16 +41,22 @@ use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use futures::stream;
+use futures::stream::BoxStream;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::expr::and_collect;
 use vortex::expr::bound;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
+use vortex::io::runtime::Handle;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
@@ -56,6 +65,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
 use crate::convert::dynamic::dynamic_filter_to_vortex;
@@ -116,6 +126,26 @@ pub(crate) struct VortexOpener {
 
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
+        let prepared = self.prepare(file)?;
+        Ok(async move {
+            match prepared.await? {
+                Some(scan) => scan.into_stream(),
+                None => Ok(stream::empty().boxed()),
+            }
+        }
+        .boxed())
+    }
+}
+
+impl VortexOpener {
+    /// Opens `file` and builds its scan, without reading any of its rows.
+    ///
+    /// Resolves to `None` when the file has no rows to read, for example because its statistics
+    /// prune it.
+    pub(crate) fn prepare(
+        &self,
+        file: PartitionedFile,
+    ) -> DFResult<BoxFuture<'static, DFResult<Option<PreparedScan>>>> {
         // Calculate the output schema before replacing partition columns with literals so it
         // retains the table and partition-field metadata declared by the plan.
         let output_schema = Arc::new(
@@ -195,7 +225,7 @@ impl FileOpener for VortexOpener {
             if let Some(file_pruner) = file_pruner.as_mut()
                 && file_pruner.should_prune()?
             {
-                return Ok(stream::empty().boxed());
+                return Ok(None);
             }
 
             let mut open_opts = session
@@ -242,7 +272,7 @@ impl FileOpener for VortexOpener {
             // Check if there are rows in this file. If not, we can save
             // ourselves some work and return an empty stream.
             if vxf.row_count() == 0 {
-                return Ok(stream::empty().boxed());
+                return Ok(None);
             }
 
             // This is the expected arrow types of the actual columns in the file, which might have different types
@@ -455,7 +485,7 @@ impl FileOpener for VortexOpener {
                     let Some(row_range) =
                         split_aligned_row_range(byte_range, natural_splits.as_ref())
                     else {
-                        return Ok(stream::empty().boxed());
+                        return Ok(None);
                     };
 
                     scan_builder = scan_builder
@@ -466,56 +496,146 @@ impl FileOpener for VortexOpener {
                 }
             }
 
-            let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
-            let stream = scan_builder
-                .with_metrics_registry(metrics_registry)
-                .with_ordered(has_output_ordering)
-                .with_reverse_splits(reverse_splits)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    let arrow_session = ctx.session().clone();
-                    let arrow = arrow_session.arrow().execute_arrow(
-                        chunk,
-                        Some(&stream_target_field),
-                        &mut ctx,
-                    )?;
-                    Ok(RecordBatch::from(arrow.as_struct().clone()))
-                })
-                .into_stream()
-                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .map_err(move |e: VortexError| {
-                    DataFusionError::External(Box::new(e.with_context(format!(
-                        "Failed to read Vortex file: {}",
-                        file.object_meta.location
-                    ))))
-                })
-                .map(move |batch| {
-                    let batch = if projector.projection().as_ref().is_empty() {
-                        batch
-                    } else {
-                        batch.and_then(|b| projector.project_batch(&b))
-                    }?;
-
-                    let (_, columns, row_count) = batch.into_parts();
-                    RecordBatch::try_new_with_options(
-                        Arc::clone(&output_schema),
-                        columns,
-                        &RecordBatchOptions::new().with_row_count(Some(row_count)),
-                    )
-                    .map_err(Into::into)
-                })
-                .boxed();
-
-            if let Some(file_pruner) = file_pruner
-                && file_pruner.is_watching()
-            {
-                Ok(PrunableStream::new(file_pruner, stream).boxed())
-            } else {
-                Ok(stream)
-            }
+            let location = file.object_meta.location;
+            Ok(Some(PreparedScan {
+                scan_builder: scan_builder
+                    .with_metrics_registry(metrics_registry)
+                    .with_ordered(has_output_ordering)
+                    .with_reverse_splits(reverse_splits),
+                session,
+                stream_target_field: Field::new_struct("", stream_schema.fields().clone(), false),
+                output: Arc::new(BatchOutput {
+                    projector,
+                    output_schema,
+                    location,
+                }),
+                file_pruner,
+            }))
         }
         .in_current_span()
         .boxed())
+    }
+}
+
+/// A Vortex file scan that is ready to read, built by [`VortexOpener::prepare`].
+pub(crate) struct PreparedScan {
+    scan_builder: ScanBuilder<ArrayRef>,
+    session: VortexSession,
+    /// The Arrow type the scan's arrays are converted to.
+    stream_target_field: Field,
+    output: Arc<BatchOutput>,
+    /// Prunes the rest of the file once a dynamic filter rules it out.
+    file_pruner: Option<FilePruner>,
+}
+
+impl PreparedScan {
+    /// Converts the scan's arrays to record batches within the scan tasks.
+    fn into_batch_scan(
+        self,
+    ) -> (
+        ScanBuilder<RecordBatch>,
+        Arc<BatchOutput>,
+        Option<FilePruner>,
+    ) {
+        let Self {
+            scan_builder,
+            session,
+            stream_target_field,
+            output,
+            file_pruner,
+        } = self;
+        let scan = scan_builder.map(move |chunk| {
+            let mut ctx = session.create_execution_ctx();
+            let arrow_session = ctx.session().clone();
+            let arrow =
+                arrow_session
+                    .arrow()
+                    .execute_arrow(chunk, Some(&stream_target_field), &mut ctx)?;
+            Ok(RecordBatch::from(arrow.as_struct().clone()))
+        });
+        (scan, output, file_pruner)
+    }
+
+    /// Reads the whole file as one stream, running its splits concurrently.
+    pub(crate) fn into_stream(self) -> DFResult<BoxStream<'static, DFResult<RecordBatch>>> {
+        let (scan, output, file_pruner) = self.into_batch_scan();
+        let error_output = Arc::clone(&output);
+        let stream = scan
+            .into_stream()
+            .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+            .map_err(move |e: VortexError| error_output.read_error(e))
+            .map(move |batch| output.finish(batch?))
+            .boxed();
+
+        if let Some(file_pruner) = file_pruner
+            && file_pruner.is_watching()
+        {
+            Ok(PrunableStream::new(file_pruner, stream).boxed())
+        } else {
+            Ok(stream)
+        }
+    }
+
+    /// Returns one task per split of the file, in the order the scan reads them, without
+    /// starting any of them.
+    pub(crate) fn into_split_tasks(self) -> DFResult<SplitTasks> {
+        let (scan, output, file_pruner) = self.into_batch_scan();
+        let max_in_flight = scan.concurrency() * get_available_parallelism().unwrap_or(1).max(1);
+        let ordered = scan.ordered();
+        let handle = scan.session().handle();
+        let tasks = scan
+            .build()
+            .map_err(|e| exec_datafusion_err!("Failed to create Vortex scan: {e}"))?;
+        Ok(SplitTasks {
+            tasks: tasks.into(),
+            max_in_flight,
+            ordered,
+            handle,
+            output,
+            file_pruner,
+        })
+    }
+}
+
+/// The split tasks of a [`PreparedScan`], read by the morsel-driven scan.
+pub(crate) struct SplitTasks {
+    pub tasks: VecDeque<BoxFuture<'static, VortexResult<Option<RecordBatch>>>>,
+    /// How many splits to read at once, matching the stream-based scan.
+    pub max_in_flight: usize,
+    /// Whether splits must be returned in the order they were planned.
+    pub ordered: bool,
+    pub handle: Handle,
+    pub output: Arc<BatchOutput>,
+    pub file_pruner: Option<FilePruner>,
+}
+
+/// Turns the record batches a Vortex scan produces into the batches the plan expects.
+pub(crate) struct BatchOutput {
+    /// Evaluates the projection expressions the scan could not.
+    projector: Projector,
+    output_schema: SchemaRef,
+    location: Path,
+}
+
+impl BatchOutput {
+    pub(crate) fn finish(&self, batch: RecordBatch) -> DFResult<RecordBatch> {
+        let batch = if self.projector.projection().as_ref().is_empty() {
+            batch
+        } else {
+            self.projector.project_batch(&batch)?
+        };
+        let (_, columns, row_count) = batch.into_parts();
+        Ok(RecordBatch::try_new_with_options(
+            Arc::clone(&self.output_schema),
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(row_count)),
+        )?)
+    }
+
+    pub(crate) fn read_error(&self, error: VortexError) -> DataFusionError {
+        DataFusionError::External(Box::new(
+            error.with_context(format!("Failed to read Vortex file: {}", self.location)),
+        ))
     }
 }
 
@@ -675,7 +795,7 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fmt;
     use std::sync::Arc;
     use std::sync::LazyLock;
@@ -884,7 +1004,7 @@ mod tests {
         Ok(summary.size())
     }
 
-    fn make_opener(
+    pub(crate) fn make_opener(
         object_store: Arc<dyn ObjectStore>,
         table_schema: TableSchema,
         filter: Option<PhysicalExprRef>,
