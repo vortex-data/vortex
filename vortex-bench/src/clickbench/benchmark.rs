@@ -96,7 +96,9 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(clickbench_expected_row_counts())
+        // The expected counts are for the full dataset.
+        (self.flavor == Flavor::Single || partitioned_shards() == 100)
+            .then(clickbench_expected_row_counts)
     }
 
     fn dataset(&self) -> BenchmarkDataset {
