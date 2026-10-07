@@ -3,8 +3,6 @@
 
 //! Walks a mask one `u64` word at a time, for kernels that process lanes in blocks of up to 64.
 
-use std::convert::Infallible;
-
 use vortex_buffer::BitBuffer;
 
 /// Invokes `f` with each `(word, start, len)` of `mask`, where `word` holds the mask bits for
@@ -13,13 +11,33 @@ use vortex_buffer::BitBuffer;
 /// The words come from [`BitBuffer::unaligned_chunks`], which reads the 8-byte aligned body as a
 /// plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a shorter first
 /// and last word, so every other word covers 64 lanes.
+// This does not delegate to `try_for_each_mask_word`: wrapping `f` in a second closure kept large
+// callers from being inlined, and the ListView zip ran 6% slower.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn for_each_mask_word(mask: &BitBuffer, mut f: impl FnMut(u64, usize, usize)) {
-    let Ok(()) = try_for_each_mask_word(mask, |word, start, len| {
-        f(word, start, len);
-        Ok::<_, Infallible>(())
-    });
+    let unaligned = mask.unaligned_chunks();
+    let lead = unaligned.lead_padding();
+    let mut start = 0;
+
+    if let Some(prefix) = unaligned.prefix() {
+        let len = (64 - lead).min(mask.len());
+        f(prefix >> lead, start, len);
+        start += len;
+    }
+
+    for &word in unaligned.chunks() {
+        f(word, start, 64);
+        start += 64;
+    }
+
+    if let Some(suffix) = unaligned.suffix() {
+        let len = mask.len() - start;
+        f(suffix, start, len);
+        start += len;
+    }
+
+    debug_assert_eq!(start, mask.len());
 }
 
 /// Like [`for_each_mask_word`], stopping at and returning the first error from `f`.
