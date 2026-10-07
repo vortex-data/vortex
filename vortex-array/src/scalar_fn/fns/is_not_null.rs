@@ -37,7 +37,7 @@ use crate::scalar_fn::is_not_null_node;
 /// IsNull(x) -> if !x.nullable lit(false) else not(x.validity())
 /// IsNotNull(x) -> if !x.nullable lit(true) or x.validity()
 ///
-/// The `lit` rewrites never evaluate x, so they require that x cannot fail
+/// These rewrites never evaluate x, so they require that x cannot fail
 /// ([`ReduceNode::contains_fallible`]).
 ///
 /// In expression and array contexts for x, y where x is nullable but y is not,
@@ -55,21 +55,18 @@ use crate::scalar_fn::is_not_null_node;
 /// check.
 pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResult<Option<T>> {
     let child = node.child(0);
-    if !child.node_dtype()?.is_nullable() {
-        // A fallible child must be evaluated, so leave the check to the kernel.
-        if child.contains_fallible() {
-            return Ok(None);
+    if !child.contains_fallible() {
+        if !child.node_dtype()?.is_nullable() {
+            return Ok(Some(node.new_constant((!is_null).into())));
         }
 
-        return Ok(Some(node.new_constant((!is_null).into())));
-    }
-
-    if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
-        return Ok(Some(if is_null {
-            validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?
-        } else {
-            validity
-        }));
+        if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
+            return Ok(Some(if is_null {
+                validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?
+            } else {
+                validity
+            }));
+        }
     }
 
     let Some(child_fn) = child.scalar_fn() else {
@@ -232,7 +229,6 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -245,7 +241,6 @@ mod tests {
     use crate::expr::BoundExpression;
     use crate::expr::Expression;
     use crate::expr::and;
-    use crate::expr::cast;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
@@ -324,23 +319,6 @@ mod tests {
             optimized(is_null(or(col("a"), col("b"))), &dtype)?,
             and(is_null(col("a")), not(col("b"))).bind(&dtype)?
         );
-        Ok(())
-    }
-
-    #[test]
-    fn reduce_cast_only_when_it_cannot_fail() -> VortexResult<()> {
-        let dtype = bool_dtype();
-
-        // Making `b` nullable cannot fail, so the check reads the validity of `b`.
-        let widen = is_null(cast(col("b"), DType::Bool(Nullability::Nullable)));
-        assert_eq!(
-            optimized(widen, &dtype)?,
-            not(is_not_null(col("b"))).bind(&dtype)?
-        );
-
-        // Making `a` non-nullable fails on a null, so the check must evaluate the cast.
-        let narrow = is_not_null(cast(col("a"), DType::Bool(Nullability::NonNullable)));
-        assert_eq!(optimized(narrow.clone(), &dtype)?, narrow.bind(&dtype)?);
         Ok(())
     }
 
@@ -510,36 +488,17 @@ mod tests {
             .cast(PType::I64.into())
     }
 
-    /// Covers the `Cast` validity rule.
-    fn nullable_out_of_range_cast() -> VortexResult<ArrayRef> {
-        PrimitiveArray::from_option_iter([Some(300i64), None])
-            .into_array()
-            .cast(DType::Primitive(PType::I8, Nullability::Nullable))
-    }
-
-    /// Covers the default validity rule for strict functions.
-    fn nullable_overflowing_add() -> VortexResult<ArrayRef> {
-        PrimitiveArray::from_option_iter([Some(i64::MAX), None])
-            .into_array()
-            .binary(ConstantArray::new(1i64, 2).into_array(), Operator::Add)
-    }
-
-    /// Covers `union_child_validities` with a failing non-nullable operand.
+    /// Covers a fallible input below an infallible parent.
     fn comparison_with_failing_cast() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(1i64), None])
             .into_array()
             .binary(null_into_non_nullable_cast()?, Operator::Lt)
     }
 
-    /// Covers the validity of an encoding over a failing child.
+    /// Covers a fallible input below an encoding.
     fn dictionary_of_failing_cast() -> VortexResult<ArrayRef> {
         let codes = PrimitiveArray::from_option_iter([Some(0u8), None]).into_array();
         Ok(DictArray::try_new(codes, null_into_non_nullable_cast()?)?.into_array())
-    }
-
-    /// Covers the `FillNull` validity rule, which needs a nullable fill value to apply.
-    fn fill_null_of_failing_cast() -> VortexResult<ArrayRef> {
-        nullable_out_of_range_cast()?.fill_null(Scalar::primitive(0i8, Nullability::Nullable))
     }
 
     /// The out-of-range value is null, so the cast succeeds.
@@ -560,11 +519,8 @@ mod tests {
     /// error.
     #[rstest]
     #[case::null_into_non_nullable_cast(null_into_non_nullable_cast)]
-    #[case::nullable_out_of_range_cast(nullable_out_of_range_cast)]
-    #[case::nullable_overflowing_add(nullable_overflowing_add)]
     #[case::comparison_with_failing_cast(comparison_with_failing_cast)]
     #[case::dictionary_of_failing_cast(dictionary_of_failing_cast)]
-    #[case::fill_null_of_failing_cast(fill_null_of_failing_cast)]
     #[case::successful_cast(successful_cast)]
     #[case::kleene_and(kleene_and)]
     fn null_checks_match_eager_evaluation(

@@ -46,7 +46,7 @@ pub enum ReduceNodeValidity<T: ReduceNode> {
     /// validity(byte_length(x)) can be symbolically reduced to validity(x)
     /// since byte_length doesn't change validity.
     ///
-    /// The reduced node **must** still raise any semantic error that evaluating T raises.
+    /// Reducing does not evaluate T, so the reduced node can skip the semantic errors of T.
     Reduced(T),
     /// Validity of T can't be symbolically reduced to anything, and all
     /// further reductions require evaluating T first. For an expression reduce
@@ -63,16 +63,12 @@ pub(crate) fn is_not_null_node<T: ReduceNode>(child: &T) -> VortexResult<T> {
     child.new_node(IsNotNull.bind(EmptyOptions), std::slice::from_ref(child))
 }
 
-/// Returns `is_not_null(c1) AND is_not_null(c2) AND ...` over the children of `node`, or `true`
-/// if no terms remain.
-///
-/// The term of a non-nullable child is always `true`, so it is left out unless the child
-/// [contains a fallible computation](ReduceNode::contains_fallible) that must still be evaluated.
+/// "And" over "node's" non-nullable children
 pub fn union_child_validities<T: ReduceNode>(node: &T) -> VortexResult<T> {
     let mut parts = Vec::with_capacity(node.child_count());
     for i in 0..node.child_count() {
         let child = node.child(i);
-        if child.node_dtype()?.is_nullable() || child.contains_fallible() {
+        if child.node_dtype()?.is_nullable() {
             parts.push(is_not_null_node(&child)?);
         }
     }
@@ -199,19 +195,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// validity(node). Returned node' is either a lazy computation over
     /// children of node, a constant, or Irreducible which means you need to
     /// evaluate node to get its validity.
-    ///
-    /// To keep the errors that [`ReduceNodeValidity::Reduced`] requires, a rule that skips
-    /// evaluating this function or a child must first check that the skipped computation cannot
-    /// fail, with [`ScalarFnVTable::is_infallible`] or [`ReduceNode::contains_fallible`]. A child
-    /// wrapped in `is_not_null` keeps its errors.
-    ///
-    /// The default rule returns [`union_child_validities`] for a strict, infallible function.
     fn validity<T: ReduceNode>(
         &self,
         options: &Self::Options,
         node: &T,
     ) -> VortexResult<ReduceNodeValidity<T>> {
-        if !self.is_strict(options) || !self.is_infallible(options) {
+        if !self.is_strict(options) {
             return Ok(ReduceNodeValidity::Irreducible);
         }
 
@@ -283,7 +272,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Returning `true` permits optimizations that evaluate the function over values that no input
     /// row references. Dictionary push-down, for example, evaluates every dictionary value, so a
     /// fallible function could error on a value that row-wise evaluation would never reach. It also
-    /// permits null checks and [`ScalarFnVTable::validity`] rules to skip evaluating the function.
+    /// permits null checks to skip evaluating the function.
     ///
     /// This applies only to the scalar function, not its child expressions, and only to inputs
     /// accepted by [`ScalarFnVTable::return_dtype`]. The default is conservatively `false`.
@@ -512,13 +501,6 @@ impl ReduceNode for ArrayReduceNode<'_> {
         if let Some(scalar_fn) = self.array.as_opt::<ScalarFn>() {
             return scalar_fn.data().scalar_fn().validity_array(self);
         }
-
-        // Encodings derive validity from their children without evaluating them, which skips the
-        // errors of a fallible child.
-        if self.contains_fallible() {
-            return Ok(ReduceNodeValidity::Irreducible);
-        }
-
         Ok(ReduceNodeValidity::Reduced(
             match self.array.validity()? {
                 Validity::NonNullable | Validity::AllValid => self.new_constant(true.into()),
