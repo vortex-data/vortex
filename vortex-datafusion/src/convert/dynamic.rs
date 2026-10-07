@@ -24,13 +24,13 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use arc_swap::ArcSwapOption;
 use datafusion_common::ScalarValue as DFScalarValue;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_plan::expressions as df_expr;
-use parking_lot::Mutex;
 use vortex::dtype::DType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
@@ -114,7 +114,7 @@ pub(crate) fn dynamic_filter_to_vortex(
         filter: Arc::clone(expr),
         columns: columns.clone(),
         session: session.clone(),
-        cache: Mutex::new(None),
+        cache: ArcSwapOption::empty(),
     });
 
     if matches!(
@@ -175,7 +175,9 @@ struct LiveBounds {
     filter: Arc<dyn PhysicalExpr>,
     columns: Vec<(String, DType)>,
     session: VortexSession,
-    cache: Mutex<Option<Snapshot>>,
+    /// Read on every evaluation of the Vortex filter but replaced only when the DataFusion filter
+    /// changes, a few dozen times per query for TopK, so reads must not contend.
+    cache: ArcSwapOption<Snapshot>,
 }
 
 impl LiveBounds {
@@ -227,27 +229,37 @@ impl LiveBounds {
     }
 
     fn value(&self, column: usize, op: CompareOperator) -> Option<ScalarValue> {
-        self.current_bounds()
-            .iter()
-            .find(|(c, o, _)| *c == column && *o == op)
-            .map(|(_, _, value)| value.clone())
+        let generation = self.filter.snapshot_generation();
+        if let Some(snapshot) = self.cache.load().as_ref()
+            && snapshot.generation == generation
+        {
+            return find_bound(&snapshot.bounds, column, op);
+        }
+        find_bound(&self.refresh(generation), column, op)
     }
 
     /// The bounds of the filter's current generation, re-read only when the generation changes.
     fn current_bounds(&self) -> Arc<[Bound]> {
         let generation = self.filter.snapshot_generation();
-        let mut cache = self.cache.lock();
-        match cache.as_ref() {
+        match self.cache.load().as_ref() {
             Some(snapshot) if snapshot.generation == generation => Arc::clone(&snapshot.bounds),
-            _ => {
-                let bounds: Arc<[Bound]> = self.extract_bounds().into();
-                *cache = Some(Snapshot {
-                    generation,
-                    bounds: Arc::clone(&bounds),
-                });
-                bounds
-            }
+            _ => self.refresh(generation),
         }
+    }
+
+    /// Re-reads the bounds for `generation` and caches them, unless a concurrent refresh has
+    /// already cached a newer generation.
+    fn refresh(&self, generation: u64) -> Arc<[Bound]> {
+        let bounds: Arc<[Bound]> = self.extract_bounds().into();
+        let snapshot = Arc::new(Snapshot {
+            generation,
+            bounds: Arc::clone(&bounds),
+        });
+        self.cache.rcu(|cached| match cached {
+            Some(cached) if cached.generation > generation => Some(Arc::clone(cached)),
+            _ => Some(Arc::clone(&snapshot)),
+        });
+        bounds
     }
 
     /// Reads `col <op> literal` bounds from the filter's current predicate.
@@ -434,6 +446,13 @@ fn kept_fraction(bounds: &[(CompareOperator, Scalar)], min: &Scalar, max: &Scala
         return Some(if lower <= upper { 1.0 } else { 0.0 });
     }
     Some(((upper - lower) / (max - min)).clamp(0.0, 1.0))
+}
+
+fn find_bound(bounds: &[Bound], column: usize, op: CompareOperator) -> Option<ScalarValue> {
+    bounds
+        .iter()
+        .find(|(c, o, _)| *c == column && *o == op)
+        .map(|(_, _, value)| value.clone())
 }
 
 /// `Some(true)` for upper bounds (`<`, `<=`), `Some(false)` for lower bounds (`>`, `>=`).
