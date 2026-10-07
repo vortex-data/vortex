@@ -98,13 +98,10 @@ impl ColumnExporter for ValidityExporter {
         );
 
         if unsafe {
-            vector.set_validity_zero_copy(&self.mask, offset, len, self.zero_copy.as_ref())
+            !vector.set_validity_zero_copy(&self.mask, offset, len, self.zero_copy.as_ref())
         } {
-            // All values are null, so no point copying the data.
-            return Ok(());
+            self.exporter.export(offset, len, vector, ctx)?;
         }
-
-        self.exporter.export(offset, len, vector, ctx)?;
 
         Ok(())
     }
