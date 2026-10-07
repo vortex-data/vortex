@@ -5,44 +5,68 @@
 
 use vortex_buffer::BitBufferView;
 
+/// Writes out the walk over the words of a [`BitBufferView`], binding `$word`, `$start` and
+/// `$len` for each: `$word` holds the mask bits for lanes `$start..$start + $len` in its low `$len`
+/// bits, and its other bits are unset.
+///
+/// The words come from [`BitBufferView::unaligned_chunks`], which reads the 8-byte aligned body as
+/// a plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a shorter first
+/// and last word, which run `$partial`. Every other word runs `$full`, where `$len` is the
+/// constant 64.
+///
+/// The bodies are written into each walk rather than passed as closures. A closure called for the
+/// first, full and last words, or nested in another closure, kept large callers from being
+/// inlined: the ListView zip ran 6% slower and FoR's encoding 17% slower. A single call site
+/// instead makes `$len` a runtime value for full words, which nearly doubled the time of the
+/// filter's SIMD compress.
+macro_rules! walk_mask_words {
+    (
+        $mask:expr,
+        |$word:ident, $start:ident, $len:ident| full: $full:block partial: $partial:block
+    ) => {{
+        let mask: BitBufferView<'_> = $mask;
+        let unaligned = mask.unaligned_chunks();
+        let lead = unaligned.lead_padding();
+        let mut next = 0;
+
+        if let Some(prefix) = unaligned.prefix() {
+            let ($word, $start, $len) = (prefix >> lead, next, (64 - lead).min(mask.len()));
+            $partial
+            next += $len;
+        }
+
+        for &$word in unaligned.chunks() {
+            let ($start, $len): (usize, usize) = (next, 64);
+            $full
+            next += 64;
+        }
+
+        if let Some(suffix) = unaligned.suffix() {
+            let ($word, $start, $len) = (suffix, next, mask.len() - next);
+            $partial
+            next += $len;
+        }
+
+        debug_assert_eq!(next, mask.len());
+    }};
+}
+
 /// Invokes `f` with each `(word, start, len)` of `mask`, where `word` holds the mask bits for
 /// lanes `start..start + len` in its low `len` bits and its other bits are unset.
 ///
 /// `mask` is a [`BitBuffer`](vortex_buffer::BitBuffer) or a [`BitBufferView`], whose slices
-/// cost nothing. The words come from [`BitBufferView::unaligned_chunks`], which reads the 8-byte
-/// aligned body as a plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a
-/// shorter first and last word, so every other word covers 64 lanes.
-// This does not delegate to `try_for_each_mask_word`: wrapping `f` in a second closure kept large
-// callers from being inlined, and the ListView zip ran 6% slower.
+/// cost nothing. Every word covers 64 lanes except a shorter first and last word where the mask
+/// is not 8-byte aligned.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn for_each_mask_word<'a>(
     mask: impl Into<BitBufferView<'a>>,
     mut f: impl FnMut(u64, usize, usize),
 ) {
-    let mask = mask.into();
-    let unaligned = mask.unaligned_chunks();
-    let lead = unaligned.lead_padding();
-    let mut start = 0;
-
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
-        f(prefix >> lead, start, len);
-        start += len;
-    }
-
-    for &word in unaligned.chunks() {
-        f(word, start, 64);
-        start += 64;
-    }
-
-    if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - start;
-        f(suffix, start, len);
-        start += len;
-    }
-
-    debug_assert_eq!(start, mask.len());
+    walk_mask_words!(mask.into(), |word, start, len|
+        full: { f(word, start, len); }
+        partial: { f(word, start, len); }
+    );
 }
 
 /// Like [`for_each_mask_word`], stopping at and returning the first error from `f`.
@@ -52,29 +76,10 @@ pub fn try_for_each_mask_word<'a, E>(
     mask: impl Into<BitBufferView<'a>>,
     mut f: impl FnMut(u64, usize, usize) -> Result<(), E>,
 ) -> Result<(), E> {
-    let mask = mask.into();
-    let unaligned = mask.unaligned_chunks();
-    let lead = unaligned.lead_padding();
-    let mut start = 0;
-
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
-        f(prefix >> lead, start, len)?;
-        start += len;
-    }
-
-    for &word in unaligned.chunks() {
-        f(word, start, 64)?;
-        start += 64;
-    }
-
-    if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - start;
-        f(suffix, start, len)?;
-        start += len;
-    }
-
-    debug_assert_eq!(start, mask.len());
+    walk_mask_words!(mask.into(), |word, start, len|
+        full: { f(word, start, len)?; }
+        partial: { f(word, start, len)?; }
+    );
     Ok(())
 }
 
@@ -95,13 +100,6 @@ pub fn for_each_masked_value<'a, T: Copy>(
     mask: impl Into<BitBufferView<'a>>,
     mut f: impl FnMut(usize, T, bool),
 ) {
-    let mask = mask.into();
-    assert_eq!(
-        values.len(),
-        mask.len(),
-        "values and mask must have the same length"
-    );
-
     /// Visits the values of a partial first or last word, which at most two words per mask are.
     #[inline]
     fn partial<T: Copy>(values: &[T], word: u64, start: usize, f: &mut impl FnMut(usize, T, bool)) {
@@ -111,33 +109,22 @@ pub fn for_each_masked_value<'a, T: Copy>(
         }
     }
 
-    // Written out rather than through `for_each_mask_word`, so the hot loop over full words is the
-    // only place `f` is inlined into. Nesting `f` in a word closure kept captured state, such as a
-    // running minimum, in memory and made FoR's encoding 17% slower.
-    let unaligned = mask.unaligned_chunks();
-    let mut start = 0;
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - unaligned.lead_padding()).min(mask.len());
-        partial(
-            &values[..len],
-            prefix >> unaligned.lead_padding(),
-            0,
-            &mut f,
-        );
-        start = len;
-    }
-    let words = unaligned.chunks();
-    let (blocks, _) = values[start..].as_chunks::<64>();
-    for (block, &word) in blocks.iter().zip(words) {
-        let bytes = word.to_le_bytes();
-        for j in 0..64 {
-            f(start + j, block[j], (bytes[j / 8] >> (j % 8)) & 1 == 1);
+    let mask = mask.into();
+    assert_eq!(
+        values.len(),
+        mask.len(),
+        "values and mask must have the same length"
+    );
+    walk_mask_words!(mask, |word, start, len|
+        full: {
+            let bytes = word.to_le_bytes();
+            let block = &values[start..start + len];
+            for j in 0..64 {
+                f(start + j, block[j], (bytes[j / 8] >> (j % 8)) & 1 == 1);
+            }
         }
-        start += 64;
-    }
-    if let Some(suffix) = unaligned.suffix() {
-        partial(&values[start..], suffix, start, &mut f);
-    }
+        partial: { partial(&values[start..start + len], word, start, &mut f); }
+    );
 }
 
 /// A `u64` with the low `len` bits set.
