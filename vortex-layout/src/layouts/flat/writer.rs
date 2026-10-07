@@ -38,6 +38,8 @@ pub struct FlatLayoutStrategy {
     pub include_padding: bool,
     /// Maximum length of variable length statistics
     pub max_variable_length_statistics_size: usize,
+    /// Whether to inline the array tree in the layout metadata, which partial segment reads need.
+    pub inline_array_node: bool,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -45,6 +47,7 @@ impl Default for FlatLayoutStrategy {
         Self {
             include_padding: true,
             max_variable_length_statistics_size: 64,
+            inline_array_node: flat_layout_inline_array_node(),
         }
     }
 }
@@ -53,6 +56,14 @@ impl FlatLayoutStrategy {
     /// Set whether to include padding for memory-mapped reads.
     pub fn with_include_padding(mut self, include_padding: bool) -> Self {
         self.include_padding = include_padding;
+        self
+    }
+
+    /// Set whether to inline the array tree in the layout metadata.
+    ///
+    /// Defaults to the `FLAT_LAYOUT_INLINE_ARRAY_NODE=1` environment variable.
+    pub fn with_inline_array_node(mut self, inline_array_node: bool) -> Self {
+        self.inline_array_node = inline_array_node;
         self
     }
 
@@ -152,8 +163,9 @@ impl LayoutStrategy for FlatLayoutStrategy {
         )?;
         // there is at least the flatbuffer and the length
         assert!(buffers.len() >= 2);
-        let array_node =
-            flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
+        let array_node = self
+            .inline_array_node
+            .then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {

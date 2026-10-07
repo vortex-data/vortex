@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::collections::VecDeque;
 use std::future::Future;
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -286,6 +287,8 @@ pub struct FileSegmentSource {
     driver_panic: DriverPanic,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
+    /// Page size for partial segment reads, or `None` to read whole segments.
+    preferred_read_size: Option<u64>,
 }
 
 impl FileSegmentSource {
@@ -357,34 +360,36 @@ impl FileSegmentSource {
             driver,
             driver_panic,
             next_id: Arc::new(AtomicUsize::new(0)),
+            preferred_read_size: None,
         }
     }
 }
 
-impl SegmentSource for FileSegmentSource {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
-        // coalescing becomes effective prior to the future being polled.
-        let spec = *match self.segments.get(*id as usize) {
-            Some(spec) => spec,
-            None => {
-                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
-            }
-        };
+impl FileSegmentSource {
+    /// Allow layout readers to request byte ranges of a segment instead of whole segments.
+    ///
+    /// Pages are sized from `preferred_read_size`, normally
+    /// [`VortexReadAt::preferred_read_size`]. `None` keeps whole-segment reads.
+    pub fn with_preferred_read_size(mut self, preferred_read_size: Option<u64>) -> Self {
+        self.preferred_read_size = preferred_read_size;
+        self
+    }
 
-        let SegmentSpec {
-            offset,
-            length,
-            alignment,
-        } = spec;
-
+    fn register(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+        coalesce_distance: Option<u64>,
+    ) -> SegmentFuture {
         let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let event = ReadEvent::Request(ReadRequest {
             id,
             offset,
-            length: length as usize,
+            length,
             alignment,
+            coalesce_distance,
             callback: send,
         });
 
@@ -405,6 +410,51 @@ impl SegmentSource for FileSegmentSource {
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
         fut.boxed()
+    }
+}
+
+impl SegmentSource for FileSegmentSource {
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.preferred_read_size
+    }
+
+    fn segment_len(&self, id: SegmentId) -> Option<u64> {
+        self.segments
+            .get(*id as usize)
+            .map(|spec| u64::from(spec.length))
+    }
+
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
+        // coalescing becomes effective prior to the future being polled.
+        let Some(spec) = self.segments.get(*id as usize) else {
+            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        };
+        self.register(spec.offset, spec.length as usize, spec.alignment, None)
+    }
+
+    fn request_range(&self, id: SegmentId, range: Range<u64>) -> SegmentFuture {
+        let Some(spec) = self.segments.get(*id as usize) else {
+            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        };
+        if range.start > range.end || range.end > u64::from(spec.length) {
+            return future::ready(Err(vortex_err!(
+                "Segment {} range {}..{} is out of bounds for a {}-byte segment",
+                id,
+                range.start,
+                range.end,
+                spec.length
+            )))
+            .boxed();
+        }
+        // A range can start anywhere inside the segment, so callers align the bytes they
+        // materialize themselves rather than forcing a copy here.
+        self.register(
+            spec.offset + range.start,
+            (range.end - range.start) as usize,
+            Alignment::none(),
+            self.preferred_read_size.map(|size| size / 4),
+        )
     }
 }
 
@@ -579,6 +629,7 @@ mod tests {
             offset,
             length,
             alignment: Alignment::none(),
+            coalesce_distance: None,
             callback,
         })
     }
@@ -794,6 +845,41 @@ mod tests {
         assert_eq!(request_metrics.read_ranges_multi.value(), 1);
         assert_eq!(request_metrics.read_ranges_num_ranges.count(), 1);
         assert_eq!(request_metrics.read_ranges_num_ranges.total(), 4.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn request_range_reads_bytes_relative_to_segment() -> VortexResult<()> {
+        let data = ByteBuffer::from((0u8..32).collect::<Vec<_>>());
+        let segments: Arc<[SegmentSpec]> = (0..2)
+            .map(|i| SegmentSpec {
+                offset: i * 16,
+                length: 16,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let metrics = DefaultMetricsRegistry::default();
+        let source = FileSegmentSource::open(
+            segments,
+            data,
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        )
+        .with_preferred_read_size(Some(8));
+
+        assert_eq!(source.preferred_read_size(), Some(8));
+        assert_eq!(source.segment_len(SegmentId::from(1)), Some(16));
+        let range = source.request_range(SegmentId::from(1), 4..8).await?;
+        assert_eq!(
+            range.unwrap_host(),
+            ByteBuffer::from(vec![20u8, 21, 22, 23])
+        );
+        assert!(
+            source
+                .request_range(SegmentId::from(1), 8..17)
+                .await
+                .is_err()
+        );
         Ok(())
     }
 

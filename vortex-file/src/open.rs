@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use futures::executor::block_on;
 use vortex_array::dtype::DType;
@@ -75,6 +76,8 @@ pub struct VortexOpenOptions {
     labels: Vec<Label>,
     /// Whether to cache file's LayoutReader between scans
     cache_layout_reader: bool,
+    /// Whether layout readers may read byte ranges of a segment instead of whole segments.
+    partial_segment_reads: bool,
 }
 
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
@@ -94,8 +97,26 @@ pub trait OpenOptionsSessionExt:
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
+            partial_segment_reads: partial_segment_reads_from_env(),
         }
     }
+}
+
+/// Partial segment reads default to the `VORTEX_PARTIAL_SEGMENT_READS` environment variable.
+fn partial_segment_reads_from_env() -> bool {
+    static PARTIAL_SEGMENT_READS: LazyLock<bool> =
+        LazyLock::new(|| std::env::var("VORTEX_PARTIAL_SEGMENT_READS").is_ok_and(|v| v == "1"));
+    *PARTIAL_SEGMENT_READS
+}
+
+/// Page size override for partial segment reads, from `VORTEX_PARTIAL_SEGMENT_READ_SIZE` in bytes.
+fn partial_segment_read_size_from_env() -> Option<u64> {
+    static PARTIAL_SEGMENT_READ_SIZE: LazyLock<Option<u64>> = LazyLock::new(|| {
+        std::env::var("VORTEX_PARTIAL_SEGMENT_READ_SIZE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+    });
+    *PARTIAL_SEGMENT_READ_SIZE
 }
 impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionExt>
     OpenOptionsSessionExt for S
@@ -124,6 +145,18 @@ impl VortexOpenOptions {
     /// cost of keeping reader state alive for the lifetime of the file handle.
     pub fn with_layout_reader_cache(mut self) -> Self {
         self.cache_layout_reader = true;
+        self
+    }
+
+    /// Allow layout readers to read only the pages of a segment that a selection touches.
+    ///
+    /// Pages are sized from [`VortexReadAt::preferred_read_size`], and a reader falls back to the
+    /// whole segment when the pages it needs would cost more I/O than the segment itself. Only
+    /// flat layouts written with an inline array tree and a supported encoding read partially.
+    ///
+    /// Defaults to the `VORTEX_PARTIAL_SEGMENT_READS=1` environment variable, otherwise off.
+    pub fn with_partial_segment_reads(mut self, partial_segment_reads: bool) -> Self {
+        self.partial_segment_reads = partial_segment_reads;
         self
     }
 
@@ -318,12 +351,19 @@ impl VortexOpenOptions {
         let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            footer.segment_specs_with_metadata(),
-            reader,
-            self.session.handle(),
-            metrics,
-        )));
+        let preferred_read_size = self
+            .partial_segment_reads
+            .then(|| partial_segment_read_size_from_env().or_else(|| reader.preferred_read_size()))
+            .flatten();
+        let segment_source = Arc::new(SharedSegmentSource::new(
+            FileSegmentSource::open(
+                footer.segment_specs_with_metadata(),
+                reader,
+                self.session.handle(),
+                metrics,
+            )
+            .with_preferred_read_size(preferred_read_size),
+        ));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source: Arc<dyn SegmentSource> = Arc::new(SegmentCacheSourceAdapter::new(

@@ -22,6 +22,7 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
+use crate::FILE_PREFERRED_READ_SIZE;
 use crate::VortexReadAt;
 use crate::runtime::Handle;
 
@@ -99,6 +100,10 @@ impl VortexReadAt for FileReadAt {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         Some(CoalesceConfig::file())
+    }
+
+    fn preferred_read_size(&self) -> Option<u64> {
+        Some(FILE_PREFERRED_READ_SIZE)
     }
 
     fn concurrency(&self) -> usize {

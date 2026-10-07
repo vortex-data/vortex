@@ -71,6 +71,33 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
+impl ALPRDMetadata {
+    pub fn right_bit_width(&self) -> VortexResult<u8> {
+        u8::try_from(self.right_bit_width).map_err(|_| {
+            vortex_err!(
+                "right bit width {} does not fit in u8",
+                self.right_bit_width
+            )
+        })
+    }
+
+    pub fn left_parts_dictionary(&self) -> VortexResult<Buffer<u16>> {
+        self.dict
+            .get(..usize::try_from(self.dict_len)?)
+            .ok_or_else(|| vortex_err!("ALPRD dictionary length is out of bounds"))?
+            .iter()
+            .map(|&value| {
+                u16::try_from(value)
+                    .map_err(|_| vortex_err!("ALPRD dictionary value {value} does not fit in u16"))
+            })
+            .collect()
+    }
+
+    pub fn patches(&self) -> Option<&PatchesMetadata> {
+        self.patches.as_ref()
+    }
+}
+
 impl ArrayHash for ALPRDData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.left_parts_dictionary.array_hash(state, accuracy);

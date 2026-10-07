@@ -22,6 +22,12 @@ use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 use vortex_metrics::Timer;
 
+/// Preferred read size for local file sources, including SSDs.
+pub const FILE_PREFERRED_READ_SIZE: u64 = 64 * 1024;
+
+/// Preferred read size for object storage sources.
+pub const OBJECT_STORAGE_PREFERRED_READ_SIZE: u64 = 1 << 20;
+
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
 pub struct CoalesceConfig {
@@ -93,6 +99,14 @@ pub trait VortexReadAt: Send + Sync + 'static {
         None
     }
 
+    /// Preferred size of independently requested byte ranges for this source.
+    ///
+    /// Layout readers can use this hint when dividing large logical segments into canonical read
+    /// ranges. Returning `None` asks readers to preserve whole-segment reads.
+    fn preferred_read_size(&self) -> Option<u64> {
+        None
+    }
+
     /// Maximum number of concurrent I/O requests for that should be pulled from this source.
     ///
     /// This value is used to control how many [`VortexReadAt::read_at`] calls can
@@ -148,6 +162,10 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
         self.as_ref().coalesce_config()
     }
 
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.as_ref().preferred_read_size()
+    }
+
     fn concurrency(&self) -> usize {
         self.as_ref().concurrency()
     }
@@ -177,6 +195,10 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.as_ref().coalesce_config()
+    }
+
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.as_ref().preferred_read_size()
     }
 
     fn concurrency(&self) -> usize {
@@ -342,6 +364,10 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.read.coalesce_config()
+    }
+
+    fn preferred_read_size(&self) -> Option<u64> {
+        self.read.preferred_read_size()
     }
 
     fn concurrency(&self) -> usize {
