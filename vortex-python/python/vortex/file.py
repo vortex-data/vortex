@@ -107,19 +107,17 @@ def open_readable(
     ----------
     reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | binary file object
         An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, or a
-        binary file object with
-        ``seek`` and ``readinto`` (or ``read``), such as ``open(path, "rb")``, :class:`io.BytesIO`
-        or an fsspec file. Vortex does not close it; keep it open for as long as the returned file,
-        or anything scanned from it, is in use.
+        binary file object with ``seek`` and ``readinto`` (or ``read``), such as
+        ``open(path, "rb")``, :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep
+        it open for as long as the returned file, or anything scanned from it, is in use.
     footer : :class:`vortex.file.Footer` | None
         The :attr:`VortexFile.footer` of an earlier open of the same file. Opening then does no IO,
         which saves the footer read when a file is opened again and again. Vortex checks only that
         the footer fits within the size of ``reader``, so the file must not have changed since.
     concurrency : :class:`int` | None
         The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt` or
-        :class:`vortex.io.ReadAt`, 192 by
-        default. Not accepted for a file object, whose reads are serialized because each one has to
-        ``seek`` first.
+        :class:`vortex.io.ReadAt`, 192 by default. Not accepted for a file object, whose reads are
+        serialized because each one has to ``seek`` first.
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
     segment_cache : :class:`vortex.SegmentCache` | None
@@ -177,7 +175,7 @@ class VortexFile:
 
     @property
     def footer(self) -> Footer:
-        """The parsed footer, to pass to :func:`vortex.open_readable` when opening this file again."""
+        """The parsed footer, to pass to :func:`vortex.open` or :func:`vortex.open_readable` to open this file again."""
         return self._file.footer
 
     def splits(self) -> list[tuple[int, int]]:

@@ -299,8 +299,8 @@ enum Origin {
 
 /// The parsed footer of a Vortex file: its layout, segment map and dtype.
 ///
-/// Pass it to :func:`vortex.open_readable` to open the same file again without reading the footer.
-/// It holds no IO state, but it is not picklable.
+/// Pass it to :func:`vortex.open` or :func:`vortex.open_readable` to open the same file again
+/// without reading the footer. It holds no IO state, but it is not picklable.
 #[pyclass(name = "Footer", module = "vortex", frozen)]
 pub struct PyFooter {
     footer: Footer,
@@ -312,7 +312,7 @@ impl PyFooter {
     ///
     /// Returns
     /// -------
-    /// :class:`.int`
+    /// :class:`int`
     #[getter]
     fn row_count(&self) -> u64 {
         self.footer.row_count()

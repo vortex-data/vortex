@@ -130,3 +130,16 @@ def test_segments_from_the_footer_read_are_shared(tmp_path: Path) -> None:
     reopened = vx.open_readable(again, footer=vxf.footer, segment_cache=cache, cache_key="small")
     reopened.scan(indices=vx.array([3, 700])).read_all()
     assert again.bytes_read == 0
+
+
+def test_footer_read_segments_survive_a_full_cache(tmp_path: Path) -> None:
+    # The footer read of a small file covers all of it. A cache too small to hold its segments must
+    # not make the open read them again.
+    small = tmp_path / "small.vortex"
+    vx.io.write(pa.table({"index": pa.array(range(1000), pa.int64())}), str(small))
+    cache = vx.SegmentCache(1)
+
+    reader = CountingReader(small)
+    vxf = vx.open_readable(reader, segment_cache=cache, cache_key="small")
+    vxf.scan(indices=vx.array([3, 700])).read_all()
+    assert reader.bytes_read == small.stat().st_size

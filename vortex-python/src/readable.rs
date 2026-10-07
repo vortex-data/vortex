@@ -220,11 +220,13 @@ impl VortexReadAt for PyReadable {
 
                     let buffer = Python::attach(|py| {
                         let obj = obj.bind(py);
-                        if matches!(protocol, Protocol::Owned) {
-                            read_owned(py, obj, offset, length, alignment)
-                        } else {
-                            let buffer = ByteBufferMut::zeroed_aligned(length, alignment);
-                            read_fully(py, obj, protocol, offset, buffer).map(|b| b.freeze())
+                        match protocol {
+                            Protocol::Owned => read_owned(py, obj, offset, length, alignment),
+                            Protocol::Read => read_copied(py, obj, offset, length, alignment),
+                            Protocol::Positional | Protocol::ReadInto => {
+                                let buffer = ByteBufferMut::zeroed_aligned(length, alignment);
+                                read_fully(py, obj, protocol, offset, buffer).map(|b| b.freeze())
+                            }
                         }
                         .map_err(|err| vortex_err!("Python read of {offset}..{end} failed: {err}"))
                     })?;
@@ -285,12 +287,43 @@ fn read_at_call(
     length: usize,
 ) -> PyResult<PyBuffer<u8>> {
     let result = obj.call_method1(intern!(py, "read_at"), (offset, length))?;
-    let chunk = PyBuffer::<u8>::get(&result)?;
+    buffer_at_most(&result, length, || format!("read_at({offset}, {length})"))
+}
+
+/// Read `offset..offset + length` through `seek(offset)` and then `read(n)`, copying each chunk
+/// once into a new aligned allocation.
+fn read_copied(
+    py: Python<'_>,
+    obj: &Bound<'_, PyAny>,
+    offset: u64,
+    length: usize,
+    alignment: Alignment,
+) -> PyResult<ByteBuffer> {
+    obj.call_method1(intern!(py, "seek"), (offset,))?;
+
+    let mut buffer = ByteBufferMut::zeroed_aligned(length, alignment);
+    let mut filled = 0;
+
+    while filled < length {
+        let remaining = length - filled;
+        let result = obj.call_method1(intern!(py, "read"), (remaining,))?;
+        let chunk = buffer_at_most(&result, remaining, || format!("read({remaining})"))?;
+        filled += copy_chunk(py, &chunk, &mut buffer, filled)?;
+    }
+
+    Ok(buffer.freeze())
+}
+
+/// Export `result` as a byte buffer, and check that it is no longer than `length`.
+fn buffer_at_most(
+    result: &Bound<'_, PyAny>,
+    length: usize,
+    call: impl FnOnce() -> String,
+) -> PyResult<PyBuffer<u8>> {
+    let chunk = PyBuffer::<u8>::get(result)?;
     let n = chunk.len_bytes();
     if n > length {
-        return Err(PyBufferError::new_err(format!(
-            "read_at({offset}, {length}) returned {n} bytes"
-        )));
+        return Err(PyBufferError::new_err(format!("{} returned {n} bytes", call())));
     }
 
     Ok(chunk)
@@ -312,7 +345,7 @@ fn copy_chunk(
         )));
     }
 
-    // `read_at_call` has checked that `n` fits in the remainder of `buffer`.
+    // `buffer_at_most` has checked that `n` fits in the remainder of `buffer`.
     chunk.copy_to_slice(py, &mut buffer.as_mut_slice()[filled..filled + n])?;
     Ok(n)
 }
@@ -332,7 +365,8 @@ impl AsRef<[u8]> for PyBufferOwner {
     }
 }
 
-/// Fill `buffer` with the bytes at `offset..offset + buffer.len()`, retrying short reads.
+/// Fill `buffer` with the bytes at `offset..offset + buffer.len()` through a `read_into` or
+/// `readinto` call that writes into it, retrying short reads.
 fn read_fully(
     py: Python<'_>,
     obj: &Bound<'_, PyAny>,
@@ -353,7 +387,7 @@ fn read_fully(
 
     let view = PyMemoryView::from(dst.as_any())?;
     let result = (|| {
-        if matches!(protocol, Protocol::ReadInto | Protocol::Read) {
+        if matches!(protocol, Protocol::ReadInto) {
             obj.call_method1(intern!(py, "seek"), (offset,))?;
         }
 
@@ -374,26 +408,8 @@ fn read_fully(
                     // `readinto` returns `None` for a non-blocking stream with no data ready.
                     n?.extract::<Option<usize>>()?.unwrap_or(0)
                 }
-                Protocol::Owned => unreachable!("`read_at` readers are read by `read_owned`"),
-                Protocol::Read => {
-                    let chunk = obj.call_method1(intern!(py, "read"), (length - filled,))?;
-                    let chunk = PyBuffer::<u8>::get(&chunk)?;
-                    let n = chunk.len_bytes();
-                    // Check before the copy below, which must not write past the buffer.
-                    if n > length - filled {
-                        return Err(PyBufferError::new_err(format!(
-                            "read({}) returned {n} bytes",
-                            length - filled
-                        )));
-                    }
-
-                    let mut state = dst.get().state.lock();
-                    let buffer = state
-                        .buffer
-                        .as_mut()
-                        .ok_or_else(|| PyBufferError::new_err("read buffer was released"))?;
-                    chunk.copy_to_slice(py, &mut buffer.as_mut_slice()[filled..filled + n])?;
-                    n
+                Protocol::Owned | Protocol::Read => {
+                    unreachable!("`read_at` and `read` readers do not read into a view")
                 }
             };
             if n == 0 {
@@ -402,12 +418,14 @@ fn read_fully(
                     length - filled
                 )));
             }
+
             if n > length - filled {
                 return Err(PyBufferError::new_err(format!(
                     "reader reported {n} bytes read into a buffer of {} bytes",
                     length - filled
                 )));
             }
+
             filled += n;
         }
         Ok(())
