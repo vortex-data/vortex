@@ -19,10 +19,45 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
-  remove-all-label:
+  # polarsignals/gh-actions-ps-profiling upserts one PR comment found by its marker, but parallel
+  # benchmark jobs that start profiling together each find none and create duplicates. Create it
+  # once here, before any profiled benchmark job starts, so they all update the same comment.
+  ensure-profiling-comment:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-all'
+    if: >-
+      github.event.pull_request.head.repo.fork == false && contains(fromJSON('[
+        "action/bench-all",
+        "action/bench-random-access",
+        "action/bench-random-access-s3",
+        "action/bench-compress",
+        "action/bench-string",
+        "action/bench-sql",
+        "action/bench-sql-compact",
+        "action/bench-sql-extended"
+      ]'), github.event.label.name)
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        # Without the comment the action falls back to creating its own, so never block benchmarks.
+        continue-on-error: true
+        with:
+          script: |
+            const marker = "<!-- polar-signals-profiling-comment -->";
+            const params = { ...context.repo, issue_number: context.payload.pull_request.number };
+            const comments = await github.paginate(github.rest.issues.listComments, params);
+            if (!comments.some((comment) => comment.body?.includes(marker))) {
+              await github.rest.issues.createComment({
+                ...params,
+                body: `${marker}\n## Polar Signals Profiling Results\n\nWaiting for profiled benchmark jobs to start.\n`,
+              });
+            }
+
+  remove-all-label:
+    needs: ensure-profiling-comment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-all'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -58,9 +93,11 @@ jobs:
       matrix_preset: "pr-all"
 
   remove-random-access-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-random-access'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-random-access'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -74,9 +111,11 @@ jobs:
     secrets: inherit
 
   remove-random-access-s3-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-random-access-s3'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-random-access-s3'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -90,9 +129,11 @@ jobs:
     secrets: inherit
 
   remove-compress-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-compress'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-compress'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -106,9 +147,11 @@ jobs:
     secrets: inherit
 
   remove-string-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-string'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-string'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -138,9 +181,11 @@ jobs:
     secrets: inherit
 
   remove-sql-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-sql'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-sql'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -156,9 +201,11 @@ jobs:
       matrix_preset: "pr"
 
   remove-sql-compact-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-sql-compact'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-sql-compact'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
@@ -174,9 +221,11 @@ jobs:
       matrix_preset: "pr-compact"
 
   remove-sql-extended-label:
+    needs: ensure-profiling-comment
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/bench-sql-extended'
+    if: >-
+      !cancelled() && github.event.label.name == 'action/bench-sql-extended'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
