@@ -7,8 +7,10 @@
 //! maps onto them. An announcement registers a read, which does no IO itself but may be folded
 //! into a nearby read. A prefetch registers a read and marks it wanted, so the driver starts it
 //! and the service keeps the bytes. A fetch does the same, or marks an earlier announcement or
-//! prefetch of the same range wanted, and delivers the bytes to its owner. Dropping a split's
-//! source withdraws an unfinished read only after its last interested split releases it.
+//! prefetch of the same range wanted, and consumes one registered consumer. Pending consumers
+//! share the read, as V1's eagerly constructed projection futures do. Once consumed, later fetches
+//! register new reads. Dropping a split's source withdraws an unfinished read only
+//! after its last interested split releases it.
 
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -66,8 +68,8 @@ pub struct FileScanIo {
     /// source may be dropped while the scan's splits still read.
     _driver: SharedDriver,
     next_id: Arc<AtomicUsize>,
-    /// Live registrations, including completed reads still held by another split. Weak entries
-    /// deduplicate overlapping split lifetimes without turning the service into a segment cache.
+    /// Live registrations held by announcements, prefetches, or pending fetches. Weak entries
+    /// deduplicate overlapping reads without retaining consumed bytes.
     /// Initialized only for direct reads; scans with a segment cache use another source.
     reads: Arc<OnceLock<DashMap<ReadKey, Weak<Read>>>>,
 }
@@ -104,10 +106,15 @@ struct FileSplitIo {
 
 #[derive(Default)]
 struct SplitState {
-    /// Every read the split registered, by byte range.
-    reads: HashMap<ReadKey, Arc<Read>>,
+    /// Registered consumers not yet consumed by a fetch, by byte range.
+    reads: HashMap<ReadKey, RegisteredRead>,
     /// Fetches waiting for their read, in the order they complete.
     fetches: FuturesUnordered<BoxFuture<'static, Completion>>,
+}
+
+struct RegisteredRead {
+    read: Arc<Read>,
+    consumers: usize,
 }
 
 struct Read {
@@ -192,7 +199,7 @@ impl IoSource for FileSplitIo {
             .then(Instant::now);
         let requests = batch.len();
         let mut state = self.state.lock();
-        let previous_reads = state.reads.len();
+        let mut registered = 0usize;
         let mut wanted = 0usize;
         for request in batch {
             let IoTarget::Range {
@@ -204,31 +211,55 @@ impl IoSource for FileSplitIo {
                 vortex_bail!("a split's IO serves byte ranges, not {:?}", request.target);
             };
             let key = (offset, len, alignment);
-            let read = match state.reads.remove(&key) {
+            let RegisteredRead {
+                read,
+                mut consumers,
+            } = match state.reads.remove(&key) {
                 Some(read) => read,
-                None => self.register(offset, len, alignment)?,
+                None => {
+                    registered += 1;
+                    RegisteredRead {
+                        read: self.register(offset, len, alignment)?,
+                        consumers: 0,
+                    }
+                }
             };
+            if request.intent == IoIntent::Announce {
+                consumers += 1;
+            } else if request.intent == IoIntent::Prefetch {
+                consumers = consumers.max(1);
+            }
             if request.intent != IoIntent::Announce {
                 wanted += usize::from(self.want(&read)?);
             }
             if request.intent == IoIntent::Fetch {
+                consumers = consumers.saturating_sub(1);
+                let read = if consumers == 0 {
+                    read
+                } else {
+                    let fetch = Arc::clone(&read);
+                    state.reads.insert(key, RegisteredRead { read, consumers });
+                    fetch
+                };
                 let id = request.request;
                 state.fetches.push(
-                    read.bytes
-                        .clone()
-                        .map(move |bytes| Completion {
+                    async move {
+                        let bytes = read.bytes.clone().await;
+                        drop(read);
+                        Completion {
                             owner,
                             request: id,
                             result: bytes
                                 .map(IoResult::Bytes)
                                 .map_err(|err| vortex_err!("{err}")),
-                        })
-                        .boxed(),
+                        }
+                    }
+                    .boxed(),
                 );
+            } else {
+                state.reads.insert(key, RegisteredRead { read, consumers });
             }
-            state.reads.insert(key, read);
         }
-        let registered = state.reads.len() - previous_reads;
         drop(state);
         if let Some(start) = timing {
             tracing::debug!(
@@ -380,8 +411,8 @@ mod tests {
         }
     }
 
-    /// A cancelled split cannot cancel another split's read, and a completed registration
-    /// remains reusable only while a split holds it.
+    /// A cancelled announcement cannot cancel pending fetches. Concurrent fetches share a read,
+    /// but later fetches cannot reuse its completed bytes.
     #[tokio::test]
     async fn splits_share_live_reads_and_cancel_only_the_last_registration() -> VortexResult<()> {
         let session = session();
@@ -409,23 +440,62 @@ mod tests {
         };
         let announced = service.session();
         let fetched = service.session();
+        let concurrent = service.session();
         announced.submit(IoOwnerId(0), vec![request(IoIntent::Announce, 0)])?;
         fetched.submit(IoOwnerId(1), vec![request(IoIntent::Fetch, 1)])?;
+        concurrent.submit(IoOwnerId(4), vec![request(IoIntent::Fetch, 4)])?;
         announced.clear();
         poll_fn(|cx| fetched.poll_completion(cx)).await?.result?;
+        poll_fn(|cx| concurrent.poll_completion(cx)).await?.result?;
         assert_eq!(reads.load(Ordering::Relaxed), 1);
 
         let later = service.session();
         later.submit(IoOwnerId(2), vec![request(IoIntent::Fetch, 2)])?;
         poll_fn(|cx| later.poll_completion(cx)).await?.result?;
-        assert_eq!(reads.load(Ordering::Relaxed), 1);
+        assert_eq!(reads.load(Ordering::Relaxed), 2);
         fetched.clear();
         later.clear();
 
         let fresh = service.session();
         fresh.submit(IoOwnerId(3), vec![request(IoIntent::Fetch, 3)])?;
         poll_fn(|cx| fresh.poll_completion(cx)).await?.result?;
-        assert_eq!(reads.load(Ordering::Relaxed), 2);
+        assert_eq!(reads.load(Ordering::Relaxed), 3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn registered_consumers_reuse_only_their_pending_read() -> VortexResult<()> {
+        let session = session();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let file = session
+            .open_options()
+            .open_read(CountingRead {
+                bytes: write(&session).await?,
+                reads: Arc::clone(&reads),
+            })
+            .await?;
+        reads.store(0, Ordering::Relaxed);
+        let service = file.scan_io().ok_or_else(|| vortex_err!("missing file IO"))?;
+        let io = service.session();
+        let spec = file.footer().segment_map()[0];
+        let request = |intent, id| IoRequest {
+            intent,
+            request: IoRequestId(id),
+            target: IoTarget::Range {
+                offset: spec.offset,
+                len: spec.length as usize,
+                alignment: spec.alignment,
+            },
+        };
+        io.submit(
+            IoOwnerId(0),
+            vec![request(IoIntent::Announce, 0), request(IoIntent::Announce, 1)],
+        )?;
+        for id in 2..5 {
+            io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, id)])?;
+            poll_fn(|cx| io.poll_completion(cx)).await?.result?;
+            assert_eq!(reads.load(Ordering::Relaxed), if id < 4 { 1 } else { 2 });
+        }
         Ok(())
     }
 

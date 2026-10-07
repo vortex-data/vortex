@@ -60,16 +60,16 @@ fn collect_starts(plan: &PlanRef, offset: u64, starts: &mut Vec<u64>) -> VortexR
         for (index, &child_offset) in concat.row_offsets().iter().enumerate() {
             starts.push(offset + child_offset);
             collect_starts(
-                &concat.child_required(index)?,
+                plan.child_ref_required(index)?,
                 offset + child_offset,
                 starts,
             )?;
         }
-    } else if let Some(take) = plan.as_opt::<Take>() {
-        collect_starts(&take.codes()?, offset, starts)?;
+    } else if plan.is::<Take>() {
+        collect_starts(plan.child_ref_required(0)?, offset, starts)?;
     } else if plan.is::<Pack>() || plan.is::<Filter>() || plan.is::<Eval>() {
-        for child in plan.children().iter() {
-            collect_starts(&child?, offset, starts)?;
+        for child in plan.children().iter_refs() {
+            collect_starts(child?, offset, starts)?;
         }
     }
     Ok(())

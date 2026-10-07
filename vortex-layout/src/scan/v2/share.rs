@@ -19,15 +19,19 @@ use crate::scan::v2::conjuncts::map_children;
 /// values instead, where kernels such as a compare over FSST avoid decompressing them.
 pub(super) fn unshare_unread(plans: Vec<PlanRef>) -> VortexResult<Vec<PlanRef>> {
     let mut read = HashSet::default();
+    let mut has_share = false;
     for plan in &plans {
-        collect_read(plan, &mut read)?;
+        has_share |= collect_read(plan, &mut read)?;
+    }
+    if !has_share {
+        return Ok(plans);
     }
     plans.into_iter().map(|plan| unshare(plan, &read)).collect()
 }
 
 /// Records the shares that a take reads whole in `plan`, or evaluates a dynamic comparison over:
 /// a take evaluates that again on every execution, so the values under it stay shared.
-fn collect_read(plan: &PlanRef, read: &mut HashSet<usize>) -> VortexResult<()> {
+fn collect_read(plan: &PlanRef, read: &mut HashSet<usize>) -> VortexResult<bool> {
     if let Some(take) = plan.as_opt::<Take>() {
         let mut values = take.values()?;
         if let Some(eval) = values.as_opt::<Eval>()
@@ -39,10 +43,11 @@ fn collect_read(plan: &PlanRef, read: &mut HashSet<usize>) -> VortexResult<()> {
             read.insert(values.addr());
         }
     }
-    for child in plan.children().iter() {
-        collect_read(&child?, read)?;
+    let mut has_share = plan.is::<Share>();
+    for child in plan.children().iter_refs() {
+        has_share |= collect_read(child?, read)?;
     }
-    Ok(())
+    Ok(has_share)
 }
 
 fn unshare(plan: PlanRef, read: &HashSet<usize>) -> VortexResult<PlanRef> {

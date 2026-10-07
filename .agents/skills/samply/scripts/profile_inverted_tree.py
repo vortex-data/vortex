@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
 """Print an inverted call tree from a Samply / Firefox profiler JSON file."""
 
 from __future__ import annotations
 
 import argparse
 import collections
+import platform
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +23,8 @@ class Node:
 
 
 def sample_times(samples: dict[str, Any]) -> list[float]:
+    if isinstance(samples.get("time"), list):
+        return samples["time"]
     total = 0.0
     times = []
     for delta in samples.get("timeDeltas") or []:
@@ -37,13 +42,13 @@ def thread_matches(thread: dict[str, Any], thread_re: re.Pattern[str] | None, ti
     return bool(thread_re.search(str(thread.get("name", ""))) or thread_re.search(str(thread.get("tid", ""))))
 
 
-def frame_labels(thread: dict[str, Any], symbols: dict[str, str]) -> Callable[[int], str]:
+def frame_labels(thread: dict[str, Any], symbols: dict[str, str], symbol_lib: str | None) -> Callable[[int], str]:
     cache: dict[int, str] = {}
 
     def label(frame_index: int) -> str:
         cached = cache.get(frame_index)
         if cached is None:
-            cached = ps.frame_label(thread, frame_index, symbols)
+            cached = ps.frame_label(thread, frame_index, symbols, symbol_lib)
             cache[frame_index] = cached
         return cached
 
@@ -93,7 +98,7 @@ def build_tree(
         samples = thread.get("samples") or {}
         stacks = samples.get("stack") or []
         times = sample_times(samples)
-        label = frame_labels(thread, symbols)
+        label = frame_labels(thread, symbols, (args.symbol_lib or args.binary.name) if args.symbolicate else None)
         thread_weight = 0
         thread_samples = 0
 
@@ -151,7 +156,11 @@ def main() -> int:
     parser.add_argument("--top", type=int, default=8, help="Max children to print at each tree level")
     parser.add_argument("--depth", type=int, default=12, help="Max inverted tree depth to print")
     parser.add_argument("--binary", type=Path, help="Candidate binary for symbolication")
-    parser.add_argument("--symbolicate", action="store_true", help="Use atos to symbolicate raw app offsets")
+    parser.add_argument(
+        "--symbolicate",
+        action="store_true",
+        help="Symbolicate raw app offsets with llvm-symbolizer on Linux or atos on macOS",
+    )
     parser.add_argument(
         "--symbol-lib",
         help="Library name to symbolicate; defaults to the basename of --binary",
@@ -166,7 +175,11 @@ def main() -> int:
             parser.error("--symbolicate requires --binary")
         symbol_lib = args.symbol_lib or args.binary.name
         addresses = ps.collect_symbol_addresses(profile, symbol_lib)
-        symbols = ps.atos_symbol_map(args.binary, addresses, int(str(args.load_address), 0))
+        symbols = (
+            ps.llvm_symbol_map(args.binary, addresses)
+            if platform.system() == "Linux"
+            else ps.atos_symbol_map(args.binary, addresses, int(str(args.load_address), 0))
+        )
 
     root, matched_threads = build_tree(profile, symbols, args)
     unit = "cpu_us" if args.weight_mode == "cpu" else "samples"

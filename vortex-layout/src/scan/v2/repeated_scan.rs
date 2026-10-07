@@ -90,14 +90,19 @@ pub(super) fn prepare_scan<A: 'static + Send>(
     }
 
     let shared = shared_file(&builder.layout_reader, builder.file)?;
-    let prepared = shared.prepare_plans(&builder.projection, &builder.filter, &builder.session)?;
+    let prepared = PreparedPlans::new(
+        &shared,
+        &builder.projection,
+        &builder.filter,
+        &builder.session,
+    )?;
     let plans = ScanPlans {
         session: builder.session,
         locations: Arc::clone(&shared.file.locations),
         projection: prepared.projection.clone(),
         projection_starts: Arc::clone(&prepared.projection_starts),
         row_offset: builder.row_offset,
-        decoded: DecodeCache::default(),
+        decoded: DecodeCache::disabled(),
     };
 
     let splits = match attempt_split_ranges(&builder.selection, builder.row_range.as_ref()) {
@@ -126,6 +131,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
                 segment_ranges(&shared.file.locations),
             ))
         }),
+        shared,
         row_range: builder.row_range,
         selection: builder.selection,
         splits,
@@ -136,7 +142,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
 }
 
 /// Expression plans and chunk boundaries, independent of a partition's row range and selection.
-pub(super) struct PreparedPlans {
+struct PreparedPlans {
     projection: PlanRef,
     filter: Option<FilterPlans>,
     pruning: Option<PlanRef>,
@@ -146,7 +152,7 @@ pub(super) struct PreparedPlans {
 }
 
 impl PreparedPlans {
-    pub(super) fn new(
+    fn new(
         shared: &SharedFile,
         projection: &BoundExpression,
         filter: &Option<BoundExpression>,
@@ -187,7 +193,7 @@ impl PreparedPlans {
             .transpose()?;
         let pruning = filter_expression
             .as_ref()
-            .map(|filter| pruning_plan(filter, &shared.zones, session))
+            .map(|filter| pruning_plan(filter, &shared.zones()?, session))
             .transpose()?
             .flatten();
         Ok(Self {
@@ -238,6 +244,7 @@ fn join_batches(mut batches: Vec<ArrayRef>, dtype: &DType) -> VortexResult<Optio
 ///
 /// The replacement for [`RepeatedScan`](crate::scan::repeated_scan::RepeatedScan).
 pub struct RepeatedScanV2<A: 'static + Send> {
+    shared: Arc<SharedFile>,
     /// Proves rows can't match the filter from zone statistics, when the filter allows it.
     pruning: Option<PlanRef>,
     plans: ScanPlans,
@@ -306,7 +313,9 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 let map_fn = Arc::clone(&self.map_fn);
                 let dtype = dtype.clone();
                 let run = split.run(io);
+                let shared = Arc::clone(&self.shared);
                 async move {
+                    let _shared = shared;
                     join_batches(run.await?, &dtype)?
                         .map(|array| map_fn(array))
                         .transpose()
@@ -342,7 +351,12 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 let io = Arc::clone(&self.io);
                 let map_fn = Arc::clone(&self.map_fn);
                 let run = split.run(io);
-                async move { run.await?.into_iter().map(|array| map_fn(array)).collect() }.boxed()
+                let shared = Arc::clone(&self.shared);
+                async move {
+                    let _shared = shared;
+                    run.await?.into_iter().map(|array| map_fn(array)).collect()
+                }
+                .boxed()
             })
             .collect())
     }

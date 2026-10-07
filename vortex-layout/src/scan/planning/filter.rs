@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bit_vec::BitVec;
+use once_cell::sync::OnceCell;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::fill_null::FillNull;
@@ -31,7 +36,11 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
 
+use crate::plan::Concat;
+use crate::plan::Eval;
+use crate::plan::Filter;
 use crate::plan::PlanRef;
+use crate::plan::SegmentScan;
 use crate::plan::Take;
 use crate::plan::exec::Piece;
 use crate::scan::filter::FilterExpr;
@@ -41,6 +50,7 @@ use crate::scan::planning::graph::ProtocolGraph;
 use crate::scan::planning::graph::ScanGraph;
 use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::prefetch::selected_ranges;
+use crate::scan::v2::splits::projection_splits;
 
 /// Which rows a [`FilterPlanner`] keeps.
 #[derive(Clone, Copy)]
@@ -68,6 +78,7 @@ pub struct SelectedRows {
 #[derive(Clone)]
 pub struct FilterPlans {
     plans: Arc<[PlanRef]>,
+    dense: Arc<[OnceCell<Option<PlanRef>>]>,
     order: Option<Arc<FilterExpr>>,
     /// Whether the predicate can safely evaluate rows outside the selection.
     infallible: Arc<[bool]>,
@@ -82,6 +93,7 @@ impl FilterPlans {
     pub fn single(plan: PlanRef) -> Self {
         Self {
             plans: Arc::from([plan]),
+            dense: Arc::from([OnceCell::new()]),
             order: None,
             infallible: Arc::from([false]),
             dictionary: Arc::from([false]),
@@ -106,13 +118,21 @@ impl FilterPlans {
             .iter()
             .map(has_dictionary_predicate)
             .collect::<VortexResult<_>>()?;
+        let dense = (0..plans.len()).map(|_| OnceCell::new()).collect();
         Ok(Self {
             infallible,
             dictionary,
             numeric_disjunction,
             plans: plans.into(),
+            dense,
             order: Some(filter),
         })
+    }
+
+    fn dense_plan(&self, index: usize) -> VortexResult<Option<PlanRef>> {
+        self.dense[index]
+            .get_or_try_init(|| dense_predicate(&self.plans[index]))
+            .cloned()
     }
 
     /// Every plan, for callers that walk them all.
@@ -136,6 +156,41 @@ impl FilterPlans {
             filter.report_selectivity(index, output as f64 / input as f64);
         }
     }
+}
+
+/// Removes selection filters where nodes can return dense pieces using the mask as a care hint.
+/// Dictionary values keep their original plan: takes evaluate that domain with an all-true mask.
+fn dense_predicate(plan: &PlanRef) -> VortexResult<Option<PlanRef>> {
+    if let Some(filter) = plan.as_opt::<Filter>() {
+        return dense_predicate(&filter.child_plan()?);
+    }
+    if plan.is::<SegmentScan>() {
+        return Ok(Some(plan.clone()));
+    }
+    if let Some(take) = plan.as_opt::<Take>() {
+        let Some(codes) = dense_predicate(&take.codes()?)? else {
+            return Ok(None);
+        };
+        return Ok(Some(plan.with_children(vec![codes, take.values()?])?));
+    }
+    if !plan.is::<Eval>() && !plan.is::<Concat>() {
+        return Ok(None);
+    }
+    let mut changed = false;
+    let mut children = Vec::with_capacity(plan.child_count());
+    for child in plan.children().iter() {
+        let child = child?;
+        let Some(dense) = dense_predicate(&child)? else {
+            return Ok(None);
+        };
+        changed |= !PlanRef::ptr_eq(&child, &dense);
+        children.push(dense);
+    }
+    Ok(Some(if changed {
+        plan.with_children(children)?
+    } else {
+        plan.clone()
+    }))
 }
 
 fn has_dictionary_predicate(plan: &PlanRef) -> VortexResult<bool> {
@@ -204,6 +259,8 @@ pub struct FilterPlanner {
     done: bool,
     /// The current predicate returns every row, to be intersected with the input mask.
     evaluate_all: bool,
+    /// Rows excluded before this filter must remain excluded from its segment reads.
+    initial_mask: Mask,
 }
 
 impl FilterPlanner {
@@ -246,6 +303,7 @@ impl FilterPlanner {
         next: Next<SelectedRows>,
     ) -> Self {
         let remaining = BitVec::from_elem(filters.plans.len(), true);
+        let initial_mask = mask.clone();
         Self {
             plans,
             filters,
@@ -260,13 +318,14 @@ impl FilterPlanner {
             prefetched: false,
             done: false,
             evaluate_all: false,
+            initial_mask,
         }
     }
 
-    /// Prefetches of every segment the plans not yet evaluated, other than `running`, read over
-    /// the rows selected now. Their ids count down from the top, clear of the ids the plans'
+    /// Prefetches remaining filter segments and, within `projection_budget`, projection segments
+    /// over the selected rows. Their ids count down from the top, clear of the ids the plans'
     /// graphs count up from.
-    fn prefetch_others(&self, running: usize) -> VortexResult<IoBatch> {
+    fn prefetch_others(&self, running: usize, projection_budget: usize) -> VortexResult<IoBatch> {
         let mut ids = Vec::new();
         for range in selected_ranges(&self.scope.rows, &self.mask) {
             for (index, plan) in self.filters.plans.iter().enumerate() {
@@ -277,6 +336,40 @@ impl FilterPlanner {
         }
         ids.sort_unstable();
         ids.dedup();
+        // Projection reads can overlap predicate evaluation, but would defeat zone pruning.
+        if projection_budget > 0 && matches!(self.keep, Keep::True) {
+            let mut projection = Vec::new();
+            for rows in projection_splits(&self.plans.projection_starts, self.scope.rows.clone()) {
+                if !self.mask.all_true() {
+                    let start = usize::try_from(rows.start - self.scope.rows.start)?;
+                    let end = usize::try_from(rows.end - self.scope.rows.start)?;
+                    if self.mask.slice(start..end).all_false() {
+                        continue;
+                    }
+                }
+                plan_segments(&self.plans.projection, rows, &mut projection)?;
+            }
+            projection.sort_unstable();
+            projection.dedup();
+            let mut budget = projection_budget;
+            let mut selected = Vec::new();
+            for id in projection {
+                if ids.binary_search(&id).is_ok() {
+                    continue;
+                }
+                let location = self
+                    .plans
+                    .locations
+                    .get(*id as usize)
+                    .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
+                let length = location.length as usize;
+                if length <= budget {
+                    budget -= length;
+                    selected.push(id);
+                }
+            }
+            ids.extend(selected);
+        }
         ids.into_iter()
             .enumerate()
             .map(|(index, id)| {
@@ -321,14 +414,32 @@ impl FilterPlanner {
             && (self.mask.density() >= 0.2
                 || self.filters.dictionary[index]
                 || self.filters.numeric_disjunction[index]);
-        let evaluation_mask = if self.evaluate_all {
-            Mask::new_true(self.mask.len())
+        let mut plan = self.filters.plans[index].clone();
+        let evaluation_mask = if self.evaluate_all && !self.initial_mask.all_true() {
+            // Pipelines apply the mask at their source, even without an explicit Filter node.
+            let dense = if ScanGraph::supports_dense_mask_hint() {
+                self.filters.dense_plan(index)?
+            } else {
+                None
+            };
+            match dense {
+                Some(dense) => {
+                    plan = dense;
+                    self.initial_mask.clone()
+                }
+                None => {
+                    self.evaluate_all = false;
+                    self.mask.clone()
+                }
+            }
+        } else if self.evaluate_all {
+            self.initial_mask.clone()
         } else {
             self.mask.clone()
         };
         let graph = ScanGraph::try_new(
             self.plans.session.clone(),
-            &self.filters.plans[index],
+            &plan,
             self.scope.rows.clone(),
             evaluation_mask,
             self.plans.row_offset,
@@ -414,12 +525,27 @@ impl Planner for FilterPlanner {
             GraphStep::NeedsIO(mut batch) => {
                 // The running conjunct's fetches come first, then the other conjuncts' prefetches.
                 if !self.prefetched {
+                    static PROJECTION_BUDGET: LazyLock<usize> = LazyLock::new(|| {
+                        env::var("VORTEX_SCAN_PROJECTION_PREFETCH_BYTES")
+                            .ok()
+                            .and_then(|value| value.parse().ok())
+                            .unwrap_or(0)
+                    });
                     self.prefetched = true;
-                    batch.extend(self.prefetch_others(running)?);
+                    batch.extend(self.prefetch_others(running, *PROJECTION_BUDGET)?);
                 }
                 PlannerOutput::NeedsIO(batch)
             }
-            GraphStep::Piece(piece) => {
+            GraphStep::Piece(mut piece) => {
+                // A care hint lets concat skip whole chunks. Dense predicates still need a
+                // result for their row positions so narrowing can use a bitmap intersection.
+                if self.evaluate_all && piece.array.is_empty() {
+                    piece.array = ConstantArray::new(
+                        Scalar::bool(false, self.filters.plans[running].dtype().nullability()),
+                        usize::try_from(piece.rows.end - piece.rows.start)?,
+                    )
+                    .into_array();
+                }
                 self.pieces.push(piece);
                 PlannerOutput::Continue
             }

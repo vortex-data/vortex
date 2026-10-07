@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,8 +63,9 @@ struct Args {
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
 
+    /// Number of Tokio workers and DataFusion execution partitions.
     #[arg(short, long)]
-    threads: Option<usize>,
+    threads: Option<NonZeroUsize>,
 
     #[arg(short, long)]
     verbose: bool,
@@ -128,9 +130,16 @@ struct Args {
     options: Vec<Opt>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    if let Some(threads) = args.threads {
+        runtime.worker_threads(threads.get());
+    }
+    runtime.enable_all().build()?.block_on(run(args))
+}
+
+async fn run(args: Args) -> anyhow::Result<()> {
     let opts = Opts::from(args.options);
 
     set_join_set_tracer(get_static_tracer())?;
@@ -187,7 +196,7 @@ async fn main() -> anyhow::Result<()> {
             |format| {
                 let benchmark = &*benchmark;
                 async move {
-                    let session = datafusion_bench::get_session_context();
+                    let session = datafusion_bench::get_session_context(args.threads);
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }

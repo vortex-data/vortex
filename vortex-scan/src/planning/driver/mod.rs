@@ -21,6 +21,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
+use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
@@ -429,6 +432,8 @@ impl Run {
 
     /// Visits one item: computes once if it is ready, and settles it otherwise.
     fn visit(&mut self, mut work: Box<Work>) -> VortexResult<()> {
+        let started = tracing::enabled!(target: "vortex_scan::compute_timing", tracing::Level::DEBUG)
+            .then(Instant::now);
         let output = match &mut work.item {
             Item::Planner(planner) => match planner.state() {
                 State::NeedsCompute => Output::Planner(planner.compute()?),
@@ -439,6 +444,17 @@ impl Run {
                 _ => return self.settle(work),
             },
         };
+        if let Some(started) = started {
+            let compute_ns = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            tracing::debug!(
+                target: "vortex_scan::compute_timing",
+                completed_unix_ns = u64::try_from(
+                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+                ).unwrap_or(u64::MAX),
+                compute_ns,
+                "scan compute step"
+            );
+        }
         match output {
             Output::Planner(PlannerOutput::Done) | Output::Morsel(MorselOutput::Done) => {
                 self.retire(&work);

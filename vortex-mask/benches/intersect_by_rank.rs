@@ -5,9 +5,9 @@
 //!
 //! `random_rotating` carries `#[cpu_features]`, so it is measured in walltime on every
 //! CPU-feature leg rather than in simulation. The entry point picks its kernel at runtime:
-//! the x86 legs measure the BMI2 kernel and the NEON leg the portable one. On mixed masks
-//! the portable kernel spends most of its time in branch mispredictions, which only a
-//! walltime measurement on real hardware shows.
+//! the x86 legs measure the BMI2 kernel and the NEON leg the portable one. Independent
+//! random masks exercise scatter work in every word. The periodic fixtures also measure
+//! runs of all-set and all-unset words, which have inexpensive shortcuts.
 
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;

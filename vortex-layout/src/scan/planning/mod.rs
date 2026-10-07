@@ -76,8 +76,8 @@ pub struct ScanPlans {
     pub projection_starts: Arc<[u64]>,
     /// The global row index of the root row domain's first row.
     pub row_offset: u64,
-    /// Segments already decoded by the graphs of one split. [`plan_split`] gives each split its
-    /// own.
+    /// Controls ordinary segment reuse between graph evaluations. V2 scans disable it to match
+    /// V1's flat reader; dictionary and zone caches live in their plans.
     pub decoded: DecodeCache,
 }
 
@@ -100,7 +100,7 @@ pub fn plan_split(
 }
 
 /// Builds execution stages only after the announcement. Split construction and early IO
-/// announcements happen before tasks run; allocating continuations and the decode cache here
+/// announcements happen before tasks run; allocating continuations here
 /// lets the split's execution task do that work.
 fn plan_selected(
     plans: ScanPlans,
@@ -109,7 +109,7 @@ fn plan_selected(
     selected: SelectedRows,
 ) -> VortexResult<Box<dyn Planner>> {
     let plans = ScanPlans {
-        decoded: DecodeCache::default(),
+        decoded: DecodeCache::disabled(),
         ..plans
     };
     if pruning.is_none() && filter.is_none() {

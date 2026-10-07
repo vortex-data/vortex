@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -75,8 +76,8 @@ impl IoService for SegmentScanIo {
 /// the next with [`poll_completion`](IoSource::poll_completion) when the driver has nothing else
 /// to run. [`wait`](IoSource::wait) is never called.
 ///
-/// An announcement requests the segment and holds the request, never polled, until the source is
-/// dropped, so a source that coalesces registered requests can fold it into a nearby read.
+/// An announcement requests the segment and holds the request, never polled, until a prefetch or
+/// fetch consumes it, so a source that coalesces requests can fold it into a nearby read.
 /// A read started ahead of the fetch that needs it.
 type Prefetched = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
 
@@ -84,10 +85,10 @@ pub(super) struct SegmentIoSource {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
-    /// Reads started by prefetches, which later fetches of the same segment wait on.
+    /// Reads started by prefetches, consumed by the next fetch of their segment.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
     /// Announced segments, requested and never polled.
-    announced: Mutex<Vec<SegmentFuture>>,
+    announced: Mutex<HashMap<SegmentId, VecDeque<SegmentFuture>>>,
 }
 
 impl SegmentIoSource {
@@ -118,16 +119,21 @@ impl IoSource for SegmentIoSource {
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
             if request.intent == IoIntent::Announce {
-                if !prefetched.contains_key(&segment) {
-                    self.announced.lock().push(self.segments.request(segment));
-                }
+                self.announced
+                    .lock()
+                    .entry(segment)
+                    .or_default()
+                    .push_back(self.segments.request(segment));
                 continue;
             }
             if request.intent == IoIntent::Prefetch {
                 prefetched.entry(segment).or_insert_with(|| {
                     let read = self
-                        .segments
-                        .request(segment)
+                        .announced
+                        .lock()
+                        .get_mut(&segment)
+                        .and_then(VecDeque::pop_front)
+                        .unwrap_or_else(|| self.segments.request(segment))
                         .map_err(Arc::new)
                         .boxed()
                         .shared();
@@ -140,14 +146,18 @@ impl IoSource for SegmentIoSource {
                 });
                 continue;
             }
-            let bytes = match prefetched.get(&segment) {
+            let bytes = match prefetched.remove(&segment) {
                 Some(read) => read
-                    .clone()
                     .map_err(move |err| {
                         vortex_err!("prefetched read of segment {segment} failed: {err}")
                     })
                     .boxed(),
-                None => self.segments.request(segment),
+                None => self
+                    .announced
+                    .lock()
+                    .get_mut(&segment)
+                    .and_then(VecDeque::pop_front)
+                    .unwrap_or_else(|| self.segments.request(segment)),
             };
             let id = request.request;
             reads.push(
@@ -192,6 +202,8 @@ impl IoSource for SegmentIoSource {
 
     fn clear(&self) {
         self.reads.lock().clear();
+        self.prefetched.lock().clear();
+        self.announced.lock().clear();
     }
 }
 
@@ -262,6 +274,34 @@ mod tests {
         assert_eq!(completion.request, IoRequestId(1));
         assert!(completion.result.is_ok());
         assert!(io.poll()?.is_none());
+
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 2)])?;
+        let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
+        assert_eq!(completion.request, IoRequestId(2));
+        assert!(completion.result.is_ok());
+        assert_eq!(segments.0.load(Ordering::Relaxed), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn announcements_keep_independent_consumers() -> VortexResult<()> {
+        let segments = Arc::new(CountingSegments::default());
+        let location = SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        };
+        let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&[location]));
+        io.submit(
+            IoOwnerId(0),
+            vec![request(IoIntent::Announce, 0), request(IoIntent::Announce, 1)],
+        )?;
+        assert_eq!(segments.0.load(Ordering::Relaxed), 2);
+        for id in 2..5 {
+            io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, id)])?;
+            assert!(std::future::poll_fn(|cx| io.poll_completion(cx)).await?.result.is_ok());
+            assert_eq!(segments.0.load(Ordering::Relaxed), if id < 4 { 2 } else { 3 });
+        }
         Ok(())
     }
 }

@@ -72,8 +72,8 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
    with the orchestrator or directly:
 
    ```bash
-   cargo build -p datafusion-bench --profile release_debug --features unstable_encodings
-   cargo build -p duckdb-bench --profile release_debug --features unstable_encodings
+   cargo build -p datafusion-bench --profile release_debug
+   cargo build -p duckdb-bench --profile release_debug
    cargo build -p lance-bench --profile release_debug
    ```
 
@@ -84,6 +84,16 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
    against the previous run/output before adding broader checks.
 
 ## Common Environment
+
+`scripts/bench-v2-drivers.py` compares baseline and candidate binaries for both engines, alternates
+run order, excludes warmup, and reports paired round changes. It uses DuckDB's
+default fresh connection per iteration and clears segment-cache/preload settings. Its `--perf-stat` runs separate
+diagnostic processes with acknowledged perf control FIFOs. The shared runner enables counters only
+around query callbacks after `VORTEX_BENCH_PERF_WARMUP` iterations (default 2), using
+`VORTEX_BENCH_PERF_CONTROL` and `VORTEX_BENCH_PERF_ACK`. Both binaries must include this support.
+DuckDB's callback includes connection reopening unless `--reuse` is specified; perf counts include
+that work, while DuckDB's reported query timer excludes it. Use `--reuse` only for an explicitly
+labeled profiling run, not as the default performance comparison.
 
 - `RUST_LOG` wins over `--verbose`. Without `RUST_LOG`, `--verbose` raises default logging to
   `TRACE`; otherwise the env filter controls output.
@@ -119,7 +129,10 @@ Supported diagnostics:
 - `--explain` prints query plans instead of timing;
 - `--show-metrics` prints Vortex execution-plan metrics after a timed run.
 
-Declared but currently not useful unless the source changes: `--threads`, `--emit-plan`, and
+`--threads N` sets both Tokio worker threads and DataFusion execution partitions. Without it,
+Tokio and DataFusion retain their environment-controlled defaults.
+
+Declared but currently not useful unless the source changes: `--emit-plan` and
 `--export-spans` are parsed but not wired into the execution path.
 
 Examples:
@@ -141,6 +154,9 @@ FEATURE_TOGGLE=1 target/release_debug/datafusion-bench tpch \
 
 Source: `benchmarks/duckdb-bench/src/main.rs`.
 
+Uses prepared data, like DataFusion. Prepare missing formats with `vx-bench prepare-data`
+or `cargo run --bin data-gen -- <benchmark> --formats <formats>` before profiling.
+
 Supported diagnostics:
 
 - `--formats parquet,vortex,vortex-compact,duckdb`;
@@ -158,7 +174,7 @@ Example:
 RUST_LOG=duckdb_bench=trace,vortex_duckdb=debug,info \
   target/release_debug/duckdb-bench tpch \
   --display-format gh-json --iterations 5 --hide-progress-bar \
-  --formats <baseline-format>,<candidate-format> --queries <query> --threads 8 --reuse \
+  --formats <baseline-format>,<candidate-format> --queries <query> --threads 8 \
   -o /private/tmp/<label>.jsonl
 ```
 

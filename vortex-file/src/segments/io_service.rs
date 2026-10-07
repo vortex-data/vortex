@@ -6,7 +6,7 @@
 //! The service keeps one table of byte ranges for the file, shared by every session. A request
 //! only updates the table: an announcement registers a range, a prefetch or fetch also marks it
 //! wanted, and a fetch waits for the bytes. A range that several sessions ask for is one entry,
-//! read once, and its bytes are kept until every session that registered it is cleared.
+//! read once, and its bytes are kept until every registration is consumed or cleared.
 //!
 //! Physical reads are chosen from the table rather than from one request: a wanted range is
 //! extended over the registered ranges around it, whichever session registered them and whether
@@ -59,7 +59,6 @@ use vortex_io::request::IoTarget;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::hash_map::Entry as MapEntry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::SegmentSpec;
 use crate::segments::RequestMetrics;
@@ -175,22 +174,31 @@ struct Waiter {
 /// A session's completed fetches, and the waker of the run waiting for the next.
 #[derive(Default)]
 struct Delivery {
-    ready: Mutex<VecDeque<Completion>>,
+    ready: Mutex<VecDeque<(Range, Completion)>>,
     waker: AtomicWaker,
     /// Fetches submitted and not yet taken by the run.
     outstanding: AtomicUsize,
 }
 
 impl Delivery {
-    fn push(&self, owner: IoOwnerId, request: IoRequestId, result: VortexResult<BufferHandle>) {
-        self.ready.lock().push_back(Completion {
-            owner,
-            request,
-            result: result.map(IoResult::Bytes),
-        });
+    fn push(
+        &self,
+        range: Range,
+        owner: IoOwnerId,
+        request: IoRequestId,
+        result: VortexResult<BufferHandle>,
+    ) {
+        self.ready.lock().push_back((
+            range,
+            Completion {
+                owner,
+                request,
+                result: result.map(IoResult::Bytes),
+            },
+        ));
     }
 
-    fn take(&self) -> Option<Completion> {
+    fn take(&self) -> Option<(Range, Completion)> {
         let completion = self.ready.lock().pop_front()?;
         self.outstanding.fetch_sub(1, Ordering::Relaxed);
         Some(completion)
@@ -486,7 +494,9 @@ impl Inner {
                         Ok(bytes) => Ok(bytes.clone()),
                         Err(error) => Err(VortexError::from(Arc::clone(error))),
                     };
-                    waiter.session.push(waiter.owner, waiter.request, delivered);
+                    waiter
+                        .session
+                        .push(range, waiter.owner, waiter.request, delivered);
                     woken.push(waiter.session);
                 }
                 if entry.claims == 0 {
@@ -511,19 +521,45 @@ impl Inner {
 struct FileIoSession {
     service: FileIoService,
     delivery: Arc<Delivery>,
-    /// The ranges this session registered, each holding one claim on its entry.
-    claimed: Mutex<HashSet<Range>>,
+    /// One claim per range while registered consumers or undelivered fetches remain.
+    claimed: Mutex<HashMap<Range, Claim>>,
+}
+
+#[derive(Default)]
+struct Claim {
+    unfetched: usize,
+    pending: usize,
 }
 
 impl FileIoSession {
+    fn take(&self) -> Option<Completion> {
+        let mut claimed = self.claimed.lock();
+        let (range, completion) = self.delivery.take()?;
+        let claim = claimed
+            .get_mut(&range)
+            .vortex_expect("a delivered fetch has a pending range");
+        claim.pending -= 1;
+        if claim.pending == 0 && claim.unfetched == 0 {
+            claimed.remove(&range);
+            let mut table = self.service.0.lock_table("consume");
+            if let MapEntry::Occupied(mut occupied) = table.entries.entry(range) {
+                let entry = occupied.get_mut();
+                entry.claims = entry.claims.saturating_sub(1);
+                if entry.claims == 0 && !matches!(entry.state, State::Reading) {
+                    occupied.remove();
+                    table.unread.remove(&range);
+                }
+            }
+        }
+        Some(completion)
+    }
+
     /// Gives up the session's claims, and with them any bytes nothing else has registered.
     fn release_claims(&self) {
-        let claimed = std::mem::take(&mut *self.claimed.lock());
-        if claimed.is_empty() {
-            return;
-        }
+        let mut claimed = self.claimed.lock();
+        let ranges = std::mem::take(&mut *claimed);
         let mut table = self.service.0.lock_table("cleanup");
-        for range in claimed {
+        for (range, _) in ranges {
             let MapEntry::Occupied(mut occupied) = table.entries.entry(range) else {
                 continue;
             };
@@ -545,6 +581,11 @@ impl FileIoSession {
                 table.unread.remove(&range);
             }
         }
+        drop(table);
+        let dropped = std::mem::take(&mut *self.delivery.ready.lock()).len();
+        self.delivery
+            .outstanding
+            .fetch_sub(dropped, Ordering::Relaxed);
     }
 }
 
@@ -580,26 +621,35 @@ impl IoSource for FileIoSession {
                         waiters: Vec::new(),
                     }
                 });
-                if claimed.insert(range) {
+                let claim = claimed.entry(range).or_insert_with(|| {
                     entry.claims += 1;
-                }
+                    Claim::default()
+                });
                 entry.alignment = entry.alignment.max(alignment);
                 if request.intent == IoIntent::Announce {
+                    claim.unfetched += 1;
                     continue;
                 }
 
                 let fetch = request.intent == IoIntent::Fetch;
+                if fetch {
+                    claim.unfetched = claim.unfetched.saturating_sub(1);
+                    claim.pending += 1;
+                } else {
+                    claim.unfetched = claim.unfetched.max(1);
+                }
                 match &entry.state {
                     State::Ready(bytes) if fetch => {
                         let bytes = bytes.clone().ensure_aligned(alignment);
                         self.delivery.outstanding.fetch_add(1, Ordering::Relaxed);
-                        self.delivery.push(owner, request.request, bytes);
+                        self.delivery.push(range, owner, request.request, bytes);
                         continue;
                     }
                     State::Failed(error) if fetch => {
                         let error = VortexError::from(Arc::clone(error));
                         self.delivery.outstanding.fetch_add(1, Ordering::Relaxed);
-                        self.delivery.push(owner, request.request, Err(error));
+                        self.delivery
+                            .push(range, owner, request.request, Err(error));
                         continue;
                     }
                     State::Ready(_) | State::Failed(_) | State::Reading => {}
@@ -630,13 +680,13 @@ impl IoSource for FileIoSession {
     }
 
     fn poll(&self) -> VortexResult<Option<Completion>> {
-        Ok(self.delivery.take())
+        Ok(self.take())
     }
 
     fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
         // Register before looking, so a completion pushed in between still wakes the run.
         self.delivery.waker.register(cx.waker());
-        match self.delivery.take() {
+        match self.take() {
             Some(completion) => Poll::Ready(Ok(completion)),
             None if self.delivery.outstanding.load(Ordering::Relaxed) == 0 => Poll::Ready(Err(
                 vortex_err!("the run is waiting with no fetch in flight"),
@@ -653,10 +703,6 @@ impl IoSource for FileIoSession {
 
     fn clear(&self) {
         self.release_claims();
-        let dropped = std::mem::take(&mut *self.delivery.ready.lock()).len();
-        self.delivery
-            .outstanding
-            .fetch_sub(dropped, Ordering::Relaxed);
     }
 }
 
@@ -851,7 +897,7 @@ mod tests {
     }
 
     /// Two sessions that ask for the same range share one read, and the bytes stay for the
-    /// session still holding the range after the other is cleared.
+    /// session with an unconsumed announcement after the fetches complete.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_range_is_read_once_for_every_session() -> VortexResult<()> {
         let session = session();
@@ -874,7 +920,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_ready_range_honours_a_stricter_alignment() -> VortexResult<()> {
+    async fn a_repeated_fetch_reads_again_with_stricter_alignment() -> VortexResult<()> {
         let session = session();
         let (service, reader) = service(&session);
         let io = service.session();
@@ -900,7 +946,34 @@ mod tests {
         let bytes = bytes.try_into_host_sync()?;
         assert_eq!(bytes.as_slice(), &[1, 2, 3, 4, 5, 6, 7, 8]);
         assert!(bytes.alignment() >= Alignment::new(64));
-        assert_eq!(reader.reads(), vec![(1, 8)]);
+        assert_eq!(reader.reads(), vec![(1, 8), (1, 8)]);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_fetches_consume_their_registration_together() -> VortexResult<()> {
+        let session = session();
+        let (service, reader) = service(&session);
+        let io = service.session();
+        io.submit(
+            IoOwnerId(0),
+            vec![
+                request(IoIntent::Fetch, 0, 100, 4),
+                request(IoIntent::Fetch, 1, 100, 4),
+            ],
+        )?;
+        assert_eq!(
+            completions(&io, 2).await?,
+            vec![(0, vec![100, 101, 102, 103]), (1, vec![100, 101, 102, 103])]
+        );
+        assert_eq!(reader.reads(), vec![(100, 4)]);
+
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 2, 100, 4)])?;
+        assert_eq!(
+            completions(&io, 1).await?,
+            vec![(2, vec![100, 101, 102, 103])]
+        );
+        assert_eq!(reader.reads(), vec![(100, 4), (100, 4)]);
         Ok(())
     }
 
@@ -912,7 +985,13 @@ mod tests {
         let io = FileIoSession {
             service: service.clone(),
             delivery: Arc::default(),
-            claimed: Mutex::new(HashSet::from_iter([range])),
+            claimed: Mutex::new(HashMap::from_iter([(
+                range,
+                super::Claim {
+                    unfetched: 0,
+                    pending: 1,
+                },
+            )])),
         };
         io.delivery.outstanding.store(1, Ordering::Relaxed);
         {

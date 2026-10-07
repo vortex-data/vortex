@@ -55,8 +55,8 @@ pub(crate) fn reduce_plan(plan: &PlanRef) -> VortexResult<Option<PlanRef>> {
 
 /// Attempts a static rewrite for `parent` and its child at `child_idx`.
 pub(crate) fn reduce_parent(parent: &PlanRef, child_idx: usize) -> VortexResult<Option<PlanRef>> {
-    let Some(child) = parent.child(child_idx)? else {
+    let Some(child) = parent.children().get_ref(child_idx)? else {
         return Ok(None);
     };
-    PARENT_RULES.evaluate(&child, parent, child_idx)
+    PARENT_RULES.evaluate(child, parent, child_idx)
 }

@@ -100,6 +100,15 @@ For long performance sessions, use this cadence:
    samply load --no-open /tmp/<label>.profile.json.gz
    ```
 
+   On Linux, the summary script uses `llvm-symbolizer` for `--symbolicate`. Keep the exact
+   recorded binary available. Check that the profile contains samples before interpreting it.
+   If launching Samply under a CPU affinity mask yields an empty profile, start the benchmark
+   with its desired affinity and attach Samply from a process with the full affinity mask:
+
+   ```bash
+   sudo samply record --save-only --rate 500 --pid <benchmark-pid> --output /tmp/<label>.profile.json.gz
+   ```
+
    Then report the printed local URL.
 
 4. Summarize the profile without opening Firefox Profiler. Run a small summary first and report it
@@ -175,6 +184,11 @@ Samply writes Firefox-profiler JSON, often compressed as `profile.json.gz`.
   `stackTable`. `samples.weight[]` is the number of collapsed samples represented by that row; use
   weight instead of row count when present. `samples.threadCPUDelta[]` is per-thread CPU delta in
   microseconds when present.
+- Validate CPU deltas before using CPU-weighted attribution or `profile_activity.py`.
+  If idle threads each accumulate roughly the whole recording duration, the CPU
+  deltas are unsuitable. Use `--weight-mode samples`, select execution workers,
+  and compare with separately recorded perf task-clock. Timestamps may be stored
+  as absolute `samples.time` values or cumulative `samples.timeDeltas`.
 - `stackTable` is a linked list: `stackTable.frame[i]` is the current frame and
   `stackTable.prefix[i]` points to the caller stack. Follow prefixes to `null` and reverse to get
   root-to-leaf order.

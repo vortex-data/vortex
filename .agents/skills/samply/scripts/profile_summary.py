@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
 """Summarize Samply / Firefox profiler JSON without opening the UI."""
 
 from __future__ import annotations
@@ -8,6 +10,7 @@ import collections
 import gzip
 import json
 import os
+import platform
 import re
 import subprocess
 from pathlib import Path
@@ -51,7 +54,12 @@ def resource_name(thread: dict[str, Any], resource_index: object) -> str:
 ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
-def frame_label(thread: dict[str, Any], frame_index: int, symbols: dict[str, str] | None = None) -> str:
+def frame_label(
+    thread: dict[str, Any],
+    frame_index: int,
+    symbols: dict[str, str] | None = None,
+    symbol_lib: str | None = None,
+) -> str:
     frame_table = thread.get("frameTable") or {}
     func_table = thread.get("funcTable") or {}
     func_index = value_at(frame_table, "func", frame_index)
@@ -63,7 +71,8 @@ def frame_label(thread: dict[str, Any], frame_index: int, symbols: dict[str, str
     file_name = decode_string(thread, value_at(func_table, "fileName", func_index))
     line = value_at(func_table, "lineNumber", func_index)
 
-    label = symbols.get(name, name) if symbols else name
+    matching_lib = symbol_lib is None or os.path.basename(resource) == symbol_lib
+    label = symbols.get(name, name) if symbols and matching_lib else name
     label = label or f"<func:{func_index}>"
     if resource and resource not in label:
         label = f"{label} [{resource}]"
@@ -113,6 +122,7 @@ def summarize_thread(
     thread: dict[str, Any],
     symbols: dict[str, str] | None = None,
     weight_mode: str = "samples",
+    symbol_lib: str | None = None,
 ) -> dict[str, Any]:
     samples = thread.get("samples") or {}
     stacks = samples.get("stack") or []
@@ -127,7 +137,7 @@ def summarize_thread(
     def label(frame_index: int) -> str:
         cached = label_cache.get(frame_index)
         if cached is None:
-            cached = frame_label(thread, frame_index, symbols)
+            cached = frame_label(thread, frame_index, symbols, symbol_lib)
             label_cache[frame_index] = cached
         return cached
 
@@ -238,6 +248,24 @@ def atos_symbol_map(binary: Path, addresses: list[str], load_address: int) -> di
     return {raw: symbol.strip() for raw, symbol in zip(addresses, symbols) if symbol.strip() and symbol.strip() != raw}
 
 
+def llvm_symbol_map(binary: Path, addresses: list[str]) -> dict[str, str]:
+    if not addresses:
+        return {}
+    result = subprocess.run(
+        ["llvm-symbolizer", f"--obj={binary}", "--no-inlines", "--demangle"],
+        input="\n".join(addresses) + "\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    blocks = result.stdout.strip().split("\n\n")
+    return {
+        address: block.splitlines()[0]
+        for address, block in zip(addresses, blocks)
+        if block.splitlines() and block.splitlines()[0] != "??"
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", type=Path)
@@ -247,7 +275,7 @@ def main() -> int:
     parser.add_argument("--stack-depth", type=int, default=14, help="Frames to print from the leaf side")
     parser.add_argument("--libs", action="store_true", help="Print profile library metadata")
     parser.add_argument("--binary", type=Path, help="Print dwarfdump UUID for a candidate binary")
-    parser.add_argument("--symbolicate", action="store_true", help="Use atos to symbolicate raw app offsets")
+    parser.add_argument("--symbolicate", action="store_true", help="Use llvm-symbolizer on Linux or atos on macOS")
     parser.add_argument(
         "--symbol-lib",
         help="Library name to symbolicate; defaults to the basename of --binary",
@@ -275,21 +303,30 @@ def main() -> int:
         print(binary_uuid(args.binary))
 
     symbols: dict[str, str] = {}
+    symbol_lib = None
     if args.symbolicate:
         if not args.binary:
             parser.error("--symbolicate requires --binary")
         symbol_lib = args.symbol_lib or args.binary.name
         addresses = collect_symbol_addresses(profile, symbol_lib)
-        symbols = atos_symbol_map(args.binary, addresses, int(str(args.load_address), 0))
+        if platform.system() == "Linux":
+            symbols = llvm_symbol_map(args.binary, addresses)
+        else:
+            symbols = atos_symbol_map(args.binary, addresses, int(str(args.load_address), 0))
         print(f"Symbolicated {len(symbols)} / {len(addresses)} raw addresses from {symbol_lib}")
 
     if args.libs:
         print_libs(profile)
 
-    summaries = [summarize_thread(thread, symbols, args.weight_mode) for thread in profile.get("threads") or []]
-    summaries.sort(key=lambda s: (s["cpu_ms"], s["weight"]), reverse=True)
+    summaries = [
+        summarize_thread(thread, symbols, args.weight_mode, symbol_lib) for thread in profile.get("threads") or []
+    ]
+    summaries.sort(
+        key=lambda s: (s["weight"], s["cpu_ms"]) if args.weight_mode == "samples" else (s["cpu_ms"], s["weight"]),
+        reverse=True,
+    )
 
-    print("\nThreads by CPU:")
+    print("\nThreads by sample weight:" if args.weight_mode == "samples" else "\nThreads by CPU:")
     for summary in summaries[: max(args.threads, 20)]:
         print(
             f"  cpu_ms={summary['cpu_ms']:10.3f} weight={summary['weight']:8d} "

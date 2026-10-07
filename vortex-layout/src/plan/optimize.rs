@@ -30,18 +30,25 @@ pub fn optimize(plan: PlanRef) -> VortexResult<PlanRef> {
         return optimize(rewritten);
     }
 
-    let mut children = Vec::with_capacity(plan.child_count());
-    let mut changed = false;
-    for child in plan.children().iter() {
+    let mut children: Option<Vec<PlanRef>> = None;
+    for (index, child) in plan.children().iter_refs().enumerate() {
         let child = child?;
         let optimized = optimize(child.clone())?;
-        changed |= !PlanRef::ptr_eq(&child, &optimized);
-        children.push(optimized);
+        if let Some(children) = &mut children {
+            children.push(optimized);
+        } else if !PlanRef::ptr_eq(child, &optimized) {
+            let mut optimized_children = Vec::with_capacity(plan.child_count());
+            for previous in plan.children().iter_refs().take(index) {
+                optimized_children.push(previous?.clone());
+            }
+            optimized_children.push(optimized);
+            children = Some(optimized_children);
+        }
     }
 
-    if !changed {
+    let Some(children) = children else {
         return Ok(plan);
-    }
+    };
 
     let plan = plan.with_children(children)?;
     if let Some(rewritten) = reduce(&plan)? {

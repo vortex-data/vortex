@@ -8,7 +8,9 @@ use std::task::ready;
 
 use futures::Stream;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
+use futures::future::Either;
 use futures::stream::BoxStream;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -23,7 +25,7 @@ use crate::scan::v2::ScanBuilder;
 use crate::scan::v2::ScanFile;
 use crate::scan::v2::pruning::file_pruning_enabled;
 
-/// Returns a stream that prepares the scan over `file` on first poll and spawns its split tasks.
+/// Returns a stream that prepares the scan over `file` on first poll and runs its split tasks.
 ///
 /// The replacement for the default
 /// [`ScanBuilder::into_stream`](scan_builder::ScanBuilder::into_stream). Equivalent to copying
@@ -49,7 +51,7 @@ enum State<A: 'static + Send> {
     Error(Option<VortexError>),
 }
 
-/// Prepares a scan on first poll, then spawns its split tasks and yields their batches.
+/// Prepares a scan on first poll, then runs its split tasks and yields their batches.
 pub(super) struct LazyScanStream<A: 'static + Send> {
     state: State<A>,
 }
@@ -78,11 +80,14 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let handle = builder.session().handle();
                     let task = if file_pruning_enabled() {
                         let prepared = handle.spawn_cpu(move || builder.prepare());
-                        handle
-                            .spawn(async move { prepared.await?.execute_batches_pruned(None).await })
+                        handle.spawn(
+                            async move { prepared.await?.execute_batches_pruned(None).await },
+                        )
                     } else {
                         handle.spawn_cpu(move || {
-                            builder.prepare().and_then(|scan| scan.execute_batches(None))
+                            builder
+                                .prepare()
+                                .and_then(|scan| scan.execute_batches(None))
                         })
                     };
                     self.state = State::Preparing {
@@ -101,7 +106,16 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     Ok(tasks) => {
                         let concurrency = *concurrency;
                         let handle = handle.clone();
-                        let stream = futures::stream::iter(tasks).map(move |t| handle.spawn(t));
+                        // A single split already runs on the polling worker. Spawning it adds
+                        // a scheduler handoff without exposing any more parallelism.
+                        let spawn = tasks.len() > 1 && concurrency > 1;
+                        let stream = futures::stream::iter(tasks).map(move |task| {
+                            if spawn {
+                                Either::Right(handle.spawn(task))
+                            } else {
+                                Either::Left(task)
+                            }
+                        });
                         let stream = if *ordered {
                             stream.buffered(concurrency).boxed()
                         } else {
@@ -110,12 +124,10 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                         // A task returns one batch per projection split of its filter split.
                         self.state = State::Stream(
                             stream
-                                .flat_map(|batches| {
-                                    futures::stream::iter(match batches {
-                                        Ok(batches) => batches.into_iter().map(Ok).collect(),
-                                        Err(err) => vec![Err(err)],
-                                    })
+                                .map_ok(|batches| {
+                                    futures::stream::iter(batches.into_iter().map(Ok))
                                 })
+                                .try_flatten()
                                 .boxed(),
                         );
                     }

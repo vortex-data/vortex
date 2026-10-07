@@ -4,6 +4,7 @@
 pub mod metrics;
 pub mod tracer;
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use datafusion::datasource::file_format::FileFormat;
@@ -27,8 +28,9 @@ use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 
+/// Creates a benchmark session with the requested execution parallelism.
 #[expect(clippy::expect_used)]
-pub fn get_session_context() -> SessionContext {
+pub fn get_session_context(threads: Option<NonZeroUsize>) -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
     rt_builder = rt_builder.with_cache_manager(CacheManagerConfig::default());
@@ -39,8 +41,12 @@ pub fn get_session_context() -> SessionContext {
 
     let factory = VortexFormatFactory::new().with_options(vortex_table_options());
 
+    let mut config = SessionConfig::from_env().expect("shouldn't fail");
+    if let Some(threads) = threads {
+        config = config.with_target_partitions(threads.get());
+    }
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::from_env().expect("shouldn't fail"))
+        .with_config(config)
         .with_runtime_env(rt)
         .with_default_features();
 

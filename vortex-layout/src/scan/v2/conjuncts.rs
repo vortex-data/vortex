@@ -80,18 +80,24 @@ pub(super) fn map_children(
     plan: PlanRef,
     mut f: impl FnMut(PlanRef) -> VortexResult<PlanRef>,
 ) -> VortexResult<PlanRef> {
-    let mut changed = false;
-    let mut children = Vec::with_capacity(plan.child_count());
-    for child in plan.children().iter() {
+    let mut children: Option<Vec<PlanRef>> = None;
+    for (index, child) in plan.children().iter_refs().enumerate() {
         let child = child?;
         let mapped = f(child.clone())?;
-        changed |= !PlanRef::ptr_eq(&child, &mapped);
-        children.push(mapped);
+        if let Some(children) = &mut children {
+            children.push(mapped);
+        } else if !PlanRef::ptr_eq(child, &mapped) {
+            let mut mapped_children = Vec::with_capacity(plan.child_count());
+            for previous in plan.children().iter_refs().take(index) {
+                mapped_children.push(previous?.clone());
+            }
+            mapped_children.push(mapped);
+            children = Some(mapped_children);
+        }
     }
-    if changed {
-        plan.with_children(children)
-    } else {
-        Ok(plan)
+    match children {
+        Some(children) => plan.with_children(children),
+        None => Ok(plan),
     }
 }
 

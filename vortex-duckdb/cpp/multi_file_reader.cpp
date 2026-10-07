@@ -22,8 +22,11 @@ void VortexGlobalState::FillPrefetch(idx_t file_index) {
             break;
         }
         duckdb_vx_error error = nullptr;
-        duckdb_file_prefetch_submit(ffi_global_state->DataPtr(), next_prefetch_index,
-                                   file.path.c_str(), file.path.size(), &error);
+        duckdb_file_prefetch_submit(ffi_global_state->DataPtr(),
+                                    next_prefetch_index,
+                                    file.path.c_str(),
+                                    file.path.size(),
+                                    &error);
         if (error) {
             throw IOException(IntoErrString(error));
         }
@@ -31,8 +34,7 @@ void VortexGlobalState::FillPrefetch(idx_t file_index) {
     }
 }
 
-static void ClaimPrefetched(VortexGlobalState &global, VortexBaseReader &reader,
-                           bool skip) {
+static void ClaimPrefetched(VortexGlobalState &global, VortexBaseReader &reader, bool skip) {
     if (!global.prefetch_window || reader.prefetched) {
         return;
     }
@@ -227,9 +229,11 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     result->ffi_bind_data = ffi_bind;
     result->ffi_global_state = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_global_state));
     result->prefetch_window = duckdb_file_prefetch_window(result->ffi_global_state->DataPtr());
-    result->prefetch_files = &input.file_list;
-    input.file_list.InitializeScan(result->prefetch_scan);
-    result->FillPrefetch(0);
+    if (result->prefetch_window) {
+        result->prefetch_files = &input.file_list;
+        input.file_list.InitializeScan(result->prefetch_scan);
+        result->FillPrefetch(0);
+    }
     return result;
 }
 

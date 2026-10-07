@@ -226,18 +226,31 @@ impl ExecContext {
 /// read is fetched and decoded once.
 ///
 /// A segment decodes the same way wherever it appears, so entries are keyed by segment id alone.
-#[derive(Clone, Default)]
-pub struct DecodeCache(Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>);
+#[derive(Clone)]
+pub struct DecodeCache(Option<Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>>);
+
+impl Default for DecodeCache {
+    fn default() -> Self {
+        Self(Some(Arc::default()))
+    }
+}
 
 impl DecodeCache {
+    /// Reads and decodes ordinary segments for each evaluation, matching V1's flat reader.
+    pub(crate) fn disabled() -> Self {
+        Self(None)
+    }
+
     /// The whole decoded array of `id`, if a graph sharing this cache decoded it.
     pub(crate) fn get(&self, id: SegmentId) -> Option<ArrayRef> {
-        self.0.lock().get(&id).cloned()
+        self.0.as_ref()?.lock().get(&id).cloned()
     }
 
     /// Shares the whole decoded array of `id` with the graphs sharing this cache.
     pub(crate) fn insert(&self, id: SegmentId, array: ArrayRef) {
-        self.0.lock().insert(id, array);
+        if let Some(cache) = &self.0 {
+            cache.lock().insert(id, array);
+        }
     }
 }
 

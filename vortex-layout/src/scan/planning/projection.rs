@@ -39,7 +39,8 @@ use crate::scan::v2::splits::projection_splits;
 ///
 /// Before the first morsel, the planner prefetches every segment the projection reads over the
 /// selected rows, so the reads of all its morsels start together. Nothing asks for projection
-/// segments earlier: rows the filter drops are never read for the projection.
+/// segments earlier by default. Opt-in projection read-ahead can start a bounded set during
+/// filtering instead.
 pub struct ProjectionPlanner {
     plans: ScanPlans,
     /// The filter split's selected rows, until the first compute cuts them.

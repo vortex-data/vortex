@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use indicatif::ProgressBar;
 use vortex::error::vortex_panic;
@@ -46,6 +48,7 @@ use crate::display::render_table;
 use crate::measurements::MemoryMeasurement;
 use crate::measurements::QueryMeasurement;
 use crate::memory::BenchmarkMemoryTracker;
+use crate::perf::PerfControl;
 use crate::url_scheme_to_storage;
 
 /// Results from a benchmark run.
@@ -132,7 +135,13 @@ impl SqlBenchmarkRunner {
     /// - `Option<Duration>` can be `Some(Duration)` if the callback wants to report its own timing
     ///   (e.g., DuckDB's internal timing), or `None` to use external wall-clock measurement
     /// - `R` implements `BenchmarkQueryResult` for row count and display
-    fn run_query<R, F>(&mut self, query_idx: usize, format: Format, iterations: usize, mut f: F)
+    fn run_query<R, F>(
+        &mut self,
+        query_idx: usize,
+        format: Format,
+        iterations: usize,
+        mut f: F,
+    ) -> anyhow::Result<()>
     where
         R: BenchmarkQueryResult,
         F: FnMut() -> (Option<Duration>, R),
@@ -141,11 +150,30 @@ impl SqlBenchmarkRunner {
 
         let mut runs = Vec::with_capacity(iterations);
         let mut row_count = None;
+        let mut perf = PerfControl::from_env(iterations)?;
 
-        for _ in 0..iterations {
+        for iteration in 0..iterations {
+            if let Some(perf) = &mut perf {
+                perf.start(iteration)?;
+            }
             let start = Instant::now();
             let (timing, result) = f();
             let elapsed = timing.unwrap_or_else(|| start.elapsed());
+            if tracing::enabled!(target: "vortex_bench::query_timing", tracing::Level::DEBUG) {
+                tracing::debug!(
+                    target: "vortex_bench::query_timing",
+                    query_idx,
+                    iteration,
+                    completed_unix_ns = u64::try_from(
+                        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+                    ).unwrap_or(u64::MAX),
+                    callback_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                    "query callback"
+                );
+            }
+            if let Some(perf) = &mut perf {
+                perf.stop()?;
+            }
             runs.push(elapsed);
 
             if row_count.is_none() {
@@ -155,6 +183,7 @@ impl SqlBenchmarkRunner {
 
         let row_count = row_count.expect("iterations must be > 0");
         self.record_query(query_idx, format, runs, row_count);
+        Ok(())
     }
 
     /// Record the results of running a query.
@@ -326,7 +355,7 @@ impl SqlBenchmarkRunner {
                                     vortex_panic!("query {query_idx} failed: {err}");
                                 },
                             )
-                        });
+                        })?;
 
                         progress_bar.inc(1);
                     }
@@ -396,10 +425,14 @@ impl SqlBenchmarkRunner {
 
                         let mut runs = Vec::with_capacity(iterations);
                         let mut row_count = None;
+                        let mut perf = PerfControl::from_env(iterations)?;
 
                         tracing::debug!(%format, query_idx, "Running query");
 
-                        for _ in 0..iterations {
+                        for iteration in 0..iterations {
+                            if let Some(perf) = &mut perf {
+                                perf.start(iteration)?;
+                            }
                             let start = Instant::now();
                             let (timing, result) = execute(query_idx, &ctx, query.as_str())
                                 .await
@@ -407,6 +440,9 @@ impl SqlBenchmarkRunner {
                                     vortex_panic!("query {query_idx} failed: {err}");
                                 });
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
+                            if let Some(perf) = &mut perf {
+                                perf.stop()?;
+                            }
                             runs.push(elapsed);
 
                             if row_count.is_none() {

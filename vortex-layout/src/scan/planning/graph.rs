@@ -45,6 +45,11 @@ pub(crate) enum ScanGraph {
 }
 
 impl ScanGraph {
+    /// Whether unfiltered plans can return dense pieces while masks only restrict their reads.
+    pub(crate) fn supports_dense_mask_hint() -> bool {
+        !*PIPELINES
+    }
+
     /// Builds the graph for `plan` as [`ExecGraph::try_new`] does.
     pub(crate) fn try_new(
         session: VortexSession,

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
 """Summarize thread activity over time in a Samply / Firefox profiler JSON file."""
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ import profile_summary as ps
 
 
 def sample_times(samples: dict[str, Any]) -> list[float]:
+    if isinstance(samples.get("time"), list):
+        return samples["time"]
     total = 0.0
     times = []
     for delta in samples.get("timeDeltas") or []:

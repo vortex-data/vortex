@@ -21,6 +21,7 @@ use crate::scan::planning::ScanPlans;
 use crate::scan::planning::SelectedRows;
 use crate::scan::planning::plan_selected;
 use crate::scan::v2::prefetch::plan_segments;
+use crate::scan::v2::splits::projection_splits;
 
 /// Announces the segments a split is likely to read, then hands the split to `next`.
 ///
@@ -80,12 +81,23 @@ impl AnnouncePlanner {
             .ok_or_else(|| vortex_err!("AnnouncePlanner has no plans"))?;
         let rows = &selected.scope.rows;
         let mut ids = Vec::new();
+        let mut consumer = Vec::new();
+        let mut announce = |plan: &PlanRef, rows| -> VortexResult<()> {
+            consumer.clear();
+            plan_segments(plan, rows, &mut consumer)?;
+            consumer.sort_unstable();
+            consumer.dedup();
+            ids.extend(consumer.iter().copied());
+            Ok(())
+        };
         for filter in self.filter.iter().flat_map(FilterPlans::plans) {
-            plan_segments(filter, rows.clone(), &mut ids)?;
+            announce(filter, rows.clone())?;
         }
-        plan_segments(&plans.projection, rows.clone(), &mut ids)?;
-        ids.sort_unstable();
-        ids.dedup();
+        // V1 constructs projection futures before filtering, so a shared segment read remains
+        // live for each pending projection. Keep one registration per potential consumer.
+        for rows in projection_splits(&plans.projection_starts, rows.clone()) {
+            announce(&plans.projection, rows)?;
+        }
         ids.into_iter()
             .enumerate()
             .map(|(index, id)| {

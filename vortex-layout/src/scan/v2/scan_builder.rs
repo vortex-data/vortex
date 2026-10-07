@@ -69,7 +69,7 @@ pub struct ScanBuilder<A> {
     natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     pub(super) concurrency: usize,
-    /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
+    /// Function to apply to each [`ArrayRef`] within the split tasks.
     pub(super) map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Should we try to prune the file (using stats) on open.
@@ -92,7 +92,7 @@ impl ScanBuilder<ArrayRef> {
         Self::from_default(scan_builder::ScanBuilder::new(session, layout_reader), file)
     }
 
-    /// Returns an [`ArrayStream`] with tasks spawned onto the session's runtime handle.
+    /// Returns an [`ArrayStream`] using the session's runtime handle.
     ///
     /// See [`ScanBuilder::into_stream`] for more details.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + Send + 'static> {
@@ -268,7 +268,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         &self.session
     }
 
-    /// Map each split of the scan. The function will be run on the spawned task.
+    /// Map each split of the scan. The function runs within the split task.
     pub fn map<B: 'static>(
         self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
@@ -310,7 +310,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.prepare()?.execute(None)
     }
 
-    /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
+    /// Returns a [`Stream`] using the session's runtime handle.
+    ///
+    /// Parallel splits are spawned onto the runtime; a single split is polled directly.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {

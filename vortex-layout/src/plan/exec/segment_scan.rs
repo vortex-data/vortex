@@ -207,6 +207,7 @@ mod tests {
     use vortex_array::arrays::DictArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
@@ -241,7 +242,8 @@ mod tests {
             .into_array()
         };
         let values = PrimitiveArray::from_option_iter([Some(10_i32), None, Some(30)]).into_array();
-        let array = RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
+        let array =
+            RunEnd::try_new_offset_length(ends, values, offset, len, &mut ctx)?.into_array();
         let array_ctx = ArrayContext::empty();
         let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
         for buffer in array.serialize(

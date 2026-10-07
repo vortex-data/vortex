@@ -50,6 +50,7 @@ pub mod fineweb;
 pub mod measurements;
 pub mod memory;
 pub mod output;
+mod perf;
 pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;

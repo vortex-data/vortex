@@ -10,6 +10,8 @@ use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Barrier;
+use std::thread;
 
 use futures::FutureExt;
 use futures::TryStreamExt;
@@ -18,12 +20,14 @@ use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
@@ -42,10 +46,10 @@ use vortex_array::expr::not_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -259,6 +263,37 @@ async fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::single_split(250..750)]
+#[case::empty_range(250..250)]
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_without_parallel_splits(
+    #[case] row_range: Range<u64>,
+    #[values(true, false)] ordered: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let case = case(false, Some(row_range), None);
+    let dtype = builder(&session, &segments, &layout, &case)?.dtype()?;
+    let expected = builder(&session, &segments, &layout, &case)?
+        .with_ordered(ordered)
+        .into_stream()?
+        .try_collect::<Vec<_>>()
+        .await?;
+    let actual = v2::into_stream(
+        builder(&session, &segments, &layout, &case)?.with_ordered(ordered),
+        scan_file(&segments, &layout)?,
+    )?
+    .try_collect::<Vec<_>>()
+    .await?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(actual, dtype.clone())?,
+        ChunkedArray::try_new(expected, dtype)?,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
 /// The executor's own builder, configured directly rather than copied from a default builder,
 /// returns what the default scan returns.
 #[rstest]
@@ -358,6 +393,59 @@ impl SegmentSource for RecordingSegments {
         }
         .boxed()
     }
+}
+
+struct CountedSegments {
+    inner: Arc<dyn SegmentSource>,
+    reads: Arc<Mutex<Vec<SegmentId>>>,
+}
+
+impl SegmentSource for CountedSegments {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let read = self.inner.request(id);
+        let reads = Arc::clone(&self.reads);
+        async move {
+            reads.lock().push(id);
+            read.await
+        }
+        .boxed()
+    }
+}
+
+#[rstest]
+#[case::projection(false)]
+#[case::filter_and_projection(true)]
+#[tokio::test]
+async fn ordinary_segment_reads_match_v1_on_each_execution(
+    #[case] filter: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let reads = Arc::default();
+    let segments: Arc<dyn SegmentSource> = Arc::new(CountedSegments {
+        inner: segments,
+        reads: Arc::clone(&reads),
+    });
+    let case = case(filter, Some(1000..2000), None);
+    let default = builder(&session, &segments, &layout, &case)?.prepare()?;
+    let replacement = v2::prepare(
+        builder(&session, &segments, &layout, &case)?,
+        scan_file(&segments, &layout)?,
+    )?;
+    for _ in 0..2 {
+        reads.lock().clear();
+        let expected = await_tasks(DTYPE, default.execute(None)?).await?;
+        let mut expected_reads = std::mem::take(&mut *reads.lock());
+        expected_reads.sort_unstable();
+        assert_eq!(expected_reads.len(), if filter { 2 } else { 1 });
+
+        let actual = await_tasks(DTYPE, replacement.execute(None)?).await?;
+        let mut actual_reads = std::mem::take(&mut *reads.lock());
+        actual_reads.sort_unstable();
+        assert_eq!(actual_reads, expected_reads);
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    }
+    Ok(())
 }
 
 /// Building tasks announces all their ranges without polling a single read.
@@ -496,7 +584,10 @@ async fn write_dict_layout(
         FlatLayoutStrategy::default(),
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
         DictLayoutOptions::default(),
-        Arc::new(BtrBlocksCompressor::from_session(session)),
+        // The fixture must stay dictionary encoded regardless of compressor heuristics.
+        Arc::new(|chunk: &ArrayRef, ctx: &mut ExecutionCtx| {
+            Ok(dict_encode(chunk, ctx)?.into_array())
+        }),
     )
     .write_stream(
         ArrayContext::empty().into(),
@@ -524,6 +615,7 @@ async fn write_dict_layout(
 async fn dictionary_expressions_match_default(
     #[case] projection: Expression,
     #[case] filter: Option<Expression>,
+    #[values(false, true)] with_selection: bool,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write_dict_layout(&session).await?;
@@ -543,6 +635,13 @@ async fn dictionary_expressions_match_default(
         )?;
         let builder =
             ScanBuilder::new(session.clone(), reader).with_projection(projection.bind(&dtype)?);
+        let builder = if with_selection {
+            builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![
+                0_u64, 103, 999, 2001, 2500, 3002,
+            ]))?)
+        } else {
+            builder
+        };
         Ok(match &filter {
             Some(filter) => builder.with_filter(filter.bind(&dtype)?),
             None => builder,
@@ -586,17 +685,63 @@ async fn scans_over_one_reader_share_the_file() -> VortexResult<()> {
         &shared,
         &shared_file(&reader()?, scan_file(&segments, &layout)?)?
     ));
-    let projection = root().bind(layout.dtype())?;
-    let prepared = shared.prepare_plans(&projection, &None, &session)?;
-    assert!(Arc::ptr_eq(
-        &prepared,
-        &shared.prepare_plans(&root().bind(layout.dtype())?, &None, &session)?
-    ));
-    let filter = Some(gt(root(), lit(500_i32)).bind(layout.dtype())?);
-    assert!(!Arc::ptr_eq(
-        &prepared,
-        &shared.prepare_plans(&projection, &filter, &session)?
-    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn registry_does_not_retain_inactive_scan_caches() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
+    let shared = shared_file(&reader, scan_file(&segments, &layout)?)?;
+    let weak = Arc::downgrade(&shared);
+    drop(shared);
+    assert!(weak.upgrade().is_none());
+    assert_eq!(Arc::strong_count(&reader), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_scans_over_one_reader_share_initialization() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
+    let file = scan_file(&segments, &layout)?;
+    let barrier = Barrier::new(8);
+    let shared = thread::scope(|scope| {
+        let threads = (0..8)
+            .map(|_| {
+                let file = file.clone();
+                let barrier = &barrier;
+                let reader = &reader;
+                scope.spawn(move || {
+                    barrier.wait();
+                    shared_file(reader, file)
+                })
+            })
+            .collect::<Vec<_>>();
+        threads
+            .into_iter()
+            .map(|thread| {
+                thread
+                    .join()
+                    .map_err(|_| vortex_err!("file preparation thread panicked"))?
+            })
+            .collect::<VortexResult<Vec<_>>>()
+    })?;
+    for other in &shared[1..] {
+        assert!(Arc::ptr_eq(&shared[0], other));
+    }
     Ok(())
 }
 
