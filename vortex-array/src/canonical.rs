@@ -1251,10 +1251,15 @@ macro_rules! canonical_kinds {
                 None
             }
 
+            /// # Safety
+            /// `self` must be the kind returned by `of::<V>()` for the concrete vtable of `array`.
             #[inline]
-            fn try_match(self, array: &ArrayRef) -> Option<CanonicalView<'_>> {
+            unsafe fn view(self, array: &ArrayRef) -> CanonicalView<'_> {
                 match self {
-                    $(Self::$kind => array.as_opt::<$vtable>().map(CanonicalView::$kind)),+
+                    // SAFETY: the caller guarantees `of::<V>()` matched `$vtable` by `TypeId`.
+                    $(Self::$kind => CanonicalView::$kind(unsafe {
+                        array.as_typed_unchecked::<$vtable>()
+                    })),+
                 }
             }
         }
@@ -1288,7 +1293,9 @@ impl Matcher for AnyCanonical {
 
     #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        array.dyn_array().canonical_kind()?.try_match(array)
+        let kind = array.dyn_array().canonical_kind()?;
+        // SAFETY: `kind` was computed from the concrete vtable of `array`.
+        Some(unsafe { kind.view(array) })
     }
 }
 
