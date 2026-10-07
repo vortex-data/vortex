@@ -13,6 +13,7 @@ use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::scalar_fn::fns::zip::zip_validity;
 
@@ -34,7 +35,7 @@ impl ZipKernel for Bool {
         };
 
         // Null mask entries select `if_false`, matching `Zip`'s SQL ELSE semantics.
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         let mask_values = match &mask {
             // Defer trivial masks to the generic zip, which just casts the surviving side.
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),

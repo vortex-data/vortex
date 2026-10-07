@@ -18,6 +18,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
@@ -319,8 +320,8 @@ fn row_idx_mask_future(
         let mut ctx = session.create_execution_ctx();
         let result_mask = array
             .apply_bound(&expr)?
-            .null_as_false()
-            .execute(&mut ctx)?;
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })

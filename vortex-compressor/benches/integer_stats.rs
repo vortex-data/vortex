@@ -51,9 +51,18 @@ fn values() -> Buffer<u32> {
     Buffer::from(values)
 }
 
+/// One value in ten null, at random, so almost every chunk of 64 values has a null.
+fn sparse_nulls() -> Validity {
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+    Validity::from(BitBuffer::from_iter(
+        (0..LEN).map(|_| !rng.next().is_multiple_of(10)),
+    ))
+}
+
 /// Computes the statistics of a fresh array each iteration, so that the bounds cached on the array
-/// by a previous iteration are not reused.
-fn bench_stats(bencher: Bencher, validity: Validity) {
+/// by a previous iteration are not reused. With `count_distinct_values`, every statistic is
+/// computed, as when a dictionary scheme is enabled.
+fn bench_stats(bencher: Bencher, validity: Validity, count_distinct_values: bool) {
     let values = values();
     bencher
         .with_inputs(|| {
@@ -66,7 +75,7 @@ fn bench_stats(bencher: Bencher, validity: Validity) {
             IntegerStats::generate_opts(
                 array,
                 GenerateStatsOptions {
-                    count_distinct_values: false,
+                    count_distinct_values,
                 },
                 ctx,
             )
@@ -75,13 +84,20 @@ fn bench_stats(bencher: Bencher, validity: Validity) {
 
 #[divan::bench]
 fn integer_stats_non_null(bencher: Bencher) {
-    bench_stats(bencher, Validity::NonNullable);
+    bench_stats(bencher, Validity::NonNullable, false);
 }
 
-/// One value in ten is null, at random, so almost every chunk of 64 values has a null.
 #[divan::bench]
 fn integer_stats_nullable(bencher: Bencher) {
-    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
-    let valid = BitBuffer::from_iter((0..LEN).map(|_| !rng.next().is_multiple_of(10)));
-    bench_stats(bencher, Validity::from(valid));
+    bench_stats(bencher, sparse_nulls(), false);
+}
+
+#[divan::bench]
+fn integer_stats_all_non_null(bencher: Bencher) {
+    bench_stats(bencher, Validity::NonNullable, true);
+}
+
+#[divan::bench]
+fn integer_stats_all_nullable(bencher: Bencher) {
+    bench_stats(bencher, sparse_nulls(), true);
 }
