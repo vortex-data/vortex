@@ -9,6 +9,7 @@
 //! operate over any encoding, and downcast to [`Array<V>`] or [`ArrayView<V>`] only when it needs
 //! encoding-specific state.
 
+use std::any::TypeId;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
@@ -46,6 +47,8 @@ use crate::validity::Validity;
 pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
+    /// `TypeId` of the concrete vtable, stored inline so type checks need no virtual call.
+    pub(crate) vtable_type_id: TypeId,
     pub(crate) dtype: DType,
     pub(crate) slots: ArraySlots,
     pub(crate) stats: ArrayStats,
@@ -151,6 +154,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
                 .write(ArrayInner {
                     len,
                     encoding_id,
+                    vtable_type_id: TypeId::of::<V>(),
                     dtype,
                     slots,
                     stats,

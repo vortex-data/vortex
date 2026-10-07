@@ -469,7 +469,7 @@ impl ArrayRef {
     /// Returns the [`TypeId`] of the concrete vtable behind this array.
     #[inline]
     pub(crate) fn vtable_type_id(&self) -> TypeId {
-        self.0.data.vtable_type_id()
+        self.0.vtable_type_id
     }
 
     /// Returns a typed view without a runtime type check.

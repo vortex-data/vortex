@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::any::TypeId;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
@@ -126,11 +125,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the array as a mutable reference to a generic [`Any`] trait object.
     fn as_any_mut(&mut self) -> &mut dyn Any;
-
-    /// Returns the [`TypeId`] of the concrete vtable `V`.
-    ///
-    /// Unlike `as_any().type_id()`, this is a single virtual call.
-    fn vtable_type_id(&self) -> TypeId;
 
     /// Classifies the concrete vtable independently of its logical dtype or encoding ID.
     fn canonical_kind(&self) -> Option<CanonicalKind>;
@@ -293,11 +287,6 @@ mod private {
 /// This is self-contained: identity methods use `ArrayData<V>`'s own fields (dtype, len, stats),
 /// while data-access methods delegate to VTable methods on the inner `V::TypedArrayData`.
 impl<V: VTable> DynArrayData for ArrayData<V> {
-    #[inline]
-    fn vtable_type_id(&self) -> TypeId {
-        TypeId::of::<V>()
-    }
-
     fn canonical_kind(&self) -> Option<CanonicalKind> {
         CanonicalKind::of::<V>()
     }
