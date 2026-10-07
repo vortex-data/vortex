@@ -4,7 +4,9 @@
 //! Float compression statistics.
 
 use std::hash::Hash;
+use std::iter;
 
+use itertools::Either;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
@@ -13,7 +15,6 @@ use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
-use vortex_compute::lane_kernels::for_each_chunk;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -222,55 +223,68 @@ where
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
-    let validity_bits = match validity.bit_buffer() {
-        AllOr::All => None,
+    // Chunks of 64 values, with the trailing values padded into a last chunk whose padding is null.
+    let (chunks, remainder) = buff.as_chunks::<64>();
+    let mut last = [prev; 64];
+    last[..remainder.len()].copy_from_slice(remainder);
+    let chunks = chunks
+        .iter()
+        .chain((!remainder.is_empty()).then_some(&last));
+    // One validity word per chunk. The nulls before the head are skipped, so the loop can
+    // start at 0.
+    let words = match validity.bit_buffer() {
+        AllOr::All => Either::Left(
+            iter::repeat_n(u64::MAX, array.len() / 64)
+                .chain(iter::once((1 << remainder.len()) - 1)),
+        ),
         AllOr::None => unreachable!("All invalid arrays have been handled before"),
-        AllOr::Some(bits) => Some(bits),
+        AllOr::Some(bits) => Either::Right(bits.chunks().iter_padded()),
     };
-    // The nulls before the head are skipped, so the loop can start at 0.
-    for_each_chunk(buff.as_slice(), validity_bits, |chunk, valid| match valid {
-        // All nulls -> no stats to update.
-        0 => {}
-        u64::MAX => {
-            if count_distinct_values {
-                distinct_values.extend(chunk.iter().map(|&value| NativeValue(value)));
+    for (chunk, valid) in chunks.zip(words) {
+        match valid {
+            // All nulls -> no stats to update.
+            0 => {}
+            u64::MAX => {
+                if count_distinct_values {
+                    distinct_values.extend(chunk.iter().map(|&value| NativeValue(value)));
+                }
+                // Branch-free count of value changes, including the change from the previous chunk.
+                // At most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
+                let transitions = u8::from(chunk[0] != prev)
+                    + chunk
+                        .iter()
+                        .zip(&chunk[1..])
+                        .map(|(a, b)| u8::from(a != b))
+                        .sum::<u8>();
+                runs += u32::from(transitions);
+                prev = chunk[63];
             }
-            // Branch-free count of value changes, including the change from the previous chunk.
-            // At most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
-            let transitions = u8::from(chunk[0] != prev)
-                + chunk
-                    .iter()
-                    .zip(&chunk[1..])
-                    .map(|(a, b)| u8::from(a != b))
-                    .sum::<u8>();
-            runs += u32::from(transitions);
-            prev = chunk[63];
+            // Floats are not forward filled like integers, since a filled NaN would add a run.
+            // The valid values are gathered first, so their changes are counted branch-free.
+            _ => {
+                let mut gathered = *chunk;
+                let mut n = 0;
+                let mut bits = valid;
+                while bits != 0 {
+                    gathered[n] = chunk[bits.trailing_zeros() as usize];
+                    n += 1;
+                    bits &= bits - 1;
+                }
+                let gathered = &gathered[..n];
+                if count_distinct_values {
+                    distinct_values.extend(gathered.iter().map(|&value| NativeValue(value)));
+                }
+                let transitions = u8::from(gathered[0] != prev)
+                    + gathered
+                        .iter()
+                        .zip(&gathered[1..])
+                        .map(|(a, b)| u8::from(a != b))
+                        .sum::<u8>();
+                runs += u32::from(transitions);
+                prev = gathered[n - 1];
+            }
         }
-        // Floats are not forward filled like integers, since a filled NaN would add a run.
-        // The valid values are gathered first, so their changes are counted branch-free.
-        _ => {
-            let mut gathered = *chunk;
-            let mut n = 0;
-            let mut bits = valid;
-            while bits != 0 {
-                gathered[n] = chunk[bits.trailing_zeros() as usize];
-                n += 1;
-                bits &= bits - 1;
-            }
-            let gathered = &gathered[..n];
-            if count_distinct_values {
-                distinct_values.extend(gathered.iter().map(|&value| NativeValue(value)));
-            }
-            let transitions = u8::from(gathered[0] != prev)
-                + gathered
-                    .iter()
-                    .zip(&gathered[1..])
-                    .map(|(a, b)| u8::from(a != b))
-                    .sum::<u8>();
-            runs += u32::from(transitions);
-            prev = gathered[n - 1];
-        }
-    });
+    }
 
     let null_count = u32::try_from(null_count)?;
     let value_count = u32::try_from(value_count)?;
