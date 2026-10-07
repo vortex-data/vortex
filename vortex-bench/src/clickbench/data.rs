@@ -226,7 +226,11 @@ impl Flavor {
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
                 info!("Downloading 100 ClickBench parquet shards");
                 let parquet_dir = basepath.join(Format::Parquet.name());
-                let downloads = (0_u32..100).map(|idx| {
+                let shards = std::env::var("VORTEX_BENCH_CLICKBENCH_SHARDS")
+                    .ok()
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(100);
+                let downloads = (0_u32..shards).map(|idx| {
                     let output_path = parquet_dir.join(format!("hits_{idx}.parquet"));
                     let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
                     (output_path, url)
