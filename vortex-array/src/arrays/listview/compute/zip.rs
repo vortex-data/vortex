@@ -50,7 +50,7 @@ impl ZipKernel for ListView {
         };
 
         // Null mask entries select `if_false`, matching `Zip`'s SQL ELSE semantics.
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         match &mask {
             // Defer the trivial masks to the generic zip, which just casts one side.
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),

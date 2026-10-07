@@ -11353,6 +11353,8 @@ dependencies = [
  "codspeed-divan-compat",
  "cudarc",
  "enum-iterator",
+ "fearless_simd",
+ "fearless_simd_macros",
  "flatbuffers",
  "futures",
  "goldenfile",
