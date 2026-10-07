@@ -18,7 +18,6 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
@@ -391,45 +390,15 @@ where
         runs: 1,
     };
 
-    let sliced = buffer.slice(head_idx..array.len());
-    let (chunks, remainder) = sliced.as_slice().as_chunks::<64>();
-    let remainder_valid = match validity.bit_buffer() {
-        AllOr::All => {
-            for chunk in chunks {
-                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
-            }
-            (1u64 << remainder.len()) - 1
-        }
-        AllOr::None => unreachable!("All invalid arrays have been handled before"),
-        AllOr::Some(v) => {
-            let mask = v.slice(head_idx..array.len());
-            let words = mask.chunks();
-            // One validity word per chunk of 64 values.
-            for (chunk, valid) in chunks.iter().zip(words.iter()) {
-                match valid {
-                    // All nulls -> no stats to update.
-                    0 => {}
-                    // Inner loop for when validity check can be elided.
-                    u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
-                    // Inner loop for when we need to check validity.
-                    _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
-                }
-            }
-            words.remainder_bits()
-        }
-    };
-
-    // Pad the trailing values into a last chunk, whose padding is null.
-    if remainder_valid != 0 {
-        let mut last = [loop_state.prev; 64];
-        last[..remainder.len()].copy_from_slice(remainder);
-        inner_loop_nullable(
-            &last,
-            count_distinct_values,
-            remainder_valid,
-            &mut loop_state,
-        );
-    }
+    // The nulls before the head are skipped or filled with the head, so the loop can start at 0.
+    validity.for_each_chunk(buffer.as_slice(), |chunk, valid| match valid {
+        // All nulls -> no stats to update.
+        0 => {}
+        // Inner loop for when validity check can be elided.
+        u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
+        // Inner loop for when we need to check validity.
+        _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
+    });
 
     if count_distinct_values {
         loop_state.flush();

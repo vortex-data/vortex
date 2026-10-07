@@ -5,7 +5,6 @@
 
 use std::hash::Hash;
 
-use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
@@ -18,7 +17,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
@@ -222,39 +220,30 @@ where
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
-    let first_valid_buff = buff.slice(head_idx..array.len());
-    match validity.bit_buffer() {
-        AllOr::All => {
-            for value in first_valid_buff {
-                if count_distinct_values {
-                    distinct_values.insert(NativeValue(value));
-                }
+    let mut push = |value: T| {
+        if count_distinct_values {
+            distinct_values.insert(NativeValue(value));
+        }
 
-                if value != prev {
-                    prev = value;
-                    runs += 1;
-                }
+        if value != prev {
+            prev = value;
+            runs += 1;
+        }
+    };
+    // The nulls before the head are skipped, so the loop can start at 0.
+    validity.for_each_chunk(buff.as_slice(), |chunk, valid| match valid {
+        // All nulls -> no stats to update.
+        0 => {}
+        u64::MAX => chunk.iter().for_each(|&value| push(value)),
+        // Floats are not forward filled like integers, since a filled NaN would add a run.
+        _ => {
+            let mut valid = valid;
+            while valid != 0 {
+                push(chunk[valid.trailing_zeros() as usize]);
+                valid &= valid - 1;
             }
         }
-        AllOr::None => unreachable!("All invalid arrays have been handled earlier"),
-        AllOr::Some(v) => {
-            for (&value, valid) in first_valid_buff
-                .iter()
-                .zip_eq(v.slice(head_idx..array.len()).iter())
-            {
-                if valid {
-                    if count_distinct_values {
-                        distinct_values.insert(NativeValue(value));
-                    }
-
-                    if value != prev {
-                        prev = value;
-                        runs += 1;
-                    }
-                }
-            }
-        }
-    }
+    });
 
     let null_count = u32::try_from(null_count)?;
     let value_count = u32::try_from(value_count)?;
