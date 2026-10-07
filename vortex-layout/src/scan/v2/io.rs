@@ -294,13 +294,24 @@ mod tests {
         let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&[location]));
         io.submit(
             IoOwnerId(0),
-            vec![request(IoIntent::Announce, 0), request(IoIntent::Announce, 1)],
+            vec![
+                request(IoIntent::Announce, 0),
+                request(IoIntent::Announce, 1),
+            ],
         )?;
         assert_eq!(segments.0.load(Ordering::Relaxed), 2);
         for id in 2..5 {
             io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, id)])?;
-            assert!(std::future::poll_fn(|cx| io.poll_completion(cx)).await?.result.is_ok());
-            assert_eq!(segments.0.load(Ordering::Relaxed), if id < 4 { 2 } else { 3 });
+            assert!(
+                std::future::poll_fn(|cx| io.poll_completion(cx))
+                    .await?
+                    .result
+                    .is_ok()
+            );
+            assert_eq!(
+                segments.0.load(Ordering::Relaxed),
+                if id < 4 { 2 } else { 3 }
+            );
         }
         Ok(())
     }

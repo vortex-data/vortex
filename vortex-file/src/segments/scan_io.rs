@@ -475,7 +475,9 @@ mod tests {
             })
             .await?;
         reads.store(0, Ordering::Relaxed);
-        let service = file.scan_io().ok_or_else(|| vortex_err!("missing file IO"))?;
+        let service = file
+            .scan_io()
+            .ok_or_else(|| vortex_err!("missing file IO"))?;
         let io = service.session();
         let spec = file.footer().segment_map()[0];
         let request = |intent, id| IoRequest {
@@ -489,7 +491,10 @@ mod tests {
         };
         io.submit(
             IoOwnerId(0),
-            vec![request(IoIntent::Announce, 0), request(IoIntent::Announce, 1)],
+            vec![
+                request(IoIntent::Announce, 0),
+                request(IoIntent::Announce, 1),
+            ],
         )?;
         for id in 2..5 {
             io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, id)])?;

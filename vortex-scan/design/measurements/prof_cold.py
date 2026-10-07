@@ -37,9 +37,21 @@ def main():
                 env = dict(os.environ)
                 env.pop("VORTEX_SCAN_V2", None)
                 env.update(overrides)
-                cmd = ["samply", "record", "--save-only", "--unstable-presymbolicate", "--rate", "1000",
-                       "--output", base + ".json.gz", "--"] + bench_ab.base_cmd(engine, suite, sf, 1, q)[2:] + \
-                      ["-o", base + ".jsonl"]
+                cmd = (
+                    [
+                        "samply",
+                        "record",
+                        "--save-only",
+                        "--unstable-presymbolicate",
+                        "--rate",
+                        "1000",
+                        "--output",
+                        base + ".json.gz",
+                        "--",
+                    ]
+                    + bench_ab.base_cmd(engine, suite, sf, 1, q)[2:]
+                    + ["-o", base + ".jsonl"]
+                )
                 p = subprocess.run(cmd, env=env, cwd=bench_ab.ROOT, capture_output=True, text=True)
                 if p.returncode != 0:
                     print(f"FAILED q{q} {name}: {p.stderr[-300:]}", flush=True)
@@ -55,18 +67,31 @@ def main():
                 if rep > 0:
                     for ext in (".json.gz", ".json.syms.json"):
                         os.remove(base + ext)
-            a = dict(res=res, kinds=kinds, phases=phases, wall_scan=wall_scan, wall_rounds=wall_rounds,
-                     total_cpu_ms=0.0, cpu_us=collections.Counter(), io_threads=0, threads=0)
+            a = dict(
+                res=res,
+                kinds=kinds,
+                phases=phases,
+                wall_scan=wall_scan,
+                wall_rounds=wall_rounds,
+                total_cpu_ms=0.0,
+                cpu_us=collections.Counter(),
+                io_threads=0,
+                threads=0,
+            )
             s = prof_attr.summarise(a)
             s.update(query=q, config=name, cold_ms=statistics.median(times), reps=int(reps))
             with open(os.path.join(outdir, f"q{q}-{name}.json"), "w") as f:
                 json.dump(s, f)
             busy = max(s["scan_cpu"] + s["scan_wait"] + s["engine_cpu"], 1)
             io = sum(v for k, v in kinds.items() if k.startswith("io: pread"))
-            print(f"COLD {engine} {suite} {sf} q{q} {name}: {s['cold_ms']:.0f} ms; scan wall {100 * s['scan_share_wall']:.0f}%; "
-                  f"of busy thread-time: blocked-in-scan {100 * s['scan_wait'] / busy:.0f}%, in pread {100 * io / busy:.0f}%, "
-                  f"other scan on-CPU {100 * (s['scan_cpu'] - io) / busy:.0f}%, engine {100 * s['engine_cpu'] / busy:.0f}%",
-                  flush=True)
+            print(
+                f"COLD {engine} {suite} {sf} q{q} {name}: {s['cold_ms']:.0f} ms; "
+                f"scan wall {100 * s['scan_share_wall']:.0f}%; "
+                f"of busy thread-time: blocked-in-scan {100 * s['scan_wait'] / busy:.0f}%, "
+                f"in pread {100 * io / busy:.0f}%, other scan on-CPU {100 * (s['scan_cpu'] - io) / busy:.0f}%, "
+                f"engine {100 * s['engine_cpu'] / busy:.0f}%",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":

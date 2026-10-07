@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-import os, random, sys, time
+import os
+import random
+import sys
+import time
+
 f = sys.argv[1]
 n = int(sys.argv[2]) if len(sys.argv) > 2 else 2000
 size = os.path.getsize(f)
@@ -12,4 +16,4 @@ for o in offs:
     os.pread(fd, 4096, o)
 dt = time.perf_counter() - t
 os.close(fd)
-print(f"{n} random 4KiB preads: {dt*1e6/n:.1f} us/read")
+print(f"{n} random 4KiB preads: {dt * 1e6 / n:.1f} us/read")

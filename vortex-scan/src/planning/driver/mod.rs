@@ -432,8 +432,9 @@ impl Run {
 
     /// Visits one item: computes once if it is ready, and settles it otherwise.
     fn visit(&mut self, mut work: Box<Work>) -> VortexResult<()> {
-        let started = tracing::enabled!(target: "vortex_scan::compute_timing", tracing::Level::DEBUG)
-            .then(Instant::now);
+        let started =
+            tracing::enabled!(target: "vortex_scan::compute_timing", tracing::Level::DEBUG)
+                .then(Instant::now);
         let output = match &mut work.item {
             Item::Planner(planner) => match planner.state() {
                 State::NeedsCompute => Output::Planner(planner.compute()?),

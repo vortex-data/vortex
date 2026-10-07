@@ -78,16 +78,16 @@ fn date_constant_bounds(
         })
     }))
     .into_array();
-    let actual = result.execute::<BoolArray>(&mut array_session().create_execution_ctx())?;
-    assert_arrays_eq!(actual.into_array(), expected);
+    let mut ctx = array_session().create_execution_ctx();
+    let actual = result.execute::<BoolArray>(&mut ctx)?;
+    assert_arrays_eq!(actual.into_array(), expected, &mut ctx);
     Ok(())
 }
 
 #[test]
 fn nullable_bound_retains_result_nullability() -> VortexResult<()> {
     let dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
-    let array = ExtensionArray::new(dtype.clone(), buffer![0i32, 1, 2].into_array())
-        .into_array();
+    let array = ExtensionArray::new(dtype.clone(), buffer![0i32, 1, 2].into_array()).into_array();
     let lower = ConstantArray::new(
         Scalar::extension_ref(
             dtype.with_nullability(Nullability::Nullable),
@@ -96,8 +96,8 @@ fn nullable_bound_retains_result_nullability() -> VortexResult<()> {
         3,
     )
     .into_array();
-    let upper = ConstantArray::new(Scalar::extension_ref(dtype, Scalar::from(2i32)), 3)
-        .into_array();
+    let upper =
+        ConstantArray::new(Scalar::extension_ref(dtype, Scalar::from(2i32)), 3).into_array();
     let result = array.between(
         lower,
         upper,
@@ -107,10 +107,12 @@ fn nullable_bound_retains_result_nullability() -> VortexResult<()> {
         },
     )?;
     assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
-    let actual = result.execute::<BoolArray>(&mut array_session().create_execution_ctx())?;
+    let mut ctx = array_session().create_execution_ctx();
+    let actual = result.execute::<BoolArray>(&mut ctx)?;
     assert_arrays_eq!(
         actual.into_array(),
-        BoolArray::from_iter([Some(true), Some(true), Some(false)]).into_array()
+        BoolArray::from_iter([Some(true), Some(true), Some(false)]).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -133,10 +135,12 @@ fn timestamp_row_bounds() -> VortexResult<()> {
             upper_strict: StrictComparison::Strict,
         },
     )?;
-    let actual = result.execute::<BoolArray>(&mut array_session().create_execution_ctx())?;
+    let mut ctx = array_session().create_execution_ctx();
+    let actual = result.execute::<BoolArray>(&mut ctx)?;
     assert_arrays_eq!(
         actual.into_array(),
-        BoolArray::from_iter([Some(true), Some(false), Some(false), None]).into_array()
+        BoolArray::from_iter([Some(true), Some(false), Some(false), None]).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -178,8 +182,13 @@ fn null_constant_bounds(
             upper_strict: StrictComparison::NonStrict,
         },
     )?;
-    let actual = result.execute::<BoolArray>(&mut array_session().create_execution_ctx())?;
-    assert_arrays_eq!(actual.into_array(), BoolArray::from_iter(expected).into_array());
+    let mut ctx = array_session().create_execution_ctx();
+    let actual = result.execute::<BoolArray>(&mut ctx)?;
+    assert_arrays_eq!(
+        actual.into_array(),
+        BoolArray::from_iter(expected).into_array(),
+        &mut ctx
+    );
     Ok(())
 }
 
@@ -202,8 +211,8 @@ fn different_timestamp_metadata_declines_storage_comparison(
         2,
     )
     .into_array();
-    let matching = ConstantArray::new(Scalar::extension_ref(dtype, Scalar::from(1i64)), 2)
-        .into_array();
+    let matching =
+        ConstantArray::new(Scalar::extension_ref(dtype, Scalar::from(1i64)), 2).into_array();
     let (lower, upper) = if mismatch_lower {
         (different, matching)
     } else {

@@ -254,6 +254,8 @@ impl DecodeCache {
     }
 }
 
+type SpawnedPlan = (Port, PlanRef, Range<u64>, Mask);
+
 /// A node's view of its graph during one [`ExecNode::compute`]: what arrived for the node, and
 /// what the node does about it.
 ///
@@ -261,7 +263,7 @@ impl DecodeCache {
 pub struct StepCx<'a> {
     next_io_id: &'a mut u64,
     events: SmallVec<[Event; 2]>,
-    spawned: SmallVec<[(Port, PlanRef, Range<u64>, Mask); 1]>,
+    spawned: SmallVec<[SpawnedPlan; 1]>,
     requests: SmallVec<[IoRequest; 1]>,
     emitted: SmallVec<[Piece; 1]>,
 }
@@ -597,7 +599,7 @@ impl ExecGraph {
 
 /// The owned effects of a [`StepCx`], detached from its borrows.
 struct Effects {
-    spawned: SmallVec<[(Port, PlanRef, Range<u64>, Mask); 1]>,
+    spawned: SmallVec<[SpawnedPlan; 1]>,
     requests: SmallVec<[IoRequest; 1]>,
     emitted: SmallVec<[Piece; 1]>,
 }

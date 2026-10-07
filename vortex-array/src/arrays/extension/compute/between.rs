@@ -41,8 +41,7 @@ impl BetweenReduce for Extension {
 fn storage_bound(bound: &ArrayRef) -> Option<ArrayRef> {
     if let Some(scalar) = bound.as_constant() {
         return Some(
-            ConstantArray::new(scalar.as_extension().to_storage_scalar(), bound.len())
-                .into_array(),
+            ConstantArray::new(scalar.as_extension().to_storage_scalar(), bound.len()).into_array(),
         );
     }
     bound

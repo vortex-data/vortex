@@ -10,18 +10,28 @@ Two estimates per query:
            inside scan) / (that + engine on-CPU). IO-pool threads are excluded, so a DataFusion worker
            that yields while its read is outstanding contributes nothing: a lower bound there.
 """
-import glob, json, math, os, re, statistics
+
+import glob
+import json
+import math
+import os
+import re
+import statistics
+from collections.abc import Iterable
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def gmean(xs):
+def gmean(xs: Iterable[float]) -> float:
     xs = [max(x, 1e-9) for x in xs]
     return math.exp(sum(math.log(x) for x in xs) / len(xs))
 
 
-print("| engine-suite | cfg | n | scan share of wall: median | mean | time-weighted | >50% | >80% | <20% | worker-only: median | time-weighted "
-      "| blocked-in-scan mean | geomean ratio if scan -100% | -50% | -30% | scan cut needed for 0.70 |")
+print(
+    "| engine-suite | cfg | n | scan share of wall: median | mean | time-weighted | >50% | >80% | <20% "
+    "| worker-only: median | time-weighted "
+    "| blocked-in-scan mean | geomean ratio if scan -100% | -50% | -30% | scan cut needed for 0.70 |"
+)
 print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 for d in sorted(glob.glob(os.path.join(HERE, "prof", "*-*-*"))):
     name = os.path.basename(d)
@@ -47,8 +57,13 @@ for d in sorted(glob.glob(os.path.join(HERE, "prof", "*-*-*"))):
         tww = sum(w * x for w, x in zip(worker, t)) / sum(t)
         # smallest uniform fractional cut f of scan cost giving geomean ratio <= 0.70
         need = next((f / 100 for f in range(1, 101) if gmean(1 - f / 100 * w for w in wall) <= 0.70), None)
-        print(f"| {name} | {cfg} | {len(rows)} | {100 * statistics.median(wall):.0f}% | {100 * statistics.mean(wall):.0f}% | {100 * tw:.0f}% "
-              f"| {sum(w > 0.5 for w in wall)} | {sum(w > 0.8 for w in wall)} | {sum(w < 0.2 for w in wall)} "
-              f"| {100 * statistics.median(worker):.0f}% | {100 * tww:.0f}% | {100 * statistics.mean(blocked):.0f}% "
-              f"| {gmean(1 - w for w in wall):.2f} | {gmean(1 - 0.5 * w for w in wall):.2f} | {gmean(1 - 0.3 * w for w in wall):.2f} "
-              f"| {'%d%%' % round(need * 100) if need else 'unreachable'} |")
+        needed_cut = f"{round(need * 100)}%" if need else "unreachable"
+        print(
+            f"| {name} | {cfg} | {len(rows)} | {100 * statistics.median(wall):.0f}% "
+            f"| {100 * statistics.mean(wall):.0f}% | {100 * tw:.0f}% "
+            f"| {sum(w > 0.5 for w in wall)} | {sum(w > 0.8 for w in wall)} | {sum(w < 0.2 for w in wall)} "
+            f"| {100 * statistics.median(worker):.0f}% | {100 * tww:.0f}% | {100 * statistics.mean(blocked):.0f}% "
+            f"| {gmean(1 - w for w in wall):.2f} | {gmean(1 - 0.5 * w for w in wall):.2f} "
+            f"| {gmean(1 - 0.3 * w for w in wall):.2f} "
+            f"| {needed_cut} |"
+        )

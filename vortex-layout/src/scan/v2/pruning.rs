@@ -244,8 +244,8 @@ fn compact_proof(plan: &PlanRef, starts: &[u64], plans: &ScanPlans) -> VortexRes
         return Ok(BoolArray::try_new(
             starts
                 .iter()
-                .map(|row| mask.value((row / zoned.zone_len()) as usize))
-                .collect(),
+                .map(|row| Ok(mask.value(usize::try_from(row / zoned.zone_len())?)))
+                .collect::<VortexResult<_>>()?,
             validity,
         )?
         .into_array());

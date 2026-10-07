@@ -100,9 +100,9 @@ fn projection_prefetch_budget(
             rows: 0..3000,
         },
         // More than 64 selected runs must still exclude the empty middle chunk.
-        Mask::from_iter((0..3000).map(|row| {
-            !exclude_middle || (row % 2 == 0 && !(1000..2000).contains(&row))
-        })),
+        Mask::from_iter(
+            (0..3000).map(|row| !exclude_middle || (row % 2 == 0 && !(1000..2000).contains(&row))),
+        ),
         next,
     );
     let actual: Vec<_> = planner

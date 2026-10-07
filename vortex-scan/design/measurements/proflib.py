@@ -7,13 +7,14 @@ import gzip
 import json
 import os
 import re
-
+import sys
+from typing import Any
 
 INTERVAL = 1.0
 
 
 class Syms:
-    def __init__(self, sidecar_path):
+    def __init__(self, sidecar_path: str):
         s = json.load(open(sidecar_path))
         self.strings = s["string_table"]
         self.libs = {}
@@ -23,7 +24,7 @@ class Syms:
             rvas = [e["rva"] for e in table]
             self.libs[d["debug_name"]] = (table, known, rvas)
 
-    def lookup(self, lib, addr):
+    def lookup(self, lib: str, addr: int) -> str | None:
         ent = self.libs.get(lib)
         if ent is None:
             return None
@@ -43,11 +44,11 @@ class Syms:
 _HASH = re.compile(r"::h[0-9a-f]{16}$")
 
 
-def clean(sym):
+def clean(sym: str) -> str:
     return _HASH.sub("", sym)
 
 
-def load(profile_path):
+def load(profile_path: str) -> list[dict[str, Any]]:
     """Yield dicts: {thread, tid, time, cpu_us, stack: [(lib, sym), ... root->leaf]} per sample."""
     opener = gzip.open if profile_path.endswith(".gz") else open
     with opener(profile_path, "rt") as f:
@@ -70,7 +71,7 @@ def load(profile_path):
         ft, fn, rt, st, sm = t["frameTable"], t["funcTable"], t["resourceTable"], t["stackTable"], t["samples"]
         frame_label = {}
 
-        def label(fi):
+        def label(fi: int) -> tuple[str, str]:
             v = frame_label.get(fi)
             if v is None:
                 func = ft["func"][fi]
@@ -90,7 +91,7 @@ def load(profile_path):
 
         stack_cache = {}
 
-        def expand(si):
+        def expand(si: int | None) -> tuple[tuple[str, str], ...]:
             if si is None:
                 return ()
             v = stack_cache.get(si)
@@ -101,11 +102,16 @@ def load(profile_path):
 
         cpu = sm.get("threadCPUDelta") or [0] * len(sm["stack"])
         times = sm.get("time") or [0] * len(sm["stack"])
-        import sys
         sys.setrecursionlimit(100000)
         for i, si in enumerate(sm["stack"]):
-            out.append({
-                "thread": t.get("name", ""), "tid": t.get("tid"), "main": bool(t.get("isMainThread")),
-                "time": times[i], "cpu": max(cpu[i] or 0, 0), "stack": expand(si),
-            })
+            out.append(
+                {
+                    "thread": t.get("name", ""),
+                    "tid": t.get("tid"),
+                    "main": bool(t.get("isMainThread")),
+                    "time": times[i],
+                    "cpu": max(cpu[i] or 0, 0),
+                    "stack": expand(si),
+                }
+            )
     return out

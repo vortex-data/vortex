@@ -81,8 +81,8 @@ async fn legacy_string_zones_scan() -> VortexResult<()> {
     ])?
     .into_array();
     let children = OwnedLayoutChildren::layout_children(vec![
-        flat(data.clone(), segments.clone(), &session).await?,
-        flat(zones, segments.clone(), &session).await?,
+        flat(data.clone(), Arc::clone(&segments), &session).await?,
+        flat(zones, Arc::clone(&segments), &session).await?,
     ]);
     let read_ctx = ReadContext::new([]);
     let mut metadata = 2u32.to_le_bytes().to_vec();
@@ -101,7 +101,12 @@ async fn legacy_string_zones_scan() -> VortexResult<()> {
     )?
     .into_layout();
     let segments: Arc<dyn SegmentSource> = segments;
-    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
     let output = ScanBuilder::new(session.clone(), reader, scan_file(&segments, &layout)?)
         .with_filter(gt(root(), lit("m")).bind(data.dtype())?)
         .into_stream()?

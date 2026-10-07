@@ -14,7 +14,6 @@ import glob
 import json
 import math
 import os
-import re
 import statistics
 import subprocess
 import sys
@@ -25,7 +24,7 @@ import bench_ab  # noqa: E402
 import prof_attr  # noqa: E402
 
 
-def hot_medians(engine, suite, sf):
+def hot_medians(engine: str, suite: str, sf: str) -> dict[int, float]:
     med = {}
     for path in glob.glob(os.path.join(HERE, "raw", f"hot-{engine}-{suite}-{sf}-*-p*-V1.jsonl")):
         for line in open(path):
@@ -58,9 +57,21 @@ def main():
             env = dict(os.environ)
             env.pop("VORTEX_SCAN_V2", None)
             env.update(overrides)
-            cmd = ["samply", "record", "--save-only", "--unstable-presymbolicate", "--rate", str(rate),
-                   "--output", prof, "--"] + bench_ab.base_cmd(engine, suite, sf, iters, q)[2:] + \
-                  ["-o", base + ".jsonl"]
+            cmd = (
+                [
+                    "samply",
+                    "record",
+                    "--save-only",
+                    "--unstable-presymbolicate",
+                    "--rate",
+                    str(rate),
+                    "--output",
+                    prof,
+                    "--",
+                ]
+                + bench_ab.base_cmd(engine, suite, sf, iters, q)[2:]
+                + ["-o", base + ".jsonl"]
+            )
             if engine == "duckdb":
                 cmd.append("--reuse")
             p = subprocess.run(cmd, env=env, cwd=bench_ab.ROOT, capture_output=True, text=True)
@@ -75,14 +86,24 @@ def main():
                 continue
             rts = [json.loads(line) for line in open(base + ".jsonl") if line.startswith("{")]
             prof_ms = statistics.median(x / 1e6 for x in rts[0]["all_runtimes"][1:]) if rts else float("nan")
-            s.update(query=q, config=name, iters=iters, rate=rate, hot_ms=med.get(q), profiled_ms=prof_ms,
-                     load=os.getloadavg()[0])
+            s.update(
+                query=q,
+                config=name,
+                iters=iters,
+                rate=rate,
+                hot_ms=med.get(q),
+                profiled_ms=prof_ms,
+                load=os.getloadavg()[0],
+            )
             with open(base + ".json", "w") as f:
                 json.dump(s, f)
-            print(f"{engine} {suite} {sf} q{q} {name}: iters={iters} hot={med.get(q, float('nan')):.1f}ms "
-                  f"profiled={prof_ms:.1f}ms scan_wall={100 * s['scan_share_wall']:.0f}% "
-                  f"scan_cpu={100 * s['scan_share_cpu']:.0f}% scan_busy={100 * s['scan_share_busy']:.0f}% "
-                  f"load={s['load']:.1f}", flush=True)
+            print(
+                f"{engine} {suite} {sf} q{q} {name}: iters={iters} hot={med.get(q, float('nan')):.1f}ms "
+                f"profiled={prof_ms:.1f}ms scan_wall={100 * s['scan_share_wall']:.0f}% "
+                f"scan_cpu={100 * s['scan_share_cpu']:.0f}% scan_busy={100 * s['scan_share_busy']:.0f}% "
+                f"load={s['load']:.1f}",
+                flush=True,
+            )
             if not keep:
                 for ext in (".json.gz", ".json.syms.json"):
                     try:

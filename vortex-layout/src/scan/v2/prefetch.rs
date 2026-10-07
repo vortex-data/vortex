@@ -41,7 +41,8 @@ pub(crate) fn selected_ranges(rows: &Range<u64>, mask: &Mask) -> Vec<Range<u64>>
         AllOr::Some(slices) => {
             let first = slices.first().map_or(0, |slice| slice.0);
             let last = slices.last().map_or(0, |slice| slice.1);
-            vec![start + first as u64..start + last as u64]
+            let range = start + first as u64..start + last as u64;
+            vec![range]
         }
     }
 }

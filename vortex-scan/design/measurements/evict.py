@@ -28,7 +28,7 @@ PAGE = os.sysconf("SC_PAGE_SIZE")
 _INCORE = bytes(b & 1 for b in range(256))
 
 
-def resident(addr, size):
+def resident(addr: int, size: int) -> tuple[int, int]:
     npages = (size + PAGE - 1) // PAGE
     vec = ctypes.create_string_buffer(npages)
     if libc.mincore(addr, size, vec) != 0:
@@ -36,7 +36,7 @@ def resident(addr, size):
     return vec.raw.translate(_INCORE).count(b"\x01"), npages
 
 
-def process(path, evict):
+def process(path: str, evict: bool) -> tuple[int, int, int]:
     """Return (resident_pages_before, resident_pages_after, total_pages)."""
     size = os.path.getsize(path)
     if size == 0:
@@ -60,7 +60,7 @@ def process(path, evict):
         os.close(fd)
 
 
-def list_files(paths):
+def list_files(paths: list[str]) -> list[str]:
     files = []
     for a in paths:
         if os.path.isdir(a):
@@ -71,7 +71,7 @@ def list_files(paths):
     return sorted(files)
 
 
-def sweep(paths, evict):
+def sweep(paths: list[str], evict: bool) -> tuple[int, int, int, dict[str, tuple[int, int, int]]]:
     """Return (total_before, total_after, total_pages, {file: (before, after, pages)})."""
     per = {}
     tb = ta = tp = 0
@@ -100,7 +100,7 @@ def main():
             if b:
                 print(f"  {os.path.basename(f)}: {b * PAGE / 1e6:.1f} MB resident of {n * PAGE / 1e6:.1f} MB")
 
-    def pct(x):
+    def pct(x: int) -> float:
         return 100.0 * x / tp if tp else 0.0
 
     print(

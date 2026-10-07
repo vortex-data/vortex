@@ -93,7 +93,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
     let prepared = PreparedPlans::new(
         &shared,
         &builder.projection,
-        &builder.filter,
+        builder.filter.as_ref(),
         &builder.session,
     )?;
     let plans = ScanPlans {
@@ -124,7 +124,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
     Ok(RepeatedScanV2 {
         pruning: prepared.pruning.clone(),
         plans,
-        filter: prepared.filter.clone(),
+        filter: prepared.filter,
         io: shared.file.io.clone().unwrap_or_else(|| {
             Arc::new(SegmentScanIo::new(
                 Arc::clone(&shared.file.segments),
@@ -155,14 +155,14 @@ impl PreparedPlans {
     fn new(
         shared: &SharedFile,
         projection: &BoundExpression,
-        filter: &Option<BoundExpression>,
+        filter: Option<&BoundExpression>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let root = shared.root.clone();
         let plan = |expression| optimize(plan_row_idx_expression(expression, root.clone())?);
         let filter_expression = filter;
         let filter = filter
-            .clone()
+            .cloned()
             .map(|filter| {
                 let conjuncts = group_conjuncts(FilterExpr::new(filter).conjuncts())?;
                 VortexResult::Ok(Arc::new(FilterExpr::from_conjuncts(conjuncts)))
@@ -192,7 +192,6 @@ impl PreparedPlans {
             .map(|filter| FilterPlans::conjuncts(filter, conjunct_plans))
             .transpose()?;
         let pruning = filter_expression
-            .as_ref()
             .map(|filter| pruning_plan(filter, &shared.zones()?, session))
             .transpose()?
             .flatten();

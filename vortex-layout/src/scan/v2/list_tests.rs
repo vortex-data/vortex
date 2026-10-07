@@ -26,6 +26,7 @@ use super::scan_file;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::list::writer::ListLayoutStrategy;
+use crate::scan::scan_builder::ScanBuilder as LegacyScanBuilder;
 use crate::scan::v2::ScanBuilder;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
@@ -64,19 +65,24 @@ async fn list_scan(
     let layout = ChunkedLayoutStrategy::new(ListLayoutStrategy::default())
         .write_stream(
             ArrayContext::empty().into(),
-            segments.clone(),
+            Arc::<TestSegments>::clone(&segments),
             SequentialStreamAdapter::new(dtype.clone(), stream::iter(chunks)).sendable(),
             eof,
             &session,
         )
         .await?;
     let segments: Arc<dyn SegmentSource> = segments;
-    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
     let projection = if lengths { list_length(root()) } else { root() }.bind(&dtype)?;
     let filter = filtered
         .then(|| gt(list_length(root()), lit(1u64)).bind(&dtype))
         .transpose()?;
-    let baseline = crate::scan::scan_builder::ScanBuilder::new(session.clone(), reader.clone())
+    let baseline = LegacyScanBuilder::new(session.clone(), Arc::clone(&reader))
         .with_projection(projection.clone())
         .with_some_filter(filter.clone())
         .with_row_range(1..7)

@@ -260,7 +260,7 @@ mod tests {
                 bytes: cached.then(|| bytes.clone()),
                 immediate,
             }),
-            source.clone(),
+            Arc::<RecordingSource>::clone(&source),
         );
         let request = adapter.request(SegmentId::from(0));
         assert_eq!(source.requests.load(Ordering::Relaxed), requests);

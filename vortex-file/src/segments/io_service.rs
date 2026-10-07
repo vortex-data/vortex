@@ -987,7 +987,7 @@ mod tests {
             delivery: Arc::default(),
             claimed: Mutex::new(HashMap::from_iter([(
                 range,
-                super::Claim {
+                Claim {
                     unfetched: 0,
                     pending: 1,
                 },

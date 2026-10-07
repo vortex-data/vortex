@@ -28,8 +28,8 @@ mod convert;
 pub mod duckdb;
 mod exporter;
 mod ffi;
-mod file_reader;
 mod file_prefetch;
+mod file_reader;
 mod projection;
 mod table_function;
 

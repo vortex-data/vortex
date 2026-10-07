@@ -363,11 +363,7 @@ def main():
     records = []
     cases = args.workload or [("tpch", "6,19"), ("clickbench", "0,1,23")]
     if args.perf_stat:
-        cases = [
-            (suite, query)
-            for suite, queries in cases
-            for query in (queries.split(",") if queries else [""])
-        ]
+        cases = [(suite, query) for suite, queries in cases for query in (queries.split(",") if queries else [""])]
     configs = itertools.product(cases, binaries["baseline"], args.formats, args.threads, args.scan)
     configs = list(configs)
     for round_id in range(args.rounds):
@@ -441,9 +437,7 @@ def main():
                     comparison["perf"][event] = {
                         **values,
                         "delta_percent": (
-                            100 * (values["candidate"] / values["baseline"] - 1)
-                            if values["baseline"]
-                            else None
+                            100 * (values["candidate"] / values["baseline"] - 1) if values["baseline"] else None
                         ),
                     }
         summary.append(comparison)

@@ -16,33 +16,68 @@ import collections
 import json
 import re
 import sys
+from typing import Any
 
 import proflib
 
 INTERVAL = 1.0  # ms; overwritten from the profile's meta.interval
 
 WAIT_LEAF = {
-    "__psynch_cvwait", "semaphore_wait_trap", "semaphore_timedwait_trap", "__ulock_wait",
-    "__ulock_wait2", "kevent", "kevent64", "kevent_id", "mach_msg2_trap", "mach_msg_trap",
-    "__psynch_mutexwait", "__select", "poll", "__semwait_signal", "__workq_kernreturn",
-    "__sigsuspend", "__wait4", "__psynch_rw_rdlock", "__psynch_rw_wrlock",
+    "__psynch_cvwait",
+    "semaphore_wait_trap",
+    "semaphore_timedwait_trap",
+    "__ulock_wait",
+    "__ulock_wait2",
+    "kevent",
+    "kevent64",
+    "kevent_id",
+    "mach_msg2_trap",
+    "mach_msg_trap",
+    "__psynch_mutexwait",
+    "__select",
+    "poll",
+    "__semwait_signal",
+    "__workq_kernreturn",
+    "__sigsuspend",
+    "__wait4",
+    "__psynch_rw_rdlock",
+    "__psynch_rw_wrlock",
 }
 # Frames that never decide a category on their own: allocator, libc copies, generic wrappers.
 TRANSPARENT_LIBS = {
-    "libsystem_malloc.dylib", "libsystem_platform.dylib", "libsystem_pthread.dylib",
-    "libsystem_c.dylib", "libc++.1.dylib", "libc++abi.dylib", "libdispatch.dylib", "dyld",
-    "libsystem_m.dylib", "libdyld.dylib", "",
+    "libsystem_malloc.dylib",
+    "libsystem_platform.dylib",
+    "libsystem_pthread.dylib",
+    "libsystem_c.dylib",
+    "libc++.1.dylib",
+    "libc++abi.dylib",
+    "libdispatch.dylib",
+    "dyld",
+    "libsystem_m.dylib",
+    "libdyld.dylib",
+    "",
 }
-ALLOC = re.compile(r"^(_?mi_|__rust_(alloc|dealloc|realloc)|__rdl_|_?malloc|_?free|_platform_mem|madvise|mmap|munmap|"
-                   r"alloc::raw_vec|<alloc::raw_vec|__bzero|_?realloc|_?calloc)")
+ALLOC = re.compile(
+    r"^(_?mi_|__rust_(alloc|dealloc|realloc)|__rdl_|_?malloc|_?free|_platform_mem|madvise|mmap|munmap|"
+    r"alloc::raw_vec|<alloc::raw_vec|__bzero|_?realloc|_?calloc)"
+)
 
 # (category, regex) evaluated on each frame from leaf to root; first frame that matches wins.
 KIND_RULES = [
     ("io: pread (kernel copy + in-kernel wait)", r"^(pread|read|readv|preadv)$"),
-    ("io: open/close/stat syscalls", r"^(__open|open|close|fstat|fstat64|lseek|stat|stat64|access|fcntl|__fcntl|getattrlist|__open_nocancel|__close_nocancel|close_nocancel|open_nocancel)$"),
+    (
+        "io: open/close/stat syscalls",
+        r"^(__open|open|close|fstat|fstat64|lseek|stat|stat64|access|fcntl|__fcntl|getattrlist|__open_nocancel|__close_nocancel|close_nocancel|open_nocancel)$",
+    ),
     ("io: pool spin/yield", r"^(swtch_pri|cthread_yield)$"),
-    ("io: dispatch + segment source", r"vortex_io::|vortex_file::segments|vortex_file::read|vortex_layout::segments|object_store::|tokio::fs|std::fs::|vortex_file::file|vortex_file::open|vortex_file::footer|blocking_pool"),
-    ("convert: to engine vectors", r"vortex_duckdb::exporter|vortex_duckdb::convert|vortex_duckdb::duckdb::vector|vortex_duckdb::duckdb::data_chunk|ArrayExporter|vortex_arrow|execute_arrow|to_arrow|vortex_datafusion::convert|vortex_datafusion::persistent::stream|SchemaAdapter|schema_adapter|arrow_cast|vortex_duckdb::file_reader::convert_result"),
+    (
+        "io: dispatch + segment source",
+        r"vortex_io::|vortex_file::segments|vortex_file::read|vortex_layout::segments|object_store::|tokio::fs|std::fs::|vortex_file::file|vortex_file::open|vortex_file::footer|blocking_pool",
+    ),
+    (
+        "convert: to engine vectors",
+        r"vortex_duckdb::exporter|vortex_duckdb::convert|vortex_duckdb::duckdb::vector|vortex_duckdb::duckdb::data_chunk|ArrayExporter|vortex_arrow|execute_arrow|to_arrow|vortex_datafusion::convert|vortex_datafusion::persistent::stream|SchemaAdapter|schema_adapter|arrow_cast|vortex_duckdb::file_reader::convert_result",
+    ),
     ("decode: bitpacking", r"fastlanes::bitpacking|vortex_fastlanes::bitpacking|BitPacked"),
     ("decode: FoR", r"vortex_fastlanes::for|fastlanes::ffor|::FoR "),
     ("decode: delta", r"vortex_fastlanes::delta|fastlanes::delta"),
@@ -53,34 +88,82 @@ KIND_RULES = [
     ("decode: run-end", r"vortex_runend"),
     ("decode: decimal/datetime parts", r"vortex_decimal_byte_parts|vortex_datetime_parts"),
     ("decode: zstd/pco", r"vortex_zstd|zstd|vortex_pco|pco::"),
-    ("decode: other encodings", r"vortex_zigzag|vortex_sequence|vortex_sparse|vortex_bytebool|vortex_onpair|onpair|arrays::constant|arrays::chunked|arrays::varbin|arrays::primitive|arrays::decimal|arrays::bool|arrays::struct_|arrays::extension|arrays::list|arrays::null|arrays::masked|vortex_array::patches|arrays::patched"),
+    (
+        "decode: other encodings",
+        r"vortex_zigzag|vortex_sequence|vortex_sparse|vortex_bytebool|vortex_onpair|onpair|arrays::constant|arrays::chunked|arrays::varbin|arrays::primitive|arrays::decimal|arrays::bool|arrays::struct_|arrays::extension|arrays::list|arrays::null|arrays::masked|vortex_array::patches|arrays::patched",
+    ),
     ("decode: array deserialise", r"SerializedArray|vortex_array::serde|flatbuffers|array_future|vortex_flatbuffers"),
-    ("filter: selection/mask kernels", r"arrays::filter|fixed_width::filter|vortex_mask|intersect_by_rank|vortex_buffer::bit|arrays::slice|compute::filter|compute::take|::take::|TakeKernel|FilterKernel|vortex_compute"),
-    ("filter: expression kernels", r"scalar_fn::fns|vortex_array::expr|vortex_array::scalar_fn|arrow_ord|arrow_string|arrow_arith|regex|memchr|vortex_array::compute|vortex_array::aggregate|aggregate_fn"),
-    ("pruning: zone maps/stats", r"layouts::zoned|pruning|vortex_array::stats|stats_set|StatsSet|zone_map|layouts::file_stats"),
-    ("array executor dispatch", r"vortex_array::executor|vortex_array::canonical|vortex_array::array::|vortex_array::columnar|vortex_array::mask::|vortex_array::dtype|vortex_array::scalar::|vortex_array::validity|vortex_array::|vortex_buffer|vortex_dtype|vortex_scalar|vortex_session"),
-    ("scan: layout readers/plan exec", r"vortex_layout::layouts|vortex_layout::plan|vortex_layout::reader|vortex_layout::scan|vortex_scan::|vortex_layout::|MaskFuture|mask_future"),
-    ("scan: open/bind/init (table fn)", r"vortex_duckdb|VortexMultiFileReader|VortexBaseReader|VortexReaderInterface|duckdb_reader_|vortex_datafusion|vortex::"),
-    ("scan: async/scheduling overhead", r"futures_util|futures_core|futures_channel|async_executor|async_io|async_task|parking|crossbeam|tokio::|event_listener|concurrent_queue|async_lock|std::sync|std::thread|parking_lot|core::ptr::drop|alloc::sync|alloc::task|core::task|oneshot"),
+    (
+        "filter: selection/mask kernels",
+        r"arrays::filter|fixed_width::filter|vortex_mask|intersect_by_rank|vortex_buffer::bit|arrays::slice|compute::filter|compute::take|::take::|TakeKernel|FilterKernel|vortex_compute",
+    ),
+    (
+        "filter: expression kernels",
+        r"scalar_fn::fns|vortex_array::expr|vortex_array::scalar_fn|arrow_ord|arrow_string|arrow_arith|regex|memchr|vortex_array::compute|vortex_array::aggregate|aggregate_fn",
+    ),
+    (
+        "pruning: zone maps/stats",
+        r"layouts::zoned|pruning|vortex_array::stats|stats_set|StatsSet|zone_map|layouts::file_stats",
+    ),
+    (
+        "array executor dispatch",
+        r"vortex_array::executor|vortex_array::canonical|vortex_array::array::|vortex_array::columnar|vortex_array::mask::|vortex_array::dtype|vortex_array::scalar::|vortex_array::validity|vortex_array::|vortex_buffer|vortex_dtype|vortex_scalar|vortex_session",
+    ),
+    (
+        "scan: layout readers/plan exec",
+        r"vortex_layout::layouts|vortex_layout::plan|vortex_layout::reader|vortex_layout::scan|vortex_scan::|vortex_layout::|MaskFuture|mask_future",
+    ),
+    (
+        "scan: open/bind/init (table fn)",
+        r"vortex_duckdb|VortexMultiFileReader|VortexBaseReader|VortexReaderInterface|duckdb_reader_|vortex_datafusion|vortex::",
+    ),
+    (
+        "scan: async/scheduling overhead",
+        r"futures_util|futures_core|futures_channel|async_executor|async_io|async_task|parking|crossbeam|tokio::|event_listener|concurrent_queue|async_lock|std::sync|std::thread|parking_lot|core::ptr::drop|alloc::sync|alloc::task|core::task|oneshot",
+    ),
 ]
 KIND_RULES = [(c, re.compile(r)) for c, r in KIND_RULES]
 
 SCAN_MARK = re.compile(
     r"vortex_layout|vortex_file|vortex_io::|vortex_scan|vortex_array|vortex_duckdb::(file_reader|exporter|table_function|convert|projection|column_statistics)|duckdb_reader_|VortexBaseReader|VortexMultiFileReader|"
-    r"VortexReaderInterface|vortex_datafusion|vortex_fastlanes|vortex_fsst|vortex_alp|vortex_mask|blocking_pool|vortex_runend|vortex_buffer")
+    r"VortexReaderInterface|vortex_datafusion|vortex_fastlanes|vortex_fsst|vortex_alp|vortex_mask|blocking_pool|vortex_runend|vortex_buffer"
+)
 HARNESS_MARK = re.compile(r"vortex_bench::|duckdb_bench::|datafusion_bench::")
 QUERY_MARK_DUCK = re.compile(r"execute_query_result")
 
 PHASE_RULES = [
-    ("export to engine", re.compile(r"ArrayExporter|vortex_duckdb::exporter|convert_result|vortex_datafusion::persistent::stream|vortex_arrow")),
-    ("pruning", re.compile(r"pruning_evaluation|layouts::zoned|plan::exec::zoned|ZonedExec|scan::v2::conjuncts.*prun|Pruning")),
-    ("filter", re.compile(r"split_exec::<[^>]*>::\{closure#1\}|filter_evaluation|FilterPlanner|scan::planning::filter|FilterMorsel")),
-    ("projection", re.compile(r"split_exec::<[^>]*>::\{closure#2\}|projection_evaluation|ProjectionPlanner|ProjectionMorsel|scan::planning::projection")),
-    ("open/init/plan", re.compile(r"reader_initialize|reader_open|reader_bind|MultiFileInitGlobal|InitializeReader|scan::v2::repeated_scan|scan_builder|VortexOpener|vortex_datafusion::persistent::(opener|format|source)|get_statistics|footer")),
+    (
+        "export to engine",
+        re.compile(
+            r"ArrayExporter|vortex_duckdb::exporter|convert_result|vortex_datafusion::persistent::stream|vortex_arrow"
+        ),
+    ),
+    (
+        "pruning",
+        re.compile(r"pruning_evaluation|layouts::zoned|plan::exec::zoned|ZonedExec|scan::v2::conjuncts.*prun|Pruning"),
+    ),
+    (
+        "filter",
+        re.compile(
+            r"split_exec::<[^>]*>::\{closure#1\}|filter_evaluation|FilterPlanner|scan::planning::filter|FilterMorsel"
+        ),
+    ),
+    (
+        "projection",
+        re.compile(
+            r"split_exec::<[^>]*>::\{closure#2\}|projection_evaluation|ProjectionPlanner|ProjectionMorsel|scan::planning::projection"
+        ),
+    ),
+    (
+        "open/init/plan",
+        re.compile(
+            r"reader_initialize|reader_open|reader_bind|MultiFileInitGlobal|InitializeReader|scan::v2::repeated_scan|scan_builder|VortexOpener|vortex_datafusion::persistent::(opener|format|source)|get_statistics|footer"
+        ),
+    ),
 ]
 
 
-def kind_of(stack):
+def kind_of(stack: tuple[tuple[str, str], ...]) -> tuple[str, bool]:
     alloc = False
     for lib, name in reversed(stack):
         if ALLOC.search(name):
@@ -101,7 +184,7 @@ def kind_of(stack):
     return "scan: other", alloc
 
 
-def phase_of(stack):
+def phase_of(stack: tuple[tuple[str, str], ...]) -> str:
     names = [n for _, n in stack]
     for ph, rx in PHASE_RULES:
         if ph in ("filter", "pruning", "export to engine"):
@@ -113,7 +196,7 @@ def phase_of(stack):
     return "other"
 
 
-def analyse(path):
+def analyse(path: str) -> dict[str, Any]:
     global INTERVAL
     samples = proflib.load(path)
     INTERVAL = proflib.INTERVAL
@@ -122,16 +205,16 @@ def analyse(path):
     main = sorted((s["time"], any(QUERY_MARK_DUCK.search(n) for _, n in s["stack"])) for s in samples if s["main"])
     main_times = [t for t, _ in main]
 
-    def in_query(t):
+    def in_query(t: float) -> bool:
         if not is_duck or not main:
             return True
         i = bisect.bisect_left(main_times, t)
         i = min(max(i, 0), len(main) - 1)
         return main[i][1]
 
-    res = collections.Counter()      # top-level buckets (thread-time, in samples)
-    kinds = collections.Counter()    # scan on-CPU by kind
-    phases = collections.Counter()   # scan on-CPU by phase
+    res = collections.Counter()  # top-level buckets (thread-time, in samples)
+    kinds = collections.Counter()  # scan on-CPU by kind
+    phases = collections.Counter()  # scan on-CPU by phase
     kind_phase = collections.Counter()
     alloc_in = collections.Counter()
     selfc = collections.Counter()
@@ -152,7 +235,8 @@ def analyse(path):
         rnd = int(round(s["time"] / INTERVAL))
         is_io_thread = s["thread"].startswith("vortex-blocking-io") or (
             any("blocking::pool::Spawner>::spawn_thread" in n or "BlockingPool>::grow" in n for n in names[:8])
-            and not any("multi_thread::worker" in n for n in names[:16]))
+            and not any("multi_thread::worker" in n for n in names[:16])
+        )
         if is_io_thread:
             io_tids.add(s["tid"])
         all_tids.add(s["tid"])
@@ -205,13 +289,27 @@ def analyse(path):
         if sc + en:
             wall_scan_cpu_only += sc / (sc + en)
     total_cpu_us = sum(s["cpu"] for s in samples if s["stack"] and in_query(s["time"]))
-    return dict(path=path, engine="duckdb" if is_duck else "datafusion", res=res, kinds=kinds, phases=phases,
-                kind_phase=kind_phase, alloc_in=alloc_in, selfc=selfc, n_in=n_in, total_cpu_ms=total_cpu_us / 1000.0,
-                wall_rounds=wall_rounds, wall_scan=wall_scan, wall_scan_cpu_only=wall_scan_cpu_only, cpu_us=cpu_us,
-                io_threads=len(io_tids), threads=len(all_tids))
+    return dict(
+        path=path,
+        engine="duckdb" if is_duck else "datafusion",
+        res=res,
+        kinds=kinds,
+        phases=phases,
+        kind_phase=kind_phase,
+        alloc_in=alloc_in,
+        selfc=selfc,
+        n_in=n_in,
+        total_cpu_ms=total_cpu_us / 1000.0,
+        wall_rounds=wall_rounds,
+        wall_scan=wall_scan,
+        wall_scan_cpu_only=wall_scan_cpu_only,
+        cpu_us=cpu_us,
+        io_threads=len(io_tids),
+        threads=len(all_tids),
+    )
 
 
-def summarise(a):
+def summarise(a: dict[str, Any]) -> dict[str, Any]:
     res = a["res"]
     scan_cpu = res["scan: on-CPU"]
     scan_wait = res["scan: thread blocked inside scan (waiting for IO/another thread)"]
@@ -220,17 +318,23 @@ def summarise(a):
     busy = scan_cpu + scan_wait + eng
     oncpu = scan_cpu + eng
     return dict(
-        scan_cpu=scan_cpu, scan_wait=scan_wait, engine_cpu=eng, harness=har,
+        scan_cpu=scan_cpu,
+        scan_wait=scan_wait,
+        engine_cpu=eng,
+        harness=har,
         scan_share_cpu=scan_cpu / oncpu if oncpu else 0.0,
         scan_share_busy=(scan_cpu + scan_wait) / busy if busy else 0.0,
-        oncpu_samples=oncpu + har, cpu_delta_ms=a["total_cpu_ms"],
+        oncpu_samples=oncpu + har,
+        cpu_delta_ms=a["total_cpu_ms"],
         scan_share_wall=a["wall_scan"] / a["wall_rounds"] if a["wall_rounds"] else 0.0,
         scan_share_wall_cpu_only=a["wall_scan_cpu_only"] / a["wall_rounds"] if a["wall_rounds"] else 0.0,
         spin_cpu_ms=a["cpu_us"]["scan: spin/yield (io pool + executor)"] / 1000.0,
         spin_samples=res["scan: spin/yield (io pool + executor)"],
-        io_threads=a["io_threads"], threads=a["threads"],
+        io_threads=a["io_threads"],
+        threads=a["threads"],
         res=dict(res),
-        kinds=dict(a["kinds"]), phases=dict(a["phases"]),
+        kinds=dict(a["kinds"]),
+        phases=dict(a["phases"]),
     )
 
 
@@ -249,14 +353,20 @@ def main():
     busy = s["scan_cpu"] + s["scan_wait"] + s["engine_cpu"]
     oncpu = s["scan_cpu"] + s["engine_cpu"]
     print(f"# {path} ({a['engine']})")
-    print(f"samples in query windows: {a['n_in']}; on-CPU samples {s['oncpu_samples']} (x interval ~= ms) vs "
-          f"threadCPUDelta total {a['total_cpu_ms']:.0f} ms")
-    print(f"scan share of on-CPU time: {100 * s['scan_share_cpu']:.1f}%   "
-          f"scan share of busy thread-time (on-CPU + blocked-in-scan): {100 * s['scan_share_busy']:.1f}%   "
-          f"scan share of wall (per-round): {100 * s['scan_share_wall']:.1f}%")
+    print(
+        f"samples in query windows: {a['n_in']}; on-CPU samples {s['oncpu_samples']} (x interval ~= ms) vs "
+        f"threadCPUDelta total {a['total_cpu_ms']:.0f} ms"
+    )
+    print(
+        f"scan share of on-CPU time: {100 * s['scan_share_cpu']:.1f}%   "
+        f"scan share of busy thread-time (on-CPU + blocked-in-scan): {100 * s['scan_share_busy']:.1f}%   "
+        f"scan share of wall (per-round): {100 * s['scan_share_wall']:.1f}%"
+    )
     print(f"threads seen in query windows: {a['threads']} (io-pool threads: {a['io_threads']})")
-    print(f"spin/yield under scan: {s['spin_samples']} samples, {s['spin_cpu_ms']:.0f} ms CPU by threadCPUDelta "
-          f"({100 * s['spin_cpu_ms'] / max(a['total_cpu_ms'], 1):.1f}% of all CPU)")
+    print(
+        f"spin/yield under scan: {s['spin_samples']} samples, {s['spin_cpu_ms']:.0f} ms CPU by threadCPUDelta "
+        f"({100 * s['spin_cpu_ms'] / max(a['total_cpu_ms'], 1):.1f}% of all CPU)"
+    )
     print("\n| bucket | samples | % of busy thread-time | % of on-CPU |")
     print("|---|---:|---:|---:|")
     for k, v in sorted(res.items(), key=lambda kv: -kv[1]):
@@ -267,8 +377,10 @@ def main():
     print("|---|---:|---:|")
     for k, v in a["kinds"].most_common():
         print(f"| {k} | {100 * v / max(s['scan_cpu'], 1):.1f} | {100 * v / max(oncpu, 1):.1f} |")
-    print(f"| (alloc/free/memcpy anywhere under scan) | {100 * a['alloc_in']['scan'] / max(s['scan_cpu'], 1):.1f} | "
-          f"{100 * a['alloc_in']['scan'] / max(oncpu, 1):.1f} |")
+    print(
+        f"| (alloc/free/memcpy anywhere under scan) | {100 * a['alloc_in']['scan'] / max(s['scan_cpu'], 1):.1f} | "
+        f"{100 * a['alloc_in']['scan'] / max(oncpu, 1):.1f} |"
+    )
     print("\n| scan on-CPU by phase | % of scan on-CPU | % of all on-CPU |")
     print("|---|---:|---:|")
     for k, v in a["phases"].most_common():

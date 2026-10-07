@@ -11,12 +11,12 @@ processes with logging disabled for performance comparisons.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
 import statistics
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -78,19 +78,25 @@ def summarize(reads: list[Read], compute: list[tuple[int, int]], query: dict) ->
         outstanding_peak = max(outstanding_peak, depth[0] + depth[1])
         previous = time
 
-    result = {"query_idx": query["query_idx"], "iteration": query["iteration"],
-              "callback_ms": query["callback_ns"] / 1e6,
-              "read_count": len(selected), "read_bytes": sum(read.length for read in selected)}
+    result = {
+        "query_idx": query["query_idx"],
+        "iteration": query["iteration"],
+        "callback_ms": query["callback_ns"] / 1e6,
+        "read_count": len(selected),
+        "read_bytes": sum(read.length for read in selected),
+    }
     if selected:
         last_read = min(end, max(read.completed for read in selected))
         result["last_read_completion_ms"] = (last_read - start) / 1e6
         result["callback_after_last_read_ms"] = (end - last_read) / 1e6
     for kind, name in enumerate(("queued_io", "running_io", "pread", "compute")):
-        result[name] = {"peak": peak[kind],
-                        "mean_depth": integral[kind] / query["callback_ns"],
-                        "mean_depth_when_busy": integral[kind] / busy[kind] if busy[kind] else 0,
-                        "busy_percent": 100 * busy[kind] / query["callback_ns"],
-                        "thread_time_ms": integral[kind] / 1e6}
+        result[name] = {
+            "peak": peak[kind],
+            "mean_depth": integral[kind] / query["callback_ns"],
+            "mean_depth_when_busy": integral[kind] / busy[kind] if busy[kind] else 0,
+            "busy_percent": 100 * busy[kind] / query["callback_ns"],
+            "thread_time_ms": integral[kind] / 1e6,
+        }
     outstanding_time = integral[0] + integral[1]
     result["outstanding_io"] = {
         "peak": outstanding_peak,
@@ -99,17 +105,19 @@ def summarize(reads: list[Read], compute: list[tuple[int, int]], query: dict) ->
         "busy_percent": 100 * outstanding_busy / query["callback_ns"],
         "thread_time_ms": outstanding_time / 1e6,
     }
-    result["compute_thread_time_with_pread_percent"] = (
-        100 * compute_with_reads / integral[3] if integral[3] else 0
-    )
+    result["compute_thread_time_with_pread_percent"] = 100 * compute_with_reads / integral[3] if integral[3] else 0
     result["compute_thread_time_with_outstanding_io_percent"] = (
         100 * compute_with_queued_io / integral[3] if integral[3] else 0
     )
-    for name, durations in (("queue", [read.started - read.queued for read in selected]),
-                            ("read", [read.completed - read.reading for read in selected])):
-        result[f"{name}_duration_us"] = {"median": statistics.median(durations) / 1e3 if durations else 0,
-                                         "p95": percentile(durations, .95) / 1e3,
-                                         "max": max(durations, default=0) / 1e3}
+    for name, durations in (
+        ("queue", [read.started - read.queued for read in selected]),
+        ("read", [read.completed - read.reading for read in selected]),
+    ):
+        result[f"{name}_duration_us"] = {
+            "median": statistics.median(durations) / 1e3 if durations else 0,
+            "p95": percentile(durations, 0.95) / 1e3,
+            "max": max(durations, default=0) / 1e3,
+        }
     return result
 
 
@@ -120,7 +128,9 @@ def main():
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     ansi = re.compile(r"\x1b\[[0-9;]*m")
-    fields = re.compile(r"\b(completed_unix_ns|queue_ns|allocation_ns|read_ns|compute_ns|callback_ns|iteration|query_idx|length)=(\d+)")
+    fields = re.compile(
+        r"\b(completed_unix_ns|queue_ns|allocation_ns|read_ns|compute_ns|callback_ns|iteration|query_idx|length)=(\d+)"
+    )
     reads, compute, queries = [], [], []
     for line in args.log.read_text().splitlines():
         values = {key: int(value) for key, value in fields.findall(ansi.sub("", line))}
@@ -137,9 +147,12 @@ def main():
             queries.append(values)
     if not reads or not compute or not queries:
         parser.error("log needs completed reads, compute events, and query callback windows after warmup")
-    result = {"log": str(args.log), "warmup": args.warmup,
-              "scope": "Vortex compute-step wall time; running IO includes buffer allocation; pread excludes it",
-              "queries": [summarize(reads, compute, query) for query in queries]}
+    result = {
+        "log": str(args.log),
+        "warmup": args.warmup,
+        "scope": "Vortex compute-step wall time; running IO includes buffer allocation; pread excludes it",
+        "queries": [summarize(reads, compute, query) for query in queries],
+    }
     encoded = json.dumps(result, indent=2) + "\n"
     if args.output:
         args.output.write_text(encoded)
