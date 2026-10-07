@@ -450,23 +450,13 @@ impl FileSource for VortexSource {
         output_ordering: Option<LexOrdering>,
         config: &FileScanConfig,
     ) -> DFResult<Option<FileScanConfig>> {
-        // When an external index has already picked a few rows of every file, splitting a file
-        // into byte ranges only makes each partition open it to find that most ranges hold none
-        // of those rows. Keep such files whole; they are already spread across file groups.
-        let all_sparse = config
-            .file_groups
-            .iter()
-            .flat_map(|group| group.files())
-            .all(|file| {
-                file.extensions
-                    .get::<VortexAccessPlan>()
-                    .and_then(VortexAccessPlan::selection)
-                    .is_some_and(is_sparse_selection)
-            });
-        if all_sparse {
+        // `None` keeps the file groups as planned, so each file is read whole by one partition.
+        if every_file_has_sparse_selection(config) {
             return Ok(None);
         }
 
+        // Otherwise behave like DataFusion's default, which an override cannot call: split large
+        // files into byte ranges spread across `target_partitions`.
         let Some(file_groups) = FileGroupPartitioner::new()
             .with_target_partitions(target_partitions)
             .with_repartition_file_min_size(repartition_file_min_size)
@@ -588,12 +578,30 @@ impl FileSource for VortexSource {
     }
 }
 
+/// Whether an external index has picked at most [`SPARSE_SELECTION_MAX_ROWS`] rows of every
+/// file in the scan.
+///
+/// Splitting such a file into byte ranges makes every partition open it and plan a scan, only for
+/// most of them to find none of the selected rows in their range.
+fn every_file_has_sparse_selection(config: &FileScanConfig) -> bool {
+    config
+        .file_groups
+        .iter()
+        .flat_map(|group| group.files())
+        .all(|file| {
+            file.extensions
+                .get::<VortexAccessPlan>()
+                .and_then(VortexAccessPlan::selection)
+                .is_some_and(is_sparse_selection)
+        })
+}
+
 /// Selections of at most this many rows (one batch) are read by a single partition: opening the
 /// file once per byte range costs more than reading them. Larger selections scattered across the
 /// file still gain from splitting it across partitions.
 const SPARSE_SELECTION_MAX_ROWS: u64 = 8_192;
 
-/// Whether `selection` includes few enough rows that splitting its file buys nothing.
+/// Whether `selection` includes at most [`SPARSE_SELECTION_MAX_ROWS`] rows.
 fn is_sparse_selection(selection: &Selection) -> bool {
     match selection {
         Selection::IncludeByIndex(_) | Selection::IncludeRoaring(_) => {
