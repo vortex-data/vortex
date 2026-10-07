@@ -7,6 +7,8 @@
 #include "scalar_fn_pushdown.hpp"
 #include "spatial_overrides.hpp"
 #include "cast_pushdown.hpp"
+#include "optimizer.hpp"
+#include "table_function.hpp"
 #include "vortex_duckdb.h"
 
 #include "duckdb/catalog/catalog.hpp"
@@ -20,10 +22,14 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/optimizer/column_binding_replacer.hpp"
 #include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/operator/logical_projection.hpp"
 
 #include <cstring>
 #include <string>
@@ -151,6 +157,12 @@ extern "C" char *duckdb_vx_logical_type_stringify(duckdb_logical_type c_type) {
     return result;
 }
 
+extern "C" duckdb_logical_type duckdb_vx_create_variant() {
+    // The C API's duckdb_create_logical_type(DUCKDB_TYPE_VARIANT) lacks the VARIANT type info.
+    auto copy = make_uniq<LogicalType>(LogicalType::VARIANT());
+    return reinterpret_cast<duckdb_logical_type>(copy.release());
+}
+
 extern "C" duckdb_logical_type duckdb_vx_create_geometry(const char *crs) {
     D_ASSERT(crs);
     auto geom = (*crs == '\0') ? LogicalType::GEOMETRY() : LogicalType::GEOMETRY(std::string(crs));
@@ -276,8 +288,52 @@ static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<Lo
     plan = TryPushdownAggregateFunctions(input.context, std::move(plan));
 }
 
+// Whether `op` is a projection that only forwards columns of a Vortex scan with VARIANT columns,
+// e.g. the projection of a view over `read_vortex`.
+static bool IsVariantScanPassthrough(const LogicalOperator &op) {
+    if (op.type != LogicalOperatorType::LOGICAL_PROJECTION || op.children.size() != 1 ||
+        op.children[0]->type != LogicalOperatorType::LOGICAL_GET) {
+        return false;
+    }
+    const auto &get = op.children[0]->Cast<LogicalGet>();
+    if (!is_vortex_scan(get.function) || !IsPassthrough(op.Cast<LogicalProjection>())) {
+        return false;
+    }
+    for (const auto &type : get.returned_types) {
+        if (type.id() == LogicalTypeId::VARIANT) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// DuckDB pushes VARIANT field extraction into a scan only when it applies directly to the scan's
+// columns, not through a projection in between as with a view. Remove such pass-through
+// projections over Vortex scans, pointing their consumers at the scan's columns, so extraction
+// over views is pushed down too. The root operator is kept, as it defines the query result.
+static void InlineVariantScanPassthroughs(unique_ptr<LogicalOperator> &op, LogicalOperator &root) {
+    for (auto &child : op->children) {
+        if (IsVariantScanPassthrough(*child)) {
+            auto &projection = child->Cast<LogicalProjection>();
+            ColumnBindingReplacer replacer;
+            for (idx_t i = 0; i < projection.expressions.size(); i++) {
+                const auto &column = projection.expressions[i]->Cast<BoundColumnRefExpression>();
+                replacer.replacement_bindings.emplace_back(ColumnBinding(projection.table_index, i),
+                                                           column.binding);
+            }
+            unique_ptr<LogicalOperator> get = std::move(projection.children[0]);
+            replacer.stop_operator = get.get();
+            child = std::move(get);
+            replacer.VisitOperator(root);
+        } else {
+            InlineVariantScanPassthroughs(child, root);
+        }
+    }
+}
+
 static void VortexPreOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
     RestoreSpatialOverrides(input.context, *plan);
+    InlineVariantScanPassthroughs(plan, *plan);
 }
 
 struct VortexOptimizerExtension final : OptimizerExtension {

@@ -71,11 +71,26 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
             reader.columns[i].type = *reinterpret_cast<const LogicalType *>(type);
         }
 
+        // DuckDB's column mapping drops the path and type of fields extracted from VARIANT
+        // columns (PUSHDOWN_EXTRACT). The scan emits each extracted field as its own column, so
+        // map each one to a synthetic column of the extracted type.
+        vector<ColumnIndex> column_ids = global_column_ids;
+        for (idx_t i = 0; i < column_ids.size(); i++) {
+            if (!column_ids[i].IsPushdownExtract()) {
+                continue;
+            }
+            const idx_t synthetic = reader.columns.size();
+            reader.columns.push_back(MultiFileColumnDefinition::CreateFromNameAndType(
+                "__vortex_variant_extract_" + std::to_string(i),
+                column_ids[i].GetScanType()));
+            column_ids[i] = ColumnIndex(synthetic);
+        }
+
         // this prunes files for virtual columns like "file_index"
         const ReaderInitializeType base_skip = MultiFileReader::InitializeReader(reader_data,
                                                                                  bind_data,
                                                                                  reader.columns,
-                                                                                 global_column_ids,
+                                                                                 column_ids,
                                                                                  table_filters,
                                                                                  context,
                                                                                  gstate);
@@ -141,7 +156,28 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     const auto &hive_indices = bind_data.reader_bind.hive_partitioning_indexes;
 
     vector<idx_t> column_ids(input.column_indexes.size());
+    // Field paths of VARIANT fields to extract, kept alive for the FFI call below.
+    vector<vector<const char *>> extract_paths(input.column_indexes.size());
+    vector<duckdb_vx_extract> extracts(input.column_indexes.size(), duckdb_vx_extract {nullptr, 0, nullptr});
+    bool has_extracts = false;
     for (size_t i = 0; i < input.column_indexes.size(); ++i) {
+        const ColumnIndex &column = input.column_indexes[i];
+        if (column.IsPushdownExtract()) {
+            has_extracts = true;
+            for (const ColumnIndex *node = &column; node->HasChildren(); node = &node->GetChildIndex(0)) {
+                const ColumnIndex &child = node->GetChildIndex(0);
+                if (child.HasPrimaryIndex()) {
+                    throw BinderException("Vortex only extracts VARIANT fields by name");
+                }
+                extract_paths[i].push_back(child.GetFieldName().c_str());
+            }
+            extracts[i] = duckdb_vx_extract {
+                extract_paths[i].data(),
+                extract_paths[i].size(),
+                reinterpret_cast<duckdb_logical_type>(const_cast<LogicalType *>(&column.GetScanType())),
+            };
+        }
+
         idx_t storage_index = input.column_indexes[i].GetPrimaryIndex();
 
         if (SkipMultiFileReaderColumn(storage_index, filename_idx, hive_indices)) {
@@ -173,6 +209,7 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         .projection_ids_count = projection_ids_count,
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
         .client_context = reinterpret_cast<duckdb_client_context>(&context),
+        .extracts = has_extracts ? extracts.data() : nullptr,
     };
 
     duckdb_vx_error error_out = nullptr;

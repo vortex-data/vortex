@@ -135,6 +135,9 @@ unique_ptr<MultiFileReader> get_multi_file_reader(const TableFunction &) {
 }
 
 unique_ptr<BaseStatistics> VortexRowGroup::GetColumnStatistics(const StorageIndex &storage_index) {
+    if (storage_index.IsPushdownExtract()) {
+        return {};
+    }
     duckdb_column_statistics statistics = {};
     const idx_t idx = storage_index.GetPrimaryIndex();
     const void *const ffi_footer_ptr = ffi_footer->DataPtr();
@@ -209,7 +212,25 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
         return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
     };
 
-    fn.statistics = MultiFileFunction<VortexReaderInterface>::MultiFileScanStats;
+    // DuckDB pushes VARIANT field extraction (e.g. CAST(data.a.b AS VARCHAR)) into scans that
+    // support it, which Vortex serves with `variant_get` on the shredded Variant column. DuckDB
+    // only does so for scans that report statistics through `statistics_extended`.
+    fn.statistics = nullptr;
+    fn.statistics_extended = [](ClientContext &context,
+                                TableFunctionGetStatisticsInput &input) -> unique_ptr<BaseStatistics> {
+        if (input.column_index.IsPushdownExtract()) {
+            return nullptr;
+        }
+        return MultiFileFunction<VortexReaderInterface>::MultiFileScanStats(
+            context,
+            input.bind_data.get(),
+            input.column_index.GetPrimaryIndex());
+    };
+    fn.supports_pushdown_extract = [](const FunctionData &bind_data, const LogicalIndex &column) {
+        const auto &multi_file = bind_data.Cast<MultiFileBindData>();
+        return column.index < multi_file.types.size() &&
+               multi_file.types[column.index].id() == LogicalTypeId::VARIANT;
+    };
     fn.get_partition_stats = get_partition_stats;
     fn.get_multi_file_reader = get_multi_file_reader;
 

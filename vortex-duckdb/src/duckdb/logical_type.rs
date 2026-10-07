@@ -34,6 +34,7 @@ use crate::cpp::duckdb_union_type_member_count;
 use crate::cpp::duckdb_union_type_member_name;
 use crate::cpp::duckdb_union_type_member_type;
 use crate::cpp::duckdb_vx_create_geometry;
+use crate::cpp::duckdb_vx_create_variant;
 use crate::cpp::duckdb_vx_logical_type_copy;
 use crate::cpp::duckdb_vx_logical_type_stringify;
 use crate::cpp::idx_t;
@@ -220,6 +221,15 @@ impl LogicalType {
 
     pub fn date() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_DATE)
+    }
+
+    /// Creates a DuckDB VARIANT logical type.
+    pub fn variant() -> VortexResult<Self> {
+        let ptr = unsafe { duckdb_vx_create_variant() };
+        if ptr.is_null() {
+            vortex_bail!("Failed to create VARIANT logical type");
+        }
+        Ok(unsafe { Self::own(ptr) })
     }
 
     /// Creates a DuckDB GEOMETRY logical type with the given CRS (Coordinate Reference System).

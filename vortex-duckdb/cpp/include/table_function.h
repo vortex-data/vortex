@@ -22,6 +22,15 @@ typedef struct duckdb_vx_string_map_ *duckdb_vx_string_map;
 // Add a key-value pair to the string map
 void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, const char *value);
 
+// A VARIANT field DuckDB asks the scan to extract and emit directly (PUSHDOWN_EXTRACT).
+typedef struct {
+    // Object field names from the VARIANT column to the extracted field.
+    const char *const *path;
+    size_t path_len;
+    // The type to emit the extracted field as. Borrowed for the duration of the call.
+    duckdb_logical_type type;
+} duckdb_vx_extract;
+
 // Input data passed into the init_global and init_local callbacks.
 typedef struct {
     const void *bind_data;
@@ -50,6 +59,12 @@ typedef struct {
 
     duckdb_vx_table_filter_set filters;
     duckdb_client_context client_context;
+
+    /**
+     * Either NULL, or one entry per column_ids entry: the VARIANT field to extract for that
+     * column, or an entry with a NULL path for columns read in full.
+     */
+    const duckdb_vx_extract *extracts;
 } duckdb_vx_tfunc_init_input;
 
 // Result data returned from the cardinality callback.

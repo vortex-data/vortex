@@ -18,8 +18,11 @@ use vortex::expr::lit;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::expr::variant_get;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::fns::variant_get::VariantPath;
+use vortex::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -28,6 +31,7 @@ use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
+use crate::duckdb::VariantExtract;
 use crate::table_function::ColumnAggregate;
 
 // See MultiFileReader for constants
@@ -68,6 +72,8 @@ pub struct ProjectionInput<'a> {
     /// and decoding columns which are in column_ids but not in projection_ids.
     pub projection_ids: &'a [u64],
     pub column_fields: &'a [DuckdbField],
+    /// Empty, or for each of `column_ids` the VARIANT field to emit instead of the column.
+    pub extracts: &'a [Option<VariantExtract>],
 }
 
 impl Projection {
@@ -93,7 +99,7 @@ impl Projection {
                     // filter-only column needs to be emitted only for output
                     // vector position match, it will never be read
                     let dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-                    exprs.push(("file_row_number", lit(Scalar::null(dtype))));
+                    exprs.push(("file_row_number".to_owned(), lit(Scalar::null(dtype))));
                 }
                 continue;
             }
@@ -106,11 +112,36 @@ impl Projection {
             let column_field = &input.column_fields[field_idx];
             let name = column_field.name.as_str();
 
+            if let Some(extract) = input.extracts.get(column_pos).and_then(Option::as_ref) {
+                is_star = false;
+                // Several fields of one column may be extracted, so name each by its position.
+                let extract_name = format!("{name}#{column_pos}");
+                let expr = if is_projected(column_pos) {
+                    variant_get(
+                        get_item(name, root()),
+                        VariantPath::new(
+                            extract
+                                .path
+                                .iter()
+                                .map(|field| VariantPathElement::field(field.as_str())),
+                        ),
+                        Some(extract.dtype.clone()),
+                    )
+                } else {
+                    lit(Scalar::null(extract.dtype.as_nullable()))
+                };
+                exprs.push((extract_name, expr));
+                continue;
+            }
+
             if !is_projected(column_pos) {
                 is_star = false;
                 // filter-only column needs to be emitted only for output
                 // vector position match, it will never be read
-                exprs.push((name, lit(Scalar::null(column_field.dtype.as_nullable()))));
+                exprs.push((
+                    name.to_owned(),
+                    lit(Scalar::null(column_field.dtype.as_nullable())),
+                ));
                 continue;
             }
 
@@ -128,7 +159,7 @@ impl Projection {
                     func.clone()
                 }
             };
-            exprs.push((name, expr));
+            exprs.push((name.to_owned(), expr));
             real_column_count += 1;
         }
         // Duckdb can request less columns than there are in table i.e. [0, 1] with
@@ -143,7 +174,7 @@ impl Projection {
         }
         if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
-            exprs.insert(0, ("file_row_number", row_idx()));
+            exprs.insert(0, ("file_row_number".to_owned(), row_idx()));
         }
         Self {
             projection: pack(exprs, false.into()),
@@ -306,6 +337,7 @@ mod tests {
             column_ids: &ids,
             projection_ids: &[],
             column_fields: &fields,
+            extracts: &[],
         };
         assert_eq!(Projection::new(input.clone()).projection, root());
 
@@ -341,6 +373,7 @@ mod tests {
             column_ids: &[0, 1, 2],
             projection_ids: &[],
             column_fields: &fields,
+            extracts: &[],
         };
         assert_ne!(Projection::new(input).projection, root());
     }
@@ -353,6 +386,7 @@ mod tests {
             column_ids: &[0, 1, 2],
             projection_ids: &[0, 2],
             column_fields: &fields,
+            extracts: &[],
         };
         let projection = Projection::new(input).projection;
         let expected = pack(
@@ -369,6 +403,7 @@ mod tests {
             column_ids: &[FILE_ROW_NUMBER_COLUMN_IDX, 0],
             projection_ids: &[1],
             column_fields: &fields,
+            extracts: &[],
         };
         let result = Projection::new(input);
         let frn_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
@@ -386,6 +421,7 @@ mod tests {
             column_ids: &[0, FILE_ROW_NUMBER_COLUMN_IDX, 1],
             projection_ids: &[0, 1],
             column_fields: &fields,
+            extracts: &[],
         };
         let result = Projection::new(input);
         let expected = pack(

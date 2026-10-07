@@ -56,8 +56,11 @@ TableColumnStorageIndex GetAnalysis::StorageIndex(TableColumnScanIndex idx) cons
     return get.GetColumnIds()[idx].GetPrimaryIndex();
 }
 
+// Virtual columns and fields DuckDB extracts in the scan (PUSHDOWN_EXTRACT) are not plain
+// table columns, so Vortex's own pushdowns must leave them alone.
 static bool IsVirtualColumn(const GetAnalysis &analysis, TableColumnScanIndex idx) {
-    return analysis.get.GetColumnIds()[idx].IsVirtualColumn();
+    const ColumnIndex &column = analysis.get.GetColumnIds()[idx];
+    return column.IsVirtualColumn() || column.IsPushdownExtract();
 }
 
 std::optional<GetBinding> Resolve(ColumnBinding binding, Analyses &analyses, const Projections &projections) {

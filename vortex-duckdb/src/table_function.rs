@@ -252,6 +252,14 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 
     let column_ids = init_input.column_ids();
     let projection_ids = init_input.projection_ids();
+    let extracts = init_input.extracts()?;
+    // Filters on extracted VARIANT fields only prune (DuckDB plans none on them), so map those
+    // columns to a virtual id that filter conversion skips.
+    let filter_column_ids: Vec<u64> = column_ids
+        .iter()
+        .zip(&extracts)
+        .map(|(&id, extract)| if extract.is_some() { u64::MAX } else { id })
+        .collect();
 
     let Projection {
         projection,
@@ -261,6 +269,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
             column_ids,
             projection_ids,
             column_fields: &bind_data.columns,
+            extracts: &extracts,
         };
         Projection::new(input)
     } else {
@@ -269,7 +278,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 
     let filter = Filter::new(
         init_input.filters(),
-        column_ids,
+        &filter_column_ids,
         &bind_data.columns,
         &bind_data.filters,
         &bind_data.dtype,

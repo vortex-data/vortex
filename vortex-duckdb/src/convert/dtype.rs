@@ -256,7 +256,9 @@ impl TryFrom<&DType> for LogicalType {
             DType::Map(..) => vortex_bail!("Vortex Map isn't supported"),
             // TODO(connor): Union
             DType::Union(..) => vortex_bail!("Vortex Union isn't supported"),
-            DType::Variant(_) => vortex_bail!("Vortex Variant array aren't supported"),
+            // DuckDB reads fields of Variant columns by extracting them in the scan, see
+            // `VariantExtract`. Variant values themselves cannot be exported.
+            DType::Variant(_) => return LogicalType::variant(),
             DType::Extension(ext_dtype) => {
                 // Handle first-party extension types that have DuckDB equivalents.
                 if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
