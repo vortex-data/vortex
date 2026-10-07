@@ -96,3 +96,32 @@ fn all_valid_exclusive(bencher: Bencher, len: usize) {
                 .vortex_expect("try_new must succeed")
         });
 }
+
+/// Outlined ASCII strings in one buffer, with every other slot null.
+#[divan::bench(args = SIZES)]
+fn outlined_nullable_exclusive(bencher: Bencher, len: usize) {
+    let data = b"a string that is outlined";
+    let buffer = ByteBuffer::from(data.repeat(len));
+    let views: Vec<BinaryView> = (0..len)
+        .map(|i| {
+            let offset = u32::try_from(i * data.len()).vortex_expect("offset fits in u32");
+            BinaryView::make_view(data, 0, offset)
+        })
+        .collect();
+    let buffers: Arc<[ByteBuffer]> = Arc::new([buffer]);
+    let dtype = DType::Utf8(Nullability::Nullable);
+    bencher
+        .with_inputs(|| {
+            (
+                Buffer::copy_from(&views),
+                Arc::clone(&buffers),
+                dtype.clone(),
+                nullable_validity(len),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(views, buffers, dtype, validity, mut ctx)| {
+            VarBinViewArray::try_new(views, buffers, dtype, validity, &mut ctx)
+                .vortex_expect("try_new must succeed")
+        });
+}

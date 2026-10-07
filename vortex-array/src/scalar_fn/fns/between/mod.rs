@@ -197,7 +197,7 @@ impl Between {
         upper: ArrayRef,
         options: BetweenOptions,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Between.bind(options), vec![array, lower, upper])
+        ScalarFnArray::try_new(Between.bind(options), [array, lower, upper])
     }
 }
 

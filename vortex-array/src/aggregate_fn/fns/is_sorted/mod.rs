@@ -298,7 +298,7 @@ impl AggregateFnVTable for IsSorted {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
@@ -428,6 +428,10 @@ impl AggregateFnVTable for IsSorted {
 
         match batch {
             Columnar::Constant(c) => {
+                if c.is_empty() {
+                    return Ok(());
+                }
+
                 // Constant arrays are sorted but not strict sorted (if len > 1).
                 let value = c.scalar().clone().into_nullable();
                 if args.options.strict && c.len() > 1 {
@@ -597,6 +601,7 @@ mod tests {
     use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -753,6 +758,19 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn empty_constant_leaves_partial_empty() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = ConstantArray::new(Scalar::from(99i32), 0).into_array();
+        let options = IsSortedOptions { strict: false };
+        let mut acc = Accumulator::try_new(IsSorted, options, array.dtype().clone())?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert!(acc.partial_scalar()?.is_null());
+        Ok(())
+    }
+
     /// Merging an unsorted partial into a materialized empty one must keep the false verdict in
     /// both the finalized result and the partial scalar.
     #[test]
@@ -794,7 +812,7 @@ mod tests {
 
         let scalar = IsSorted.to_scalar(args, &partial)?;
         assert!(!scalar.is_null());
-        let parsed = IsSorted.partial_from_scalar(args, scalar)?;
+        let parsed = IsSorted.partial_from_scalar(args, &scalar)?;
         assert_eq!(
             IsSorted.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)

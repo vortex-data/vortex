@@ -13,6 +13,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -128,12 +129,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
         let array = vx_array::as_ref(array);
         let sink = unsafe { &mut *sink };
 
-        vortex_ensure!(
-            *array.dtype() == sink.dtype,
-            "array dtype {} does not match sink dtype {}",
-            array.dtype(),
-            sink.dtype
-        );
+        vortex_ensure_eq!(*array.dtype(), sink.dtype);
         RUNTIME
             .block_on(sink.sink.send(Ok(array.clone())))
             .map_err(|e| vortex_err!("Send error: {e}"))

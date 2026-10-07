@@ -4,7 +4,6 @@ description = "Datafusion benchmarks"
 authors = { workspace = true }
 categories = { workspace = true }
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -13,9 +12,6 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-
-[package.metadata.cargo-shear]
-ignored = ["vortex-cuda"]
 
 [[bin]]
 name = "datafusion-bench"
@@ -49,15 +45,11 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
-vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
 vortex-metrics = { workspace = true }
 
 [build-dependencies]
 custom-labels = { workspace = true }
-
-[features]
-cuda = ["dep:vortex-cuda"]
 
 [lints]
 workspace = true

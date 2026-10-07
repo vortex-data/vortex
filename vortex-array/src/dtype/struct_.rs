@@ -120,17 +120,22 @@ impl FieldDType {
 }
 
 impl FieldDTypeInner {
-    fn value(&self) -> VortexResult<DType> {
+    /// Returns a reference to the concrete DType, parsing and caching it if necessary.
+    fn value_ref(&self) -> VortexResult<&DType> {
         match &self {
-            FieldDTypeInner::Owned(owned) => Ok(owned.clone()),
+            FieldDTypeInner::Owned(owned) => Ok(owned),
             FieldDTypeInner::View(view, lock) => {
                 if let Some(dtype) = lock.get() {
-                    return Ok(dtype.clone());
+                    return Ok(dtype);
                 }
                 let parsed = DType::try_from(view.clone())?;
-                Ok(lock.get_or_init(|| parsed).clone())
+                Ok(lock.get_or_init(|| parsed))
             }
         }
+    }
+
+    fn value(&self) -> VortexResult<DType> {
+        self.value_ref().cloned()
     }
 }
 
@@ -405,6 +410,17 @@ impl StructFields {
             .dtypes
             .iter()
             .map(|dt| dt.value().vortex_expect("field DType must be valid"))
+    }
+
+    /// Returns an ordered iterator over references to the field dtypes.
+    ///
+    /// Unlike [`Self::fields`], this does not clone each [`DType`].
+    pub fn field_dtypes(&self) -> impl ExactSizeIterator<Item = &DType> + '_ {
+        self.0.dtypes.iter().map(|dt| {
+            dt.inner
+                .value_ref()
+                .vortex_expect("field DType must be valid")
+        })
     }
 
     /// Project a subset of fields from the struct

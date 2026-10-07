@@ -31,8 +31,8 @@ impl MaskReduce for ListView {
             array.dtype().as_nullable(),
             array.len(),
             array.data().clone(),
-        )
-        .with_slots(slots);
+            slots,
+        );
 
         // SAFETY: elements, offsets, sizes, and their metadata are unchanged. Masking only removes
         // valid rows, so the existing zero-copy-to-list guarantee still holds.

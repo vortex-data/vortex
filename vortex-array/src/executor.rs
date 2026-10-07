@@ -27,12 +27,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
@@ -277,7 +277,8 @@ impl ArrayRef {
             let expected_len = current_array.len();
             // Only the debug postcondition compares dtypes, so skip the clone otherwise.
             let expected_dtype = cfg!(debug_assertions).then(|| current_array.dtype().clone());
-            let stats = current_array.statistics().to_array_stats();
+            // Share the existing stats handle instead of cloning the set; uninitialised stats stay lazy.
+            let stats = current_array.statistics().share_existing();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -482,10 +483,9 @@ impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         trace_op!(record_single_step_start(&array));
 
-        if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            let output = Canonical::from(canonical).into_array();
-            trace_op!(record_single_step_applied("canonical", &array, &output));
-            return Ok(output);
+        if array.is::<AnyCanonical>() {
+            trace_op!(record_single_step_applied("canonical", &array, &array));
+            return Ok(array);
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 
@@ -625,8 +625,9 @@ fn finalize_done(
     };
 
     if cfg!(debug_assertions) {
-        vortex_ensure!(
-            output.len() == expected_len,
+        vortex_ensure_eq!(
+            output.len(),
+            expected_len,
             "Result length mismatch for {:?}",
             encoding_id
         );
@@ -657,12 +658,14 @@ fn execute_parent_for_child(
         for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
-                    vortex_ensure!(
-                        result.len() == parent.len(),
+                    vortex_ensure_eq!(
+                        result.len(),
+                        parent.len(),
                         "Executed parent canonical length mismatch"
                     );
-                    vortex_ensure!(
-                        result.dtype() == parent.dtype(),
+                    vortex_ensure_eq!(
+                        result.dtype(),
+                        parent.dtype(),
                         "Executed parent canonical dtype mismatch"
                     );
                 }

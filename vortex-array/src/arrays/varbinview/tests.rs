@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -140,4 +141,89 @@ pub fn deserialize_null_views() -> VortexResult<()> {
     assert_eq!(decoded.views()[0], views[0]);
     assert_eq!(decoded.views()[1], BinaryView::empty_view());
     Ok(())
+}
+
+/// Validates `views` into a single data buffer as nullable UTF-8.
+fn validate_utf8_views(
+    buffer: &[u8],
+    views: Vec<BinaryView>,
+    validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let buffers: Arc<[ByteBuffer]> = Arc::new([ByteBuffer::from(buffer.to_vec())]);
+    let views = Buffer::copy_from(views);
+    let dtype = DType::Utf8(Nullability::Nullable);
+
+    VarBinViewData::validate(&views, &buffers, &dtype, &validity, &mut ctx)
+}
+
+/// Makes a view of `buffer[start..end]` at buffer index 0.
+fn view_of(buffer: &[u8], start: usize, end: usize) -> BinaryView {
+    BinaryView::make_view(&buffer[start..end], 0, u32::try_from(start).unwrap())
+}
+
+#[test]
+pub fn validate_multibyte_utf8_views() -> VortexResult<()> {
+    let first = "zażółć gęślą jaźń";
+    let buffer = format!("{first}łódź pod mostem");
+    let buffer = buffer.as_bytes();
+
+    let views = vec![
+        view_of(buffer, 0, first.len()),
+        view_of(buffer, first.len(), buffer.len()),
+        BinaryView::new_inlined("żółw".as_bytes()),
+    ];
+
+    validate_utf8_views(buffer, views, Validity::AllValid)
+}
+
+#[rstest]
+#[case::whole(0, 18, true)]
+#[case::ascii_middle(2, 16, true)]
+#[case::starts_inside_char(1, 18, false)]
+#[case::ends_inside_char(0, 17, false)]
+pub fn validate_view_char_boundaries(
+    #[case] start: usize,
+    #[case] end: usize,
+    #[case] valid: bool,
+) {
+    // "ż" is two bytes, so the buffer is 18 bytes. The first view covers the whole buffer, so the
+    // second view is checked against a buffer range that is valid UTF-8 as a whole.
+    let buffer = "żaaaaaaaaaaaaaaż".as_bytes();
+    let views = vec![
+        view_of(buffer, 0, buffer.len()),
+        view_of(buffer, start, end),
+    ];
+
+    assert_eq!(
+        validate_utf8_views(buffer, views, Validity::AllValid).is_ok(),
+        valid
+    );
+}
+
+#[test]
+pub fn validate_ignores_invalid_utf8_outside_valid_views() -> VortexResult<()> {
+    let buffer = b"valid string one\xffvalid string two\xff\xfe\xfd garbage bytes";
+
+    let views = vec![
+        view_of(buffer, 0, 16),
+        view_of(buffer, 17, 33),
+        view_of(buffer, 33, buffer.len()),
+    ];
+    let validity = Validity::from_bit_buffer(
+        BitBuffer::from_iter([true, true, false]),
+        Nullability::Nullable,
+    );
+
+    validate_utf8_views(buffer, views, validity)
+}
+
+#[test]
+pub fn validate_rejects_invalid_utf8_in_valid_views() {
+    let buffer = b"valid string\xffmore bytes";
+    let views = vec![view_of(buffer, 0, buffer.len())];
+    assert!(validate_utf8_views(buffer, views, Validity::AllValid).is_err());
+
+    let views = vec![BinaryView::new_inlined(b"ab\xff")];
+    assert!(validate_utf8_views(buffer, views, Validity::AllValid).is_err());
 }

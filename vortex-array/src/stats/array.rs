@@ -4,6 +4,7 @@
 //! Stats as they are stored on arrays.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use parking_lot::RwLock;
 use vortex_array::ExecutionCtx;
@@ -32,10 +33,19 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
+/// Stats are created lazily on read or write.
 // TODO(adamg): This is a very bad name.
-#[derive(Clone, Default, Debug)]
+#[derive(Default, Debug)]
 pub struct ArrayStats {
-    inner: Arc<RwLock<StatsSet>>,
+    inner: OnceLock<Arc<RwLock<StatsSet>>>,
+}
+
+impl Clone for ArrayStats {
+    fn clone(&self) -> Self {
+        Self {
+            inner: OnceLock::from(Arc::clone(self.shared())),
+        }
+    }
 }
 
 /// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.
@@ -55,40 +65,62 @@ impl ArrayStats {
         }
     }
 
+    fn shared(&self) -> &Arc<RwLock<StatsSet>> {
+        self.inner.get_or_init(Default::default)
+    }
+
+    fn read<R>(&self, f: impl FnOnce(&StatsSet) -> R) -> R {
+        match self.inner.get() {
+            Some(shared) => f(&shared.read()),
+            None => f(&StatsSet::default()),
+        }
+    }
+
     pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.inner.write().set(stat, value);
+        self.shared().write().set(stat, value);
     }
 
     pub fn clear(&self, stat: Stat) {
-        self.inner.write().clear(stat);
+        if let Some(shared) = self.inner.get() {
+            shared.write().clear(stat);
+        }
     }
 
     pub fn retain(&self, stats: &[Stat]) {
-        self.inner.write().retain_only(stats);
+        if let Some(shared) = self.inner.get() {
+            shared.write().retain_only(stats);
+        }
     }
 }
 
 impl From<StatsSet> for ArrayStats {
     fn from(value: StatsSet) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(value)),
+            inner: OnceLock::from(Arc::new(RwLock::new(value))),
         }
     }
 }
 
 impl From<ArrayStats> for StatsSet {
     fn from(value: ArrayStats) -> Self {
-        value.inner.read().clone()
+        value.read(|stats| stats.clone())
     }
 }
 
 impl StatsSetRef<'_> {
     pub(crate) fn replace(&self, stats: StatsSet) {
-        *self.array_stats.inner.write() = stats;
+        if stats.is_empty() && self.array_stats.inner.get().is_none() {
+            return;
+        }
+        *self.array_stats.shared().write() = stats;
     }
 
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
-        let mut guard = self.array_stats.inner.write();
+        let mut iter = iter.peekable();
+        if iter.peek().is_none() {
+            return;
+        }
+        let mut guard = self.array_stats.shared().write();
         for (stat, value) in iter {
             guard.set(stat, value);
         }
@@ -97,28 +129,48 @@ impl StatsSetRef<'_> {
     /// Copy every statistic of `stats` into this set, overwriting existing entries, without
     /// cloning the source set. A no-op when both refer to the same stats or the source is empty.
     pub(crate) fn transfer_from(&self, stats: &ArrayStats) {
-        if Arc::ptr_eq(&self.array_stats.inner, &stats.inner) {
+        let Some(source) = stats.inner.get() else {
+            return;
+        };
+        if self
+            .array_stats
+            .inner
+            .get()
+            .is_some_and(|shared| Arc::ptr_eq(shared, source))
+        {
             return;
         }
-        let source = stats.inner.read();
+        let source = source.read();
         if source.is_empty() {
             return;
         }
-        let mut guard = self.array_stats.inner.write();
+        let mut guard = self.array_stats.shared().write();
         for (stat, value) in source.iter() {
             guard.set(*stat, value.clone());
         }
     }
 
     pub fn inherit_from(&self, stats: StatsSetRef<'_>) {
+        let Some(source) = stats.array_stats.inner.get() else {
+            return;
+        };
         // Only inherit if the underlying stats are different
-        if !Arc::ptr_eq(&self.array_stats.inner, &stats.array_stats.inner) {
+        if self
+            .array_stats
+            .inner
+            .get()
+            .is_none_or(|shared| !Arc::ptr_eq(shared, source))
+        {
             stats.with_iter(|iter| self.inherit(iter));
         }
     }
 
     pub fn inherit<'a>(&self, iter: impl Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) {
-        let mut guard = self.array_stats.inner.write();
+        let mut iter = iter.peekable();
+        if iter.peek().is_none() {
+            return;
+        }
+        let mut guard = self.array_stats.shared().write();
         for (stat, value) in iter {
             if !value.is_exact() {
                 if !guard.get(*stat).is_exact() {
@@ -131,32 +183,36 @@ impl StatsSetRef<'_> {
     }
 
     pub fn with_typed_stats_set<U, F: FnOnce(TypedStatsSetRef) -> U>(&self, apply: F) -> U {
-        apply(
-            self.array_stats
-                .inner
-                .read()
-                .as_typed_ref(self.dyn_array_ref.dtype()),
-        )
+        self.array_stats
+            .read(|stats| apply(stats.as_typed_ref(self.dyn_array_ref.dtype())))
     }
 
     pub fn with_mut_typed_stats_set<U, F: FnOnce(MutTypedStatsSetRef) -> U>(&self, apply: F) -> U {
         apply(
             self.array_stats
-                .inner
+                .shared()
                 .write()
                 .as_mut_typed_ref(self.dyn_array_ref.dtype()),
         )
     }
 
     pub fn to_owned(&self) -> StatsSet {
-        self.array_stats.inner.read().clone()
+        self.array_stats.read(|stats| stats.clone())
     }
 
     /// Returns a clone of the underlying [`ArrayStats`].
-    ///
-    /// Since [`ArrayStats`] uses `Arc` internally, this is a cheap reference-count increment.
     pub fn to_array_stats(&self) -> ArrayStats {
         self.array_stats.clone()
+    }
+
+    /// Share underlying stats if they exist or return a lazy instance
+    pub(crate) fn share_existing(&self) -> ArrayStats {
+        ArrayStats {
+            inner: match self.array_stats.inner.get() {
+                Some(shared) => OnceLock::from(Arc::clone(shared)),
+                None => OnceLock::new(),
+            },
+        }
     }
 
     pub fn with_iter<
@@ -166,8 +222,7 @@ impl StatsSetRef<'_> {
         &self,
         f: F,
     ) -> R {
-        let lock = self.array_stats.inner.read();
-        f(&mut lock.iter())
+        self.array_stats.read(|stats| f(&mut stats.iter()))
     }
 
     /// Returns the value of `stat` by either fetching it from cache if it exists and is [`Precision::Exact`], or falling back to
@@ -281,37 +336,56 @@ impl StatsSetRef<'_> {
     }
 
     pub fn compute_is_sorted(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
-        self.compute_as(Stat::IsSorted, ctx)
+        self.compute_bool(Stat::IsSorted, ctx)
     }
 
     pub fn compute_is_strict_sorted(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
-        self.compute_as(Stat::IsStrictSorted, ctx)
+        self.compute_bool(Stat::IsStrictSorted, ctx)
     }
 
     pub fn compute_is_constant(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
-        self.compute_as(Stat::IsConstant, ctx)
+        self.compute_bool(Stat::IsConstant, ctx)
     }
 
     pub fn compute_null_count(&self, ctx: &mut ExecutionCtx) -> Option<usize> {
-        self.compute_as(Stat::NullCount, ctx)
+        self.compute_usize(Stat::NullCount, ctx)
     }
 
     pub fn compute_uncompressed_size_in_bytes(&self, ctx: &mut ExecutionCtx) -> Option<usize> {
-        self.compute_as(Stat::UncompressedSizeInBytes, ctx)
+        self.compute_usize(Stat::UncompressedSizeInBytes, ctx)
+    }
+
+    /// Like [`Self::compute_as`], but reads a cached exact value without building a [`Scalar`].
+    fn compute_bool(&self, stat: Stat, ctx: &mut ExecutionCtx) -> Option<bool> {
+        // Bind the cached value first, so the read lock is released before any computation.
+        let cached = self.array_stats.read(|stats| stats.get_bool(stat));
+        if let Precision::Exact(value) = cached {
+            return Some(value);
+        }
+
+        self.compute_as(stat, ctx)
+    }
+
+    /// Like [`Self::compute_as`], but reads a cached exact value without building a [`Scalar`].
+    fn compute_usize(&self, stat: Stat, ctx: &mut ExecutionCtx) -> Option<usize> {
+        // Bind the cached value first, so the read lock is released before any computation.
+        let cached = self.array_stats.read(|stats| stats.get_usize(stat));
+        if let Precision::Exact(value) = cached {
+            return Some(value);
+        }
+
+        self.compute_as(stat, ctx)
     }
 }
 
 impl StatsProvider for StatsSetRef<'_> {
     fn get(&self, stat: Stat) -> Precision<Scalar> {
         self.array_stats
-            .inner
-            .read()
-            .as_typed_ref(self.dyn_array_ref.dtype())
-            .get(stat)
+            .read(|stats| stats.as_typed_ref(self.dyn_array_ref.dtype()).get(stat))
     }
 
     fn len(&self) -> usize {
-        self.array_stats.inner.read().len()
+        self.array_stats.read(|stats| stats.len())
     }
 }
 
@@ -319,9 +393,43 @@ impl StatsProvider for StatsSetRef<'_> {
 mod tests {
     use vortex_buffer::buffer;
 
+    use super::ArrayStats;
+    use super::StatsSet;
     use crate::IntoArray;
     use crate::expr::stats::Precision;
-    use crate::stats::Stat;
+    use crate::expr::stats::Stat;
+    use crate::scalar::ScalarValue;
+
+    #[test]
+    fn empty_stats() {
+        let stats = ArrayStats::default();
+        assert_eq!(StatsSet::from(stats).len(), 0);
+    }
+
+    #[test]
+    fn clone_stats() {
+        let stats = ArrayStats::default();
+        let copy = stats.clone();
+
+        stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(3u64)));
+        let through_copy = StatsSet::from(copy);
+        assert_eq!(
+            through_copy.get(Stat::NullCount),
+            Precision::exact(ScalarValue::from(3u64))
+        );
+    }
+
+    #[test]
+    fn clone_writes() {
+        let stats = ArrayStats::default();
+        let copy = stats.clone();
+
+        copy.set(Stat::NullCount, Precision::exact(ScalarValue::from(7u64)));
+        assert_eq!(
+            StatsSet::from(stats).get(Stat::NullCount),
+            Precision::exact(ScalarValue::from(7u64))
+        );
+    }
 
     #[test]
     fn transfer_from_copies_entries_without_touching_the_source() {

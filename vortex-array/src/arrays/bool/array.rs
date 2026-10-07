@@ -12,6 +12,7 @@ use vortex_buffer::BitBufferView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -188,9 +189,7 @@ impl Array<Bool> {
         let len = bits.len();
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new(bits, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) })
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -204,9 +203,7 @@ impl Array<Bool> {
         let dtype = DType::Bool(validity.nullability());
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) })
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -220,9 +217,7 @@ impl Array<Bool> {
         let slots = BoolData::make_slots(&validity, len);
         // SAFETY: caller guarantees validity length equals bit buffer length.
         let data = unsafe { BoolData::new_unchecked(bits, validity) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) }
     }
 
     /// Validates the components that would be used to create a [`BoolArray`].
@@ -274,10 +269,10 @@ impl BoolData {
     ) -> VortexResult<Self> {
         vortex_ensure!(offset < 8, "BitBuffer offset must be <8, got {}", offset);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "BoolArray of size {} cannot be built with validity of size {validity_len}",
+            vortex_ensure_eq!(
+                validity_len,
                 len,
+                "BoolArray validity length does not match array length",
             );
         }
 
@@ -314,10 +309,10 @@ impl BoolData {
         );
 
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == bits.len(),
-                "BoolArray of size {} cannot be built with validity of size {validity_len}",
-                bits.len()
+            vortex_ensure_eq!(
+                validity_len,
+                bits.len(),
+                "BoolArray validity length does not match array length",
             );
         }
 

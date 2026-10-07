@@ -4,12 +4,10 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Fuzzer for vortex arrays"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
 publish = false
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -28,6 +26,7 @@ cuda = ["vortex-cuda", "tokio"]
 # Always needed - arbitrary is used for input generation
 arbitrary = { workspace = true }
 itertools = { workspace = true }
+num-traits = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
@@ -54,6 +53,9 @@ vortex-cuda = { workspace = true, optional = true }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [lints]
 workspace = true

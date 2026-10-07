@@ -453,7 +453,7 @@ impl ReduceNode for ArrayReduceNode<'_> {
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
         let array = ScalarFnArray::try_new_with_len(
             scalar_fn,
-            children.iter().map(|c| c.array.as_ref().clone()).collect(),
+            children.iter().map(|c| c.array.as_ref().clone()),
             self.array.len(),
         )?;
         Ok(Self {

@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "A byte buffer implementation for Vortex"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -27,6 +25,8 @@ allocator-api2 = { workspace = true }
 arrow-buffer = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 itertools = { workspace = true }
 memmap2 = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

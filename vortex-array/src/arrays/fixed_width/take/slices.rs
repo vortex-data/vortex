@@ -7,6 +7,7 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::dtype::UnsignedPType;
@@ -47,9 +48,10 @@ pub(super) fn take_slices_constant_length<S: UnsignedPType>(
         .len()
         .checked_mul(length)
         .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    vortex_ensure_eq!(
+        computed_len,
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
     copy_slices(
         values,
@@ -72,9 +74,10 @@ fn copy_slices(
     let input_byte_len = record_count
         .checked_mul(byte_width)
         .ok_or_else(|| vortex_err!("Fixed-width values buffer length overflows usize"))?;
-    vortex_ensure!(
-        values.len() == input_byte_len,
-        "Fixed-width values buffer length does not match record count"
+    vortex_ensure_eq!(
+        values.len(),
+        input_byte_len,
+        "Fixed-width values buffer length does not match record count",
     );
 
     let output_byte_len = output_len
@@ -107,10 +110,10 @@ fn copy_slices(
 
     // SAFETY: The loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { result.set_len(cursor) };
-    vortex_ensure!(
-        result.len() == output_byte_len,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_byte_len}",
-        result.len()
+    vortex_ensure_eq!(
+        result.len(),
+        output_byte_len,
+        "PiecewiseSequenceArray expanded byte length does not match declared byte length",
     );
     Ok(result.freeze().into_byte_buffer())
 }

@@ -146,6 +146,23 @@ fn drifting_u32(len: u32) -> PrimitiveArray {
     PrimitiveArray::from_iter((0..len).map(|i| (i / 1024) * 1_000_000 + i % 100))
 }
 
+#[test]
+fn repeated_probe_across_sliced_chunks() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = drifting_u32(3000);
+    let encoded = FoR::encode_chunked(values.clone(), &mut ctx)?;
+    let values = values.into_array();
+    let sliced = encoded.into_array().slice(1000..2100)?;
+    let mut probe = sliced.repeated_probe();
+    for index in [1048, 24, 0, 1099, 23, 1047, 24] {
+        assert_eq!(
+            probe.execute_scalar(index, &mut ctx)?,
+            values.execute_scalar(index + 1000, &mut ctx)?
+        );
+    }
+    Ok(())
+}
+
 #[rstest]
 #[case::empty(PrimitiveArray::from_iter(Vec::<u32>::new()))]
 #[case::one(PrimitiveArray::from_iter([7u32]))]

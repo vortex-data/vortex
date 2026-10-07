@@ -34,6 +34,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex_arrow::ArrowSessionExt;
@@ -455,7 +456,7 @@ pub extern "C-unwind" fn vx_array_new_bool(
         let byte_len = bits.len();
 
         let slice = if bits.ptr.is_null() {
-            vortex_ensure!(byte_len == 0, "nonzero length but null pointer for view");
+            vortex_ensure_eq!(byte_len, 0, "nonzero length but null pointer for view");
             &[]
         } else {
             unsafe { std::slice::from_raw_parts(bits.ptr, byte_len) }

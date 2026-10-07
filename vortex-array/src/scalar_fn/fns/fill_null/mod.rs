@@ -16,11 +16,11 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::scalar::Scalar;
@@ -46,7 +46,7 @@ impl FillNull {
     ///
     /// Returns an error if the children have different lengths or incompatible dtypes.
     pub fn try_new(input: ArrayRef, fill_value: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), vec![input, fill_value])
+        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), [input, fill_value])
     }
 }
 
@@ -114,7 +114,8 @@ impl ScalarFnVTable for FillNull {
         );
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
+            let input = input.execute::<ArrayRef>(ctx)?;
+            return Ok(FillNull::try_new(input, fill_value)?.into_array());
         };
 
         match columnar {

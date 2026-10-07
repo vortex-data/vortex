@@ -41,8 +41,9 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
+use crate::ArrowExporter;
 use crate::executor::bool::to_arrow_bool;
 use crate::executor::byte::to_arrow_byte_array;
 use crate::executor::byte_view::to_arrow_byte_view;
@@ -126,6 +127,7 @@ impl ArrowArrayExecutor for ArrayRef {
 pub(crate) fn execute_arrow_naive(
     array: ArrayRef,
     data_type: Option<&DataType>,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -153,21 +155,27 @@ pub(crate) fn execute_arrow_naive(
         DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(array, ctx),
         DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(array, ctx),
         DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(array, ctx),
-        DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(array, ctx),
-        DataType::Utf8View => to_arrow_byte_view::<StringViewType>(array, ctx),
+        DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(array, exporter, ctx),
+        DataType::Utf8View => to_arrow_byte_view::<StringViewType>(array, exporter, ctx),
         // TODO(joe): pass down preferred
-        DataType::List(elements_field) => to_arrow_list::<i32>(array, elements_field, ctx),
-        // TODO(joe): pass down preferred
-        DataType::LargeList(elements_field) => to_arrow_list::<i64>(array, elements_field, ctx),
-        // TODO(joe): pass down preferred
-        DataType::FixedSizeList(elements_field, list_size) => {
-            to_arrow_fixed_list(array, *list_size, elements_field, ctx)
+        DataType::List(elements_field) => {
+            to_arrow_list::<i32>(array, elements_field, exporter, ctx)
         }
         // TODO(joe): pass down preferred
-        DataType::ListView(elements_field) => to_arrow_list_view::<i32>(array, elements_field, ctx),
+        DataType::LargeList(elements_field) => {
+            to_arrow_list::<i64>(array, elements_field, exporter, ctx)
+        }
+        // TODO(joe): pass down preferred
+        DataType::FixedSizeList(elements_field, list_size) => {
+            to_arrow_fixed_list(array, *list_size, elements_field, exporter, ctx)
+        }
+        // TODO(joe): pass down preferred
+        DataType::ListView(elements_field) => {
+            to_arrow_list_view::<i32>(array, elements_field, exporter, ctx)
+        }
         // TODO(joe): pass down preferred
         DataType::LargeListView(elements_field) => {
-            to_arrow_list_view::<i64>(array, elements_field, ctx)
+            to_arrow_list_view::<i64>(array, elements_field, exporter, ctx)
         }
         DataType::Struct(fields) => {
             let fields = if data_type.is_none() {
@@ -175,11 +183,11 @@ pub(crate) fn execute_arrow_naive(
             } else {
                 Some(fields)
             };
-            to_arrow_struct(array, fields, ctx)
+            to_arrow_struct(array, fields, exporter, ctx)
         }
         // TODO(joe): pass down preferred
         DataType::Dictionary(codes_type, values_type) => {
-            to_arrow_dictionary(array, codes_type, values_type, ctx)
+            to_arrow_dictionary(array, codes_type, values_type, exporter, ctx)
         }
         dt @ DataType::Decimal32(..) => to_arrow_decimal(array, dt, ctx),
         dt @ DataType::Decimal64(..) => to_arrow_decimal(array, dt, ctx),
@@ -187,13 +195,13 @@ pub(crate) fn execute_arrow_naive(
         dt @ DataType::Decimal256(..) => to_arrow_decimal(array, dt, ctx),
         // TODO(joe): pass down preferred
         DataType::RunEndEncoded(ends_type, values_type) => {
-            to_arrow_run_end(array, ends_type.data_type(), values_type, ctx)
+            to_arrow_run_end(array, ends_type.data_type(), values_type, exporter, ctx)
         }
         dt @ (DataType::Date32 | DataType::Date64) => to_arrow_date(array, dt, ctx),
         dt @ (DataType::Time32(_) | DataType::Time64(_)) => to_arrow_time(array, dt, ctx),
         dt @ DataType::Timestamp(..) => to_arrow_timestamp(array, dt, ctx),
         DataType::Map(entries_field, keys_sorted) => {
-            to_arrow_map(array, entries_field, *keys_sorted, ctx)
+            to_arrow_map(array, entries_field, *keys_sorted, exporter, ctx)
         }
         DataType::FixedSizeBinary(_)
         | DataType::Duration(_)
@@ -203,8 +211,9 @@ pub(crate) fn execute_arrow_naive(
         }
     }?;
 
-    vortex_ensure!(
-        arrow.len() == len,
+    vortex_ensure_eq!(
+        arrow.len(),
+        len,
         "Arrow array length does not match Vortex array length after conversion to {:?}",
         arrow
     );

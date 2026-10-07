@@ -65,6 +65,7 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// [`BitPackedArray`]: crate::BitPackedArray
 pub(super) fn stream_compare_fused<T, F>(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     rhs: T,
     nullability: Nullability,
     cmp: F,
@@ -78,7 +79,7 @@ where
     F: Fn(T, T) -> bool + Copy,
 {
     let len = array.len();
-    let bit_width = array.bit_width() as usize;
+    let bit_width = bit_width as usize;
     let offset = array.offset() as usize;
 
     // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar

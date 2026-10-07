@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -126,7 +127,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         Self::try_from_parts(parts)
     }
 
@@ -142,7 +143,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         unsafe { Self::from_parts_unchecked(parts) }
     }
 
@@ -173,17 +174,17 @@ pub(super) fn validate_entries(
         "MapArray entries must use vortex.listview encoding, got {}",
         entries.encoding_id()
     );
-    vortex_ensure!(
-        entries.len() == len,
-        "MapArray entries length {} does not match outer length {len}",
-        entries.len()
+    vortex_ensure_eq!(
+        entries.len(),
+        len,
+        "MapArray entries length does not match outer length",
     );
 
     let expected_dtype = expected_entries_dtype(map_dtype, nullability);
-    vortex_ensure!(
-        entries.dtype() == &expected_dtype,
-        "MapArray entries dtype {} does not match expected {expected_dtype}",
-        entries.dtype()
+    vortex_ensure_eq!(
+        entries.dtype(),
+        &expected_dtype,
+        "MapArray entries dtype does not match expected dtype",
     );
 
     Ok(())

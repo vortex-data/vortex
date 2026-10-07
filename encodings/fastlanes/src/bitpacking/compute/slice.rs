@@ -14,16 +14,20 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitWidthsView;
 use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+            return Ok(None);
+        };
         // We cannot access buffers (to slice the patches).
         if array.patches().is_some() {
             return Ok(None);
         }
 
-        Ok(Some(slice_bitpacked(array, range, None)?))
+        Ok(Some(slice_bitpacked(array, bit_width, range, None)?))
     }
 }
 
@@ -33,18 +37,22 @@ impl SliceKernel for BitPacked {
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+            return Ok(None);
+        };
         let patches = array
             .patches()
             .map(|p| p.slice(range.clone()))
             .transpose()?
             .flatten();
 
-        Ok(Some(slice_bitpacked(array, range, patches)?))
+        Ok(Some(slice_bitpacked(array, bit_width, range, patches)?))
     }
 }
 
 fn slice_bitpacked(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     range: Range<usize>,
     patches: Option<Patches>,
 ) -> VortexResult<ArrayRef> {
@@ -54,15 +62,15 @@ fn slice_bitpacked(
     let block_start = max(0, offset_start - offset);
     let block_stop = offset_stop.div_ceil(1024) * 1024;
 
-    let encoded_start = (block_start / 8) * array.bit_width() as usize;
-    let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+    let encoded_start = (block_start / 8) * bit_width as usize;
+    let encoded_stop = (block_stop / 8) * bit_width as usize;
 
     Ok(BitPacked::try_new(
         array.packed().slice(encoded_start..encoded_stop),
         array.dtype().as_ptype(),
         array.validity()?.slice(range.clone())?,
         patches,
-        array.bit_width(),
+        bit_width,
         range.len(),
         offset as u16,
     )?

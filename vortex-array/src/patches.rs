@@ -14,6 +14,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -246,10 +247,7 @@ impl Patches {
         values: ArrayRef,
         chunk_offsets: Option<ArrayRef>,
     ) -> VortexResult<Self> {
-        vortex_ensure!(
-            indices.len() == values.len(),
-            "Patch indices and values must have the same length"
-        );
+        vortex_ensure_eq!(indices.len(), values.len());
         vortex_ensure!(
             indices.dtype().is_unsigned_int() && !indices.dtype().is_nullable(),
             "Patch indices must be non-nullable unsigned integers, got {:?}",

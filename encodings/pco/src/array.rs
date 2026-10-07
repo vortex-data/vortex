@@ -52,6 +52,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -184,10 +185,13 @@ impl VTable for Pco {
             .iter()
             .map(|buffer| buffer.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -231,7 +235,7 @@ impl VTable for Pco {
             .iter()
             .map(|info| info.pages.len())
             .sum::<usize>();
-        vortex_ensure!(pages.len() == expected_n_pages);
+        vortex_ensure_eq!(pages.len(), expected_n_pages);
 
         let slots = PcoSlots {
             validity: validity_to_child(&validity, len),
@@ -241,7 +245,13 @@ impl VTable for Pco {
         // publishing the array.
         let data =
             unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -335,9 +345,7 @@ impl Pco {
             validity: validity_to_child(&validity, data.unsliced_n_rows()),
         }
         .into_slots();
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data, slots)) }
     }
 
     /// Compress a primitive array using pcodec.
@@ -399,18 +407,8 @@ impl PcoData {
     /// Validate dtype, validity, slice, and Pco component invariants.
     pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
         let _ = number_type_from_ptype(self.ptype);
-        vortex_ensure!(
-            dtype.as_ptype() == self.ptype,
-            "expected ptype {}, got {}",
-            self.ptype,
-            dtype.as_ptype()
-        );
-        vortex_ensure!(
-            dtype.nullability() == validity.nullability(),
-            "expected nullability {}, got {}",
-            validity.nullability(),
-            dtype.nullability()
-        );
+        vortex_ensure_eq!(dtype.as_ptype(), self.ptype);
+        vortex_ensure_eq!(dtype.nullability(), validity.nullability());
         vortex_ensure!(
             self.slice_start <= self.slice_stop && self.slice_stop <= self.unsliced_n_rows,
             "invalid slice range {}..{} for {} rows",
@@ -418,33 +416,18 @@ impl PcoData {
             self.slice_stop,
             self.unsliced_n_rows
         );
-        vortex_ensure!(
-            self.slice_stop - self.slice_start == len,
-            "expected len {len}, got {}",
-            self.slice_stop - self.slice_start
-        );
+        vortex_ensure_eq!(self.slice_stop - self.slice_start, len);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == self.unsliced_n_rows,
-                "expected validity len {}, got {}",
-                self.unsliced_n_rows,
-                validity_len
-            );
+            vortex_ensure_eq!(validity_len, self.unsliced_n_rows);
         }
-        vortex_ensure!(
-            self.chunk_metas.len() == self.metadata.chunks.len(),
-            "expected {} chunk metas, got {}",
-            self.metadata.chunks.len(),
-            self.chunk_metas.len()
-        );
-        vortex_ensure!(
-            self.pages.len()
-                == self
-                    .metadata
-                    .chunks
-                    .iter()
-                    .map(|chunk| chunk.pages.len())
-                    .sum::<usize>(),
+        vortex_ensure_eq!(self.chunk_metas.len(), self.metadata.chunks.len());
+        vortex_ensure_eq!(
+            self.pages.len(),
+            self.metadata
+                .chunks
+                .iter()
+                .map(|chunk| chunk.pages.len())
+                .sum::<usize>(),
             "page count does not match metadata"
         );
 
@@ -475,13 +458,13 @@ impl PcoData {
             self.unsliced_n_rows
         );
         if validity.definitely_no_nulls() {
-            vortex_ensure!(
-                n_values == self.unsliced_n_rows,
-                "Pco contains {n_values} values for {} non-null rows",
-                self.unsliced_n_rows
+            vortex_ensure_eq!(
+                n_values,
+                self.unsliced_n_rows,
+                "Pco value count must match the row count of a non-null array"
             );
         } else if validity.definitely_all_null() {
-            vortex_ensure!(n_values == 0, "Pco contains values for an all-null array");
+            vortex_ensure_eq!(n_values, 0, "Pco contains values for an all-null array");
         }
         Ok(())
     }

@@ -30,10 +30,12 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::FoRData;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
@@ -148,9 +150,11 @@ impl VTable for FoR {
             require_child!(array, array.references(), FoRSlots::REFERENCES => Primitive)
         };
         // The fused unpack reads a bit-packed child's buffers directly. Its chunks line up with
-        // the FoR chunks when the references are constant or the offsets match.
+        // the FoR chunks when the references are constant or the offsets match. It also needs a
+        // global bit width.
         let fused = array.encoded().as_opt::<BitPacked>().is_some_and(|bp| {
-            array.constant_reference().is_some() || bp.offset() == array.offset()
+            bp.bit_widths().is_global()
+                && (array.constant_reference().is_some() || bp.offset() == array.offset())
         });
         let array = if fused {
             array
@@ -190,7 +194,7 @@ impl FoR {
         let len = encoded.len();
         let data = FoRData::try_new(offset)?;
         let slots = smallvec![Some(encoded), Some(references)];
-        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data, slots))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.
@@ -212,27 +216,19 @@ fn validate_parts(
     len: usize,
 ) -> VortexResult<()> {
     vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
-    vortex_ensure!(
-        encoded.dtype() == dtype,
-        "FoR encoded dtype mismatch: expected {dtype}, got {}",
-        encoded.dtype()
-    );
-    vortex_ensure!(
-        encoded.len() == len,
-        "FoR encoded length mismatch: expected {len}, got {}",
-        encoded.len()
-    );
+    vortex_ensure_eq!(encoded.dtype(), dtype, "FoR encoded dtype mismatch");
+    vortex_ensure_eq!(encoded.len(), len, "FoR encoded length mismatch");
     let references_dtype = dtype.as_nonnullable();
-    vortex_ensure!(
-        references.dtype() == &references_dtype,
-        "FoR references dtype mismatch: expected {references_dtype}, got {}",
-        references.dtype()
+    vortex_ensure_eq!(
+        references.dtype(),
+        &references_dtype,
+        "FoR references dtype mismatch"
     );
     let num_chunks = num_chunks(offset, len);
-    vortex_ensure!(
-        references.len() == num_chunks,
-        "FoR expects {num_chunks} references, got {}",
-        references.len()
+    vortex_ensure_eq!(
+        references.len(),
+        num_chunks,
+        "FoR expects one reference per chunk"
     );
     Ok(())
 }

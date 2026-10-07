@@ -26,6 +26,7 @@ use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::BitWidthsView;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`](crate::BitPackedArray) and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -49,6 +50,9 @@ impl FilterKernel for BitPacked {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+            return Ok(None);
+        };
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
@@ -65,7 +69,8 @@ impl FilterKernel for BitPacked {
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
         let primitive =
             match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
-                let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
+                let (buffer, validity) =
+                    filter_primitive_without_patches::<U>(array, bit_width, values)?;
                 // reinterpret_cast for signed types.
                 let primitive = PrimitiveArray::new(buffer, validity);
                 if array.dtype().as_ptype().is_signed_int() {
@@ -108,9 +113,10 @@ impl FilterKernel for BitPacked {
 /// Returns a tuple of (values buffer, validity mask).
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     selection: &MaskValuesRef,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array.data(), selection.indices());
+    let values = filter_with_indices(array.data(), bit_width, selection.indices());
     let validity = array
         .validity()?
         .filter(&Mask::Values(MaskValuesRef::clone(selection)))?;
@@ -120,10 +126,11 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
 
 fn filter_with_indices<T: NativePType + BitPacking>(
     array: &BitPackedData,
+    bit_width: u8,
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
+    let bit_width = bit_width as usize;
     let mut values = BufferMut::with_capacity(indices.len());
 
     // Some re-usable memory to store per-chunk indices.

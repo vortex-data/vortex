@@ -19,6 +19,7 @@ use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::extension::build_polygon_storage;
 use crate::extension::coordinate::Dimension;
@@ -94,10 +95,10 @@ unsafe impl InputElement for GeometryRow {
 
     fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
         let mut geometries = Self::decode(array.slice(0..1)?, ctx)?;
-        vortex_ensure!(
-            geometries.len() == 1,
-            "a geometry batch constant must decode to one value, got {}",
+        vortex_ensure_eq!(
             geometries.len(),
+            1,
+            "a geometry batch constant must decode to one value",
         );
 
         Ok(geometries

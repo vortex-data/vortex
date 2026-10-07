@@ -43,6 +43,9 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         let Some(array) = batch.as_opt::<BitPacked>() else {
             return Ok(None);
         };
+        if !array.bit_widths().is_global() {
+            return Ok(None);
+        }
 
         let result = match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array, ctx)?

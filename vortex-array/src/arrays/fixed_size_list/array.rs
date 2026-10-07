@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -184,9 +185,10 @@ impl FixedSizeListData {
     ) -> VortexResult<()> {
         // If a validity array is present, it must be the same length as the fixed-size list array.
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                len == validity_len,
-                InvalidArgument: "validity with size {validity_len} does not match fixed-size list array size {len}",
+            vortex_ensure_eq!(
+                len,
+                validity_len,
+                InvalidArgument: "validity length does not match fixed-size list array size",
             );
         }
 
@@ -200,8 +202,9 @@ impl FixedSizeListData {
             return Ok(());
         }
 
-        vortex_ensure!(
-            len * list_size as usize == elements.len(),
+        vortex_ensure_eq!(
+            len * list_size as usize,
+            elements.len(),
             InvalidArgument: "the `elements` array has the incorrect number of elements to construct a \
                 `FixedSizeList[{list_size}] array of length {len}",
         );
@@ -260,9 +263,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = FixedSizeListData::build(elements, list_size, validity, len);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         }
     }
 
@@ -281,9 +282,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = FixedSizeListData::try_build(elements, list_size, validity, len)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         })
     }
 
@@ -306,9 +305,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         }
     }
 
