@@ -11,48 +11,9 @@ use std::ptr;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_mask::MaskValues;
-
-/// Invoke `f` with each `(word, word_start, word_len)` of the mask bitmap, where `word` holds
-/// the mask bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-pub(super) fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
-    let bits = mask.bit_buffer();
-    let unaligned = bits.unaligned_chunks();
-    let lead = unaligned.lead_padding();
-    let mut base = 0;
-
-    if let Some(prefix) = unaligned.prefix() {
-        let len = (64 - lead).min(mask.len());
-        f(prefix >> lead, base, len);
-        base += len;
-    }
-
-    for &word in unaligned.chunks() {
-        f(word, base, 64);
-        base += 64;
-    }
-
-    if let Some(suffix) = unaligned.suffix() {
-        let len = mask.len() - base;
-        f(suffix, base, len);
-        base += len;
-    }
-
-    debug_assert_eq!(base, mask.len());
-}
-
-/// A `u64` with the low `len` bits set.
-#[inline]
-pub(super) fn low_bits_mask(len: usize) -> u64 {
-    debug_assert!(len <= 64);
-    if len == 64 {
-        u64::MAX
-    } else {
-        (1u64 << len) - 1
-    }
-}
 
 /// Filter a slice from the mask bitmap without materializing indices or ranges.
 pub(super) fn filter_slice_by_bitmap<T: Copy>(
@@ -72,7 +33,7 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
     let spare = out.spare_capacity_mut();
     let mut write_pos = 0;
 
-    for_each_mask_word(mask, |word, word_start, word_len| {
+    for_each_mask_word(mask.bit_buffer(), |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {
@@ -148,7 +109,7 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
     let ptr = slice.as_mut_ptr();
     let mut write_pos = 0;
 
-    for_each_mask_word(mask, |word, word_start, word_len| {
+    for_each_mask_word(mask.bit_buffer(), |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {

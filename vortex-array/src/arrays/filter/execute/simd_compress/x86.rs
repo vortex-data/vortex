@@ -34,10 +34,10 @@ use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
 
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_mask::MaskValues;
 
-use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::generic::compress_generic_8;
@@ -174,7 +174,7 @@ macro_rules! avx512_compress_kernel {
             mask: &MaskValues,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(mask.bit_buffer(), |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
@@ -416,7 +416,7 @@ macro_rules! avx2_compress_kernel {
             mask: &MaskValues,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(mask.bit_buffer(), |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)

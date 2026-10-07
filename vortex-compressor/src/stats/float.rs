@@ -4,7 +4,6 @@
 //! Float compression statistics.
 
 use std::hash::Hash;
-use std::iter;
 
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
@@ -18,10 +17,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
+use super::chunks::count_transitions;
+use super::chunks::for_each_chunk;
 
 /// Information about the distinct values in a float array.
 #[derive(Debug, Clone)]
@@ -222,26 +222,15 @@ where
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
-    // Chunks of 64 values, with the trailing values padded into a last chunk whose padding is null.
-    let (chunks, remainder) = buff.as_chunks::<64>();
-    let mut last = [prev; 64];
-    last[..remainder.len()].copy_from_slice(remainder);
-    let mut process = |chunk: &[T; 64], valid: u64| match valid {
+    // The nulls before the head are skipped, so the loop can start at 0.
+    for_each_chunk(buff.as_slice(), &validity, |chunk, valid| match valid {
         // All nulls -> no stats to update.
         0 => {}
         u64::MAX => {
             if count_distinct_values {
                 distinct_values.extend(chunk.iter().map(|&value| NativeValue(value)));
             }
-            // Branch-free count of value changes, including the change from the previous chunk.
-            // At most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
-            let transitions = u8::from(chunk[0] != prev)
-                + chunk
-                    .iter()
-                    .zip(&chunk[1..])
-                    .map(|(a, b)| u8::from(a != b))
-                    .sum::<u8>();
-            runs += u32::from(transitions);
+            runs += u32::from(count_transitions(&prev, chunk));
             prev = chunk[63];
         }
         // Floats are not forward filled like integers, since a filled NaN would add a run.
@@ -259,30 +248,10 @@ where
             if count_distinct_values {
                 distinct_values.extend(gathered.iter().map(|&value| NativeValue(value)));
             }
-            let transitions = u8::from(gathered[0] != prev)
-                + gathered
-                    .iter()
-                    .zip(&gathered[1..])
-                    .map(|(a, b)| u8::from(a != b))
-                    .sum::<u8>();
-            runs += u32::from(transitions);
+            runs += u32::from(count_transitions(&prev, gathered));
             prev = gathered[n - 1];
         }
-    };
-    // The nulls before the head are skipped, so the loop can start at 0.
-    match validity.bit_buffer() {
-        AllOr::All => {
-            chunks.iter().for_each(|chunk| process(chunk, u64::MAX));
-            process(&last, (1 << remainder.len()) - 1);
-        }
-        AllOr::None => unreachable!("All invalid arrays have been handled before"),
-        // One validity word per chunk, where the padded last word covers the trailing values.
-        AllOr::Some(bits) => chunks
-            .iter()
-            .chain(iter::once(&last))
-            .zip(bits.chunks().iter_padded())
-            .for_each(|(chunk, valid)| process(chunk, valid)),
-    }
+    });
 
     let null_count = u32::try_from(null_count)?;
     let value_count = u32::try_from(value_count)?;
@@ -303,6 +272,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -369,6 +340,7 @@ mod tests {
         #[values(1, 3, 64, 100)] run_len: u32,
         #[values(None, Some(97), Some(3))] null_every: Option<u32>,
         #[values(false, true)] null_chunks: bool,
+        #[values(0, 5)] mask_offset: usize,
     ) {
         let values: Vec<f64> = (0..len).map(|i| f64::from((i / run_len) % 16)).collect();
         let valid: Vec<bool> = (0..len)
@@ -392,7 +364,11 @@ mod tests {
 
         let validity = match null_every {
             None => Validity::NonNullable,
-            Some(_) => Validity::from(BitBuffer::from(valid)),
+            // A mask that starts mid-byte gives the chunk loop a short first word.
+            Some(_) => Validity::from(
+                BitBuffer::from_iter(iter::repeat_n(false, mask_offset).chain(valid))
+                    .slice(mask_offset..),
+            ),
         };
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let mut ctx = array_session().create_execution_ctx();

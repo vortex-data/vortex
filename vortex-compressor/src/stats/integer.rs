@@ -4,7 +4,6 @@
 //! Integer compression statistics.
 
 use std::hash::Hash;
-use std::iter;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
@@ -19,10 +18,11 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
+use super::chunks::count_transitions;
+use super::chunks::for_each_chunk;
 
 /// Information about the distinct values in an integer array.
 #[derive(Debug, Clone)]
@@ -392,32 +392,15 @@ where
         runs: 1,
     };
 
-    // Chunks of 64 values, with the trailing values padded into a last chunk whose padding is null.
-    let (chunks, remainder) = buffer.as_chunks::<64>();
-    let mut last = [head; 64];
-    last[..remainder.len()].copy_from_slice(remainder);
-    let mut process = |chunk: &[T; 64], valid: u64| match valid {
+    // The nulls before the head are skipped or filled with the head, so the loop can start at 0.
+    for_each_chunk(buffer.as_slice(), &validity, |chunk, valid| match valid {
         // All nulls -> no stats to update.
         0 => {}
         // Inner loop for when validity check can be elided.
         u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
         // Inner loop for when we need to check validity.
         _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
-    };
-    // The nulls before the head are skipped or filled with the head, so the loop can start at 0.
-    match validity.bit_buffer() {
-        AllOr::All => {
-            chunks.iter().for_each(|chunk| process(chunk, u64::MAX));
-            process(&last, (1 << remainder.len()) - 1);
-        }
-        AllOr::None => unreachable!("All invalid arrays have been handled before"),
-        // One validity word per chunk, where the padded last word covers the trailing values.
-        AllOr::Some(bits) => chunks
-            .iter()
-            .chain(iter::once(&last))
-            .zip(bits.chunks().iter_padded())
-            .for_each(|(chunk, valid)| process(chunk, valid)),
-    }
+    });
 
     if count_distinct_values {
         loop_state.flush();
@@ -607,14 +590,7 @@ fn inner_loop_nonnull_impl<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
-    // Branch-free count of value changes, including the change from the previous chunk. At
-    // most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
-    let transitions = u8::from(values[0] != state.prev)
-        + values
-            .iter()
-            .zip(&values[1..])
-            .map(|(a, b)| u8::from(a != b))
-            .sum::<u8>();
+    let transitions = count_transitions(&state.prev, values);
 
     if COUNT_DISTINCT_VALUES {
         if transitions == 0 {
@@ -830,6 +806,7 @@ mod tests {
         #[values(None, Some(97), Some(3))] null_every: Option<u32>,
         #[values(false, true)] null_chunks: bool,
         #[values(false, true)] count_distinct_values: bool,
+        #[values(0, 5)] mask_offset: usize,
     ) -> VortexResult<()> {
         let values: Vec<u32> = (0..len).map(|i| (i / run_len) % 16).collect();
         let valid: Vec<bool> = (0..len)
@@ -841,7 +818,11 @@ mod tests {
 
         let validity = match null_every {
             None => Validity::NonNullable,
-            Some(_) => Validity::from(BitBuffer::from(valid)),
+            // A mask that starts mid-byte gives the chunk loop a short first word.
+            Some(_) => Validity::from(
+                BitBuffer::from_iter(iter::repeat_n(false, mask_offset).chain(valid))
+                    .slice(mask_offset..),
+            ),
         };
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let mut ctx = array_session().create_execution_ctx();

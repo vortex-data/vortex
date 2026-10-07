@@ -10,6 +10,9 @@ use std::ops::BitOrAssign;
 use vortex_buffer::BitBuffer;
 
 use crate::lane_kernels::CHUNK_LEN;
+use crate::lane_kernels::mask_words::for_each_mask_word;
+use crate::lane_kernels::mask_words::low_bits_mask;
+use crate::lane_kernels::mask_words::try_for_each_mask_word;
 use crate::lane_kernels::source::IndexedSource;
 
 /// Extension trait providing out-of-place lane-kernel methods on any [`IndexedSource`].
@@ -91,28 +94,9 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         assert_eq!(len, mask.len(), "values and mask must have the same length");
         assert_eq!(out.len(), len, "out must have the same length as values");
 
-        let chunks = mask.chunks();
-        let chunks_count = len / 64;
-        let remainder = len % 64;
-
-        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-            if let Some(idx) = chunk(&values, out, &f, src_chunk, chunk_idx * 64, 64) {
-                return Err(idx);
-            }
-        }
-        if remainder != 0
-            && let Some(idx) = chunk(
-                &values,
-                out,
-                &f,
-                chunks.remainder_bits(),
-                chunks_count * 64,
-                remainder,
-            )
-        {
-            return Err(idx);
-        }
-        Ok(())
+        try_for_each_mask_word(mask, |src_chunk, base, count| {
+            chunk(&values, out, &f, src_chunk, base, count).map_or(Ok(()), Err)
+        })
     }
 
     /// Infallible map that writes `f(value)` for valid lanes and `R::default()` for null lanes.
@@ -161,12 +145,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
             }
 
             // Bits at or above `count` are outside the chunk and must not be visited.
-            let in_chunk = if count == 64 {
-                u64::MAX
-            } else {
-                (1u64 << count) - 1
-            };
-            let mut nulls = !src_chunk & in_chunk;
+            let mut nulls = !src_chunk & low_bits_mask(count);
             while nulls != 0 {
                 let idx = base + nulls.trailing_zeros() as usize;
                 // SAFETY: the bit index is below `count`, so idx < base + count <= out.len().
@@ -180,23 +159,9 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         assert_eq!(len, mask.len(), "values and mask must have the same length");
         assert_eq!(out.len(), len, "out must have the same length as values");
 
-        let chunks = mask.chunks();
-        let chunks_count = len / 64;
-        let remainder = len % 64;
-
-        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-            chunk(&values, out, &f, src_chunk, chunk_idx * 64, 64);
-        }
-        if remainder != 0 {
-            chunk(
-                &values,
-                out,
-                &f,
-                chunks.remainder_bits(),
-                chunks_count * 64,
-                remainder,
-            );
-        }
+        for_each_mask_word(mask, |src_chunk, base, count| {
+            chunk(&values, out, &f, src_chunk, base, count);
+        });
     }
 
     /// Apply `f(value)` lane-by-lane with **no validity awareness at all** — every

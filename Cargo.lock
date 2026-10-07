@@ -11639,6 +11639,7 @@ dependencies = [
  "tracing",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
  "vortex-mask",
  "vortex-session",
@@ -11658,6 +11659,7 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "rand 0.10.3",
+ "rstest",
  "vortex-bench-support",
  "vortex-buffer",
 ]

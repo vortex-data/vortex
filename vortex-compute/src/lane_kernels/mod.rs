@@ -11,6 +11,7 @@
 //!
 //! The module is split into:
 //!
+//! - [`mask_words`] — walks a mask one `u64` word at a time, for kernels over 64-lane blocks.
 //! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], and read-only adapters.
 //! - [`sink`] — the [`IndexedSink`] trait and [`ReinterpretSink`].
 //! - [`map_into`] — out-of-place kernels via [`IndexedSourceExt`] (writes into a
@@ -20,15 +21,19 @@
 //!
 //! The kernels never allocate. Both kernel families handle a mask with a non-byte-aligned
 //! offset and with a logical `len` shorter than the underlying byte buffer, via
-//! `BitBuffer::chunks`.
+//! [`for_each_mask_word`].
 
 pub mod map_in_place;
 pub mod map_into;
+pub mod mask_words;
 pub mod sink;
 pub mod source;
 
 pub use map_in_place::IndexedSinkExt;
 pub use map_into::IndexedSourceExt;
+pub use mask_words::for_each_mask_word;
+pub use mask_words::low_bits_mask;
+pub use mask_words::try_for_each_mask_word;
 pub use sink::IndexedSink;
 pub use sink::ReinterpretSink;
 pub use source::IndexedSource;
@@ -42,8 +47,6 @@ pub use source::LaneZip;
 /// results and only the codegen/tiling changes. Vary it to tune performance.
 ///
 /// It does **not** apply to the masked or bit-packed kernels: those consume one
-/// [`BitBuffer::chunks`] u64 validity word per chunk and pack per-lane fail bits
+/// u64 validity word per chunk from [`for_each_mask_word`] and pack per-lane fail bits
 /// with `<< bit_idx` into a `u64`, so their chunk length is locked to 64.
-///
-/// [`BitBuffer::chunks`]: vortex_buffer::BitBuffer::chunks
 pub(crate) const CHUNK_LEN: usize = 64;
