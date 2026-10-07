@@ -240,6 +240,17 @@ extensions_options! {
         /// with `SET vortex.scan_concurrency = <n>`, or per table with
         /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
+        /// Whether DataFusion drives each file split by split, through its experimental
+        /// morsel-driven scan API.
+        ///
+        /// When enabled, every row split of a file becomes its own unit of work: DataFusion
+        /// applies limits between splits, and a dynamic filter that rules out the rest of a file
+        /// stops its remaining splits from starting. When disabled, each file is read as one
+        /// stream. Only the V1 scan reads split by split: with `scan_v2`, each file is still one
+        /// unit of work.
+        ///
+        /// Disabled by default.
+        pub morsel_scan: bool, default = false
     }
 }
 
