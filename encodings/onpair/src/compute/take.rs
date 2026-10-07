@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Take that **shares the dictionary**, mirroring the filter kernel.
-//!
-//! Without it, taking a few rows (for example through a dictionary layout's codes) decodes every
-//! string in the array first. Here only the selected rows' token runs are gathered; the pair
-//! dictionary is reused unchanged, so decoding later touches just the taken rows.
-
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
