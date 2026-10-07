@@ -28,6 +28,8 @@ mod format;
 pub mod metrics;
 mod morsel;
 mod opener;
+#[cfg(feature = "proto")]
+mod proto;
 pub mod reader;
 mod sink;
 mod sort;
@@ -38,6 +40,8 @@ pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;
+#[cfg(feature = "proto")]
+pub use proto::VortexPhysicalExtensionCodec;
 pub use sink::VortexSink;
 pub use source::VortexSource;
 

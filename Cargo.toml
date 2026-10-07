@@ -153,6 +153,8 @@ datafusion-physical-expr = { version = "55.0.0" }
 datafusion-physical-expr-adapter = { version = "55.0.0" }
 datafusion-physical-expr-common = { version = "55.0.0" }
 datafusion-physical-plan = { version = "55.0.0" }
+datafusion-proto = { version = "55.0.0", default-features = false }
+datafusion-proto-models = { version = "55.0.0" }
 datafusion-pruning = { version = "55.0.0" }
 datafusion-sqllogictest = { version = "55.0.0" }
 divan = { package = "codspeed-divan-compat", version = "5.0.0" }

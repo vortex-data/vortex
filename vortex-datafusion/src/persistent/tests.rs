@@ -1009,3 +1009,96 @@ async fn morsel_scan_matches_stream_scan(#[case] query: &str) -> anyhow::Result<
     assert_eq!(morsel, stream);
     Ok(())
 }
+
+/// A physical plan with Vortex scans survives a round trip through `datafusion-proto`: it
+/// decodes to the same plan and returns the same rows.
+#[cfg(feature = "proto")]
+#[rstest]
+#[case::filter_and_projection(
+    "SELECT a + 1 AS x FROM t WHERE a > 250 ORDER BY x",
+    "predicate: a@0 > 250"
+)]
+#[case::topk_read_order(
+    "SELECT a FROM t ORDER BY a DESC NULLS LAST LIMIT 3",
+    "read_order: [a@0 DESC NULLS LAST], reverse_splits"
+)]
+#[case::inferred_ordering(
+    "SELECT a FROM morsel ORDER BY a LIMIT 4",
+    "output_ordering=[a@0 ASC NULLS LAST]"
+)]
+#[case::table_options("SELECT count(*), sum(a) FROM morsel WHERE b < 3", "file_type=vortex")]
+#[tokio::test]
+async fn physical_plan_proto_round_trip(
+    #[case] query: &str,
+    #[case] scan_detail: &str,
+) -> anyhow::Result<()> {
+    use datafusion::physical_plan::collect;
+    use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
+    use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
+
+    use crate::VortexPhysicalExtensionCodec;
+
+    let ctx = TestSessionContext::default();
+    register_dynamic_filter_table(&ctx, 5).await?;
+    register_morsel_tables(&ctx).await?;
+
+    let plan = ctx.session.sql(query).await?.create_physical_plan().await?;
+    let codec = VortexPhysicalExtensionCodec::default();
+    let bytes = physical_plan_to_bytes_with_extension_codec(Arc::clone(&plan), &codec)?;
+    let task_ctx = ctx.session.task_ctx();
+    let decoded = physical_plan_from_bytes_with_extension_codec(&bytes, &task_ctx, &codec)?;
+
+    let display = |plan: &Arc<dyn datafusion_physical_plan::ExecutionPlan>| {
+        DisplayableExecutionPlan::new(plan.as_ref())
+            .indent(true)
+            .to_string()
+    };
+    assert!(display(&plan).contains(scan_detail), "{}", display(&plan));
+    assert_eq!(display(&decoded), display(&plan));
+
+    let expected = pretty_format_batches(&collect(plan, Arc::clone(&task_ctx)).await?)?;
+    let actual = pretty_format_batches(&collect(decoded, task_ctx).await?)?;
+    assert_eq!(actual.to_string(), expected.to_string());
+    Ok(())
+}
+
+/// Table options travel with a serialized Vortex scan.
+#[cfg(feature = "proto")]
+#[tokio::test]
+async fn physical_plan_proto_keeps_table_options() -> anyhow::Result<()> {
+    use datafusion::datasource::source::DataSourceExec;
+    use datafusion::physical_plan::ExecutionPlan;
+    use datafusion_datasource::file_scan_config::FileScanConfig;
+    use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
+    use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
+
+    use crate::VortexPhysicalExtensionCodec;
+    use crate::VortexSource;
+
+    let ctx = TestSessionContext::default();
+    register_morsel_tables(&ctx).await?;
+    let plan = ctx
+        .session
+        .sql("SELECT a FROM morsel")
+        .await?
+        .create_physical_plan()
+        .await?;
+    let codec = VortexPhysicalExtensionCodec::default();
+    let bytes = physical_plan_to_bytes_with_extension_codec(plan, &codec)?;
+    let decoded =
+        physical_plan_from_bytes_with_extension_codec(&bytes, &ctx.session.task_ctx(), &codec)?;
+
+    let mut scans = vec![];
+    let mut stack: Vec<Arc<dyn ExecutionPlan>> = vec![decoded];
+    while let Some(plan) = stack.pop() {
+        if let Some(exec) = plan.downcast_ref::<DataSourceExec>()
+            && let Some(config) = exec.data_source().downcast_ref::<FileScanConfig>()
+            && let Some(source) = config.file_source().downcast_ref::<VortexSource>()
+        {
+            scans.push(source.options().morsel_scan);
+        }
+        stack.extend(plan.children().into_iter().cloned());
+    }
+    assert_eq!(scans, [true]);
+    Ok(())
+}

@@ -29,16 +29,29 @@ datafusion-physical-expr = { workspace = true }
 datafusion-physical-expr-adapter = { workspace = true }
 datafusion-physical-expr-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
+datafusion-proto = { workspace = true, optional = true }
+datafusion-proto-models = { workspace = true, optional = true }
 datafusion-pruning = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 object_store = { workspace = true }
+prost = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
 vortex-arrow = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
+
+[features]
+# Serialize Vortex scans in DataFusion physical plans, for distributed engines.
+proto = [
+  "dep:datafusion-proto",
+  "dep:datafusion-proto-models",
+  "dep:prost",
+  "datafusion-datasource/proto",
+  "datafusion-physical-plan/proto",
+]
 
 [dev-dependencies]
 anyhow = { workspace = true }

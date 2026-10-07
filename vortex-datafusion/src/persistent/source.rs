@@ -209,7 +209,7 @@ pub struct VortexSource {
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
     /// Set by an inexact sort pushdown to read the most promising data first for a TopK.
-    read_order: Option<ReadOrder>,
+    pub(crate) read_order: Option<ReadOrder>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
@@ -414,6 +414,15 @@ impl FileSource for VortexSource {
             base_config,
             partition,
         )?))
+    }
+
+    #[cfg(feature = "proto")]
+    fn try_to_proto(
+        &self,
+        base: &FileScanConfig,
+        ctx: &datafusion_physical_plan::proto::ExecutionPlanEncodeCtx<'_>,
+    ) -> DFResult<Option<datafusion_proto_models::protobuf::PhysicalPlanNode>> {
+        self.scan_to_proto(base, ctx).map(Some)
     }
 
     fn create_morselizer(

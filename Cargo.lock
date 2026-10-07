@@ -3036,6 +3036,7 @@ dependencies = [
  "datafusion-physical-expr-adapter 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
  "datafusion-physical-plan 55.1.0",
+ "datafusion-proto-models",
  "datafusion-session 55.1.0",
  "flate2",
  "futures",
@@ -3093,6 +3094,7 @@ dependencies = [
  "datafusion-expr 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
  "datafusion-physical-plan 55.1.0",
+ "datafusion-proto-models",
  "datafusion-session 55.1.0",
  "futures",
  "itertools 0.15.0",
@@ -3158,6 +3160,7 @@ dependencies = [
  "datafusion-expr 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
  "datafusion-physical-plan 55.1.0",
+ "datafusion-proto-models",
  "datafusion-session 55.1.0",
  "futures",
  "object_store 0.13.2",
@@ -3204,6 +3207,7 @@ dependencies = [
  "datafusion-expr 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
  "datafusion-physical-plan 55.1.0",
+ "datafusion-proto-models",
  "datafusion-session 55.1.0",
  "futures",
  "object_store 0.13.2",
@@ -3341,6 +3345,8 @@ dependencies = [
  "datafusion-functions-aggregate-common 55.1.0",
  "datafusion-functions-window-common 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
+ "datafusion-proto-common",
+ "datafusion-proto-models",
  "indexmap 2.14.2",
  "itertools 0.15.0",
  "recursive",
@@ -3733,6 +3739,7 @@ dependencies = [
  "datafusion-expr-common 55.1.0",
  "datafusion-functions-aggregate-common 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
+ "datafusion-proto-models",
  "half",
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
@@ -3800,6 +3807,7 @@ dependencies = [
  "chrono",
  "datafusion-common 55.1.0",
  "datafusion-expr-common 55.1.0",
+ "datafusion-proto-models",
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
  "itertools 0.15.0",
@@ -3900,6 +3908,8 @@ dependencies = [
  "datafusion-functions-window-common 55.1.0",
  "datafusion-physical-expr 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
+ "datafusion-proto-common",
+ "datafusion-proto-models",
  "futures",
  "half",
  "hashbrown 0.17.1",
@@ -3911,6 +3921,54 @@ dependencies = [
  "pin-project-lite",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "datafusion-proto"
+version = "55.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f85dee73fa4bab473854d5715ab49b122f2236862291e3c5da582b44e0fd5f9"
+dependencies = [
+ "arrow 59.3.0",
+ "datafusion-catalog 55.1.0",
+ "datafusion-catalog-listing 55.1.0",
+ "datafusion-common 55.1.0",
+ "datafusion-datasource 55.1.0",
+ "datafusion-datasource-arrow 55.1.0",
+ "datafusion-datasource-csv 55.1.0",
+ "datafusion-datasource-json 55.1.0",
+ "datafusion-execution 55.1.0",
+ "datafusion-expr 55.1.0",
+ "datafusion-functions-table 55.1.0",
+ "datafusion-physical-expr 55.1.0",
+ "datafusion-physical-expr-common 55.1.0",
+ "datafusion-physical-plan 55.1.0",
+ "datafusion-proto-common",
+ "datafusion-proto-models",
+ "object_store 0.13.2",
+ "prost 0.14.4",
+]
+
+[[package]]
+name = "datafusion-proto-common"
+version = "55.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57901d70c724dab7cb604fea579f5324332244e3c400ff2d7c9b5fc065051437"
+dependencies = [
+ "arrow 59.3.0",
+ "datafusion-common 55.1.0",
+ "prost 0.14.4",
+]
+
+[[package]]
+name = "datafusion-proto-models"
+version = "55.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a574908455152a11abea49c7916cc8a504de946e5302c7e40bab632cbbcb9b2"
+dependencies = [
+ "datafusion-common 55.1.0",
+ "datafusion-proto-common",
+ "prost 0.14.4",
 ]
 
 [[package]]
@@ -11752,11 +11810,14 @@ dependencies = [
  "datafusion-physical-expr-adapter 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
  "datafusion-physical-plan 55.1.0",
+ "datafusion-proto",
+ "datafusion-proto-models",
  "datafusion-pruning 55.1.0",
  "futures",
  "insta",
  "itertools 0.14.0",
  "object_store 0.13.2",
+ "prost 0.14.4",
  "rstest",
  "tempfile",
  "tokio",
