@@ -39,11 +39,13 @@ use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Shared;
 use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
+use crate::arrays::shared::SharedArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
@@ -232,6 +234,33 @@ impl VTable for Dict {
         if !array.is_empty() {
             let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
             if !codes.validity()?.definitely_all_null() {
+                let values = array.values();
+                if array.len() <= values.len() / 4
+                    && matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+                {
+                    // Keep the decoded cache for batched scans of a shared dictionary. Only
+                    // very sparse selections should bypass it and decode selected values.
+                    let source = match values.as_opt::<Shared>() {
+                        Some(shared) if array.len() <= values.len() / 64 => {
+                            Some(shared.current_array_ref().clone())
+                        }
+                        Some(_) => None,
+                        None => Some(values.clone()),
+                    };
+                    if let Some(source) = source
+                        && source.as_opt::<AnyCanonical>().is_none()
+                    {
+                        // Sparse gathers should reach encoding-specific take kernels before
+                        // materializing the dictionary. Preserve an already populated cache.
+                        // SAFETY: execution preserves the codes, and Shared has the source dtype
+                        // and length, so the original dictionary's invariants still hold.
+                        let taken = unsafe {
+                            DictArray::new_unchecked(codes.into_array(), source.clone())
+                        };
+                        let canonical = taken.into_array().execute::<Canonical>(ctx)?.into_array();
+                        return canonical.append_to_builder(builder, ctx);
+                    }
+                }
                 // Decode the children without taking values to the full row count. The
                 // variable-binary builders gather directly through these dictionary codes.
                 let values = array
