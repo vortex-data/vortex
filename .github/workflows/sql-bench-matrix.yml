@@ -242,6 +242,9 @@ jobs:
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
+        env:
+          MATRIX_PRESET: ${{ inputs.matrix_preset }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -Eeu -o pipefail -x
 
@@ -250,6 +253,7 @@ jobs:
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             > comment.md
+          printf '\n---\n\n_Preset `%s` · [workflow run](%s)_\n' "$MATRIX_PRESET" "$RUN_URL" >> comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
@@ -259,9 +263,9 @@ jobs:
           file-path: comment.md
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
           # this action will *update* the comment instead of posting a new comment. The preset is
-          # part of the tag because presets overlap on benchmark ids (`pr` and `pr-compact` share
-          # nine) and can run concurrently, so a preset-less tag would let them clobber each other.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          # deliberately not part of the tag, so every preset that runs a benchmark updates the same
+          # comment and the latest run wins; the footer names the preset that produced it.
+          comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -271,7 +275,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
