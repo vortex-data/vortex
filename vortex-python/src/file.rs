@@ -25,6 +25,8 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::DEFAULT_COALESCE_TARGET_ROWS;
+use vortex::layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -235,9 +237,7 @@ impl PyVortexFile {
             builder = builder.with_limit(limit);
         }
 
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-        }
+        builder = builder.with_split_by(scan_split_by(batch_size));
 
         let schema = match schema {
             Some(schema) => schema,
@@ -310,11 +310,20 @@ fn scan_builder(
         builder = builder.with_row_indices(indices);
     }
 
-    if let Some(batch_size) = batch_size {
-        builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-    }
+    Ok(builder.with_split_by(scan_split_by(batch_size)))
+}
 
-    Ok(builder)
+/// Splits Python scans every `batch_size` rows when given, and otherwise at chunk boundaries
+/// coalesced up to [`DEFAULT_COALESCE_TARGET_ROWS`], so wide scans yield Arrow-sized batches
+/// rather than one small batch per chunk of the most finely chunked column.
+pub(crate) fn scan_split_by(batch_size: Option<usize>) -> SplitBy {
+    match batch_size {
+        Some(batch_size) => SplitBy::RowCount(batch_size),
+        None => SplitBy::LayoutCoalescing {
+            target_rows: DEFAULT_COALESCE_TARGET_ROWS,
+            max_rows: DEFAULT_MAX_SPLIT_ROWS,
+        },
+    }
 }
 
 pub struct PyIntoProjection(Expression);

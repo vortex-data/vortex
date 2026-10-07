@@ -74,3 +74,22 @@ def test_scanner_property_dataset_schema(vxfile: vx.VortexFile) -> None:
     assert vxfile.to_dataset().scanner().dataset_schema == pa.schema(
         [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
+
+
+def test_scan_coalesces_small_chunks(tmp_path) -> None:
+    # Wide string values chunk every few thousand rows; the scan merges those chunks into
+    # batches of at most 32Ki rows without changing the rows returned.
+    fname = str(tmp_path / "small_chunks.vortex")
+    n = 300_000
+    vx.io.write(
+        pa.table({"index": pa.array(range(n), type=pa.int64()), "string": [f"{x:0>120}" for x in range(n)]}),
+        fname,
+    )
+    vxf = vx.open(fname)
+
+    batches = list(vxf.scan().to_arrow())
+    assert len(batches) < len(vxf.splits())
+    assert all(batch.num_rows <= 32 * 1024 for batch in batches)
+    assert pa.Table.from_batches(batches).column("index").to_pylist() == list(range(n))
+
+    assert all(batch.num_rows <= 1_000 for batch in vxf.scan(batch_size=1_000).to_arrow())
