@@ -290,7 +290,7 @@ impl VTable for ParquetVariant {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -397,8 +397,9 @@ mod tests {
         )
     }
 
+    /// A session that can write and read files with every registered component.
     #[fixture]
-    fn parquet_variant_file_session() -> VortexResult<VortexSession> {
+    pub(crate) fn parquet_variant_file_session() -> VortexResult<VortexSession> {
         const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
 
         let session = vortex_array::array_session()

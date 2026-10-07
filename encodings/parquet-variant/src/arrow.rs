@@ -38,6 +38,7 @@ use vortex_session::registry::Id;
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
+use crate::array::parquet_core_storage;
 use crate::array::parquet_typed_value_from_logical_shredded;
 
 /// Arrow canonical extension name for Parquet Variant storage.
@@ -131,10 +132,7 @@ pub(crate) fn parquet_variant_for_export(
     let variant = executed
         .as_opt::<Variant>()
         .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
-    let core_storage = variant
-        .core_storage()
-        .clone()
-        .execute_until::<ParquetVariant>(ctx)?;
+    let core_storage = parquet_core_storage(variant.core_storage(), ctx)?;
     let parquet_core = core_storage
         .as_opt::<ParquetVariant>()
         .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant core storage"))?;

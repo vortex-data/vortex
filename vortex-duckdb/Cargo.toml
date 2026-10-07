@@ -51,9 +51,12 @@ opendal = ["vortex/opendal"]
 
 [dev-dependencies]
 anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
 geo-types = { workspace = true }
 jiff = { workspace = true }
+parquet-variant-compute = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }

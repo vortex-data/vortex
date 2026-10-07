@@ -11868,6 +11868,8 @@ name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
  "async-fs",
  "bindgen",
  "bitvec",
@@ -11882,6 +11884,7 @@ dependencies = [
  "num-traits",
  "object_store 0.13.2",
  "parking_lot",
+ "parquet-variant-compute",
  "paste",
  "reqwest 0.13.5",
  "rstest",

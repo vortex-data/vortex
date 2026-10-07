@@ -386,6 +386,26 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
     .into_array())
 }
 
+/// Resolves Variant core storage to its Parquet Variant encoding.
+///
+/// Compression rebuilds core storage as an unshredded canonical Variant over the compressed
+/// Parquet Variant, so unwrap any such layers.
+pub(crate) fn parquet_core_storage(
+    core_storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mut core = core_storage.clone().execute_until::<ParquetVariant>(ctx)?;
+    while !core.is::<ParquetVariant>() {
+        let unshredded_core = core
+            .as_opt::<Variant>()
+            .filter(|variant| variant.shredded().is_none())
+            .map(|variant| variant.core_storage().clone())
+            .ok_or_else(|| vortex_err!("Variant core storage is not Parquet Variant storage"))?;
+        core = unshredded_core.execute_until::<ParquetVariant>(ctx)?;
+    }
+    Ok(core)
+}
+
 /// Reconstructs one Parquet shredded field shell (`{value?, typed_value}`) from its canonical
 /// representation, the inverse of [`logical_shredded_from_parquet_field`].
 fn parquet_shredded_field_from_logical(
@@ -396,15 +416,14 @@ fn parquet_shredded_field_from_logical(
 
     // Partially shredded fields canonicalize to a nested Variant whose core storage holds the
     // residual `value` and whose own shredded tree holds the typed children.
-    if let Some(variant) = logical_field.as_opt::<Variant>() {
-        let core = variant
-            .core_storage()
-            .as_opt::<ParquetVariant>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
-                )
-            })?;
+    if logical_field.dtype().is_variant() {
+        let variant = logical_field.execute::<VariantArray>(ctx)?;
+        let core = parquet_core_storage(variant.core_storage(), ctx)?;
+        let core = core.as_opt::<ParquetVariant>().ok_or_else(|| {
+            vortex_err!(
+                "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
+            )
+        })?;
         let value = core.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
