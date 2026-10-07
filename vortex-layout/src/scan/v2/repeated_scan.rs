@@ -327,7 +327,9 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         self.execute_batch_splits(self.split_plans(row_range)?)
     }
 
-    pub(super) async fn execute_batches_pruned(
+    /// Like [`execute_batches`](Self::execute_batches), but first prunes the file's zone
+    /// statistics when `VORTEX_SCAN_FILE_PRUNING=1`.
+    pub async fn execute_batches_pruned(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {

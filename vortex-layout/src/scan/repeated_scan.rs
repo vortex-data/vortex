@@ -41,6 +41,8 @@ pub struct RepeatedScan<A: 'static + Send> {
     projection: BoundExpression,
     filter: Option<BoundExpression>,
     ordered: bool,
+    /// Whether to execute splits from the end of the file towards its start.
+    reverse_splits: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -109,6 +111,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             projection,
             filter,
             ordered,
+            reverse_splits: false,
             row_range,
             selection,
             splits,
@@ -117,6 +120,13 @@ impl<A: 'static + Send> RepeatedScan<A> {
             limit,
             dtype,
         }
+    }
+
+    /// Execute splits from the end of the file towards its start, see
+    /// [`ScanBuilder::with_reverse_splits`](crate::scan::scan_builder::ScanBuilder::with_reverse_splits).
+    pub fn with_reverse_splits(mut self, reverse_splits: bool) -> Self {
+        self.reverse_splits = reverse_splits;
+        self
     }
 
     pub fn execute(
@@ -179,6 +189,12 @@ impl<A: 'static + Send> RepeatedScan<A> {
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),
         });
+
+        let ranges: Box<dyn Iterator<Item = Range<u64>>> = if self.reverse_splits {
+            Box::new(ranges.collect::<Vec<_>>().into_iter().rev())
+        } else {
+            Box::new(ranges)
+        };
 
         for range in ranges {
             let row_mask = self.selection.row_mask(&range);

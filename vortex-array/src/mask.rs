@@ -10,10 +10,10 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::builtins::ArrayBuiltins;
 use crate::columnar::Columnar;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::validity::Validity;
 
 impl Executable for Mask {
     /// Executes a boolean array into a [`Mask`].
@@ -42,53 +42,20 @@ impl Executable for Mask {
     }
 }
 
-/// An adapter that coerces null elements of a boolean array to `false` before executing it into a
-/// [`Mask`]. Created by [`ArrayRef::null_as_false`].
-///
-/// Use for filter and pruning predicates over nullable data, where SQL semantics treat `NULL` as
-/// not matching.
+#[deprecated = "Use array.fill_null(false)?.execute::<Mask>(ctx)"]
 pub struct NullAsFalse(ArrayRef);
-
 impl ArrayRef {
-    /// Returns an adapter that treats null elements of this boolean array as `false` when executed
-    /// into a [`Mask`]. See [`NullAsFalse`].
+    #[deprecated = "Use array.fill_null(false)?.execute::<Mask>(ctx)"]
+    #[allow(deprecated)]
     pub fn null_as_false(self) -> NullAsFalse {
         NullAsFalse(self)
     }
 }
-
+#[allow(deprecated)]
 impl NullAsFalse {
-    /// Executes the boolean array into a [`Mask`], coercing null elements to `false`.
-    ///
-    /// Canonicalizes the (possibly lazy) array exactly once and folds validity into the value bits
-    /// with a single `AND` that reuses the value buffer when it is uniquely owned.
+    #[deprecated = "Use array.fill_null(false)?.execute::<Mask>(ctx)"]
     pub fn execute(self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
-        let array = self.0;
-        if !matches!(array.dtype(), DType::Bool(_)) {
-            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
-        }
-        // Non-nullable input needs no coercion; defer to the strict `Mask` execution.
-        if !array.dtype().is_nullable() {
-            return array.execute::<Mask>(ctx);
-        }
-
-        let len = array.len();
-        Ok(match array.execute::<Columnar>(ctx)? {
-            Columnar::Constant(c) => Mask::new(len, c.scalar().as_bool().value().unwrap_or(false)),
-            Columnar::Canonical(c) => {
-                let bool = c.into_array().execute::<BoolArray>(ctx)?;
-                match bool.as_ref().validity()? {
-                    Validity::NonNullable | Validity::AllValid => {
-                        Mask::from_buffer(bool.into_bit_buffer())
-                    }
-                    Validity::AllInvalid => Mask::new_false(len),
-                    Validity::Array(v) => {
-                        let validity_bits = v.execute::<BoolArray>(ctx)?.into_bit_buffer();
-                        Mask::from_buffer(bool.into_bit_buffer() & &validity_bits)
-                    }
-                }
-            }
-        })
+        self.0.fill_null(false)?.execute::<Mask>(ctx)
     }
 }
 
@@ -140,41 +107,6 @@ mod tests {
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
         let mask = array.fill_null(false)?.execute::<Mask>(&mut ctx())?;
         assert_eq!(mask, Mask::new_false(4));
-        Ok(())
-    }
-
-    #[test]
-    fn null_as_false_non_nullable() -> VortexResult<()> {
-        let array = BoolArray::from_iter([true, false, true]).into_array();
-        let mask = array.null_as_false().execute(&mut ctx())?;
-        assert_eq!(mask, Mask::from_iter([true, false, true]));
-        Ok(())
-    }
-
-    #[test]
-    fn null_as_false_treats_null_as_false() -> VortexResult<()> {
-        let array = BoolArray::from_iter([Some(true), None, Some(false), None]).into_array();
-        let mask = array.null_as_false().execute(&mut ctx())?;
-        assert_eq!(mask, Mask::from_iter([true, false, false, false]));
-        Ok(())
-    }
-
-    #[test]
-    fn null_as_false_null_constant() -> VortexResult<()> {
-        let array =
-            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
-        let mask = array.null_as_false().execute(&mut ctx())?;
-        assert_eq!(mask, Mask::new_false(4));
-        Ok(())
-    }
-
-    #[test]
-    fn null_as_false_matches_fill_null_then_mask() -> VortexResult<()> {
-        let array =
-            BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]).into_array();
-        let via_fill_null = array.fill_null(false)?.execute::<Mask>(&mut ctx())?;
-        let via_coerce = array.null_as_false().execute(&mut ctx())?;
-        assert_eq!(via_coerce, via_fill_null);
         Ok(())
     }
 }

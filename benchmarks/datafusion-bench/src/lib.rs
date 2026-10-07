@@ -116,6 +116,7 @@ fn vortex_table_options() -> VortexTableOptions {
 
     opts.predicate_pushdown = true;
     opts.projection_pushdown = true;
+    opts.morsel_scan = std::env::var("VORTEX_DF_MORSEL_SCAN").is_ok_and(|v| v == "1");
 
     opts
 }

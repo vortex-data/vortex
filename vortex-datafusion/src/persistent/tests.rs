@@ -4,9 +4,12 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use arrow_schema::Field;
+use arrow_schema::Schema;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::util::display::array_value_to_string;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -676,5 +679,333 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
         &result
     );
 
+    Ok(())
+}
+
+/// Writes `files` Vortex files of a nullable `a` column under `/dyn/` and registers them as `t`.
+///
+/// File `f` holds `f * 100 + i` for `i` in `0..100`, with nulls wherever `i % 17 == 0`.
+async fn register_dynamic_filter_table(ctx: &TestSessionContext, files: i32) -> anyhow::Result<()> {
+    let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
+    for file in 0..files {
+        let values = (0..100).map(|i| (i % 17 != 0).then_some(file * 100 + i));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int32Array::from_iter(values))],
+        )?;
+        ctx.write_arrow_batch(format!("dyn/{file}.vortex"), &batch)
+            .await?;
+    }
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE t (a INT) STORED AS vortex LOCATION '/dyn/'")
+        .await?;
+    Ok(())
+}
+
+/// Runs `sql` and renders its single output column as comma-separated values.
+async fn query_values(ctx: &TestSessionContext, sql: &str) -> anyhow::Result<String> {
+    let batches = ctx.session.sql(sql).await?.collect().await?;
+    let mut values = vec![];
+    for batch in &batches {
+        let column = batch.column(0);
+        for row in 0..column.len() {
+            values.push(if column.is_null(row) {
+                "NULL".to_owned()
+            } else {
+                array_value_to_string(column, row)?
+            });
+        }
+    }
+    Ok(values.join(", "))
+}
+
+/// The scan accepts TopK dynamic filters and still returns the right rows, including nulls.
+#[rstest]
+#[case("ORDER BY a DESC NULLS LAST LIMIT 3", "499, 498, 497")]
+#[case("ORDER BY a ASC NULLS LAST LIMIT 3", "1, 2, 3")]
+#[case("ORDER BY a DESC NULLS FIRST LIMIT 3", "NULL, NULL, NULL")]
+#[case("ORDER BY a ASC NULLS FIRST OFFSET 29 LIMIT 3", "NULL, 1, 2")]
+#[tokio::test]
+async fn topk_dynamic_filter_pushdown(
+    #[case] order: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_dynamic_filter_table(&ctx, 5).await?;
+
+    let query = format!("SELECT a FROM t {order}");
+    let plan = ctx
+        .session
+        .sql(&query)
+        .await?
+        .create_physical_plan()
+        .await?;
+    let plan_str = DisplayableExecutionPlan::new(plan.as_ref())
+        .indent(true)
+        .to_string();
+    assert!(
+        plan_str.contains("predicate: DynamicFilter"),
+        "expected the scan to accept the dynamic filter:\n{plan_str}"
+    );
+
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// Hash join dynamic filters on the probe side keep the join result correct, whether or not
+/// their bounds are selective enough to be applied.
+#[rstest]
+// 151 and 17 are null in the table, and the bounds [17, 352] span most files.
+#[case("(150), (151), (352), (17)", "150, 352")]
+// Bounds [150, 152] skip all but one file's worth of values, so they are applied.
+#[case("(150), (152)", "150, 152")]
+#[tokio::test]
+async fn hash_join_dynamic_filter_pushdown(
+    #[case] build_values: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_dynamic_filter_table(&ctx, 5).await?;
+
+    let query =
+        format!("SELECT t.a FROM t JOIN (VALUES {build_values}) AS b(x) ON t.a = b.x ORDER BY t.a");
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// When the file's type differs from the table's, the expression adapter wraps the dynamic
+/// filter's columns in casts. The filter must still be handled rather than rejected by the scan.
+#[rstest]
+#[case("ORDER BY a DESC LIMIT 3", "499, 498, 497")]
+#[case("ORDER BY a ASC LIMIT 3", "1, 2, 3")]
+#[tokio::test]
+async fn topk_dynamic_filter_with_cast_column(
+    #[case] order: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    // Files store `a` as INT while this table declares BIGINT.
+    register_dynamic_filter_table(&ctx, 5).await?;
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE t_wide (a BIGINT) STORED AS vortex LOCATION '/dyn/'")
+        .await?;
+
+    let query = format!("SELECT a FROM t_wide WHERE a IS NOT NULL {order}");
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// A TopK over a column that isn't declared sorted is pushed down inexactly: the scan reads the
+/// most promising files first, and the TopK still produces exactly the right rows.
+#[rstest]
+#[case("ORDER BY a DESC LIMIT 3", "499, 498, 497", true)]
+#[case("ORDER BY a ASC LIMIT 3", "1, 2, 3", false)]
+#[case("ORDER BY a DESC, b ASC LIMIT 2", "499, 498", true)]
+#[tokio::test]
+async fn topk_inexact_sort_pushdown(
+    #[case] order: &str,
+    #[case] expected: &str,
+    #[case] reverse_splits: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Int32, false),
+        Field::new("b", DataType::Int32, false),
+    ]));
+    // Disjoint value ranges, written so that file names don't follow value order. Values are
+    // shuffled within each file so that the files have no known ordering.
+    for file in [3, 0, 4, 1, 2] {
+        let a = Int32Array::from_iter_values((0..100).map(|i| file * 100 + i * 37 % 100));
+        let b = Int32Array::from_iter_values((0..100).map(|i| i % 7));
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(a), Arc::new(b)])?;
+        ctx.write_arrow_batch(format!("sorted/{file}.vortex"), &batch)
+            .await?;
+    }
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE s (a INT NOT NULL, b INT NOT NULL) STORED AS vortex LOCATION '/sorted/'")
+        .await?;
+
+    let query = format!("SELECT a FROM s WHERE a > 0 {order}");
+    let plan = ctx
+        .session
+        .sql(&query)
+        .await?
+        .create_physical_plan()
+        .await?;
+    let plan_str = DisplayableExecutionPlan::new(plan.as_ref())
+        .indent(true)
+        .to_string();
+    assert!(
+        plan_str.contains("read_order: ["),
+        "expected an inexact sort pushdown:\n{plan_str}"
+    );
+    assert_eq!(
+        plan_str.contains("reverse_splits"),
+        reverse_splits,
+        "{plan_str}"
+    );
+
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// Writes five files of a sorted `a` column and an unsorted `b` column under `/ordered/` and
+/// registers them as `o`. Each file in `null_files` starts with five nulls in `a`. With
+/// `overlapping`, the files' value ranges overlap.
+async fn register_ordered_table(
+    ctx: &TestSessionContext,
+    nullable: bool,
+    null_files: &[i32],
+    overlapping: bool,
+) -> anyhow::Result<()> {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Int32, nullable),
+        Field::new("b", DataType::Int32, false),
+    ]));
+    let stride = if overlapping { 10 } else { 100 };
+    for file in [3, 0, 4, 1, 2] {
+        let has_nulls = null_files.contains(&file);
+        let a = (0..100).map(|i| (!has_nulls || i >= 5).then_some(file * stride + i));
+        let b = Int32Array::from_iter_values((0..100).map(|i| i % 7));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int32Array::from_iter(a)), Arc::new(b)],
+        )?;
+        ctx.write_arrow_batch(format!("ordered/{file}.vortex"), &batch)
+            .await?;
+    }
+    let a_type = if nullable { "INT" } else { "INT NOT NULL" };
+    ctx.session
+        .sql(&format!(
+            "CREATE EXTERNAL TABLE o (a {a_type}, b INT NOT NULL) STORED AS vortex LOCATION '/ordered/'"
+        ))
+        .await?;
+    Ok(())
+}
+
+async fn physical_plan_string(ctx: &TestSessionContext, sql: &str) -> anyhow::Result<String> {
+    let plan = ctx.session.sql(sql).await?.create_physical_plan().await?;
+    Ok(DisplayableExecutionPlan::new(plan.as_ref())
+        .indent(true)
+        .to_string())
+}
+
+/// Files whose columns the writer proved sorted declare that ordering, so a query sorting by it
+/// over files with disjoint ranges needs no sort at all.
+#[rstest]
+#[case::not_null(false, &[], "ORDER BY a LIMIT 3", "output_ordering=[a@0 ASC NULLS LAST]", "0, 1, 2")]
+#[case::nullable_without_nulls(true, &[], "ORDER BY a LIMIT 3", "output_ordering=[a@0 ASC NULLS LAST]", "0, 1, 2")]
+#[tokio::test]
+async fn inferred_file_ordering_removes_sort(
+    #[case] nullable: bool,
+    #[case] null_files: &[i32],
+    #[case] order: &str,
+    #[case] ordering: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_ordered_table(&ctx, nullable, null_files, false).await?;
+
+    let query = format!("SELECT a, b FROM o {order}");
+    let plan_str = physical_plan_string(&ctx, &query).await?;
+    assert!(plan_str.contains(ordering), "{plan_str}");
+    assert!(!plan_str.contains("SortExec"), "{plan_str}");
+
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// Queries the inferred file orderings cannot answer without sorting still sort correctly:
+/// columns with nulls, a descending sort, and files whose ranges overlap.
+#[rstest]
+// Each file's nulls come first, but files read one after another would interleave them with
+// values, so files with nulls must not declare an ordering.
+#[case::nulls_first(true, &[0, 1, 2, 3, 4], false, "ORDER BY a NULLS FIRST OFFSET 25 LIMIT 3", "5, 6, 7")]
+#[case::nulls_last(true, &[0, 1, 2, 3, 4], false, "ORDER BY a NULLS LAST LIMIT 3", "5, 6, 7")]
+#[case::descending(false, &[], false, "ORDER BY a DESC LIMIT 3", "499, 498, 497")]
+#[case::mixed_null_files(true, &[0], false, "ORDER BY a NULLS FIRST LIMIT 7", "NULL, NULL, NULL, NULL, NULL, 5, 6")]
+#[case::overlapping(false, &[], true, "ORDER BY a LIMIT 5", "0, 1, 2, 3, 4")]
+#[case::overlapping_desc(false, &[], true, "ORDER BY a DESC LIMIT 4", "139, 138, 137, 136")]
+#[tokio::test]
+async fn inferred_file_ordering_keeps_results_correct(
+    #[case] nullable: bool,
+    #[case] null_files: &[i32],
+    #[case] overlapping: bool,
+    #[case] order: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_ordered_table(&ctx, nullable, null_files, overlapping).await?;
+
+    assert_eq!(
+        query_values(&ctx, &format!("SELECT a FROM o {order}")).await?,
+        expected
+    );
+    Ok(())
+}
+
+/// Writes five files under `/morsel/`, each with four splits of 2,500 rows, and registers them
+/// twice: as `stream` read file by file, and as `morsel` read split by split.
+///
+/// File `f` holds `a = f * 10_000 + i`, so `a` is sorted within and across files, and
+/// `b = i % 7`.
+async fn register_morsel_tables(ctx: &TestSessionContext) -> anyhow::Result<()> {
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+    ));
+    for file in [3, 0, 4, 1, 2] {
+        let chunks = (0..4).map(|chunk| {
+            let rows = chunk * 2_500..(chunk + 1) * 2_500;
+            StructArray::try_new(
+                ["a", "b"].into(),
+                vec![
+                    Buffer::from_iter(rows.clone().map(|i| file * 10_000 + i)).into_array(),
+                    Buffer::from_iter(rows.map(|i| i % 7)).into_array(),
+                ],
+                2_500,
+                Validity::NonNullable,
+            )
+            .map(IntoArray::into_array)
+        });
+        let table = ChunkedArray::from_iter(chunks.collect::<Result<Vec<_>, _>>()?);
+        let path = format!("morsel/{file}.vortex").into();
+        let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &path).await?;
+        VortexSession::default()
+            .write_options()
+            .with_strategy(Arc::clone(&strategy))
+            .write(&mut writer, table.into_array().to_array_stream())
+            .await?;
+        writer.shutdown().await?;
+    }
+    for (table, morsel_scan) in [("stream", false), ("morsel", true)] {
+        ctx.session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE {table} (a INT NOT NULL, b INT NOT NULL) STORED AS vortex \
+                 LOCATION '/morsel/' OPTIONS(morsel_scan '{morsel_scan}')"
+            ))
+            .await?;
+    }
+    Ok(())
+}
+
+/// Reading files split by split returns the same rows as reading them file by file, through
+/// filters, limits, TopK dynamic filters and scans that must keep the files' order.
+#[rstest]
+#[case::aggregate("SELECT count(*), sum(a) FROM {t} WHERE b < 3")]
+#[case::selective_filter("SELECT a FROM {t} WHERE a % 1000 = 7 ORDER BY a")]
+#[case::limit("SELECT count(*) FROM (SELECT a FROM {t} LIMIT 7)")]
+#[case::filtered_limit("SELECT count(*) FROM (SELECT a FROM {t} WHERE b = 0 LIMIT 4000)")]
+#[case::topk("SELECT a, b FROM {t} ORDER BY a DESC LIMIT 5")]
+#[case::ordered("SELECT a FROM {t} ORDER BY a LIMIT 5 OFFSET 12500")]
+#[case::empty("SELECT a FROM {t} WHERE a < 0")]
+#[tokio::test]
+async fn morsel_scan_matches_stream_scan(#[case] query: &str) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_morsel_tables(&ctx).await?;
+
+    let stream = query_values(&ctx, &query.replace("{t}", "stream")).await?;
+    let morsel = query_values(&ctx, &query.replace("{t}", "morsel")).await?;
+    assert_eq!(morsel, stream);
     Ok(())
 }

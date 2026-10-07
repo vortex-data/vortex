@@ -11353,6 +11353,8 @@ dependencies = [
  "codspeed-divan-compat",
  "cudarc",
  "enum-iterator",
+ "fearless_simd",
+ "fearless_simd_macros",
  "flatbuffers",
  "futures",
  "goldenfile",
@@ -11733,6 +11735,7 @@ name = "vortex-datafusion"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
  "async-trait",
@@ -11985,6 +11988,8 @@ dependencies = [
  "arbitrary",
  "itertools 0.14.0",
  "libfuzzer-sys",
+ "num-traits",
+ "rstest",
  "strum 0.28.0",
  "tokio",
  "tracing",

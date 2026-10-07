@@ -27,9 +27,11 @@ mod cache;
 mod diagnostics;
 mod format;
 pub mod metrics;
+mod morsel;
 mod opener;
 pub mod reader;
 mod sink;
+mod sort;
 mod source;
 mod stream;
 
