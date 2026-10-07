@@ -242,9 +242,6 @@ jobs:
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
-        env:
-          MATRIX_PRESET: ${{ inputs.matrix_preset }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -Eeu -o pipefail -x
 
@@ -253,7 +250,6 @@ jobs:
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             > comment.md
-          printf '\n---\n\n_Preset `%s` · [workflow run](%s)_\n' "$MATRIX_PRESET" "$RUN_URL" >> comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
@@ -264,7 +260,7 @@ jobs:
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
           # this action will *update* the comment instead of posting a new comment. The preset is
           # deliberately not part of the tag, so every preset that runs a benchmark updates the same
-          # comment and the latest run wins; the footer names the preset that produced it.
+          # comment and the latest run wins.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Comment PR on failure
