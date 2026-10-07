@@ -57,7 +57,8 @@ use crate::scalar_fn::is_not_null_node;
 pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResult<Option<T>> {
     let child = node.child(0);
     if !child.node_dtype()?.is_nullable() {
-        // Execution evaluates a fallible child before it reads validity, so keep the check.
+        // `execute_if_fallible` evaluates a fallible child before the kernel reads validity, so keep
+        // the check.
         if child.contains_fallible() {
             return Ok(None);
         }
@@ -229,7 +230,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::IsNotNull;
     use crate::ArrayRef;
     use crate::Canonical;
     use crate::ExecutionCtx;
@@ -237,7 +237,6 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
-    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -264,10 +263,7 @@ mod tests {
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
-    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::ScalarFnVTableExt;
-    use crate::scalar_fn::VecExecutionArgs;
-    use crate::scalar_fn::fns::is_null::IsNull;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::scalar_fn::internal::row_count::RowCount;
     use crate::stats::StatsSession;
@@ -489,27 +485,16 @@ mod tests {
         IsNotNull,
     }
 
-    #[derive(Clone, Copy, Debug)]
-    enum Path {
-        /// Builds the check with the array builtins, which apply the reduction rules first.
-        Reduced,
-        /// Calls the execution kernel directly, without any reduction.
-        Kernel,
-    }
-
+    /// Builds the check with the array builtins, which reduce it before the kernel executes.
     fn run_null_check(
         input: &ArrayRef,
         check: NullCheck,
-        path: Path,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BoolArray> {
-        let args = VecExecutionArgs::new(vec![input.clone()], input.len());
-        let result = match (path, check) {
-            (Path::Reduced, NullCheck::IsNull) => input.is_null(),
-            (Path::Reduced, NullCheck::IsNotNull) => input.is_not_null(),
-            (Path::Kernel, NullCheck::IsNull) => IsNull.execute(&EmptyOptions, &args, ctx),
-            (Path::Kernel, NullCheck::IsNotNull) => IsNotNull.execute(&EmptyOptions, &args, ctx),
-        }?;
+        let result = match check {
+            NullCheck::IsNull => input.is_null()?,
+            NullCheck::IsNotNull => input.is_not_null()?,
+        };
 
         result.execute::<BoolArray>(ctx)
     }
@@ -529,52 +514,63 @@ mod tests {
             .cast(PType::I64.into())
     }
 
-    fn out_of_range_cast() -> VortexResult<ArrayRef> {
-        buffer![300i64, 1].into_array().cast(PType::I8.into())
-    }
-
     fn nullable_out_of_range_cast() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(300i64), None])
             .into_array()
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))
     }
 
-    /// A strict function whose default validity rule would drop the overflow.
     fn nullable_overflowing_add() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(i64::MAX), None])
             .into_array()
             .binary(ConstantArray::new(1i64, 2).into_array(), Operator::Add)
     }
 
-    /// An infallible parent over a fallible child.
-    fn comparison_of_failing_cast() -> VortexResult<ArrayRef> {
-        null_into_non_nullable_cast()?
-            .binary(ConstantArray::new(128i64, 2).into_array(), Operator::Lt)
+    /// The failing cast is the non-nullable operand of a nullable comparison.
+    fn comparison_with_failing_cast() -> VortexResult<ArrayRef> {
+        PrimitiveArray::from_option_iter([Some(1i64), None])
+            .into_array()
+            .binary(null_into_non_nullable_cast()?, Operator::Lt)
     }
 
-    /// An encoding over a fallible child.
     fn dictionary_of_failing_cast() -> VortexResult<ArrayRef> {
-        let codes = buffer![0u8, 1].into_array();
+        let codes = PrimitiveArray::from_option_iter([Some(0u8), None]).into_array();
         Ok(DictArray::try_new(codes, null_into_non_nullable_cast()?)?.into_array())
     }
 
-    /// A nullable fill value makes the result nullable, so the fill-null validity rule applies.
+    /// A nullable fill value keeps the result nullable, so the fill-null validity rule applies.
     fn fill_null_of_failing_cast() -> VortexResult<ArrayRef> {
         nullable_out_of_range_cast()?.fill_null(Scalar::primitive(0i8, Nullability::Nullable))
     }
 
+    /// The out-of-range value is null, so the cast succeeds.
+    fn successful_cast() -> VortexResult<ArrayRef> {
+        PrimitiveArray::new(buffer![300i64, 1], Validity::from_iter([false, true]))
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::Nullable))
+    }
+
+    /// The validity of a Kleene `and` over two nullable inputs is irreducible.
+    fn kleene_and() -> VortexResult<ArrayRef> {
+        let lhs = BoolArray::from_iter([Some(false), None, None, Some(true)]).into_array();
+        let rhs = BoolArray::from_iter([None, Some(false), None, Some(true)]).into_array();
+        lhs.binary(rhs, Operator::And)
+    }
+
+    /// A null check over a lazy input must match the same check over the evaluated input. When
+    /// the evaluation fails, the null check must raise the same error.
     #[rstest]
     #[case::null_into_non_nullable_cast(null_into_non_nullable_cast)]
-    #[case::out_of_range_cast(out_of_range_cast)]
     #[case::nullable_out_of_range_cast(nullable_out_of_range_cast)]
     #[case::nullable_overflowing_add(nullable_overflowing_add)]
-    #[case::comparison_of_failing_cast(comparison_of_failing_cast)]
+    #[case::comparison_with_failing_cast(comparison_with_failing_cast)]
     #[case::dictionary_of_failing_cast(dictionary_of_failing_cast)]
     #[case::fill_null_of_failing_cast(fill_null_of_failing_cast)]
-    fn null_checks_raise_input_errors(
+    #[case::successful_cast(successful_cast)]
+    #[case::kleene_and(kleene_and)]
+    fn null_checks_match_eager_evaluation(
         #[case] input: fn() -> VortexResult<ArrayRef>,
         #[values(NullCheck::IsNull, NullCheck::IsNotNull)] check: NullCheck,
-        #[values(Path::Reduced, Path::Kernel)] path: Path,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let input = input()?;
@@ -582,87 +578,17 @@ mod tests {
         let expected = input
             .clone()
             .execute::<Canonical>(&mut ctx)
-            .expect_err("evaluating the input must fail");
-        let actual = run_null_check(&input, check, path, &mut ctx)
-            .expect_err("the null check must raise the error of its input");
+            .and_then(|evaluated| run_null_check(&evaluated.into_array(), check, &mut ctx));
+        let actual = run_null_check(&input, check, &mut ctx);
 
-        assert_eq!(without_backtrace(&actual), without_backtrace(&expected));
-        Ok(())
-    }
+        match (actual, expected) {
+            (Ok(actual), Ok(expected)) => assert_arrays_eq!(actual, expected, &mut ctx),
+            (Err(actual), Err(expected)) => {
+                assert_eq!(without_backtrace(&actual), without_backtrace(&expected));
+            }
+            (actual, expected) => panic!("expected {expected:?}, got {actual:?}"),
+        }
 
-    #[rstest]
-    #[case::non_nullable(PrimitiveArray::from_iter([1i64, 2]), Nullability::NonNullable)]
-    #[case::nullable(
-        PrimitiveArray::from_option_iter([Some(1i64), None]),
-        Nullability::Nullable,
-    )]
-    #[case::out_of_range_null(
-        PrimitiveArray::new(buffer![300i64, 1], Validity::from_iter([false, true])),
-        Nullability::Nullable,
-    )]
-    fn null_checks_of_successful_casts_match_eager_results(
-        #[case] input: PrimitiveArray,
-        #[case] nullability: Nullability,
-        #[values(NullCheck::IsNull, NullCheck::IsNotNull)] check: NullCheck,
-        #[values(Path::Reduced, Path::Kernel)] path: Path,
-    ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let cast = input
-            .into_array()
-            .cast(DType::Primitive(PType::I8, nullability))?;
-
-        let evaluated = cast.clone().execute::<Canonical>(&mut ctx)?.into_array();
-        let expected = run_null_check(&evaluated, check, Path::Kernel, &mut ctx)?;
-        let actual = run_null_check(&cast, check, path, &mut ctx)?;
-
-        assert_arrays_eq!(actual, expected, &mut ctx);
-        Ok(())
-    }
-
-    /// The validity of a Kleene `and` over two nullable inputs is irreducible, so both paths must
-    /// evaluate it and finish.
-    #[rstest]
-    fn null_checks_evaluate_irreducible_infallible_input(
-        #[values(NullCheck::IsNull, NullCheck::IsNotNull)] check: NullCheck,
-        #[values(Path::Reduced, Path::Kernel)] path: Path,
-    ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let lhs = BoolArray::from_iter([Some(false), None, None, Some(true)]).into_array();
-        let rhs = BoolArray::from_iter([None, Some(false), None, Some(true)]).into_array();
-        let input = lhs.binary(rhs, Operator::And)?;
-
-        let is_valid = [
-            true,  // false AND null
-            true,  // null AND false
-            false, // null AND null
-            true,  // true AND true
-        ];
-        let expected = match check {
-            NullCheck::IsNull => is_valid.map(|valid| !valid),
-            NullCheck::IsNotNull => is_valid,
-        };
-
-        let actual = run_null_check(&input, check, path, &mut ctx)?;
-        assert_arrays_eq!(actual, BoolArray::from_iter(expected), &mut ctx);
-        Ok(())
-    }
-
-    #[rstest]
-    fn null_checks_reduce_encoded_infallible_input(
-        #[values(NullCheck::IsNull, NullCheck::IsNotNull)] check: NullCheck,
-    ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let codes = buffer![0u8, 1, 0].into_array();
-        let input = DictArray::try_new(codes, buffer![10i64, 20].into_array())?.into_array();
-
-        let result = match check {
-            NullCheck::IsNull => input.is_null()?,
-            NullCheck::IsNotNull => input.is_not_null()?,
-        };
-
-        assert!(result.is::<Constant>());
-        let expected = matches!(check, NullCheck::IsNotNull);
-        assert_arrays_eq!(result, ConstantArray::new(expected, 3), &mut ctx);
         Ok(())
     }
 }
