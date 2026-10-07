@@ -745,18 +745,8 @@ mod tests {
         })
     }
 
-    fn pushed_inner(exprs: impl IntoIterator<Item = Expression>) -> Expression {
-        pack(
-            exprs
-                .into_iter()
-                .enumerate()
-                .map(|(idx, e)| (format!("_{idx}"), e)),
-            Nullability::NonNullable,
-        )
-    }
-
-    fn pushed_ref(idx: usize) -> Expression {
-        get_item(format!("_{idx}"), get_item("", root()))
+    fn pushed_ref() -> Expression {
+        get_item(PUSHDOWN_ANNOTATION, root())
     }
 
     fn test_apply(
@@ -812,13 +802,11 @@ mod tests {
         let dtype = DType::Utf8(false.into());
         let (outer, inner) = split_bound(expr.clone(), &dtype)?;
         let inner = inner.unwrap();
-        // [0] = cast([1], dtype)
-        // [1] = byte_length(root)
         assert_eq!(
             outer,
-            cast(pushed_ref(0), target).bind(&pushed_scope(&inner))?
+            cast(pushed_ref(), target).bind(&pushed_scope(&inner))?
         );
-        assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
+        assert_eq!(inner, byte_length(root()).bind(&dtype)?);
         test_apply(expr, outer, inner)
     }
 
@@ -828,8 +816,8 @@ mod tests {
         let dtype = DType::Utf8(false.into());
         let (outer, inner) = split_bound(expr.clone(), &dtype)?;
         let inner = inner.unwrap();
-        assert_eq!(outer, pushed_ref(0).bind(&pushed_scope(&inner))?);
-        assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
+        assert_eq!(outer, pushed_ref().bind(&pushed_scope(&inner))?);
+        assert_eq!(inner, byte_length(root()).bind(&dtype)?);
         test_apply(expr, outer, inner)
     }
 

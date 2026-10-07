@@ -15,7 +15,6 @@ use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -151,42 +150,8 @@ pub fn plan_row_idx_expression(
         .position(|partition| *partition == RowIdxExpressionPartition::Child)
         .ok_or_else(|| vortex_err!("Row-index expression has no data partition"))?;
 
-    let row_idx_partition = &partitioned.partitions[row_idx_index];
-    let child_partition = &partitioned.partitions[child_index];
-    let (Some(row_idx_pack), Some(child_pack)) = (
-        row_idx_partition
-            .as_scalar()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>()),
-        child_partition
-            .as_scalar()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>()),
-    ) else {
-        return Err(vortex_err!(
-            "Row-index expression partitions must be struct packs"
-        ));
-    };
-    let row_idx_partition_name = partitioned.partition_names[row_idx_index].clone();
-    let child_partition_name = partitioned.partition_names[child_index].clone();
-    let mut collapsed = Vec::with_capacity(2);
-
-    let row_idx_expression = if row_idx_partition.children().len() == 1 {
-        let Some(value_name) = row_idx_pack.names.get(0) else {
-            return Err(vortex_err!("Row-index expression partition is empty"));
-        };
-        collapsed.push((row_idx_partition_name, value_name.clone()));
-        row_idx_partition.children()[0].clone()
-    } else {
-        row_idx_partition.clone()
-    };
-    let child_expression = if child_partition.children().len() == 1 {
-        let Some(value_name) = child_pack.names.get(0) else {
-            return Err(vortex_err!("Data expression partition is empty"));
-        };
-        collapsed.push((child_partition_name, value_name.clone()));
-        child_partition.children()[0].clone()
-    } else {
-        child_partition.clone()
-    };
+    let row_idx_expression = partitioned.partitions[row_idx_index].clone();
+    let child_expression = partitioned.partitions[child_index].clone();
 
     let row_count = child.row_count();
     let row_idx_expression = replace_row_idx(row_idx_expression)?;
@@ -204,8 +169,7 @@ pub fn plan_row_idx_expression(
         vec![row_idx_plan, child_plan],
         None,
     )?;
-    let residual =
-        rewrite_partition_root(partitioned.root, partitions.dtype().clone(), &collapsed)?;
+    let residual = rewrite_partition_root(partitioned.root, partitions.dtype().clone())?;
 
     Ok(EvalPlan::try_new(residual, partitions.into_plan())?.into_plan())
 }
