@@ -15,9 +15,11 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_compute::lane_kernels::for_each_chunk;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
@@ -390,15 +392,24 @@ where
         runs: 1,
     };
 
+    let validity_bits = match validity.bit_buffer() {
+        AllOr::All => None,
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        AllOr::Some(bits) => Some(bits),
+    };
     // The nulls before the head are skipped or filled with the head, so the loop can start at 0.
-    validity.for_each_chunk(buffer.as_slice(), |chunk, valid| match valid {
-        // All nulls -> no stats to update.
-        0 => {}
-        // Inner loop for when validity check can be elided.
-        u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
-        // Inner loop for when we need to check validity.
-        _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
-    });
+    for_each_chunk(
+        buffer.as_slice(),
+        validity_bits,
+        |chunk, valid| match valid {
+            // All nulls -> no stats to update.
+            0 => {}
+            // Inner loop for when validity check can be elided.
+            u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
+            // Inner loop for when we need to check validity.
+            _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
+        },
+    );
 
     if count_distinct_values {
         loop_state.flush();

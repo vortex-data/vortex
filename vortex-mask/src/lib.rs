@@ -598,54 +598,6 @@ impl Mask {
         }
     }
 
-    /// Calls `f` with each chunk of 64 `values` and the word of its mask bits, where bit `i` is set
-    /// if `chunk[i]` is included.
-    ///
-    /// This reads the mask one word per chunk, so `f` can skip a word of zeros and take a
-    /// branch-free path for a full word without testing each bit. The trailing values are padded
-    /// into a last chunk whose padding bits are unset.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `values` and the mask have different lengths.
-    #[inline]
-    pub fn for_each_chunk<T, F>(&self, values: &[T], mut f: F)
-    where
-        T: Copy,
-        F: FnMut(&[T; 64], u64),
-    {
-        assert_eq!(
-            values.len(),
-            self.len(),
-            "values and mask must have the same length"
-        );
-        let (chunks, remainder) = values.as_chunks::<64>();
-        let remainder_bits = match self.bit_buffer() {
-            AllOr::All => {
-                chunks.iter().for_each(|chunk| f(chunk, u64::MAX));
-                (1u64 << remainder.len()) - 1
-            }
-            AllOr::None => {
-                chunks.iter().for_each(|chunk| f(chunk, 0));
-                0
-            }
-            AllOr::Some(buffer) => {
-                let words = buffer.chunks();
-                chunks
-                    .iter()
-                    .zip(words.iter())
-                    .for_each(|(chunk, word)| f(chunk, word));
-                words.remainder_bits()
-            }
-        };
-
-        if let Some(&pad) = remainder.first() {
-            let mut last = [pad; 64];
-            last[..remainder.len()].copy_from_slice(remainder);
-            f(&last, remainder_bits);
-        }
-    }
-
     /// Return a boolean buffer representation of the mask, allocating new buffers for all-true
     /// and all-false variants.
     #[inline]

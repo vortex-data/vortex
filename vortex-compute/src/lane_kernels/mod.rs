@@ -11,6 +11,7 @@
 //!
 //! The module is split into:
 //!
+//! - [`for_each_chunk`] — visits a slice one 64-lane chunk at a time with its validity word.
 //! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], and read-only adapters.
 //! - [`sink`] — the [`IndexedSink`] trait and [`ReinterpretSink`].
 //! - [`map_into`] — out-of-place kernels via [`IndexedSourceExt`] (writes into a
@@ -22,11 +23,13 @@
 //! offset and with a logical `len` shorter than the underlying byte buffer, via
 //! `BitBuffer::chunks`.
 
+pub mod for_each_chunk;
 pub mod map_in_place;
 pub mod map_into;
 pub mod sink;
 pub mod source;
 
+pub use for_each_chunk::for_each_chunk;
 pub use map_in_place::IndexedSinkExt;
 pub use map_into::IndexedSourceExt;
 pub use sink::IndexedSink;

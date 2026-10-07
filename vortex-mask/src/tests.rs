@@ -801,36 +801,3 @@ fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
         assert_eq!(it.len(), mask.len() - 1);
     }
 }
-
-#[rstest]
-fn for_each_chunk_matches_bits(
-    #[values(0, 1, 63, 64, 65, 200)] len: usize,
-    #[values(0, 3)] offset: usize,
-    #[values("all_true", "all_false", "values")] kind: &str,
-) {
-    let values: Vec<usize> = (0..len).collect();
-    let mask = match kind {
-        "all_true" => Mask::new_true(len),
-        "all_false" => Mask::new_false(len),
-        _ => {
-            // Slicing at `offset` covers words that do not start at a byte boundary.
-            let bits = BitBuffer::from_iter((0..len + offset).map(|i| i % 3 != 0 && i % 7 != 0));
-            Mask::from_buffer(bits.slice(offset..offset + len))
-        }
-    };
-
-    let mut chunks = 0;
-    let mut included = Vec::new();
-    mask.for_each_chunk(&values, |chunk, word| {
-        for (i, &value) in chunk.iter().enumerate() {
-            if word & (1 << i) != 0 {
-                included.push(value);
-            }
-        }
-        chunks += 1;
-    });
-
-    assert_eq!(chunks, len.div_ceil(64));
-    let expected: Vec<usize> = (0..len).filter(|&i| mask.value(i)).collect();
-    assert_eq!(included, expected);
-}

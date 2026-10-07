@@ -13,10 +13,12 @@ use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
+use vortex_compute::lane_kernels::for_each_chunk;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
@@ -230,8 +232,13 @@ where
             runs += 1;
         }
     };
+    let validity_bits = match validity.bit_buffer() {
+        AllOr::All => None,
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        AllOr::Some(bits) => Some(bits),
+    };
     // The nulls before the head are skipped, so the loop can start at 0.
-    validity.for_each_chunk(buff.as_slice(), |chunk, valid| match valid {
+    for_each_chunk(buff.as_slice(), validity_bits, |chunk, valid| match valid {
         // All nulls -> no stats to update.
         0 => {}
         u64::MAX => chunk.iter().for_each(|&value| push(value)),
