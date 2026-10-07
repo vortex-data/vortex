@@ -21,6 +21,7 @@ use vortex::encodings::zigzag::ZigZagArray;
 use vortex::encodings::zigzag::ZigZagArraySlotsExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -54,9 +55,10 @@ impl CudaExecute for ZigZagExecutor {
         // The encoded array is unsigned, we decode to signed of the same width.
         let encoded_ptype = array.encoded().dtype().as_ptype();
         let output_ptype = PType::try_from(array.dtype())?;
-        vortex_ensure!(
-            output_ptype == encoded_ptype.to_signed(),
-            "ZigZag output type {output_ptype} must be the signed equivalent of {encoded_ptype}"
+        vortex_ensure_eq!(
+            output_ptype,
+            encoded_ptype.to_signed(),
+            "ZigZag output type must be the signed equivalent of the encoded type"
         );
 
         match_each_unsigned_integer_ptype!(encoded_ptype, |U| {

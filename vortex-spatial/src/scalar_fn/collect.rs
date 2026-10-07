@@ -39,7 +39,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -58,10 +58,10 @@ use crate::scalar_fn::execute::dispatch_unary;
 
 /// Resolve the strict homogeneous `ST_Collect` overload for one list operand.
 fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
-    vortex_ensure!(
-        dtypes.len() == 1,
-        "spatial: collect requires exactly one list operand, got {}",
-        dtypes.len()
+    vortex_ensure_eq!(
+        dtypes.len(),
+        1,
+        "spatial: collect requires exactly one list operand"
     );
     let DType::List(element_dtype, nullability) = &dtypes[0] else {
         vortex_bail!("spatial: collect operand {} is not a list", dtypes[0]);

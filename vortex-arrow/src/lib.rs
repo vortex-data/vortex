@@ -30,6 +30,7 @@ pub mod dtype;
 mod executor;
 mod iter;
 mod null_buffer;
+mod options;
 mod run_end_import;
 mod scalar;
 mod session;
@@ -47,6 +48,7 @@ pub use executor::*;
 pub use iter::*;
 pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
+pub use options::*;
 pub use scalar::ToArrowDatum;
 pub use session::*;
 

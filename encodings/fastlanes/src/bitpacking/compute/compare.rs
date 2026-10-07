@@ -27,6 +27,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
+use crate::BitWidthsView;
 use crate::bitpacking::compute::compare_fused::stream_compare_fused;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
@@ -37,6 +39,9 @@ impl CompareKernel for BitPacked {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = lhs.bit_widths() else {
+            return Ok(None);
+        };
         // Only accelerate compare-against-constant.
         let Some(constant) = rhs.as_constant() else {
             return Ok(None);
@@ -57,7 +62,7 @@ impl CompareKernel for BitPacked {
             let rhs: T = constant_prim
                 .typed_value::<T>()
                 .vortex_expect("compare adaptor strips null constants");
-            compare_constant_typed::<T>(lhs, rhs, operator, nullability, ctx)?
+            compare_constant_typed::<T>(lhs, bit_width, rhs, operator, nullability, ctx)?
         });
         Ok(Some(result))
     }
@@ -69,6 +74,7 @@ impl CompareKernel for BitPacked {
 /// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     rhs: T,
     operator: CompareOperator,
     nullability: Nullability,
@@ -82,22 +88,22 @@ where
 {
     match operator {
         CompareOperator::Eq => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_eq(b), ctx)
+            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_eq(b), ctx)
         }
         CompareOperator::NotEq => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| !a.is_eq(b), ctx)
+            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| !a.is_eq(b), ctx)
         }
         CompareOperator::Lt => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_lt(b), ctx)
+            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_lt(b), ctx)
         }
         CompareOperator::Lte => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_le(b), ctx)
+            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_le(b), ctx)
         }
         CompareOperator::Gt => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_gt(b), ctx)
+            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_gt(b), ctx)
         }
         CompareOperator::Gte => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_ge(b), ctx)
+            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_ge(b), ctx)
         }
     }
 }

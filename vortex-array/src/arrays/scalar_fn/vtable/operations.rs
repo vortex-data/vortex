@@ -160,15 +160,15 @@ mod tests {
         let data = ScalarFnData { scalar_fn };
         let slots = [Some(lhs), None].into_iter().collect::<ArraySlots>();
 
-        let Err(err) = Array::<ScalarFn>::try_from_parts(
-            ArrayParts::new(vtable, dtype, 3, data).with_slots(slots),
-        ) else {
+        let Err(err) =
+            Array::<ScalarFn>::try_from_parts(ArrayParts::new(vtable, dtype, 3, data, slots))
+        else {
             panic!("ScalarFnArray must reject missing child slots");
         };
 
         assert!(
             err.to_string()
-                .contains("ScalarFnArray requires every child slot to be present, got 1 missing")
+                .contains("ScalarFnArray requires every child slot to be present")
         );
     }
 

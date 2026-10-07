@@ -9,7 +9,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
@@ -21,7 +20,6 @@ use vortex_error::VortexResult;
 
 use crate::Sequence;
 use crate::SequenceArray;
-use crate::SequenceData;
 use crate::eval::SequenceValue;
 
 /// Iterates a sequence using wrapping addition.
@@ -128,25 +126,14 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         return Ok(None);
     }
 
-    // Reject an out-of-range sequence before scanning the slice.
-    if SequenceData::validate(
-        base.into(),
-        multiplier.into(),
-        &DType::Primitive(P::PTYPE, nullability),
-        slice.len(),
-    )
-    .is_err()
-    {
-        return Ok(None);
-    }
-
+    // A slice that passes the scan has all its values in range of `P`.
     slice
         .windows(2)
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
-        .then_some(
+        .then(|| {
             Sequence::try_new_typed(base, multiplier, nullability, slice.len())
-                .map(|a| a.into_array()),
-        )
+                .map(|a| a.into_array())
+        })
         .transpose()
 }
 

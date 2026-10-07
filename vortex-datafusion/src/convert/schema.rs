@@ -148,7 +148,8 @@ fn calculate_physical_field_type(
                     logical_elem.name(),
                     physical_elem_type,
                     logical_elem.is_nullable(),
-                );
+                )
+                .with_metadata(logical_elem.metadata().clone());
                 match logical_type {
                     DataType::List(_) => DataType::List(physical_field.into()),
                     DataType::LargeList(_) => DataType::LargeList(physical_field.into()),
@@ -173,7 +174,8 @@ fn calculate_physical_field_type(
                     logical_elem.name(),
                     physical_elem_type,
                     logical_elem.is_nullable(),
-                );
+                )
+                .with_metadata(logical_elem.metadata().clone());
                 DataType::FixedSizeList(physical_field.into(), *size)
             } else {
                 return Err(exec_datafusion_err!(
@@ -240,7 +242,8 @@ fn calculate_physical_field_type(
                     logical_elem.name(),
                     physical_elem_type,
                     logical_elem.is_nullable(),
-                );
+                )
+                .with_metadata(logical_elem.metadata().clone());
                 match logical_type {
                     DataType::ListView(_) => DataType::ListView(physical_field.into()),
                     DataType::LargeListView(_) => DataType::LargeListView(physical_field.into()),
@@ -645,5 +648,50 @@ mod tests {
         };
         let names: Vec<&str> = labels.iter().map(|f| f.name().as_str()).collect();
         assert_eq!(names, label_names);
+    }
+
+    #[test]
+    fn test_list_family_conversion_preserves_element_metadata() -> DFResult<()> {
+        let elem = || {
+            Field::new("item", DataType::Int32, true)
+                .with_metadata([("elem_meta".to_owned(), "v".to_owned())].into())
+        };
+        let logical_schema = Schema::new(vec![
+            Field::new("list_col", DataType::List(Arc::new(elem())), true),
+            Field::new(
+                "fsl_col",
+                DataType::FixedSizeList(Arc::new(elem()), 3),
+                true,
+            ),
+            Field::new("listview_col", DataType::ListView(Arc::new(elem())), true),
+        ]);
+        let i32n = || Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                ("list_col", DType::List(i32n(), Nullability::Nullable)),
+                (
+                    "fsl_col",
+                    DType::FixedSizeList(i32n(), 3, Nullability::Nullable),
+                ),
+                ("listview_col", DType::List(i32n(), Nullability::Nullable)),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+
+        for name in ["list_col", "fsl_col", "listview_col"] {
+            let elem_field = match physical_schema.field_with_name(name)?.data_type() {
+                DataType::List(f) | DataType::FixedSizeList(f, _) | DataType::ListView(f) => f,
+                other => panic!("expected list-family type for {name}, got {other:?}"),
+            };
+            assert_eq!(
+                elem_field.metadata().get("elem_meta"),
+                Some(&"v".to_owned()),
+                "element metadata dropped for {name}"
+            );
+        }
+        Ok(())
     }
 }

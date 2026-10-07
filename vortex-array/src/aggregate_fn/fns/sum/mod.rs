@@ -152,7 +152,7 @@ impl AggregateFnVTable for Sum {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         vortex_ensure!(
             scalar.dtype().eq_ignore_nullability(args.return_dtype),
@@ -164,7 +164,7 @@ impl AggregateFnVTable for Sum {
         let current = if scalar.is_null() {
             None
         } else {
-            Some(sum_state_from_scalar(&scalar, args.return_dtype)?)
+            Some(sum_state_from_scalar(scalar, args.return_dtype)?)
         };
         Ok(SumPartial { current })
     }
@@ -612,8 +612,8 @@ mod tests {
         let args = owned.args(&options);
 
         let overflowed =
-            Sum.partial_from_scalar(args, Scalar::null(DType::Primitive(PType::I64, Nullable)))?;
-        let five = Sum.partial_from_scalar(args, Scalar::primitive(5i64, Nullable))?;
+            Sum.partial_from_scalar(args, &Scalar::null(DType::Primitive(PType::I64, Nullable)))?;
+        let five = Sum.partial_from_scalar(args, &Scalar::primitive(5i64, Nullable))?;
         let state = Sum.merge_partials(args, five, overflowed)?;
 
         assert!(Sum.is_saturated(args, &state));

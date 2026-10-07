@@ -15,6 +15,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use super::decimal_byte_parts_v2_id;
@@ -73,11 +74,10 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         lower_part_count <= MAX_LOWER_PARTS,
         "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
-    vortex_ensure!(
-        parts.children.len() == 1 + lower_part_count,
-        "expected {} children, got {}",
+    vortex_ensure_eq!(
+        parts.children.len(),
         1 + lower_part_count,
-        parts.children.len()
+        "v2 expects the msp child plus one child per lower part"
     );
 
     let msp_ptype = PType::try_from(metadata.msp_ptype)?;
@@ -102,13 +102,11 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
             parts.len,
         )?));
     }
-    Array::try_from_parts(
-        ArrayParts::new(
-            DecimalByteParts,
-            parts.dtype.clone(),
-            parts.len,
-            DecimalBytePartsData,
-        )
-        .with_slots(slots),
-    )
+    Array::try_from_parts(ArrayParts::new(
+        DecimalByteParts,
+        parts.dtype.clone(),
+        parts.len,
+        DecimalBytePartsData,
+        slots,
+    ))
 }

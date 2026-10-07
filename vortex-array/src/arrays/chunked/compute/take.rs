@@ -8,7 +8,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
@@ -478,9 +478,10 @@ fn take_piecewise_chunked(
         }
     }
 
-    vortex_ensure!(
-        total_len == output_len,
-        "PiecewiseSequenceArray expanded length {total_len} does not match declared length {output_len}"
+    vortex_ensure_eq!(
+        total_len,
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
     // Chunks visited in order: the per-chunk gathers already concatenate into the result.

@@ -70,13 +70,14 @@ fn trace_compare_on_runend() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.runend(bool, len=9)
       iter 0 current=vortex.runend(bool, len=9) builder_active=false
-    execute_until target=AnyCanonical root=vortex.binary(bool, len=3)
-      iter 0 current=vortex.binary(bool, len=3) builder_active=false
+        ExecuteSlot slot=1 parent=vortex.runend(bool, len=9) child=vortex.binary(bool, len=3)
+      iter 1 current=vortex.binary(bool, len=3) stack_parent=vortex.runend(bool, len=9) slot=1 builder_active=false
         Done array=vortex.bool(bool, len=3)
-      iter 1 current=vortex.bool(bool, len=3) builder_active=false
-      return output=vortex.bool(bool, len=3)
+      iter 2 current=vortex.bool(bool, len=3) stack_parent=vortex.runend(bool, len=9) slot=1 builder_active=false
+        pop_frame slot=1 output=vortex.runend(bool, len=9)
+      iter 3 current=vortex.runend(bool, len=9) builder_active=false
         Done array=vortex.bool(bool, len=9)
-      iter 1 current=vortex.bool(bool, len=9) builder_active=false
+      iter 4 current=vortex.bool(bool, len=9) builder_active=false
       return output=vortex.bool(bool, len=9)
     ");
 

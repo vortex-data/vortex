@@ -25,6 +25,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -194,7 +195,13 @@ impl VTable for RLE {
         }
         .into_slots();
         let data = RLEData::try_new(metadata.offset as usize)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -223,7 +230,7 @@ impl RLE {
         }
         .into_slots();
         let data = RLEData::try_new(offset)?;
-        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data, slots))
     }
 
     /// Create a new RLE array without validation.
@@ -245,9 +252,7 @@ impl RLE {
         }
         .into_slots();
         let data = unsafe { RLEData::new_unchecked(offset) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data, slots)) }
     }
 
     /// Encode a primitive array using FastLanes RLE.
@@ -301,10 +306,10 @@ fn validate_parts(
         indices.len()
     );
 
-    vortex_ensure!(
-        indices.len().div_ceil(crate::FL_CHUNK_SIZE) == values_idx_offsets.len(),
-        "RLE must have one value idx offset per chunk, got {}",
-        values_idx_offsets.len()
+    vortex_ensure_eq!(
+        indices.len().div_ceil(crate::FL_CHUNK_SIZE),
+        values_idx_offsets.len(),
+        "RLE must have one value idx offset per chunk"
     );
 
     vortex_ensure!(
@@ -315,10 +320,7 @@ fn validate_parts(
     );
 
     let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-    vortex_ensure!(
-        dtype == &expected_dtype,
-        "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
-    );
+    vortex_ensure_eq!(dtype, &expected_dtype, "RLE dtype mismatch");
 
     Ok(())
 }

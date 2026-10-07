@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(target_arch = "x86_64")]
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::prelude::*;
+use fearless_simd::u8x64;
+use fearless_simd::u64x8;
+use fearless_simd_macros::simd;
 use vortex_error::VortexExpect;
-
-use crate::dispatch::CpuKernel;
 
 #[inline]
 pub fn count_ones(bytes: &[u8], offset: usize, len: usize) -> usize {
@@ -72,67 +75,16 @@ fn mask_byte(byte: u8, bit_offset: usize, bit_len: usize) -> u8 {
     shifted & mask
 }
 
-type CountOnes = unsafe fn(&[u8]) -> usize;
-
 #[inline]
 fn count_ones_aligned(bytes: &[u8]) -> usize {
     // SIMD kernels only pay off from 32 bytes. Below that, call the scalar kernel
-    // directly: it stays inlinable and skips the dispatch indirection, which would
-    // otherwise dominate the couple of word popcounts.
+    // directly: it stays inlinable and skips the dispatch, which would otherwise
+    // dominate the couple of word popcounts.
     if bytes.len() < 32 {
         return count_ones_aligned_scalar(bytes);
     }
 
-    static KERNEL: CpuKernel<CountOnes> = CpuKernel::new(|| {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx512f")
-                && is_x86_feature_detected!("avx512vpopcntdq")
-                && is_x86_feature_detected!("avx2")
-            {
-                return count_ones_aligned_avx512_any_len;
-            }
-            if is_x86_feature_detected!("avx2") {
-                return count_ones_aligned_avx2_any_len;
-            }
-        }
-        count_ones_aligned_scalar
-    });
-    // SAFETY: the selector only returns kernels that are safe or whose required CPU
-    // features were probed before selection.
-    unsafe { KERNEL.get()(bytes) }
-}
-
-/// Length-aware AVX-512 entry: SIMD only pays off from 64 (AVX-512) / 32 (AVX2) bytes.
-///
-/// # Safety
-/// Requires AVX-512F, AVX-512VPOPCNTDQ, and AVX2.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vpopcntdq,avx2")]
-unsafe fn count_ones_aligned_avx512_any_len(bytes: &[u8]) -> usize {
-    if bytes.len() >= 64 {
-        // SAFETY: the caller guarantees the required target features.
-        return unsafe { count_ones_aligned_avx512(bytes) };
-    }
-    if bytes.len() >= 32 {
-        // SAFETY: every AVX-512F CPU also supports AVX2.
-        return unsafe { count_ones_aligned_avx2(bytes) };
-    }
-    count_ones_aligned_scalar(bytes)
-}
-
-/// Length-aware AVX2 entry: SIMD only pays off from 32 bytes.
-///
-/// # Safety
-/// Requires AVX2.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn count_ones_aligned_avx2_any_len(bytes: &[u8]) -> usize {
-    if bytes.len() >= 32 {
-        // SAFETY: the caller guarantees AVX2.
-        return unsafe { count_ones_aligned_avx2(bytes) };
-    }
-    count_ones_aligned_scalar(bytes)
+    fearless_simd::dispatch!(Level::new(), simd => count_ones_aligned_simd(simd, bytes))
 }
 
 #[inline]
@@ -150,93 +102,18 @@ fn count_ones_aligned_scalar(bytes: &[u8]) -> usize {
             .sum::<usize>()
 }
 
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn count_ones_aligned_avx2(bytes: &[u8]) -> usize {
-    use std::arch::x86_64::__m256i;
-    use std::arch::x86_64::_mm256_add_epi8;
-    use std::arch::x86_64::_mm256_add_epi64;
-    use std::arch::x86_64::_mm256_and_si256;
-    use std::arch::x86_64::_mm256_loadu_si256;
-    use std::arch::x86_64::_mm256_sad_epu8;
-    use std::arch::x86_64::_mm256_set1_epi8;
-    use std::arch::x86_64::_mm256_setr_epi8;
-    use std::arch::x86_64::_mm256_setzero_si256;
-    use std::arch::x86_64::_mm256_shuffle_epi8;
-    use std::arch::x86_64::_mm256_srli_epi16;
-    use std::arch::x86_64::_mm256_storeu_si256;
-
-    #[inline]
-    unsafe fn byte_popcount(chunk: __m256i, mask: __m256i, lookup: __m256i) -> __m256i {
-        let lo = unsafe { _mm256_and_si256(chunk, mask) };
-        let hi = unsafe { _mm256_and_si256(_mm256_srli_epi16(chunk, 4), mask) };
-        unsafe {
-            _mm256_add_epi8(
-                _mm256_shuffle_epi8(lookup, lo),
-                _mm256_shuffle_epi8(lookup, hi),
-            )
-        }
+/// Lane-wise `u64` popcount over 64-byte vectors. The total is independent of lane byte order.
+#[simd]
+fn count_ones_aligned_simd<S: Simd>(simd: S, bytes: &[u8]) -> usize {
+    let (chunks, tail) = bytes.as_chunks::<64>();
+    let mut accum = u64x8::splat(simd, 0);
+    for chunk in chunks {
+        let words: u64x8<S> = u8x64::from_slice(simd, chunk).bitcast();
+        accum += words.count_ones();
     }
 
-    let lookup = _mm256_setr_epi8(
-        0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3,
-        3, 4,
-    );
-    let mask = _mm256_set1_epi8(0x0f);
-    let zero = _mm256_setzero_si256();
-    let mut accum = _mm256_setzero_si256();
-    let mut index = 0;
-
-    while index + 128 <= bytes.len() {
-        for lane in 0..4 {
-            let ptr = unsafe { bytes.as_ptr().add(index + lane * 32) }.cast::<__m256i>();
-            let chunk = unsafe { _mm256_loadu_si256(ptr) };
-            let counts = unsafe { byte_popcount(chunk, mask, lookup) };
-            accum = _mm256_add_epi64(accum, _mm256_sad_epu8(counts, zero));
-        }
-        index += 128;
-    }
-
-    while index + 32 <= bytes.len() {
-        let ptr = unsafe { bytes.as_ptr().add(index) }.cast::<__m256i>();
-        let chunk = unsafe { _mm256_loadu_si256(ptr) };
-        let counts = unsafe { byte_popcount(chunk, mask, lookup) };
-        accum = _mm256_add_epi64(accum, _mm256_sad_epu8(counts, zero));
-        index += 32;
-    }
-
-    let mut lanes = [0u64; 4];
-    unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast::<__m256i>(), accum) };
-
-    usize::try_from(lanes.iter().sum::<u64>()).vortex_expect("true_count doesn't fit in usize")
-        + count_ones_aligned_scalar(&bytes[index..])
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vpopcntdq")]
-unsafe fn count_ones_aligned_avx512(bytes: &[u8]) -> usize {
-    use std::arch::x86_64::__m512i;
-    use std::arch::x86_64::_mm512_add_epi64;
-    use std::arch::x86_64::_mm512_loadu_si512;
-    use std::arch::x86_64::_mm512_popcnt_epi64;
-    use std::arch::x86_64::_mm512_setzero_si512;
-    use std::arch::x86_64::_mm512_storeu_si512;
-
-    let mut accum = _mm512_setzero_si512();
-    let mut index = 0;
-
-    while index + 64 <= bytes.len() {
-        let ptr = unsafe { bytes.as_ptr().add(index) }.cast::<__m512i>();
-        let chunk = unsafe { _mm512_loadu_si512(ptr) };
-        accum = _mm512_add_epi64(accum, _mm512_popcnt_epi64(chunk));
-        index += 64;
-    }
-
-    let mut lanes = [0u64; 8];
-    unsafe { _mm512_storeu_si512(lanes.as_mut_ptr().cast::<__m512i>(), accum) };
-
-    usize::try_from(lanes.iter().sum::<u64>()).vortex_expect("true_count doesn't fit in usize")
-        + count_ones_aligned_scalar(&bytes[index..])
+    usize::try_from(accum.reduce_sum()).vortex_expect("true_count doesn't fit in usize")
+        + count_ones_aligned_scalar(tail)
 }
 
 #[cfg(test)]
@@ -273,5 +150,19 @@ mod tests {
             expected,
             "offset={offset} len={slice_len}"
         );
+    }
+
+    /// Lengths spanning many 64-byte SIMD chunks plus a scalar tail.
+    #[cfg_attr(miri, ignore)]
+    #[rstest]
+    fn test_count_ones_matches_iteration_multi_chunk(
+        #[values(0usize, 5)] offset: usize,
+        #[values(1024usize, 4096, 4097, 65_537)] len: usize,
+    ) {
+        let buf = BitBuffer::collect_bool(offset + len, |i| (i % 3 == 0) ^ (i % 7 == 0));
+        let sliced = buf.slice(offset..offset + len);
+        let expected = sliced.iter().filter(|bit| *bit).count();
+
+        assert_eq!(sliced.true_count(), expected, "offset={offset} len={len}");
     }
 }

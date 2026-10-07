@@ -5,6 +5,7 @@ use itertools::Itertools as _;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -129,11 +130,10 @@ fn pack_variant_chunks(
                         "cannot canonicalize ChunkedArray<Variant>: chunks disagree on shredded presence"
                     )
                 })?;
-                vortex_ensure!(
-                    shredded.dtype() == &shredded_dtype,
-                    "cannot canonicalize ChunkedArray<Variant>: shredded dtype mismatch ({} vs {})",
-                    shredded_dtype,
-                    shredded.dtype()
+                vortex_ensure_eq!(
+                    shredded.dtype(),
+                    &shredded_dtype,
+                    "cannot canonicalize ChunkedArray<Variant>: shredded dtype mismatch",
                 );
                 shredded_chunks.push(shredded.clone());
             }

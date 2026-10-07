@@ -187,7 +187,13 @@ impl Array<Chunked> {
 
         slots[ChunkedSlots::CHUNK_OFFSETS] =
             Some(ChunkedData::make_chunk_offsets_array(&chunk_offsets));
-        Ok(ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets)).with_slots(slots))
+        Ok(ArrayParts::new(
+            Chunked,
+            dtype,
+            len,
+            ChunkedData::new(chunk_offsets),
+            slots,
+        ))
     }
 
     pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
@@ -202,10 +208,13 @@ impl Array<Chunked> {
         data.next_builder_slot = next_builder_slot;
         // SAFETY: we only modified next_builder_slot which doesn't affect array invariants.
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
-                    .with_slots(self.slots().iter().cloned().collect::<ArraySlots>()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Chunked,
+                self.dtype().clone(),
+                self.len(),
+                data,
+                self.slots().iter().cloned().collect::<ArraySlots>(),
+            ))
         }
         .with_stats_set(stats)
     }

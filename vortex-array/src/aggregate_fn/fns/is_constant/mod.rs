@@ -14,6 +14,7 @@ mod varbin;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_constant;
@@ -76,7 +77,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
     let eq_result = a.binary(b.clone(), Operator::Eq)?;
-    let eq_result = eq_result.null_as_false().execute(ctx)?;
+    let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
 }
@@ -301,7 +302,7 @@ impl AggregateFnVTable for IsConstant {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
@@ -379,6 +380,10 @@ impl AggregateFnVTable for IsConstant {
 
         match batch {
             Columnar::Constant(c) => {
+                if c.is_empty() {
+                    return Ok(());
+                }
+
                 partial.check_value(c.scalar().clone().into_nullable());
                 Ok(())
             }
@@ -480,6 +485,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -782,6 +788,18 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn empty_constant_leaves_partial_empty() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = ConstantArray::new(Scalar::from(99i32), 0).into_array();
+        let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, array.dtype().clone())?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert!(acc.partial_scalar()?.is_null());
+        Ok(())
+    }
+
     /// Merging a non-constant partial into a materialized empty one must keep the false verdict
     /// in the partial scalar rather than collapsing it to the empty state.
     #[test]
@@ -820,7 +838,7 @@ mod tests {
 
         let scalar = IsConstant.to_scalar(args, &partial)?;
         assert!(!scalar.is_null());
-        let parsed = IsConstant.partial_from_scalar(args, scalar)?;
+        let parsed = IsConstant.partial_from_scalar(args, &scalar)?;
         assert_eq!(
             IsConstant.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)

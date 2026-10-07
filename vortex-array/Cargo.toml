@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex in memory columnar data format"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 
@@ -26,7 +24,6 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-lock = { workspace = true }
@@ -34,6 +31,8 @@ bytes = { workspace = true }
 cfg-if = { workspace = true }
 cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 goldenfile = { workspace = true, optional = true }
@@ -136,6 +135,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "compare_sorted"
+harness = false
+
+[[bench]]
 name = "binary_ops"
 harness = false
 
@@ -148,11 +151,19 @@ name = "row_fn_output"
 harness = false
 
 [[bench]]
+name = "row_fn_utf8_input"
+harness = false
+
+[[bench]]
 name = "kleene_bool"
 harness = false
 
 [[bench]]
 name = "like"
+harness = false
+
+[[bench]]
+name = "list_contains_set"
 harness = false
 
 [[bench]]
@@ -173,6 +184,10 @@ harness = false
 
 [[bench]]
 name = "scalar_at_struct"
+harness = false
+
+[[bench]]
+name = "scalar_construction"
 harness = false
 
 [[bench]]
@@ -316,4 +331,8 @@ harness = false
 
 [[bench]]
 name = "probe"
+harness = false
+
+[[bench]]
+name = "canonical_match"
 harness = false

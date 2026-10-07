@@ -50,7 +50,7 @@ impl GetItem {
         input: ArrayRef,
         field_name: impl Into<FieldName>,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(GetItem.bind(field_name.into()), vec![input])
+        ScalarFnArray::try_new(GetItem.bind(field_name.into()), [input])
     }
 }
 

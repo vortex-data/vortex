@@ -46,10 +46,13 @@ impl Array<PiecewiseSequence> {
         multipliers: ArrayRef,
         len: usize,
     ) -> VortexResult<Self> {
-        Array::try_from_parts(
-            ArrayParts::new(PiecewiseSequence, PType::U64.into(), len, EmptyArrayData)
-                .with_slots(smallvec![Some(starts), Some(lengths), Some(multipliers)]),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            PiecewiseSequence,
+            PType::U64.into(),
+            len,
+            EmptyArrayData,
+            smallvec![Some(starts), Some(lengths), Some(multipliers)],
+        ))
     }
 
     /// Constructs a new `PiecewiseSequenceArray` without validation.
@@ -64,10 +67,13 @@ impl Array<PiecewiseSequence> {
         len: usize,
     ) -> Self {
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(PiecewiseSequence, PType::U64.into(), len, EmptyArrayData)
-                    .with_slots(smallvec![Some(starts), Some(lengths), Some(multipliers)]),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                PiecewiseSequence,
+                PType::U64.into(),
+                len,
+                EmptyArrayData,
+                smallvec![Some(starts), Some(lengths), Some(multipliers)],
+            ))
         }
     }
 }

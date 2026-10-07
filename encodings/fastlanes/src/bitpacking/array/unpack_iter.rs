@@ -12,7 +12,9 @@ use lending_iterator::prelude::Item;
 use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::BitPackedData;
 use crate::FL_CHUNK_SIZE;
@@ -106,10 +108,13 @@ impl<'a, T: BitPacked> BitUnpackedChunks<'a, T> {
         len: usize,
         scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     ) -> VortexResult<Self> {
+        let Some(bit_width) = array.global_bit_width else {
+            vortex_bail!("BitPacked array has per-block bit widths");
+        };
         Self::try_new_with_strategy(
             BitPackingStrategy,
             array.packed_slice::<T::Physical>(),
-            array.bit_width() as usize,
+            bit_width as usize,
             array.offset() as usize,
             len,
             scratch,
@@ -348,11 +353,7 @@ fn validate_packed<T: PhysicalPType>(
     );
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-    vortex_ensure!(
-        packed_len == num_chunks * elems_per_chunk,
-        "Invalid packed length: got {packed_len}, expected {}",
-        num_chunks * elems_per_chunk
-    );
+    vortex_ensure_eq!(packed_len, num_chunks * elems_per_chunk);
     Ok((num_chunks, (offset + len) % CHUNK_SIZE))
 }
 

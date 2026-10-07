@@ -13,10 +13,10 @@ from .targets import df, duck
 
 PRESETS = {
     "develop": "Every regular SQL benchmark at full target coverage.",
-    "pr": "The quicker pull-request SQL benchmark matrix.",
+    "pr": "The quicker pull-request SQL benchmark matrix (action/bench-sql).",
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
-    "pr-all": "The union of the focused PR and PR Compact benchmark matrices.",
-    "pr-full": "Every regular SQL benchmark at full PR target coverage.",
+    "pr-all": "The PR and PR Compact benchmark matrices plus extended-only default targets (action/bench-all).",
+    "pr-full": "Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended).",
     "nightly": "Large-scale SF=100 TPC-H on NVMe and S3 at default targets.",
 }
 
@@ -92,7 +92,6 @@ BENCHMARKS = (
         benchmark=Benchmark.CLICKBENCH_SORTED,
         name="Clickbench Sorted on NVME",
         runs={
-            "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-all": STANDARD,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
@@ -197,7 +196,6 @@ BENCHMARKS = (
         scale_factor=100,
         local_dir="vortex-bench/data/statpopgen",
         runs={
-            "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-all": STANDARD,
             "pr-full": STANDARD,
@@ -226,7 +224,6 @@ BENCHMARKS = (
         local_dir="vortex-bench/data/fineweb",
         remote_key="fineweb",
         runs={
-            "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-all": STANDARD,
             "pr-full": STANDARD,

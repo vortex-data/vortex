@@ -125,7 +125,7 @@ mod tests {
         fn partial_from_scalar(
             &self,
             _args: AggregateArgs<'_, Self::Options>,
-            _scalar: Scalar,
+            _scalar: &Scalar,
         ) -> VortexResult<Self::Partial> {
             Ok(())
         }

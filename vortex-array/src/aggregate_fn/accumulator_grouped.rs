@@ -6,7 +6,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -195,16 +195,22 @@ pub struct GroupedAccumulator<V: AggregateFnVTable> {
 
 impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     pub fn try_new(vtable: V, options: V::Options, dtype: DType) -> VortexResult<Self> {
-        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
         let dtypes = AggregateDTypes::try_new(&vtable, &options, dtype)?;
 
-        Ok(Self {
+        Ok(Self::from_dtypes(vtable, options, dtypes))
+    }
+
+    /// Build a grouped accumulator over dtypes that are already resolved.
+    pub(super) fn from_dtypes(vtable: V, options: V::Options, dtypes: AggregateDTypes) -> Self {
+        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
+
+        Self {
             vtable,
             options,
             aggregate_fn,
             dtypes,
             partials: vec![],
-        })
+        }
     }
 }
 
@@ -233,11 +239,10 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
                 groups.dtype()
             ),
         };
-        vortex_ensure!(
-            elements_dtype.as_ref() == &self.dtypes.dtype,
-            "Input DType mismatch: expected {}, got {}",
-            self.dtypes.dtype,
-            elements_dtype
+        vortex_ensure_eq!(
+            elements_dtype.as_ref(),
+            &self.dtypes.dtype,
+            "Input DType mismatch"
         );
 
         // We first execute the groups until it is a ListView or FixedSizeList, since we only
@@ -267,11 +272,10 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
             .vtable
             .finalize(self.dtypes.args(&self.options), states)?;
 
-        vortex_ensure!(
-            results.dtype() == &self.dtypes.return_dtype,
-            "Return DType mismatch: expected {}, got {}",
-            self.dtypes.return_dtype,
-            results.dtype()
+        vortex_ensure_eq!(
+            results.dtype(),
+            &self.dtypes.return_dtype,
+            "Return DType mismatch"
         );
 
         Ok(results)
@@ -363,11 +367,10 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     }
 
     fn push_result(&mut self, state: ArrayRef) -> VortexResult<()> {
-        vortex_ensure!(
-            state.dtype() == &self.dtypes.partial_dtype,
-            "State DType mismatch: expected {}, got {}",
-            self.dtypes.partial_dtype,
-            state.dtype()
+        vortex_ensure_eq!(
+            state.dtype(),
+            &self.dtypes.partial_dtype,
+            "State DType mismatch"
         );
         self.partials.push(state);
         Ok(())

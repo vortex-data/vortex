@@ -20,6 +20,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn;
 use crate::array::ArrayView;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -42,6 +43,7 @@ use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::match_each_signed_integer_ptype;
 use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::validity::Validity;
@@ -156,6 +158,13 @@ fn cast_to_decimal(
     }
 
     let valid_values = source_validity.execute_mask(array.len(), ctx)?;
+    if !array.is_empty() && matches!(valid_values, Mask::AllFalse(_)) {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Decimal(decimal_dtype, nullability)),
+            array.len(),
+        )
+        .into_array());
+    }
     match_each_integer_ptype!(array.ptype(), |S| {
         match_each_decimal_value_type!(values_type, |T| {
             cast_integer_values_to_decimal::<S, T>(array, decimal_dtype, validity, &valid_values)
@@ -539,6 +548,13 @@ where
     }
 
     let mask = array.validity()?.execute_mask(len, ctx)?;
+    if len > 0 && matches!(mask, Mask::AllFalse(_)) {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Primitive(T::PTYPE, Nullability::Nullable)),
+            len,
+        )
+        .into_array());
+    }
 
     let buffer: Buffer<T> = match (&mask, owned) {
         (Mask::AllTrue(_), Some(mut buf)) => {

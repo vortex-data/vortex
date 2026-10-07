@@ -10,6 +10,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -93,11 +94,10 @@ impl AggregateFnVTable for BoundedMin {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        vortex_ensure!(
-            metadata.len() == size_of::<u64>(),
-            "BoundedMin options expected {} bytes, got {}",
+        vortex_ensure_eq!(
+            metadata.len(),
             size_of::<u64>(),
-            metadata.len()
+            "BoundedMin options have the wrong byte length"
         );
         let mut bytes = [0u8; size_of::<u64>()];
         bytes.copy_from_slice(metadata);
@@ -154,13 +154,13 @@ impl AggregateFnVTable for BoundedMin {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
         let state = if scalar.is_null() {
             BoundedMinState::Empty
         } else {
-            BoundedMinState::Value(scalar)
+            BoundedMinState::Value(scalar.clone())
         };
         Ok(BoundedMinPartial { state })
     }

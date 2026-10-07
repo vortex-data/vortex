@@ -86,16 +86,18 @@ impl VTable for List {
         args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
         let offsets_dtype = DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable);
         let offsets = args.children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
-        vortex_error::vortex_ensure!(
-            offsets.row_count().saturating_sub(1) == args.row_count,
+        vortex_ensure_eq!(
+            offsets.row_count().saturating_sub(1),
+            args.row_count,
             "List offsets row count does not match parent"
         );
         if args.dtype.is_nullable() {
             let validity = args
                 .children
                 .child(VALIDITY_CHILD_INDEX, &DType::Bool(Nullability::NonNullable))?;
-            vortex_error::vortex_ensure!(
-                validity.row_count() == args.row_count,
+            vortex_ensure_eq!(
+                validity.row_count(),
+                args.row_count,
                 "List validity row count does not match parent"
             );
         }
