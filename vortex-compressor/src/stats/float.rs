@@ -215,23 +215,13 @@ where
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?;
 
-    let mut runs = 1;
+    let mut runs: u32 = 1;
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
-    let mut push = |value: T| {
-        if count_distinct_values {
-            distinct_values.insert(NativeValue(value));
-        }
-
-        if value != prev {
-            prev = value;
-            runs += 1;
-        }
-    };
     let validity_bits = match validity.bit_buffer() {
         AllOr::All => None,
         AllOr::None => unreachable!("All invalid arrays have been handled before"),
@@ -241,14 +231,38 @@ where
     for_each_chunk(buff.as_slice(), validity_bits, |chunk, valid| match valid {
         // All nulls -> no stats to update.
         0 => {}
-        u64::MAX => chunk.iter().for_each(|&value| push(value)),
+        u64::MAX => {
+            if count_distinct_values {
+                distinct_values.extend(chunk.iter().map(|&value| NativeValue(value)));
+            }
+            // Branch-free count of value changes, including the change from the previous chunk.
+            // At most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
+            let transitions = u8::from(chunk[0] != prev)
+                + chunk
+                    .iter()
+                    .zip(&chunk[1..])
+                    .map(|(a, b)| u8::from(a != b))
+                    .sum::<u8>();
+            runs += u32::from(transitions);
+            prev = chunk[63];
+        }
         // Floats are not forward filled like integers, since a filled NaN would add a run.
         _ => {
+            // Locals keep the run state in registers across the bit walk.
+            let (mut chunk_prev, mut chunk_runs) = (prev, runs);
             let mut valid = valid;
             while valid != 0 {
-                push(chunk[valid.trailing_zeros() as usize]);
+                let value = chunk[valid.trailing_zeros() as usize];
+                if count_distinct_values {
+                    distinct_values.insert(NativeValue(value));
+                }
+                if value != chunk_prev {
+                    chunk_prev = value;
+                    chunk_runs += 1;
+                }
                 valid &= valid - 1;
             }
+            (prev, runs) = (chunk_prev, chunk_runs);
         }
     });
 
@@ -271,11 +285,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
@@ -323,5 +340,59 @@ mod tests {
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 2);
+    }
+
+    /// Checks the chunked loop against a naive reference. The run lengths cover aligned constant
+    /// chunks (64), runs that cross chunk boundaries (3, 100), and chunks where every value
+    /// changes (1). With nulls, `null_chunks` also nulls two whole chunks.
+    #[rstest]
+    fn test_matches_naive_reference(
+        #[values(1, 63, 64, 65, 64 * 20 + 17)] len: u32,
+        #[values(1, 3, 64, 100)] run_len: u32,
+        #[values(None, Some(97), Some(3))] null_every: Option<u32>,
+        #[values(false, true)] null_chunks: bool,
+    ) {
+        let values: Vec<f64> = (0..len).map(|i| f64::from((i / run_len) % 16)).collect();
+        let valid: Vec<bool> = (0..len)
+            .map(|i| {
+                null_every.is_none_or(|n| i % n != 0 && !(null_chunks && (64..192).contains(&i)))
+            })
+            .collect();
+
+        let mut distinct = Vec::new();
+        let mut runs = 0;
+        let mut prev = None;
+        for (&value, _) in values.iter().zip(&valid).filter(|(_, ok)| **ok) {
+            if !distinct.contains(&value) {
+                distinct.push(value);
+            }
+            if prev.replace(value) != Some(value) {
+                runs += 1;
+            }
+        }
+        let value_count = u32::try_from(valid.iter().filter(|ok| **ok).count()).unwrap();
+
+        let validity = match null_every {
+            None => Validity::NonNullable,
+            Some(_) => Validity::from(BitBuffer::from(valid)),
+        };
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+        let mut ctx = array_session().create_execution_ctx();
+        let stats = FloatStats::generate_opts(
+            &array,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        assert_eq!(stats.value_count, value_count);
+        if value_count > 0 {
+            assert_eq!(stats.average_run_length, value_count / runs);
+            assert_eq!(
+                stats.distinct_count(),
+                Some(u32::try_from(distinct.len()).unwrap())
+            );
+        }
     }
 }
