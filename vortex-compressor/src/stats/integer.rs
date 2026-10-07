@@ -6,7 +6,6 @@
 use std::hash::Hash;
 use std::iter;
 
-use itertools::Either;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
@@ -397,28 +396,27 @@ where
     let (chunks, remainder) = buffer.as_chunks::<64>();
     let mut last = [head; 64];
     last[..remainder.len()].copy_from_slice(remainder);
-    let chunks = chunks
-        .iter()
-        .chain((!remainder.is_empty()).then_some(&last));
-    // One validity word per chunk. The nulls before the head are skipped or filled with the head,
-    // so the loop can start at 0.
-    let words = match validity.bit_buffer() {
-        AllOr::All => Either::Left(
-            iter::repeat_n(u64::MAX, array.len() / 64)
-                .chain(iter::once((1 << remainder.len()) - 1)),
-        ),
-        AllOr::None => unreachable!("All invalid arrays have been handled before"),
-        AllOr::Some(bits) => Either::Right(bits.chunks().iter_padded()),
+    let mut process = |chunk: &[T; 64], valid: u64| match valid {
+        // All nulls -> no stats to update.
+        0 => {}
+        // Inner loop for when validity check can be elided.
+        u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
+        // Inner loop for when we need to check validity.
+        _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
     };
-    for (chunk, valid) in chunks.zip(words) {
-        match valid {
-            // All nulls -> no stats to update.
-            0 => {}
-            // Inner loop for when validity check can be elided.
-            u64::MAX => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
-            // Inner loop for when we need to check validity.
-            _ => inner_loop_nullable(chunk, count_distinct_values, valid, &mut loop_state),
+    // The nulls before the head are skipped or filled with the head, so the loop can start at 0.
+    match validity.bit_buffer() {
+        AllOr::All => {
+            chunks.iter().for_each(|chunk| process(chunk, u64::MAX));
+            process(&last, (1 << remainder.len()) - 1);
         }
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        // One validity word per chunk, where the padded last word covers the trailing values.
+        AllOr::Some(bits) => chunks
+            .iter()
+            .chain(iter::once(&last))
+            .zip(bits.chunks().iter_padded())
+            .for_each(|(chunk, valid)| process(chunk, valid)),
     }
 
     if count_distinct_values {
