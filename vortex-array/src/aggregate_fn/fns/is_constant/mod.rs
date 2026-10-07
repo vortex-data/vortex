@@ -165,14 +165,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
 
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed is_constant as a statistic.
-    array
-        .statistics()
-        .set(Stat::IsConstant, Precision::Exact(result.into()));
-
-    Ok(result)
+    // The accumulator caches the result as a statistic.
+    Ok(result_scalar.as_bool().value().unwrap_or(false))
 }
 
 /// Compute whether an array is constant.
@@ -365,6 +359,48 @@ impl AggregateFnVTable for IsConstant {
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_constant
+    }
+
+    fn cached_partial(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self::Partial>> {
+        if batch.is_empty() {
+            return Ok(None);
+        }
+        Ok(match batch.statistics().get_as::<bool>(Stat::IsConstant) {
+            Precision::Exact(true) => Some(IsConstantPartial {
+                is_constant: true,
+                first_value: Some(batch.execute_scalar(0, ctx)?.into_nullable()),
+            }),
+            Precision::Exact(false) => Some(IsConstantPartial {
+                is_constant: false,
+                first_value: None,
+            }),
+            _ => None,
+        })
+    }
+
+    fn caches_partials(&self, _args: AggregateArgs<'_, Self::Options>) -> bool {
+        true
+    }
+
+    fn cache_partial(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        batch: &ArrayRef,
+        partial: &Self::Partial,
+    ) {
+        // An empty batch is not constant, unlike the empty partial state.
+        if partial.is_constant && partial.first_value.is_none() {
+            return;
+        }
+        batch.statistics().set(
+            Stat::IsConstant,
+            Precision::Exact(partial.is_constant.into()),
+        );
     }
 
     fn accumulate(

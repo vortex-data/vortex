@@ -232,30 +232,37 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 
         vortex_ensure_eq!(batch.dtype(), &self.dtypes.dtype, "Input DType mismatch");
 
-        // Legacy stats bridge: an aggregate still cached under a legacy `Stat` slot consumes that
-        // exact stat before kernel dispatch or decode, and otherwise caches its result there.
-        let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn) else {
-            return self.accumulate_batch(batch, ctx);
-        };
-
-        if let Precision::Exact(partial) = batch.statistics().get(stat) {
-            let partial = if partial.dtype() == &self.dtypes.partial_dtype {
-                partial
-            } else {
-                vortex_ensure!(
+        // Statistics bridge: an aggregate consumes its result cached in the batch's statistics
+        // before kernel dispatch or decode, and otherwise caches its result there. Aggregates
+        // still cached under a legacy `Stat` slot use that slot; others use the vtable's hooks.
+        let stat = Stat::from_aggregate_fn(&self.aggregate_fn);
+        if let Some(stat) = stat {
+            if let Precision::Exact(partial) = batch.statistics().get(stat) {
+                let partial = if partial.dtype() == &self.dtypes.partial_dtype {
                     partial
-                        .dtype()
-                        .eq_ignore_nullability(&self.dtypes.partial_dtype),
-                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                    self.aggregate_fn,
-                    stat,
-                    partial.dtype(),
-                    self.dtypes.partial_dtype,
-                );
-                partial.cast(&self.dtypes.partial_dtype)?
-            };
-            self.fold_partial_scalar(&partial)?;
-            return Ok(());
+                } else {
+                    vortex_ensure!(
+                        partial
+                            .dtype()
+                            .eq_ignore_nullability(&self.dtypes.partial_dtype),
+                        "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                        self.aggregate_fn,
+                        stat,
+                        partial.dtype(),
+                        self.dtypes.partial_dtype,
+                    );
+                    partial.cast(&self.dtypes.partial_dtype)?
+                };
+                return self.fold_partial_scalar(&partial);
+            }
+        } else {
+            let args = self.dtypes.args(&self.options);
+            if let Some(partial) = self.vtable.cached_partial(args, batch, ctx)? {
+                return self.fold_partial(partial);
+            }
+            if !self.vtable.caches_partials(args) {
+                return self.accumulate_batch(batch, ctx);
+            }
         }
 
         // Accumulate the batch into an empty state of its own, so that its result is cached on
@@ -268,13 +275,17 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         let Some(batch_partial) = batch_partial else {
             return Ok(());
         };
-        let batch_result = self
-            .vtable
-            .to_scalar(self.dtypes.args(&self.options), &batch_partial)?;
-        // A null partial, e.g. an overflowed sum or the minimum of an all-null batch, has no exact
-        // stat value.
-        if let Some(value) = batch_result.into_value() {
-            batch.statistics().set(stat, Precision::Exact(value));
+        let args = self.dtypes.args(&self.options);
+        match stat {
+            Some(stat) => {
+                let batch_result = self.vtable.to_scalar(args, &batch_partial)?;
+                // A null partial, e.g. an overflowed sum or the minimum of an all-null batch, has
+                // no exact stat value.
+                if let Some(value) = batch_result.into_value() {
+                    batch.statistics().set(stat, Precision::Exact(value));
+                }
+            }
+            None => self.vtable.cache_partial(args, batch, &batch_partial),
         }
         self.fold_partial(batch_partial)
     }
@@ -386,9 +397,13 @@ mod tests {
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use crate::aggregate_fn::fns::mean::Mean;
     use crate::aggregate_fn::fns::min::Min;
     use crate::aggregate_fn::fns::sum::Sum;
@@ -629,6 +644,74 @@ mod tests {
 
         assert!(acc.finish()?.is_null());
         assert!(batch.statistics().get(Stat::Sum).as_exact().is_none());
+        Ok(())
+    }
+
+    fn finish_on(acc: &mut dyn DynAccumulator, batch: &ArrayRef) -> VortexResult<Scalar> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        acc.accumulate(batch, &mut ctx)?;
+        acc.finish()
+    }
+
+    /// Aggregates without a legacy stat slot cache through the vtable hooks, on the requested
+    /// batch rather than the canonical array it executes into.
+    #[test]
+    fn caches_hook_results_on_requested_batch() -> VortexResult<()> {
+        let batch = DictArray::try_new(
+            buffer![1u32, 0, 2].into_array(),
+            buffer![5i32, 1, 9].into_array(),
+        )?
+        .into_array();
+        let dtype = batch.dtype().clone();
+
+        let mut is_constant = Accumulator::try_new(IsConstant, EmptyOptions, dtype.clone())?;
+        assert_eq!(
+            finish_on(&mut is_constant, &batch)?.as_bool().value(),
+            Some(false)
+        );
+        assert_eq!(
+            batch.statistics().get_as::<bool>(Stat::IsConstant),
+            Precision::exact(false)
+        );
+
+        let mut is_sorted =
+            Accumulator::try_new(IsSorted, IsSortedOptions { strict: true }, dtype)?;
+        assert_eq!(
+            finish_on(&mut is_sorted, &batch)?.as_bool().value(),
+            Some(true)
+        );
+        assert_eq!(
+            batch.statistics().get_as::<bool>(Stat::IsSorted),
+            Precision::exact(true)
+        );
+        assert_eq!(
+            batch.statistics().get_as::<bool>(Stat::IsStrictSorted),
+            Precision::exact(true)
+        );
+        Ok(())
+    }
+
+    /// Planted statistics that contradict the data prove the hooks read them instead of scanning.
+    #[test]
+    fn reads_hook_results_from_batch_statistics() -> VortexResult<()> {
+        let batch = buffer![3i32, 1, 2].into_array();
+        let dtype = batch.dtype().clone();
+        let stats = batch.statistics();
+        stats.set(Stat::IsConstant, Precision::Exact(true.into()));
+        stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+
+        let mut is_constant = Accumulator::try_new(IsConstant, EmptyOptions, dtype.clone())?;
+        assert_eq!(
+            finish_on(&mut is_constant, &batch)?.as_bool().value(),
+            Some(true)
+        );
+
+        let mut is_sorted =
+            Accumulator::try_new(IsSorted, IsSortedOptions { strict: false }, dtype)?;
+        assert_eq!(
+            finish_on(&mut is_sorted, &batch)?.as_bool().value(),
+            Some(true)
+        );
         Ok(())
     }
 
