@@ -41,6 +41,7 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 use tracing::warn;
 use url::Url;
+use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
@@ -163,7 +164,7 @@ impl Benchmark for JsonBenchBenchmark {
                     })
                 })
             })
-            .buffer_unordered(std::thread::available_parallelism().map_or(1, |n| n.get()))
+            .buffer_unordered(get_available_parallelism().unwrap_or(1))
             .map(|result| result?)
             .try_collect::<Vec<_>>()
             .await?;

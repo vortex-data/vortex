@@ -667,6 +667,26 @@ fn execute_parent_for_child(
     Ok(None)
 }
 
+/// Runs a registered `execute_parent` kernel of the child in `parent`'s `slot_idx`, if one applies.
+pub(crate) fn execute_parent_for_slot(
+    parent: &ArrayRef,
+    slot_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(child) = parent.slots().get(slot_idx).cloned().flatten() else {
+        return Ok(None);
+    };
+    let kernels = Arc::clone(&ctx.execute_parent_kernels);
+    execute_parent_for_child(
+        "slot_execute_parent",
+        parent,
+        &child,
+        slot_idx,
+        kernels.as_ref(),
+        ctx,
+    )
+}
+
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(
     array: &ArrayRef,

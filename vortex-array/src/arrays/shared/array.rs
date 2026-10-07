@@ -52,6 +52,11 @@ pub trait SharedArrayExt: TypedArrayRef<Shared> + SharedArraySlotsExt {
         }
     }
 
+    /// Whether the cached form has been computed.
+    fn is_materialized(&self) -> bool {
+        matches!(self.cached.get(), Some(Ok(_)))
+    }
+
     fn get_or_compute(
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,

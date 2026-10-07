@@ -115,8 +115,7 @@ impl ScalarUDFImpl for VariantGetUdf {
         };
         let input = args.args[0].to_array(args.number_rows)?;
         let as_type = (args.args.len() == 3).then(|| Arc::clone(&args.return_field));
-        let options =
-            GetOptions::new_with_path(parse_arrow_path(&path)?).with_as_type(as_type.clone());
+        let options = GetOptions::new_with_path(parse_arrow_path(&path)?).with_as_type(as_type);
         let output = parquet_variant_compute::variant_get(&input, options)?;
         Ok(ColumnarValue::Array(output))
     }

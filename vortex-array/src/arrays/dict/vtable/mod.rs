@@ -38,11 +38,14 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
+use crate::arrays::Shared;
 use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
+use crate::arrays::shared::SharedArrayExt;
+use crate::arrays::shared::SharedArraySlotsExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
@@ -53,6 +56,7 @@ use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::executor::execute_parent_for_slot;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
 use crate::require_child;
@@ -82,6 +86,10 @@ impl ArrayEq for DictData {
         true
     }
 }
+
+/// Dictionaries with at least this many times more values than codes serve lookups through the
+/// values' take kernel rather than materializing every value.
+const SPARSE_LOOKUP_FACTOR: usize = 2;
 
 impl VTable for Dict {
     type TypedArrayData = DictData;
@@ -210,6 +218,20 @@ impl VTable for Dict {
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),
             )));
+        }
+
+        // A few lookups into a dictionary whose values are shared but not materialized yet are
+        // cheaper served by the values' own take kernel, which decodes only the referenced values,
+        // than by materializing every value.
+        if let Some(shared) = array.values().as_opt::<Shared>()
+            && !shared.is_materialized()
+            && array.codes().len().saturating_mul(SPARSE_LOOKUP_FACTOR) < shared.len()
+        {
+            let lookup =
+                DictArray::try_new(array.codes().clone(), shared.source().clone())?.into_array();
+            if let Some(taken) = execute_parent_for_slot(&lookup, DictSlots::VALUES, ctx)? {
+                return Ok(ExecutionResult::done(taken));
+            }
         }
 
         let array = require_child!(array, array.values(), DictSlots::VALUES => AnyCanonical);

@@ -143,14 +143,13 @@ fn take_views<I: AsPrimitive<usize>>(
             BinaryView::default(),
             indices.len(),
         )),
-        AllOr::Some(buffer) => Buffer::<BinaryView>::from_trusted_len_iter(
-            buffer.iter().zip(indices.iter()).map(|(valid, idx)| {
-                if valid {
-                    views_ref[idx.as_()]
-                } else {
-                    BinaryView::default()
-                }
-            }),
+        // The output validity masks null positions, so any view works there. Indices at null
+        // positions may be out of bounds, so gather without branching on validity and fall back
+        // to an empty view instead.
+        AllOr::Some(_) => Buffer::<BinaryView>::from_trusted_len_iter(
+            indices
+                .iter()
+                .map(|i| views_ref.get(i.as_()).copied().unwrap_or_default()),
         ),
     }
 }

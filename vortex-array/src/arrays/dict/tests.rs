@@ -130,3 +130,38 @@ fn test_dict_list_dict_display() {
         "[[\"Bonjour\", \"Bonjour\", null], [\"你好\", \"Hello\"], null, [\"Hello\", \"Hello\"], null, []]"
     )
 }
+
+/// A few lookups into a shared dictionary that is not materialized yet go through the values'
+/// take kernel, leaving the shared dictionary unmaterialized.
+#[test]
+fn sparse_lookup_does_not_materialize_shared_values() -> vortex_error::VortexResult<()> {
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::SharedArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::shared::SharedArrayExt;
+
+    let chunk =
+        |values: &[&str]| VarBinViewArray::from_iter_str(values.iter().copied()).into_array();
+    let values = ChunkedArray::from_iter([chunk(&["a", "b", "c"]), chunk(&["d", "e", "f"])]);
+    let shared = SharedArray::new(values.into_array());
+    let dict = DictArray::try_new(buffer![4u8, 1].into_array(), shared.clone().into_array())?;
+
+    let mut ctx = array_session().create_execution_ctx();
+    let actual = dict.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(actual, VarBinViewArray::from_iter_str(["e", "b"]), &mut ctx);
+    assert!(!shared.is_materialized());
+
+    // Lookups covering much of the dictionary materialize it once for every user.
+    let dict = DictArray::try_new(
+        buffer![0u8, 1, 2, 3, 4, 5, 0].into_array(),
+        shared.clone().into_array(),
+    )?;
+    let actual = dict.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(
+        actual,
+        VarBinViewArray::from_iter_str(["a", "b", "c", "d", "e", "f", "a"]),
+        &mut ctx
+    );
+    assert!(shared.is_materialized());
+    Ok(())
+}
