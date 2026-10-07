@@ -21,7 +21,7 @@ use vortex_buffer::BitBufferView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
-use vortex_compute::lane_kernels::for_each_masked_value;
+use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
@@ -137,13 +137,10 @@ fn subtract<T: PrimInt + WrappingSub>(values: &[T], reference: T, out: &mut [May
 
 /// Find each mixed-validity chunk's minimum and subtract it from each non-null value while the chunk is in cache.
 /// The minimum is the minimum non-null value.
-fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + 'static>(
+fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + Default>(
     values: &[T],
     bits: &BitBuffer,
-) -> (Buffer<T>, Buffer<T>)
-where
-    u8: AsPrimitive<T>,
-{
+) -> (Buffer<T>, Buffer<T>) {
     // A view slices each chunk's bits without cloning the buffer.
     let bits = bits.as_view();
     let mut encoded = BufferMut::<T>::with_capacity(values.len());
@@ -183,49 +180,32 @@ where
 
 /// The minimum of the valid `values`, or `None` if none are valid.
 #[inline]
-fn valid_min<T: PrimInt + WrappingSub + 'static>(values: &[T], mask: BitBufferView) -> Option<T>
-where
-    u8: AsPrimitive<T>,
-{
+fn valid_min<T: PrimInt>(values: &[T], mask: BitBufferView) -> Option<T> {
     if mask.true_count() == 0 {
         return None;
     }
     let mut min = T::max_value();
-    for_each_masked_value(values, mask, |_, v, valid| {
-        min = min.min(select(lane_mask(valid), v, T::max_value()));
+    for_each_mask_word(mask, |word, start, len| {
+        let bytes = word.to_le_bytes();
+        for (j, &v) in values[start..start + len].iter().enumerate() {
+            let valid = (bytes[j / 8] >> (j % 8)) & 1 == 1;
+            // An `if` compiles to a conditional move. Blending with an all-ones mask instead took
+            // 16 instructions per value and made encoding a third slower.
+            min = min.min(if valid { v } else { T::max_value() });
+        }
     });
 
     Some(min)
 }
 
 /// Subtract `reference` from the valid `values` and write zero for the invalid ones.
-fn subtract_valid<T: PrimInt + WrappingSub + 'static>(
+fn subtract_valid<T: PrimInt + WrappingSub + Default>(
     values: &[T],
     mask: BitBufferView,
     reference: T,
     out: &mut [MaybeUninit<T>],
-) where
-    u8: AsPrimitive<T>,
-{
-    for_each_masked_value(values, mask, |i, v, valid| {
-        out[i].write(v.wrapping_sub(&reference) & lane_mask(valid));
-    });
-}
-
-/// All ones for a valid value and all zeros for a null, so callers combine each value with its
-/// validity using bitwise operations instead of branching, which keeps their loops vectorized.
-#[inline]
-fn lane_mask<T: PrimInt + WrappingSub + 'static>(valid: bool) -> T
-where
-    u8: AsPrimitive<T>,
-{
-    T::zero().wrapping_sub(&u8::from(valid).as_())
-}
-
-/// `a` where `mask` is all ones and `b` where it is all zeros.
-#[inline]
-fn select<T: PrimInt>(mask: T, a: T, b: T) -> T {
-    (a & mask) | (b & !mask)
+) {
+    values.map_masked_into(mask, out, |v| v.wrapping_sub(&reference));
 }
 
 #[cfg(test)]

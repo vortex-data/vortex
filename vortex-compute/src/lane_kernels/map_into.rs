@@ -7,7 +7,7 @@
 use std::mem::MaybeUninit;
 use std::ops::BitOrAssign;
 
-use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferView;
 
 use crate::lane_kernels::CHUNK_LEN;
 use crate::lane_kernels::mask_words::for_each_mask_word;
@@ -50,9 +50,9 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// Panics if `self.len() != mask.len()` or `out.len() != self.len()`.
     #[inline]
-    fn try_map_masked_into<R, F>(
+    fn try_map_masked_into<'m, R, F>(
         self,
-        mask: &BitBuffer,
+        mask: impl Into<BitBufferView<'m>>,
         out: &mut [MaybeUninit<R>],
         f: F,
     ) -> Result<(), usize>
@@ -91,6 +91,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
 
         let values = self;
         let len = values.len();
+        let mask = mask.into();
         assert_eq!(len, mask.len(), "values and mask must have the same length");
         assert_eq!(out.len(), len, "out must have the same length as values");
 
@@ -117,8 +118,12 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// Panics if `self.len() != mask.len()` or `out.len() != self.len()`.
     #[inline]
-    fn map_masked_into<R, F>(self, mask: &BitBuffer, out: &mut [MaybeUninit<R>], f: F)
-    where
+    fn map_masked_into<'m, R, F>(
+        self,
+        mask: impl Into<BitBufferView<'m>>,
+        out: &mut [MaybeUninit<R>],
+        f: F,
+    ) where
         R: Copy + Default,
         F: Fn(Self::Item) -> R,
     {
@@ -156,6 +161,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
 
         let values = self;
         let len = values.len();
+        let mask = mask.into();
         assert_eq!(len, mask.len(), "values and mask must have the same length");
         assert_eq!(out.len(), len, "out must have the same length as values");
 
