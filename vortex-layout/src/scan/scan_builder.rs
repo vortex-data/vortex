@@ -84,6 +84,9 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
+    /// Whether readers may read pages of a segment instead of whole segments. `None` enables it
+    /// only for row-index selections, i.e. random access.
+    partial_segment_reads: Option<bool>,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -108,6 +111,7 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
+            partial_segment_reads: None,
         }
     }
 
@@ -179,6 +183,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Select rows by strictly sorted absolute indices relative to the scan input.
     pub fn with_row_indices(mut self, row_indices: StrictSortedBuffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
+        self
+    }
+
+    /// Allow or forbid readers to read only the pages of a segment that the selection touches.
+    ///
+    /// By default this is enabled only for [`Selection::IncludeByIndex`] selections, such as
+    /// [`with_row_indices`](Self::with_row_indices), where the rows are sparse and known before
+    /// any I/O. Full and filtered scans read whole segments. The file must also allow partial
+    /// reads, see `VortexOpenOptions::with_partial_segment_reads`.
+    pub fn with_partial_segment_reads(mut self, partial_segment_reads: bool) -> Self {
+        self.partial_segment_reads = Some(partial_segment_reads);
         self
     }
 
@@ -293,6 +308,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            partial_segment_reads: self.partial_segment_reads,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -347,6 +363,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )
             };
 
+        let partial_segment_reads = self
+            .partial_segment_reads
+            .unwrap_or(matches!(self.selection, Selection::IncludeByIndex(_)));
+
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
@@ -360,7 +380,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
-        ))
+        )
+        .with_partial_segment_reads(partial_segment_reads))
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.

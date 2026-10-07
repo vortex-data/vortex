@@ -65,7 +65,6 @@ impl MaskFuture {
         let mut future = Self::new(mask.len(), async move { Ok(mask) });
         future.upper_bound = Some(upper_bound);
         future.upper_bound_is_exact = true;
-        future.partial_reads_allowed = true;
         future
     }
 

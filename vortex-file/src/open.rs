@@ -150,6 +150,11 @@ impl VortexOpenOptions {
 
     /// Allow layout readers to read only the pages of a segment that a selection touches.
     ///
+    /// This makes the file able to serve partial reads; each scan still decides whether to use
+    /// them. By default only row-index scans (random access) do, see
+    /// `ScanBuilder::with_partial_segment_reads`, while full and filtered scans read whole
+    /// segments.
+    ///
     /// Pages are sized from [`VortexReadAt::preferred_read_size`], and a reader falls back to the
     /// whole segment when the pages it needs would cost more I/O than the segment itself. Only
     /// flat layouts written with an inline array tree and a supported encoding read partially.

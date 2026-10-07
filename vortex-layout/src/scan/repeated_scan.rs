@@ -55,6 +55,8 @@ pub struct RepeatedScan<A: 'static + Send> {
     limit: Option<u64>,
     /// The dtype of the projected arrays.
     dtype: DType,
+    /// Whether readers may read pages of a segment instead of whole segments.
+    partial_segment_reads: bool,
 }
 
 impl RepeatedScan<ArrayRef> {
@@ -116,7 +118,14 @@ impl<A: 'static + Send> RepeatedScan<A> {
             map_fn,
             limit,
             dtype,
+            partial_segment_reads: false,
         }
+    }
+
+    /// Allow readers to read only the pages of a segment that a split's selection touches.
+    pub fn with_partial_segment_reads(mut self, partial_segment_reads: bool) -> Self {
+        self.partial_segment_reads = partial_segment_reads;
+        self
     }
 
     pub fn execute(
@@ -178,6 +187,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),
+            partial_segment_reads: self.partial_segment_reads,
         });
 
         for range in ranges {

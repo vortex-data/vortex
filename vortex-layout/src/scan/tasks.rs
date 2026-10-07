@@ -42,6 +42,7 @@ pub fn split_exec<A: 'static + Send>(
 ) -> VortexResult<TaskFuture<Option<A>>> {
     let row_range = read_mask.row_range();
     let row_mask = read_mask.mask().clone();
+    let partial_reads_allowed = ctx.partial_segment_reads && !row_mask.all_true();
 
     let filter_mask = match ctx.filter.as_ref() {
         // No filter == immediate mask
@@ -60,7 +61,12 @@ pub fn split_exec<A: 'static + Send>(
                 None => row_mask,
             };
 
-            MaskFuture::ready(row_mask)
+            let mask = MaskFuture::ready(row_mask);
+            if partial_reads_allowed {
+                mask.with_partial_reads()
+            } else {
+                mask
+            }
         }
         Some(filter) => {
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE
@@ -70,7 +76,6 @@ pub fn split_exec<A: 'static + Send>(
             let filter = Arc::clone(filter);
             let row_range = row_range.clone();
             let filter_upper_bound = row_mask.clone();
-            let partial_reads_allowed = !row_mask.all_true();
 
             let filter_mask = MaskFuture::new(row_mask.len(), async move {
                 let mut mask = row_mask;
@@ -121,9 +126,9 @@ pub fn split_exec<A: 'static + Send>(
 
                     let input_true_count = mask.true_count();
                     let mask_future = if partial_reads_allowed {
-                        MaskFuture::ready(mask)
+                        MaskFuture::ready(mask).with_partial_reads()
                     } else {
-                        MaskFuture::ready(mask).without_partial_reads()
+                        MaskFuture::ready(mask)
                     };
                     let conjunct_mask = reader
                         .filter_evaluation(&row_range, conjunct, mask_future)?
@@ -185,6 +190,8 @@ pub struct TaskContext<A> {
     pub projection: BoundExpression,
     /// Function that maps into an A.
     pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    /// Whether readers may read pages of a segment instead of whole segments.
+    pub partial_segment_reads: bool,
 }
 
 #[cfg(test)]

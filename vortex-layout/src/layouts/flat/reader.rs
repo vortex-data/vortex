@@ -382,7 +382,9 @@ mod test {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use futures::TryStreamExt;
     use parking_lot::Mutex;
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -399,9 +401,11 @@ mod test {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::scan::scan_builder::ScanBuilder;
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
@@ -587,7 +591,7 @@ mod test {
                 .projection_evaluation(
                     &(0..64),
                     &expr,
-                    MaskFuture::ready(Mask::from_indices(64, [1, 10])),
+                    MaskFuture::ready(Mask::from_indices(64, [1, 10])).with_partial_reads(),
                 )?
                 .await?;
 
@@ -600,7 +604,7 @@ mod test {
                 .projection_evaluation(
                     &(0..64),
                     &expr,
-                    MaskFuture::ready(Mask::from_indices(64, [1, 10])),
+                    MaskFuture::ready(Mask::from_indices(64, [1, 10])).with_partial_reads(),
                 )?
                 .await?;
             assert_arrays_eq!(result, expected, &mut ctx);
@@ -642,7 +646,11 @@ mod test {
             let expr = root().bind(reader.dtype())?;
             let mask = Mask::from_indices(64, (0..64).step_by(2));
             let result = reader
-                .projection_evaluation(&(0..64), &expr, MaskFuture::ready(mask.clone()))?
+                .projection_evaluation(
+                    &(0..64),
+                    &expr,
+                    MaskFuture::ready(mask.clone()).with_partial_reads(),
+                )?
                 .await?;
 
             assert_arrays_eq!(result, array.filter(mask)?, &mut ctx);
@@ -685,12 +693,12 @@ mod test {
             let filter = reader.filter_evaluation(
                 &(0..64),
                 &filter_expr,
-                MaskFuture::ready(mask.clone()),
+                MaskFuture::ready(mask.clone()).with_partial_reads(),
             )?;
             let projection = reader.projection_evaluation(
                 &(0..64),
                 &projection_expr,
-                MaskFuture::ready(mask),
+                MaskFuture::ready(mask).with_partial_reads(),
             )?;
 
             let (filter_mask, result) = futures::try_join!(filter, projection)?;
@@ -704,6 +712,109 @@ mod test {
                 *source.ranges.lock(),
                 [0..16, 32..48],
                 "one in-flight request should serve filter and projection"
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn ready_mask_without_opt_in_reads_whole_segment() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let source = RangedTestSource::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .with_inline_array_node(true)
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&source.inner),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(source.clone()),
+                &session,
+                &Default::default(),
+            )?;
+            let expr = root().bind(reader.dtype())?;
+            reader
+                .projection_evaluation(
+                    &(0..64),
+                    &expr,
+                    MaskFuture::ready(Mask::from_indices(64, [1, 10])),
+                )?
+                .await?;
+
+            assert_eq!(source.whole_requests.load(Ordering::Relaxed), 1);
+            assert!(source.ranges.lock().is_empty());
+            Ok(())
+        })
+    }
+
+    /// Row-index scans (random access) read pages; any other scan reads whole segments.
+    #[rstest]
+    #[case::row_indices(Some(vec![1u64, 10]), None, true)]
+    #[case::row_indices_opted_out(Some(vec![1u64, 10]), Some(false), false)]
+    #[case::full_scan(None, None, false)]
+    fn scan_reads_pages_only_for_random_access(
+        #[case] indices: Option<Vec<u64>>,
+        #[case] partial_segment_reads: Option<bool>,
+        #[case] expect_pages: bool,
+    ) -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let source = RangedTestSource::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .with_inline_array_node(true)
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&source.inner),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(source.clone()),
+                &session,
+                &Default::default(),
+            )?;
+
+            let mut scan = ScanBuilder::new(session.clone(), reader);
+            if let Some(indices) = &indices {
+                scan = scan.with_row_indices(StrictSortedBuffer::try_new(
+                    indices.iter().copied().collect(),
+                )?);
+            }
+            if let Some(partial_segment_reads) = partial_segment_reads {
+                scan = scan.with_partial_segment_reads(partial_segment_reads);
+            }
+            let chunks: Vec<_> = scan.into_stream()?.try_collect().await?;
+
+            let expected = match &indices {
+                Some(indices) => PrimitiveArray::from_iter(
+                    indices
+                        .iter()
+                        .map(|&i| i32::try_from(i))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                None => PrimitiveArray::from_iter(0i32..64),
+            }
+            .into_array();
+            assert_eq!(chunks.len(), 1);
+            assert_arrays_eq!(chunks[0], expected, &mut ctx);
+            assert_eq!(!source.ranges.lock().is_empty(), expect_pages);
+            assert_eq!(
+                source.whole_requests.load(Ordering::Relaxed),
+                usize::from(!expect_pages)
             );
             Ok(())
         })
