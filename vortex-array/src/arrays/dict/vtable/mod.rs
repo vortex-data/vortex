@@ -233,6 +233,20 @@ impl VTable for Dict {
         if !array.is_empty() {
             let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
             if !codes.validity()?.definitely_all_null() {
+                let values = array.values();
+                if array.len() <= values.len() / 4
+                    && matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+                    && !values.is::<AnyCanonical>()
+                {
+                    // A sparse selection reaches the take kernel of the values, such as the OnPair
+                    // token-run gather, before the whole dictionary is decoded.
+                    // SAFETY: executing the codes keeps their values, dtype and length.
+                    let taken =
+                        unsafe { DictArray::new_unchecked(codes.into_array(), values.clone()) };
+                    let canonical = taken.into_array().execute::<Canonical>(ctx)?.into_array();
+                    return canonical.append_to_builder(builder, ctx);
+                }
+
                 // Decode the children without taking values to the full row count. The
                 // variable-binary builders gather directly through these dictionary codes.
                 let values = if array.values().is::<AnyCanonical>() {
