@@ -32,6 +32,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::arrays::Constant;
+use crate::arrays::ExtensionArray;
 use crate::arrays::Null;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -92,6 +93,14 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
         let result = !strict;
+        cache_is_sorted(array, strict, result);
+        return Ok(result);
+    }
+
+    // Extension arrays are ordered by their storage, as for min and max.
+    if array.dtype().is_extension() {
+        let extension = array.clone().execute::<ExtensionArray>(ctx)?;
+        let result = check_extension_sorted(&extension, strict, ctx)?;
         cache_is_sorted(array, strict, result);
         return Ok(result);
     }
@@ -603,9 +612,11 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::datetime::TemporalData;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -817,6 +828,30 @@ mod tests {
             IsSorted.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)
         );
+        Ok(())
+    }
+
+    /// Extension arrays, such as timestamps, are sorted when their storage is.
+    #[rstest]
+    #[case::sorted(buffer![1i64, 2, 2, 5], false, true)]
+    #[case::strict_with_ties(buffer![1i64, 2, 2, 5], true, false)]
+    #[case::strict(buffer![1i64, 2, 3, 5], true, true)]
+    #[case::unsorted(buffer![1i64, 3, 2, 5], false, false)]
+    fn extension_sortedness_follows_storage(
+        #[case] values: Buffer<i64>,
+        #[case] strict: bool,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let timestamps =
+            TemporalData::new_timestamp(values.into_array(), TimeUnit::Microseconds, None)
+                .into_array();
+        let sorted = if strict {
+            is_strict_sorted(&timestamps, &mut ctx)?
+        } else {
+            is_sorted(&timestamps, &mut ctx)?
+        };
+        assert_eq!(sorted, expected);
         Ok(())
     }
 }
