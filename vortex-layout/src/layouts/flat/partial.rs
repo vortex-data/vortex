@@ -221,13 +221,25 @@ impl PartialReadPlan {
             .div_ceil(self.row_granularity)
             .saturating_mul(self.row_granularity);
         let pages = selected_pages(page_rows, layout_len, row_range, mask)?;
-        let (partial_bytes, request_count) = self.estimated_partial_io(&pages, layout_len)?;
+        // Each extra read costs a request, an allocation and a decode, while a whole segment read
+        // usually coalesces with its neighbours into one, and cached bytes are cheap to copy.
+        // Charge a page of bytes per extra read. Encodings that decode per row (ALP-RD,
+        // bit-packing) also save decode work, so they go partial once the reads cost at most a
+        // quarter of the segment; uncompressed buffers decode for free and need an eighth.
+        let min_saving_factor =
+            if matches!(self.kind, PartialReadKind::Alprd(_)) || self.row_granularity > 1 {
+                4
+            } else {
+                8
+            };
+        let (partial_bytes, request_count) =
+            self.estimated_partial_io(&pages, preferred_read_size / 4)?;
         let partial_cost = partial_bytes.checked_add(
             request_count
                 .saturating_sub(1)
                 .checked_mul(preferred_read_size)?,
         )?;
-        if partial_cost >= segment_len {
+        if partial_cost.saturating_mul(min_saving_factor) > segment_len {
             tracing::trace!(
                 layout_len,
                 page_rows,
@@ -355,48 +367,67 @@ impl PartialReadPlan {
         })
     }
 
+    /// Estimate the I/O of reading `pages` as `(bytes, reads)` after the file source coalesces
+    /// ranges whose gap is at most `coalesce_distance`.
     fn estimated_partial_io(
         &self,
         pages: &[Range<usize>],
-        _layout_len: usize,
+        coalesce_distance: usize,
     ) -> Option<(usize, usize)> {
+        let mut ranges = Vec::new();
         match &self.kind {
             PartialReadKind::Fixed(buffers) => {
-                let bytes = pages.iter().try_fold(0usize, |total, rows| {
-                    buffers.iter().try_fold(total, |total, buffer| {
-                        let granules = rows
-                            .end
-                            .div_ceil(buffer.row_granularity)
-                            .checked_sub(rows.start / buffer.row_granularity)?;
-                        total.checked_add(granules.checked_mul(buffer.bytes_per_granule)?)
-                    })
-                })?;
-                Some((bytes, pages.len().checked_mul(buffers.len())?))
+                for rows in pages {
+                    for buffer in buffers.iter() {
+                        let base = buffer.descriptor.range().start;
+                        ranges.push(
+                            base.checked_add(
+                                (rows.start / buffer.row_granularity)
+                                    .checked_mul(buffer.bytes_per_granule)?,
+                            )?
+                                ..base.checked_add(
+                                    rows.end
+                                        .div_ceil(buffer.row_granularity)
+                                        .checked_mul(buffer.bytes_per_granule)?,
+                                )?,
+                        );
+                    }
+                }
             }
             PartialReadKind::Alprd(plan) => {
                 let values_per_row = usize::try_from(plan.list_size).ok()?;
-                let page_bytes = pages.iter().try_fold(0usize, |total, rows| {
+                for rows in pages {
                     let values = rows.start.checked_mul(values_per_row)?
                         ..rows.end.checked_mul(values_per_row)?;
-                    let left = bitpacked_range(&plan.left, values.clone())?;
-                    let right = bitpacked_range(&plan.right, values)?;
-                    total.checked_add(left.len())?.checked_add(right.len())
-                })?;
-                let patch_bytes = plan
-                    .patch_buffers
-                    .iter()
-                    .try_fold(0usize, |total, buffer| {
-                        total.checked_add(buffer.range().len())
-                    })?;
-                Some((
-                    page_bytes.checked_add(patch_bytes)?,
-                    pages
-                        .len()
-                        .checked_mul(2)?
-                        .checked_add(plan.patch_buffers.len())?,
-                ))
+                    ranges.push(bitpacked_range(&plan.left, values.clone())?);
+                    ranges.push(bitpacked_range(&plan.right, values)?);
+                }
+                ranges.extend(plan.patch_buffers.iter().map(|b| b.range().clone()));
             }
         }
+        ranges.sort_unstable_by_key(|range| range.start);
+
+        let mut bytes = 0usize;
+        let mut reads = 0usize;
+        let mut current: Option<Range<usize>> = None;
+        for range in ranges {
+            match &mut current {
+                Some(cur) if range.start <= cur.end.saturating_add(coalesce_distance) => {
+                    cur.end = cur.end.max(range.end);
+                }
+                _ => {
+                    if let Some(cur) = current.replace(range) {
+                        bytes = bytes.checked_add(cur.len())?;
+                        reads += 1;
+                    }
+                }
+            }
+        }
+        if let Some(cur) = current {
+            bytes = bytes.checked_add(cur.len())?;
+            reads += 1;
+        }
+        Some((bytes, reads))
     }
 }
 
@@ -668,15 +699,17 @@ fn selected_pages(
             }
         }
     }
-    Some(
-        page_indices
-            .into_iter()
-            .map(|page_index| {
-                let start = page_index * page_rows;
-                start..start.saturating_add(page_rows).min(layout_len)
-            })
-            .collect(),
-    )
+    // Adjacent pages form one run, so they are read with one request and decoded once.
+    let mut runs: Vec<Range<usize>> = Vec::new();
+    for page_index in page_indices {
+        let start = page_index * page_rows;
+        let end = start.saturating_add(page_rows).min(layout_len);
+        match runs.last_mut() {
+            Some(run) if run.end == start => run.end = end,
+            _ => runs.push(start..end),
+        }
+    }
+    Some(runs)
 }
 
 fn page_mask(

@@ -67,7 +67,10 @@ impl FlatReader {
         row_range: &Range<usize>,
         mask: &Mask,
     ) -> Option<RegisteredPartialRead> {
-        if !PartialReadPlan::supports_mask(mask) {
+        // Sources that cannot serve ranges never read partially, so skip planning entirely.
+        if !PartialReadPlan::supports_mask(mask)
+            || self.segment_source.preferred_read_size().is_none()
+        {
             return None;
         }
         let plan = self
@@ -568,7 +571,7 @@ mod test {
             let array_ctx = ArrayContext::empty();
             let source = RangedTestSource::default();
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let array = PrimitiveArray::from_iter(0i32..1024).into_array();
             let layout = FlatLayoutStrategy::default()
                 .with_inline_array_node(true)
                 .write_stream(
@@ -589,9 +592,9 @@ mod test {
             let expr = root().bind(reader.dtype())?;
             let result = reader
                 .projection_evaluation(
-                    &(0..64),
+                    &(0..1024),
                     &expr,
-                    MaskFuture::ready(Mask::from_indices(64, [1, 10])).with_partial_reads(),
+                    MaskFuture::ready(Mask::from_indices(1024, [1, 10])).with_partial_reads(),
                 )?
                 .await?;
 
@@ -602,9 +605,9 @@ mod test {
 
             let result = reader
                 .projection_evaluation(
-                    &(0..64),
+                    &(0..1024),
                     &expr,
-                    MaskFuture::ready(Mask::from_indices(64, [1, 10])).with_partial_reads(),
+                    MaskFuture::ready(Mask::from_indices(1024, [1, 10])).with_partial_reads(),
                 )?
                 .await?;
             assert_arrays_eq!(result, expected, &mut ctx);
@@ -625,7 +628,7 @@ mod test {
             let array_ctx = ArrayContext::empty();
             let source = RangedTestSource::default();
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let array = PrimitiveArray::from_iter(0i32..1024).into_array();
             let layout = FlatLayoutStrategy::default()
                 .with_inline_array_node(true)
                 .write_stream(
@@ -644,10 +647,10 @@ mod test {
                 &Default::default(),
             )?;
             let expr = root().bind(reader.dtype())?;
-            let mask = Mask::from_indices(64, (0..64).step_by(2));
+            let mask = Mask::from_indices(1024, (0..1024).step_by(2));
             let result = reader
                 .projection_evaluation(
-                    &(0..64),
+                    &(0..1024),
                     &expr,
                     MaskFuture::ready(mask.clone()).with_partial_reads(),
                 )?
@@ -668,7 +671,7 @@ mod test {
             let array_ctx = ArrayContext::empty();
             let source = RangedTestSource::default();
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let array = PrimitiveArray::from_iter(0i32..1024).into_array();
             let layout = FlatLayoutStrategy::default()
                 .with_inline_array_node(true)
                 .write_stream(
@@ -688,15 +691,15 @@ mod test {
             )?;
             let projection_expr = root().bind(reader.dtype())?;
             let filter_expr = gt(root(), lit(-1i32)).bind(reader.dtype())?;
-            let mask = Mask::from_indices(64, [1, 10]);
+            let mask = Mask::from_indices(1024, [1, 10]);
 
             let filter = reader.filter_evaluation(
-                &(0..64),
+                &(0..1024),
                 &filter_expr,
                 MaskFuture::ready(mask.clone()).with_partial_reads(),
             )?;
             let projection = reader.projection_evaluation(
-                &(0..64),
+                &(0..1024),
                 &projection_expr,
                 MaskFuture::ready(mask).with_partial_reads(),
             )?;
@@ -704,7 +707,7 @@ mod test {
             let (filter_mask, result) = futures::try_join!(filter, projection)?;
             assert_eq!(
                 filter_mask.indices(),
-                Mask::from_indices(64, [1, 10]).indices()
+                Mask::from_indices(1024, [1, 10]).indices()
             );
             let expected = PrimitiveArray::from_iter([1i32, 10]).into_array();
             assert_arrays_eq!(result, expected, &mut ctx);
@@ -718,12 +721,55 @@ mod test {
     }
 
     #[test]
+    fn adjacent_pages_are_read_as_one_run() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let source = RangedTestSource::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::from_iter(0i32..1024).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .with_inline_array_node(true)
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&source.inner),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(source.clone()),
+                &session,
+                &Default::default(),
+            )?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(
+                    &(0..1024),
+                    &expr,
+                    MaskFuture::ready(Mask::from_indices(1024, [1, 5])).with_partial_reads(),
+                )?
+                .await?;
+
+            assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 5]), &mut ctx);
+            assert_eq!(source.whole_requests.load(Ordering::Relaxed), 0);
+            assert_eq!(
+                source.ranges.lock().as_slice(),
+                std::slice::from_ref(&(0u64..32))
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
     fn ready_mask_without_opt_in_reads_whole_segment() -> VortexResult<()> {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let source = RangedTestSource::default();
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let array = PrimitiveArray::from_iter(0i32..1024).into_array();
             let layout = FlatLayoutStrategy::default()
                 .with_inline_array_node(true)
                 .write_stream(
@@ -743,9 +789,9 @@ mod test {
             let expr = root().bind(reader.dtype())?;
             reader
                 .projection_evaluation(
-                    &(0..64),
+                    &(0..1024),
                     &expr,
-                    MaskFuture::ready(Mask::from_indices(64, [1, 10])),
+                    MaskFuture::ready(Mask::from_indices(1024, [1, 10])),
                 )?
                 .await?;
 
@@ -770,7 +816,7 @@ mod test {
             let mut ctx = session.create_execution_ctx();
             let source = RangedTestSource::default();
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::from_iter(0i32..64).into_array();
+            let array = PrimitiveArray::from_iter(0i32..1024).into_array();
             let layout = FlatLayoutStrategy::default()
                 .with_inline_array_node(true)
                 .write_stream(
@@ -806,7 +852,7 @@ mod test {
                         .map(|&i| i32::try_from(i))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
-                None => PrimitiveArray::from_iter(0i32..64),
+                None => PrimitiveArray::from_iter(0i32..1024),
             }
             .into_array();
             assert_eq!(chunks.len(), 1);

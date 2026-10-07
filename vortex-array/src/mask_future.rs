@@ -81,14 +81,23 @@ impl MaskFuture {
             return self.clone();
         }
 
+        // An exact upper bound is the resolved mask, so slice it once and skip the inner future.
+        if self.upper_bound_is_exact
+            && let Some(upper_bound) = &self.upper_bound
+        {
+            let mut sliced = Self::ready(upper_bound.slice(range));
+            sliced.partial_reads_allowed = self.partial_reads_allowed;
+            return sliced;
+        }
+
         let inner = self.inner.clone();
+        // Only partial reads consult the upper bound, so do not pay to slice it otherwise.
         let upper_bound = self
-            .upper_bound
-            .as_ref()
-            .map(|upper_bound| upper_bound.slice(range.clone()));
+            .partial_reads_allowed
+            .then(|| self.upper_bound.as_ref().map(|ub| ub.slice(range.clone())))
+            .flatten();
         let mut sliced = Self::new(range.len(), async move { Ok(inner.await?.slice(range)) });
         sliced.upper_bound = upper_bound;
-        sliced.upper_bound_is_exact = self.upper_bound_is_exact;
         sliced.partial_reads_allowed = self.partial_reads_allowed;
         sliced
     }
