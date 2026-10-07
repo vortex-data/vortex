@@ -15,7 +15,9 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Shared;
 use vortex_array::arrays::SharedArray;
+use vortex_array::arrays::shared::SharedArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
@@ -297,6 +299,9 @@ impl LayoutReader for DictReader {
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
 
         let (expr_outer, expr_inner) = split_expression_for_pushdown(expr)?;
+        // Values with a pushed-down expression are only worth sharing: their source is the
+        // unevaluated expression over every value.
+        let plain_values = expr_inner.is_none();
 
         let values_eval = if let Some(inner) = expr_inner {
             // "outer" takes a struct field with PUSHDOWN_ANNOTATION name, so
@@ -326,6 +331,11 @@ impl LayoutReader for DictReader {
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
+            let values = if plain_values {
+                sparse_values(values, codes.len())
+            } else {
+                values
+            };
 
             // SAFETY: Layout was validated at write time.
             //  * The codes dtype is guaranteed to be an integer type from the layout
@@ -348,6 +358,28 @@ impl LayoutReader for DictReader {
         self
     }
 }
+
+/// When a projection keeps only a few rows, look them up in the dictionary's source values rather
+/// than its shared decoded copy.
+///
+/// The shared values decode the whole dictionary once and reuse it for every chunk, which pays off
+/// when chunks reference much of it. A selective filter can leave a chunk with a handful of codes
+/// into a dictionary of millions of strings; taking from the encoded source then decodes just
+/// those rows, provided the values encoding has a take kernel. Once some chunk has decoded the
+/// shared values, their decoded form is reused here too.
+fn sparse_values(values: ArrayRef, codes_len: usize) -> ArrayRef {
+    if codes_len.saturating_mul(SPARSE_DICT_RATIO) >= values.len() {
+        return values;
+    }
+    match values.as_opt::<Shared>() {
+        Some(shared) => shared.current_array_ref().clone(),
+        None => values,
+    }
+}
+
+/// A chunk takes from the source dictionary values when the dictionary has at least this many
+/// values per code.
+const SPARSE_DICT_RATIO: usize = 64;
 
 #[cfg(test)]
 mod tests {
