@@ -30,6 +30,7 @@ use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
 use vortex_cuda::CudaExecutionCtx;
+use vortex_cuda::CudaFileScanExt;
 use vortex_cuda::CudaOpenOptionsExt;
 use vortex_cuda::CudaSession;
 use vortex_cuda::DictionaryExport;
@@ -339,7 +340,7 @@ fn projected_scan(
     columns: FieldNames,
     batch_rows: usize,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
-    let mut scan = file.scan()?;
+    let mut scan = file.scan_cuda(DictionaryExport::Decode)?;
     if !columns.is_empty() {
         let projection = select(columns, root()).optimize(file.dtype())?;
         scan = scan.with_projection(projection.bind(file.dtype())?);
@@ -501,12 +502,22 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
+    use vortex::array::Canonical;
+    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::Dict;
     use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::List;
+    use vortex::array::arrays::ListArray;
+    use vortex::array::arrays::Primitive;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::Struct;
     use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::list::ListArraySlotsExt;
+    use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
     use vortex::array::memory::BufferAllocatorRef;
     use vortex::array::memory::MemorySessionExt;
@@ -518,19 +529,28 @@ mod tests {
     use vortex::buffer::ByteBufferMut;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
+    use vortex::encodings::fastlanes::BitPacked;
     use vortex::error::VortexResult;
+    use vortex::expr::lit;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::layout::LayoutStrategy;
+    use vortex::layout::layouts::compressed::CompressingStrategy;
     use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex::layout::layouts::list::ListLayoutEncoding;
+    use vortex::layout::layouts::list::OFFSETS_CHILD_INDEX;
+    use vortex::layout::layouts::list::writer::ListLayoutStrategy;
     use vortex::layout::layouts::table::TableStrategy;
     use vortex::layout::segments::SegmentFuture;
     use vortex::layout::segments::SegmentId;
     use vortex::layout::segments::SegmentSource;
+    use vortex_cuda::CudaDeviceBuffer;
     use vortex_cuda::arrow::ARROW_DEVICE_CUDA;
     use vortex_cuda::arrow::ArrowArray;
     use vortex_cuda::arrow::release_device_array;
     use vortex_cuda::arrow::release_schema;
+    use vortex_cuda::layout::CudaFlat;
+    use vortex_cuda::layout::CudaFlatLayoutStrategy;
     use vortex_cuda_macros::cuda_not_available;
     use vortex_cuda_macros::test as cuda_test;
     use vortex_ffi::vx_array_free as free_test_array;
@@ -663,6 +683,96 @@ mod tests {
         let input = StructArray::try_new(["ids"].into(), vec![ids], rows, Validity::NonNullable)?
             .into_array();
         open_file(session, input, Arc::new(FlatLayoutStrategy::default()))
+    }
+
+    fn dictionary_table() -> VortexResult<StructArray> {
+        StructArray::try_new(
+            ["ids", "unused", "値.x"].into(),
+            vec![
+                DictArray::try_new(
+                    PrimitiveArray::from_iter([0u8, 1, 0, 2, 1]).into_array(),
+                    PrimitiveArray::from_iter([7u32, 11, 23]).into_array(),
+                )?
+                .into_array(),
+                PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0]).into_array(),
+                DictArray::try_new(
+                    PrimitiveArray::from_iter([0u8, 1, 2, 0, 1]).into_array(),
+                    PrimitiveArray::from_option_iter([Some(10i64), None, Some(30)]).into_array(),
+                )?
+                .into_array(),
+            ],
+            5,
+            Validity::NonNullable,
+        )
+    }
+
+    fn open_cuda_file(
+        session: &VortexSession,
+        array: ArrayRef,
+        strategy: Arc<dyn LayoutStrategy>,
+    ) -> VortexResult<(NamedTempFile, VortexFile)> {
+        let mut temporary = NamedTempFile::new()?;
+        temporary.write_all(&file_bytes(session, array, strategy)?)?;
+        let file = ffi_runtime().block_on(
+            session
+                .open_options()
+                .with_cuda()
+                .open_path(temporary.path()),
+        )?;
+        Ok((temporary, file))
+    }
+
+    fn assert_cuda_primitive(array: &ArrayRef) {
+        let primitive = array
+            .as_opt::<Primitive>()
+            .expect("scan must decode to Primitive before Arrow export");
+        let buffer = primitive
+            .buffer_handle()
+            .as_device_opt()
+            .expect("scan must decode into a device buffer");
+        assert!(buffer.as_any().is::<CudaDeviceBuffer>());
+    }
+
+    fn assert_cuda_projected_batch(batch: &ArrayRef) {
+        let projected = batch
+            .as_opt::<Struct>()
+            .expect("scan must return a flat Struct before Arrow export");
+        assert_eq!(projected.names(), &FieldNames::from(["値.x", "ids"]));
+        for field in projected.iter_unmasked_fields() {
+            assert_cuda_primitive(field);
+        }
+    }
+
+    fn assert_dictionary_children(batch: &ArrayRef) {
+        let table = batch.as_::<Struct>();
+        for name in ["ids", "値.x"] {
+            assert!(
+                table
+                    .unmasked_field_by_name(name)
+                    .unwrap()
+                    .as_opt::<Dict>()
+                    .is_some(),
+                "ordinary/Preserve scan must retain the dictionary child {name:?}"
+            );
+        }
+    }
+
+    fn assert_scan_session_unchanged(
+        session: &VortexSession,
+        cuda: &CudaSession,
+        allocator: &BufferAllocatorRef,
+    ) {
+        let current = session.get::<CudaSession>();
+        assert_eq!(current.dictionary_export(), cuda.dictionary_export());
+        assert!(Arc::ptr_eq(
+            current.pinned_buffer_pool(),
+            cuda.pinned_buffer_pool(),
+        ));
+        assert!(Arc::ptr_eq(
+            current.export_device_array(),
+            cuda.export_device_array(),
+        ));
+        assert!(session.create_execution_ctx().allocator().ptr_eq(allocator));
     }
 
     struct RejectSegments {
@@ -1070,6 +1180,329 @@ mod tests {
             expected,
             &mut VortexSession::default().create_execution_ctx()
         );
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_projected_scan_cuda_flat_decodes_dictionary_children_before_export() -> VortexResult<()>
+    {
+        let cuda = CudaSession::try_default()?;
+        let allocator = BufferAllocatorRef::new(StaticBufferAllocator);
+        for policy in [DictionaryExport::Preserve, DictionaryExport::Decode] {
+            let cuda = cuda.clone().with_dictionary_export(policy);
+            let session = session()
+                .with_some(cuda.clone())
+                .with_allocator(allocator.clone());
+            register_cuda_layout(&session);
+            let input = dictionary_table()?;
+            let expected = input
+                .project(names(&["値.x", "ids"])?.as_ref())?
+                .into_array();
+            let flat: Arc<dyn LayoutStrategy> = Arc::new(CudaFlatLayoutStrategy::default());
+            let strategy = Arc::new(TableStrategy::new(Arc::clone(&flat), flat));
+            let (_temporary, file) = open_cuda_file(&session, input.into_array(), strategy)?;
+            for child in file.footer().layout().children()? {
+                assert!(child.is::<CudaFlat>());
+            }
+
+            // Populate the ordinary reader cache first; the Decode reader must remain independent.
+            let ordinary: Vec<ArrayRef> = ffi_runtime().block_on(
+                file.scan()?
+                    .with_split_by(SplitBy::Layout)
+                    .into_array_stream()?
+                    .try_collect(),
+            )?;
+            assert_eq!(ordinary.len(), 1);
+            assert_dictionary_children(&ordinary[0]);
+
+            let decoded: Vec<ArrayRef> = ffi_runtime().block_on(
+                projected_scan(&file, names(&["値.x", "ids"])?, 0)?
+                    .into_array_stream()?
+                    .try_collect(),
+            )?;
+            assert_eq!(decoded.len(), 1);
+            // Multi-column selection partitions into numeric struct packs for each field reader.
+            assert_cuda_projected_batch(&decoded[0]);
+            assert_scan_session_unchanged(&session, &cuda, &allocator);
+            assert_scan_session_unchanged(file.session(), &cuda, &allocator);
+
+            let mut ctx = scan_export_ctx(&session)?;
+            assert!(ctx.execution_ctx().allocator().ptr_eq(&allocator));
+            let mut exported = ffi_runtime()
+                .block_on(decoded[0].clone().export_device_array_with_schema(&mut ctx))?;
+            assert_eq!(
+                Schema::try_from(&exported.schema)?,
+                Schema::new(vec![
+                    Field::new("値.x", DataType::Int64, true),
+                    Field::new("ids", DataType::UInt32, false),
+                ]),
+            );
+            // SAFETY: The checked schema matches this live exported fixture batch.
+            let actual = unsafe { read_projected_batch(&exported.array) };
+            release_device_array(&mut exported.array);
+            assert_arrays_eq!(actual?, expected, &mut session.create_execution_ctx());
+
+            for scan in [file.scan()?, file.scan_cuda(DictionaryExport::Preserve)?] {
+                let preserved: Vec<ArrayRef> = ffi_runtime().block_on(
+                    scan.with_split_by(SplitBy::Layout)
+                        .into_array_stream()?
+                        .try_collect(),
+                )?;
+                assert_eq!(preserved.len(), 1);
+                assert_dictionary_children(&preserved[0]);
+            }
+            assert_scan_session_unchanged(&session, &cuda, &allocator);
+        }
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_projected_scan_cuda_flat_ordered_numeric_pack_and_sliced_batches() -> VortexResult<()> {
+        let cuda = CudaSession::try_default()?;
+        let allocator = BufferAllocatorRef::new(StaticBufferAllocator);
+        let session = session()
+            .with_some(cuda.clone())
+            .with_allocator(allocator.clone());
+        register_cuda_layout(&session);
+        let input = dictionary_table()?;
+        let expected = input
+            .project(names(&["値.x", "ids"])?.as_ref())?
+            .into_array();
+        let (_temporary, file) = open_cuda_file(
+            &session,
+            input.into_array(),
+            Arc::new(CudaFlatLayoutStrategy::default()),
+        )?;
+        assert!(file.footer().layout().is::<CudaFlat>());
+
+        for (batch_rows, row_range, expected_lengths) in [
+            (0, 0..5, vec![5]),
+            (2, 0..5, vec![2, 2, 1]),
+            (0, 1..4, vec![3]),
+            (2, 1..4, vec![2, 1]),
+        ] {
+            let batches: Vec<ArrayRef> = ffi_runtime().block_on(
+                projected_scan(&file, names(&["値.x", "ids"])?, batch_rows)?
+                    .with_row_range(row_range.clone())
+                    .into_array_stream()?
+                    .try_collect(),
+            )?;
+            let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
+            assert_eq!(lengths, expected_lengths);
+            let mut ctx = scan_export_ctx(&session)?;
+            let mut host_batches = Vec::new();
+            for batch in batches {
+                // No canonicalization or Arrow export may hide a lazy dictionary at this point.
+                assert_cuda_projected_batch(&batch);
+                let mut exported =
+                    ffi_runtime().block_on(batch.export_device_array_with_schema(&mut ctx))?;
+                assert_eq!(
+                    Schema::try_from(&exported.schema)?,
+                    Schema::new(vec![
+                        Field::new("値.x", DataType::Int64, true),
+                        Field::new("ids", DataType::UInt32, false),
+                    ]),
+                );
+                // SAFETY: The checked schema matches this live exported fixture batch.
+                let host = unsafe { read_projected_batch(&exported.array) };
+                release_device_array(&mut exported.array);
+                host_batches.push(host?);
+            }
+            let actual =
+                ChunkedArray::try_new(host_batches, expected.dtype().clone())?.into_array();
+            assert_arrays_eq!(
+                actual,
+                expected.slice(row_range.start as usize..row_range.end as usize)?,
+                &mut session.create_execution_ctx()
+            );
+        }
+
+        for scan in [file.scan()?, file.scan_cuda(DictionaryExport::Preserve)?] {
+            let preserved: Vec<ArrayRef> = ffi_runtime().block_on(
+                scan.with_split_by(SplitBy::Layout)
+                    .into_array_stream()?
+                    .try_collect(),
+            )?;
+            assert_eq!(preserved.len(), 1);
+            assert_dictionary_children(&preserved[0]);
+        }
+        assert_scan_session_unchanged(&session, &cuda, &allocator);
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_projected_scan_list_keeps_compressed_cuda_flat_offsets_on_host() -> VortexResult<()> {
+        let cuda = CudaSession::try_default()?;
+        let allocator = BufferAllocatorRef::new(StaticBufferAllocator);
+        let session = session()
+            .with_some(cuda.clone())
+            .with_allocator(allocator.clone());
+        register_cuda_layout(&session);
+        let input = ListArray::try_new(
+            PrimitiveArray::from_iter(0i32..12).into_array(),
+            PrimitiveArray::from_iter([0u32, 2, 2, 5, 9, 12]).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let offsets = CompressingStrategy::new(
+            CudaFlatLayoutStrategy::default(),
+            |offsets: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+                Ok(BitPacked::encode(offsets, 4, ctx)?.into_array())
+            },
+        );
+        let strategy = ListLayoutStrategy::default().with_offsets(Arc::new(offsets));
+        // The synthetic list layout is not in the enabled editions; opt out only for this write.
+        let mut bytes = ByteBufferMut::empty();
+        ffi_runtime().block_on(
+            session
+                .write_options()
+                .disable_editions()
+                .with_strategy(Arc::new(strategy))
+                .write(&mut bytes, input.clone().to_array_stream()),
+        )?;
+        // Keep file segments on the host even though CUDA is installed in the shared session.
+        let file = session.open_options().open_buffer(bytes.freeze())?;
+        let layout = file.footer().layout();
+        assert!(layout.is::<ListLayoutEncoding>());
+        assert!(layout.children()?[OFFSETS_CHILD_INDEX].is::<CudaFlat>());
+
+        let full: Vec<ArrayRef> = ffi_runtime().block_on(
+            file.scan()?
+                .with_split_by(SplitBy::Layout)
+                .into_array_stream()?
+                .try_collect(),
+        )?;
+        assert_eq!(full.len(), 1);
+        let stored_offsets = full[0].as_::<List>().offsets().clone();
+        assert!(stored_offsets.is::<BitPacked>());
+        assert!(stored_offsets.is_host());
+
+        // This non-full range forces ListReader to CPU-probe its first/last compressed offsets.
+        let ordinary: Vec<ArrayRef> = ffi_runtime().block_on(
+            file.scan()?
+                .with_split_by(SplitBy::Layout)
+                .with_row_range(1..4)
+                .into_array_stream()?
+                .try_collect(),
+        )?;
+        let decoded: Vec<ArrayRef> = ffi_runtime().block_on(
+            projected_scan(&file, names(&[])?, 0)?
+                .with_row_range(1..4)
+                .into_array_stream()?
+                .try_collect(),
+        )?;
+        assert_eq!(ordinary.len(), 1);
+        assert_eq!(decoded.len(), 1);
+        let expected = input.slice(1..4)?;
+        let mut ctx = session.create_execution_ctx();
+        for batch in [&ordinary[0], &decoded[0]] {
+            assert_eq!(batch.len(), 3);
+            assert!(
+                batch.is_host(),
+                "bounded list scan must not eagerly move offsets to CUDA"
+            );
+            let offsets = batch.as_::<List>().offsets().clone();
+            assert!(offsets.is_host());
+            let canonical = offsets.execute::<Canonical>(&mut ctx)?.into_array();
+            assert!(
+                canonical
+                    .as_::<Primitive>()
+                    .buffer_handle()
+                    .as_host_opt()
+                    .is_some()
+            );
+            assert_arrays_eq!(batch, expected, &mut ctx);
+        }
+        assert_arrays_eq!(decoded[0], ordinary[0], &mut ctx);
+        assert_scan_session_unchanged(&session, &cuda, &allocator);
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_projected_scan_cuda_flat_preserves_non_numeric_and_mixed_packs() -> VortexResult<()> {
+        let cuda = CudaSession::try_default()?;
+        let allocator = BufferAllocatorRef::new(StaticBufferAllocator);
+        let session = session()
+            .with_some(cuda.clone())
+            .with_allocator(allocator.clone());
+        register_cuda_layout(&session);
+        let text = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8, 1, 0, 2, 1]).into_array(),
+            VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array(),
+        )?
+        .into_array();
+        let number = dictionary_table()?.unmasked_field_by_name("ids")?.clone();
+        let input = StructArray::from_fields(&[("text", text), ("number", number)])?;
+        let file = open_file(
+            &session,
+            input.clone().into_array(),
+            Arc::new(CudaFlatLayoutStrategy::default()),
+        )?;
+        assert!(file.footer().layout().is::<CudaFlat>());
+
+        for selected in [&["text"][..], &["number", "text"][..]] {
+            let columns = names(selected)?;
+            let expected = input.project(columns.as_ref())?.into_array();
+            let batches: Vec<ArrayRef> = ffi_runtime().block_on(
+                projected_scan(&file, columns.clone(), 0)?
+                    .into_array_stream()?
+                    .try_collect(),
+            )?;
+            assert_eq!(batches.len(), 1);
+            let batch = &batches[0];
+            assert!(
+                batch.is_host(),
+                "non-numeric packs must not eagerly execute on CUDA"
+            );
+            let mut ctx = session.create_execution_ctx();
+            // Resolve the lazy select's struct container without executing its deferred values.
+            let projected = batch.clone().execute::<StructArray>(&mut ctx)?;
+            assert_eq!(projected.names(), &columns);
+            for field in projected.iter_unmasked_fields() {
+                assert!(
+                    field.is::<Dict>(),
+                    "non-numeric packs must preserve encoded children"
+                );
+                assert!(
+                    field.is_host(),
+                    "deferred dictionary children must stay on the host"
+                );
+            }
+            assert_arrays_eq!(batch, expected, &mut ctx);
+            assert_scan_session_unchanged(&session, &cuda, &allocator);
+        }
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_projected_scan_cuda_flat_empty_range_and_all_false_filter() -> VortexResult<()> {
+        let cuda = CudaSession::try_default()?;
+        let allocator = BufferAllocatorRef::new(StaticBufferAllocator);
+        let session = session()
+            .with_some(cuda.clone())
+            .with_allocator(allocator.clone());
+        register_cuda_layout(&session);
+        let input = dictionary_table()?;
+        let expected_dtype = input
+            .project(names(&["値.x", "ids"])?.as_ref())?
+            .dtype()
+            .clone();
+        let (_temporary, file) = open_cuda_file(
+            &session,
+            input.into_array(),
+            Arc::new(CudaFlatLayoutStrategy::default()),
+        )?;
+        assert!(file.footer().layout().is::<CudaFlat>());
+        let empty = projected_scan(&file, names(&["値.x", "ids"])?, 2)?.with_row_range(2..2);
+        let all_false = projected_scan(&file, names(&["値.x", "ids"])?, 2)?
+            .with_filter(lit(false).bind(file.dtype())?);
+        for scan in [empty, all_false] {
+            assert_eq!(scan.dtype()?, expected_dtype);
+            let batches: Vec<ArrayRef> =
+                ffi_runtime().block_on(scan.into_array_stream()?.try_collect())?;
+            assert!(batches.iter().all(|batch| batch.is_empty()));
+            assert_scan_session_unchanged(&session, &cuda, &allocator);
+        }
         Ok(())
     }
 

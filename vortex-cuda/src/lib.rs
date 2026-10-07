@@ -35,6 +35,7 @@ pub use device_read_at::CopyDeviceReadAt;
 pub use executor::CudaDispatchMode;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
+pub use file::CudaFileScanExt;
 pub use file::CudaOpenOptions;
 pub use file::CudaOpenOptionsExt;
 use kernel::ALPExecutor;

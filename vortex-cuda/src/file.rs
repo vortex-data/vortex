@@ -6,22 +6,71 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
+use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::DynLayout;
+use vortex::layout::LayoutReaderContext;
+use vortex::layout::LayoutReaderRef;
 use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
+use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::segments::SegmentFuture;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
 
 use crate::CudaSessionExt;
+use crate::DictionaryExport;
 use crate::PooledFileReadAt;
 use crate::PooledFileReadAtOptions;
+use crate::layout::CUDA_SCAN_DICTIONARY_EXPORT;
 use crate::layout::register_cuda_layout;
+
+/// Extension trait for scanning CUDA-readable files with a scan-local dictionary policy.
+pub trait CudaFileScanExt {
+    /// Build a scan for an Arrow Device export using `dictionary_export`.
+    ///
+    /// With [`DictionaryExport::Decode`], CUDA-flat readers eagerly execute numeric field packs
+    /// before joining field inputs. Raw primitive projections stay lazy for auxiliary readers.
+    /// Other dtypes remain lazy until export. Preserve scans and ordinary [`VortexFile::scan`]
+    /// calls keep dictionary encodings and do not execute eagerly.
+    ///
+    /// This policy is local to the reader tree: the shared session and cached ordinary readers
+    /// are unchanged. It does not initialize CUDA; eager execution requires a CUDA session
+    /// already installed on the file. Use the same dictionary policy when exporting the scan.
+    fn scan_cuda(&self, dictionary_export: DictionaryExport)
+    -> VortexResult<ScanBuilder<ArrayRef>>;
+}
+
+impl CudaFileScanExt for VortexFile {
+    fn scan_cuda(
+        &self,
+        dictionary_export: DictionaryExport,
+    ) -> VortexResult<ScanBuilder<ArrayRef>> {
+        let ctx = LayoutReaderContext::new()
+            .with(*CUDA_SCAN_DICTIONARY_EXPORT, Arc::new(dictionary_export));
+        let reader = self.footer().layout().new_reader(
+            "".into(),
+            self.segment_source(),
+            self.session(),
+            &ctx,
+        )?;
+        let reader: LayoutReaderRef = if let Some(stats) = self.footer().statistics().cloned() {
+            Arc::new(FileStatsLayoutReader::new(
+                reader,
+                stats,
+                self.session().clone(),
+            ))
+        } else {
+            reader
+        };
+        Ok(ScanBuilder::new(self.session().clone(), reader))
+    }
+}
 
 /// Extension trait for opening CUDA-readable files from [`VortexOpenOptions`].
 pub trait CudaOpenOptionsExt {

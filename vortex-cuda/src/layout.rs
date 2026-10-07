@@ -16,10 +16,12 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
+use vortex::array::IntoArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
+use vortex::array::arrays::StructArray;
 use vortex::array::expr::BoundExpression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
@@ -51,6 +53,7 @@ use vortex::layout::LayoutEncodingRef;
 use vortex::layout::LayoutId;
 use vortex::layout::LayoutParts;
 use vortex::layout::LayoutReader;
+use vortex::layout::LayoutReaderContext;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
@@ -77,6 +80,13 @@ use vortex::session::VortexSession;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
+
+use crate::CudaSession;
+use crate::DictionaryExport;
+use crate::executor::CudaArrayExt;
+
+pub(crate) static CUDA_SCAN_DICTIONARY_EXPORT: CachedId =
+    CachedId::new("vortex.cuda.scan_dictionary_export");
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
@@ -198,14 +208,21 @@ impl VTable for CudaFlat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
-        _ctx: &vortex::layout::LayoutReaderContext,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
+        // Only a decoded CUDA scan may canonicalize dictionaries before Arrow export.
+        // Ordinary readers keep their encodings and never initialize CUDA here.
+        let eager_decode = ctx
+            .get::<DictionaryExport>(*CUDA_SCAN_DICTIONARY_EXPORT)
+            .is_some_and(|policy| *policy == DictionaryExport::Decode)
+            && session.get_opt::<CudaSession>().is_some();
         Ok(Arc::new(CudaFlatReader {
             layout: layout.clone(),
             name,
             segment_source,
             session: session.clone(),
             array: Default::default(),
+            eager_decode,
         }))
     }
 }
@@ -219,6 +236,7 @@ pub struct CudaFlatReader {
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
     array: OnceLock<SharedArrayFuture>,
+    eager_decode: bool,
 }
 
 impl CudaFlatReader {
@@ -349,6 +367,8 @@ impl LayoutReader for CudaFlatReader {
         let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
+        let session = self.session.clone();
+        let eager_decode = self.eager_decode;
 
         Ok(async move {
             tracing::debug!("CudaFlat array evaluation {} - {}", name, expr);
@@ -366,6 +386,14 @@ impl LayoutReader for CudaFlatReader {
 
             array = array.apply_bound(&expr)?;
 
+            // Submit numeric field packs before the partitioned layout joins all inputs.
+            // Raw primitive projections stay lazy: auxiliary arrays such as list offsets
+            // can still be needed for host-side scalar planning.
+            // Device buffer events order decoded writes with the later Arrow export.
+            if eager_decode && matches!(array.dtype(), DType::Struct(..)) {
+                array = eagerly_execute_numeric_projection(array, &session).await?;
+            }
+
             Ok(array)
         }
         .boxed())
@@ -374,6 +402,35 @@ impl LayoutReader for CudaFlatReader {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+async fn eagerly_execute_numeric_projection(
+    array: ArrayRef,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    let numeric = match array.dtype() {
+        DType::Primitive(..) => true,
+        DType::Struct(fields, _) => fields
+            .fields()
+            .all(|dtype| matches!(dtype, DType::Primitive(..))),
+        _ => false,
+    };
+    if !numeric {
+        return Ok(array);
+    }
+
+    let mut ctx = CudaSession::create_execution_ctx(session)?
+        .with_dictionary_export(DictionaryExport::Decode);
+    // Resolve structural wrappers such as select/pack without decoding their field values.
+    // They have no CUDA kernel, but their fields may already contain device buffers.
+    let array = if matches!(array.dtype(), DType::Struct(..)) {
+        array
+            .execute::<StructArray>(ctx.execution_ctx())?
+            .into_array()
+    } else {
+        array
+    };
+    Ok(array.execute_cuda(&mut ctx).await?.into_array())
 }
 
 /// A [`LayoutStrategy`] that writes a [`CudaFlatLayout`] with constant array buffers inlined
@@ -651,14 +708,22 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::Canonical;
     use vortex::array::IntoArray;
     use vortex::array::arrays::Dict;
+    use vortex::array::arrays::Primitive;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::Struct;
     use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::expr::pack;
+    use vortex::array::expr::root;
     use vortex::buffer::ByteBufferMut;
+    use vortex::dtype::Nullability;
     use vortex::editions::CORE_2025_05_0;
+    use vortex::encodings::fastlanes::BitPacked;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::VortexFile;
     use vortex::file::WriteOptionsSessionExt;
@@ -668,6 +733,127 @@ mod tests {
     use vortex::layout::scan::split_by::SplitBy;
 
     use super::*;
+    use crate::CanonicalCudaExt;
+    use crate::CudaFileScanExt;
+
+    #[rstest]
+    #[case::primitive(false, 0..8)]
+    #[case::primitive_slice(false, 1..7)]
+    #[case::struct_pack(true, 0..8)]
+    #[case::struct_pack_slice(true, 1..7)]
+    #[crate::test]
+    async fn test_eager_numeric_projection_decodes_before_export(
+        #[case] struct_pack: bool,
+        #[case] row_range: Range<usize>,
+    ) -> VortexResult<()> {
+        let session = vortex::array::array_session().with_some(CudaSession::try_default()?);
+        let mut ctx = session.create_execution_ctx();
+        let values = PrimitiveArray::from_option_iter([
+            Some(7u32),
+            Some(1),
+            None,
+            Some(3),
+            Some(15),
+            None,
+            Some(2),
+            Some(8),
+        ])
+        .into_array();
+        let encoded = BitPacked::encode(&values, 4, &mut ctx)?.into_array();
+        assert!(encoded.is::<BitPacked>());
+        let projection = if struct_pack {
+            pack([("values", root())], Nullability::NonNullable)
+        } else {
+            root()
+        }
+        .bind(encoded.dtype())?;
+        let projected = encoded.slice(row_range.clone())?.apply_bound(&projection)?;
+        let expected = values.slice(row_range)?;
+        let expected = if struct_pack {
+            StructArray::from_fields(&[("values", expected)])?.into_array()
+        } else {
+            expected
+        };
+
+        let result = eagerly_execute_numeric_projection(projected, &session).await?;
+        let child = if struct_pack {
+            result.as_::<Struct>().unmasked_field(0).clone()
+        } else {
+            result.clone()
+        };
+        assert!(child.is::<Primitive>(), "projected child is still encoded");
+        assert!(
+            child
+                .as_::<Primitive>()
+                .buffer_handle()
+                .as_device_opt()
+                .is_some(),
+            "projected child was not decoded onto the device"
+        );
+        let host = result
+            .execute::<Canonical>(&mut ctx)?
+            .into_host()
+            .await?
+            .into_array();
+        assert_arrays_eq!(host, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::mixed(true)]
+    #[case::strings_only(false)]
+    #[tokio::test]
+    async fn test_eager_numeric_projection_preserves_non_numeric_structs(
+        #[case] mixed: bool,
+    ) -> VortexResult<()> {
+        let session = vortex::array::array_session();
+        let mut ctx = session.create_execution_ctx();
+        let strings = VarBinViewArray::from_iter_str(["a", "b", "c", "d"]).into_array();
+        let mut fields = vec![("text", strings)];
+        if mixed {
+            let values = PrimitiveArray::from_iter([1u32, 3, 7, 15]).into_array();
+            fields.push((
+                "number",
+                BitPacked::encode(&values, 4, &mut ctx)?.into_array(),
+            ));
+        }
+        let input = StructArray::from_fields(&fields)?.into_array();
+        let result = eagerly_execute_numeric_projection(input.clone(), &session).await?;
+        assert!(ArrayRef::ptr_eq(&result, &input));
+        for (idx, (_, original)) in fields.iter().enumerate() {
+            assert!(ArrayRef::ptr_eq(
+                result.as_::<Struct>().unmasked_field(idx),
+                original
+            ));
+        }
+        assert!(session.get_opt::<CudaSession>().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_decoded_scan_does_not_initialize_cuda() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            let input = repeated_ids(8, 1024)?;
+            let file = write_file(&session, input.clone(), 1024).await?;
+            assert!(session.get_opt::<CudaSession>().is_none());
+            let batches: Vec<_> = file
+                .scan_cuda(DictionaryExport::Decode)?
+                .with_split_by(SplitBy::Layout)
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            assert!(session.get_opt::<CudaSession>().is_none());
+            assert_eq!(batches.len(), 1);
+            let mut ctx = session.create_execution_ctx();
+            let batch = batches[0].clone().execute::<StructArray>(&mut ctx)?;
+            assert!(batch.unmasked_field(0).is::<Dict>());
+            assert_arrays_eq!(batch.into_array(), input, &mut ctx);
+            Ok(())
+        })
+    }
 
     fn repeated_ids(unique: i64, rows: usize) -> VortexResult<ArrayRef> {
         // Wide, shuffled values favor dictionaries over bitpacking and FoR.
