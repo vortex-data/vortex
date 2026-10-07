@@ -9,9 +9,9 @@ use vortex_buffer::BitBufferView;
 /// lanes `start..start + len` in its low `len` bits and its other bits are unset.
 ///
 /// `mask` is a [`BitBuffer`](vortex_buffer::BitBuffer) or a [`BitBufferView`], whose slices
-/// cost nothing. The words come from [`BitBufferView::unaligned_chunks`], which reads the 8-byte aligned body as a
-/// plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a shorter first
-/// and last word, so every other word covers 64 lanes.
+/// cost nothing. The words come from [`BitBufferView::unaligned_chunks`], which reads the 8-byte
+/// aligned body as a plain `&[u64]` with no per-word reshifting. Any misalignment is isolated in a
+/// shorter first and last word, so every other word covers 64 lanes.
 // This does not delegate to `try_for_each_mask_word`: wrapping `f` in a second closure kept large
 // callers from being inlined, and the ListView zip ran 6% slower.
 #[allow(clippy::inline_always)]
@@ -82,8 +82,8 @@ pub fn try_for_each_mask_word<'a, E>(
 ///
 /// Every value is visited, valid or not, so callers can combine `valid` with the value without
 /// branching. The mask is read a word at a time, as in [`for_each_mask_word`], and each full word
-/// is a fixed 64-value loop that unrolls and vectorizes. Each bit is read from its byte of the word rather
-/// than by shifting the whole `u64`, which keeps the vectorized loop in 8-bit lanes.
+/// is a fixed 64-value loop that unrolls and vectorizes. Each bit is read from its byte of the word
+/// rather than by shifting the whole `u64`, which keeps the vectorized loop in 8-bit lanes.
 ///
 /// # Panics
 ///
