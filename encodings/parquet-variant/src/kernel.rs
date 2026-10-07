@@ -22,6 +22,8 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
@@ -39,6 +41,8 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::optimizer::kernels::ReduceParentFn;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
@@ -57,6 +61,7 @@ use vortex_session::VortexSession;
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
+use crate::chunked::chunked_parquet_variant_reduce_parent;
 use crate::compute::AllNonDistinctParquetVariant;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -77,6 +82,11 @@ pub(crate) fn initialize(session: &VortexSession) {
         TakeExecuteAdaptor(ParquetVariant),
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
+    kernels.register_reduce_parent(
+        Chunked.id(),
+        ParquetVariant.id(),
+        &[chunked_parquet_variant_reduce_parent as ReduceParentFn],
+    );
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
@@ -105,6 +115,19 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx != 0 {
             return Ok(None);
+        }
+
+        // Without typed values, every value lives in `value`. When no row has one, every path is
+        // missing, so skip decoding `metadata` altogether.
+        if array.typed_value().is_none()
+            && array
+                .value()
+                .map_or(Ok(true), |value| value.all_invalid(ctx))?
+        {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(parent.dtype().as_nullable()), array.len())
+                    .into_array(),
+            ));
         }
 
         let arrow_variant = array.to_arrow(&ArrowExportOptions::default(), ctx)?;

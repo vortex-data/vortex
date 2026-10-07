@@ -32,6 +32,7 @@ datafusion = { workspace = true, features = [
     "unicode_expressions",
 ] }
 datafusion-common = { workspace = true }
+datafusion-functions-json = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures.workspace = true
 itertools.workspace = true

@@ -39,6 +39,7 @@ use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::variant_get;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
@@ -49,6 +50,9 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::convert::scalar_from_df;
+use crate::variant::VariantGetFunc;
+use crate::variant::parse_target_type;
+use crate::variant::vortex_variant_path;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -227,8 +231,36 @@ impl DefaultExpressionConvertor {
         Ok(cast(list_length(input), return_dtype))
     }
 
+    /// Attempts to convert the [`VariantGetFunc`] UDF to a Vortex `variant_get` expression.
+    fn try_convert_variant_get(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        let [input, path, type_name] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!(
+                "variant_get requires exactly three arguments"
+            ));
+        };
+        let (path, type_name) = variant_get_literals(path, type_name)?;
+
+        let input = self.convert(input.as_ref())?;
+        let return_dtype = self
+            .session
+            .arrow()
+            .from_arrow_field(&Field::new("", parse_target_type(type_name)?, true))
+            .map_err(|e| exec_datafusion_err!("Failed to convert return type to dtype: {e}"))?;
+        Ok(variant_get(
+            input,
+            vortex_variant_path(path),
+            Some(return_dtype),
+        ))
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        if let Some(variant_get_fn) =
+            ScalarFunctionExpr::try_downcast_func::<VariantGetFunc>(scalar_fn)
+        {
+            return self.try_convert_variant_get(variant_get_fn);
+        }
+
         if let Some(octet_length_fn) =
             ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
         {
@@ -605,6 +637,7 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
         || expr.downcast_ref::<df_expr::InListExpr>().is_some()
         || expr.downcast_ref::<ScalarFunctionExpr>().is_some_and(|sf| {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
+                || ScalarFunctionExpr::try_downcast_func::<VariantGetFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<ArrayLength>(sf).is_some()
         })
@@ -668,8 +701,12 @@ fn supported_data_types(dt: &DataType) -> bool {
 }
 
 /// Checks if a scalar function can be pushed down.
-/// Currently GetFieldFunc, OctetLengthFunc, and ArrayLength are supported.
+/// Currently GetFieldFunc, VariantGetFunc, OctetLengthFunc, and ArrayLength are supported.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    if ScalarFunctionExpr::try_downcast_func::<VariantGetFunc>(scalar_fn).is_some() {
+        return can_variant_get_be_pushed_down(scalar_fn, schema);
+    }
+
     if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
         // Field access is pushable only when its entire source is convertible.
         // A struct-producing DataFusion UDF must remain above the native scan.
@@ -686,6 +723,36 @@ fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema)
 
     ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
         .is_some_and(|array_length| can_array_length_be_pushed_down(array_length, schema))
+}
+
+fn can_variant_get_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    let [input, path, type_name] = scalar_fn.args() else {
+        return false;
+    };
+
+    // The input is a Variant column, whose Arrow storage struct `can_be_pushed_down_impl`
+    // rejects, so gate on the input being a convertible column or field access instead.
+    let input_is_variant = input
+        .data_type(schema)
+        .is_ok_and(|data_type| matches!(data_type, DataType::Struct(_)));
+    input_is_variant
+        && is_convertible_expr(input)
+        && variant_get_literals(path, type_name)
+            .and_then(|(_, type_name)| parse_target_type(type_name))
+            .is_ok_and(|data_type| supported_data_types(&data_type))
+}
+
+/// Returns the path and type name literals of a `variant_get` call.
+fn variant_get_literals<'a>(
+    path: &'a Arc<dyn PhysicalExpr>,
+    type_name: &'a Arc<dyn PhysicalExpr>,
+) -> DFResult<(&'a str, &'a str)> {
+    let literal = |expr: &'a Arc<dyn PhysicalExpr>, what: &str| {
+        expr.downcast_ref::<df_expr::Literal>()
+            .and_then(|lit| lit.value().try_as_str().flatten())
+            .ok_or_else(|| exec_datafusion_err!("variant_get {what} must be a string literal"))
+    };
+    Ok((literal(path, "path")?, literal(type_name, "type")?))
 }
 
 fn can_octet_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {

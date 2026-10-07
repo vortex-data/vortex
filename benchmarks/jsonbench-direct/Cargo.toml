@@ -1,0 +1,39 @@
+[package]
+name = "jsonbench-direct"
+description = "JSONBench queries over Vortex and Parquet without a query engine"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+glob = { workspace = true }
+parquet = { workspace = true, features = ["async", "variant_experimental"] }
+parquet-variant = { workspace = true }
+parquet-variant-compute = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { workspace = true, features = ["files", "tokio"] }
+vortex-arrow = { workspace = true }
+vortex-bench = { workspace = true }
+
+[[bin]]
+name = "jsonbench-direct"
+test = false
+
+[lints]
+workspace = true

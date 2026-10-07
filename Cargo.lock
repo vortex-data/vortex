@@ -2799,6 +2799,7 @@ dependencies = [
  "custom-labels",
  "datafusion 55.1.0",
  "datafusion-common 55.1.0",
+ "datafusion-functions-json",
  "datafusion-physical-plan 55.1.0",
  "futures",
  "itertools 0.14.0",
@@ -3500,6 +3501,19 @@ dependencies = [
  "datafusion-common 55.1.0",
  "datafusion-expr-common 55.1.0",
  "datafusion-physical-expr-common 55.1.0",
+]
+
+[[package]]
+name = "datafusion-functions-json"
+version = "0.55.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3edcc7d53e84d8a9e05e50b58a153f616ea11d5a07eabcdf5559b532a14119b"
+dependencies = [
+ "datafusion 55.1.0",
+ "jiter",
+ "log",
+ "paste",
+ "serde_json",
 ]
 
 [[package]]
@@ -5895,6 +5909,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "jiter"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc2f2b4e673d798b3dbad0af24bc23b92013e680a6b9ad300b4e5e52fafe0586"
+dependencies = [
+ "ahash",
+ "bitvec",
+ "lexical-parse-float",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "pyo3",
+ "smallvec",
+]
+
+[[package]]
 name = "jni"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5984,6 +6013,28 @@ dependencies = [
  "serde",
  "serde_json",
  "zmij",
+]
+
+[[package]]
+name = "jsonbench-direct"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-array 59.3.0",
+ "arrow-schema 59.3.0",
+ "clap",
+ "futures",
+ "glob",
+ "parquet 59.3.0",
+ "parquet-variant",
+ "parquet-variant-compute",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tokio",
+ "vortex",
+ "vortex-arrow",
+ "vortex-bench",
 ]
 
 [[package]]
@@ -8205,6 +8256,9 @@ dependencies = [
  "num-integer",
  "num-traits",
  "object_store 0.13.2",
+ "parquet-variant",
+ "parquet-variant-compute",
+ "parquet-variant-json",
  "seq-macro",
  "simdutf8",
  "snap",
@@ -8674,6 +8728,8 @@ dependencies = [
  "chrono",
  "indexmap 2.14.2",
  "libc",
+ "num-bigint 0.4.8",
+ "num-traits",
  "once_cell",
  "portable-atomic",
  "pyo3-build-config",
@@ -11449,6 +11505,7 @@ dependencies = [
  "bytes",
  "bzip2",
  "clap",
+ "flate2",
  "futures",
  "geo",
  "geo-traits",
@@ -11467,6 +11524,8 @@ dependencies = [
  "parking_lot",
  "parquet 56.2.1",
  "parquet 59.3.0",
+ "parquet-variant",
+ "parquet-variant-compute",
  "rand 0.10.3",
  "regex",
  "reqwest 0.13.5",
@@ -11754,6 +11813,8 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "object_store 0.13.2",
+ "parquet-variant",
+ "parquet-variant-compute",
  "rstest",
  "tempfile",
  "tokio",
@@ -12135,6 +12196,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-edition",
  "vortex-error",
  "vortex-io",
  "vortex-mask",

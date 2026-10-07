@@ -21,11 +21,14 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
+use vortex_bench::Benchmark;
+use vortex_bench::BenchmarkDataset;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_datafusion::variant::variant_get_udf;
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -56,6 +59,20 @@ pub fn get_session_context() -> SessionContext {
     }
 
     SessionContext::new_with_state(session_state_builder.build())
+}
+
+/// Register the scalar functions `benchmark`'s queries call beyond DataFusion's defaults.
+pub fn register_benchmark_functions(
+    session: &mut SessionContext,
+    benchmark: &dyn Benchmark,
+) -> anyhow::Result<()> {
+    if matches!(benchmark.dataset(), BenchmarkDataset::JsonBench { .. }) {
+        // `json_get_*` read the JSON strings of the Parquet baseline, `variant_get` reads Variant
+        // columns of the Parquet Variant and Vortex formats.
+        datafusion_functions_json::register_all(session)?;
+        session.register_udf(variant_get_udf());
+    }
+    Ok(())
 }
 
 pub fn make_object_store(
@@ -101,7 +118,7 @@ pub fn make_object_store(
 pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
     Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
-        Format::Parquet => Arc::new(ParquetFormat::new()),
+        Format::Parquet | Format::ParquetVariant => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => Arc::new(
             VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
         ),

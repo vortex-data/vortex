@@ -6,6 +6,7 @@ use std::sync::Arc;
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::Field;
+use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::Array;
 use vortex_array::ArrayParts;
@@ -40,6 +41,7 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -280,8 +282,22 @@ fn logical_shredded_from_parquet_field(
         // Partially shredded terminal object: keep raw `value` available as the nested
         // Variant core storage while exposing any typed children as nested `shredded`.
         let validity = inferred_shredded_field_validity(Some(&value), Some(&typed_value), ctx)?;
+        // A core storage without any raw value never reads its metadata, so it need not carry a
+        // copy of the column's metadata. The typed subtree below still decodes with `metadata`.
+        let core_metadata = if value.all_invalid(ctx)? {
+            ConstantArray::new(
+                Scalar::binary(
+                    ByteBuffer::copy_from(EMPTY_VARIANT_METADATA_BYTES),
+                    Nullability::NonNullable,
+                ),
+                value.len(),
+            )
+            .into_array()
+        } else {
+            metadata.clone()
+        };
         let parquet_field =
-            ParquetVariant::try_new(validity, metadata.clone(), Some(value), Some(typed_value))?;
+            ParquetVariant::try_new(validity, core_metadata, Some(value), Some(typed_value))?;
         let shredded = parquet_field
             .typed_value()
             .cloned()

@@ -30,6 +30,8 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
+use crate::layouts::variant::VariantStrategy;
+use crate::layouts::variant::variant_layout_enabled;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -306,6 +308,14 @@ impl LayoutStrategy for TableStrategy {
         if dtype.is_struct() {
             return self
                 .struct_strategy()
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
+        // Shredded Variant columns are stored as a core child plus a shredded tree that this
+        // dispatcher writes, once the enabled editions permit the Variant layout.
+        if dtype.is_variant() && variant_layout_enabled(session) {
+            return VariantStrategy::new(Arc::clone(&self.leaf), Arc::new(self.descend_clean()))
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }

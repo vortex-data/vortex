@@ -29,6 +29,7 @@ use vortex_array::dtype::PType;
 use vortex_array::expr::root;
 use vortex_array::expr::variant_get;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
+use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -296,6 +297,60 @@ fn shredding_root_path_shreds_top_level_values() -> VortexResult<()> {
     assert_eq!(
         value.as_utf8().value().map(|value| value.to_string()),
         Some("not-a-number".to_string())
+    );
+    Ok(())
+}
+
+/// A nested path whose parent object is partially shredded resolves through the parent's own
+/// shredded tree in bulk execution, rather than through the root's residual core storage, which
+/// no longer holds the shredded parent.
+#[test]
+fn variant_get_resolves_nested_path_through_partially_shredded_parent() -> VortexResult<()> {
+    let input = json_input(
+        VarBinViewArray::from_iter_str([
+            r#"{"commit": {"collection": "post", "rev": "a"}, "kind": "commit"}"#,
+            r#"{"commit": {"collection": 7}, "kind": "commit"}"#,
+            r#"{"kind": "identity"}"#,
+            r#"{"commit": "not an object", "kind": "commit"}"#,
+        ])
+        .into_array(),
+    )?;
+    let utf8 = DType::Utf8(Nullability::Nullable);
+    let shredding = ShreddingSpec::try_new([
+        (
+            VariantPath::new(["commit", "collection"].map(VariantPathElement::field)),
+            utf8.clone(),
+        ),
+        (VariantPath::field("kind"), utf8.clone()),
+    ])?;
+    let variant = execute_json_to_variant(input, shredding)?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let expr = variant_get(
+        root(),
+        VariantPath::new(["commit", "collection"].map(VariantPathElement::field)),
+        Some(utf8),
+    );
+    // The Parquet Variant encoding answers through arrow-rs, which is the reference.
+    let expected = variant
+        .clone()
+        .apply(&expr)?
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+    let canonical = variant.execute::<Canonical>(&mut ctx)?.into_array();
+    let result = canonical
+        .apply(&expr)?
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+
+    assert_arrays_eq!(result, expected, &mut ctx);
+    assert_eq!(
+        result
+            .execute_scalar(0, &mut ctx)?
+            .as_utf8()
+            .value()
+            .map(|v| v.to_string()),
+        Some("post".to_string())
     );
     Ok(())
 }

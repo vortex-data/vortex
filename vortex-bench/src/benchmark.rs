@@ -41,6 +41,14 @@ pub trait Benchmark: Send + Sync {
         Vec::new()
     }
 
+    /// The SQL `engine` runs for `query` against `format`.
+    ///
+    /// Suites whose SQL depends on how a format stores the data (e.g. JSON strings versus Variant
+    /// columns) rewrite it here. Default: `query` unchanged.
+    fn query_for(&self, _engine: Engine, _format: Format, query: &str) -> String {
+        query.to_owned()
+    }
+
     /// Generate or prepare base data for the benchmark (typically Parquet format).
     /// This is the canonical source data that can be converted to other formats.
     /// This should be idempotent - safe to call multiple times.

@@ -13,6 +13,7 @@ use crate::array::Array;
 use crate::array::ArrayView;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::Struct;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
@@ -64,37 +65,56 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
 
         // Canonical shredded storage is a logical typed tree. We can only walk object
         // fields here; list indexes and missing fields must fall back to core storage.
-        let typed = array
+        let resolved = array
             .shredded()
-            .map(|shredded| {
-                typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
-                    .map(|typed| {
-                        let len = typed.len();
-                        typed.mask(core_validity.to_array(len))
-                    })
-                    .transpose()
-            })
+            .map(|shredded| typed_shredded_path(shredded, parent.options.path().elements(), ctx))
             .transpose()?
             .flatten();
 
-        let Some(typed) = typed else {
+        let Some(ShreddedLookup {
+            node,
+            rest,
+            mut validities,
+        }) = resolved
+        else {
             return make_fallback(ctx).map(Some);
         };
-        // A shredded Variant child still needs VariantGet at the root to produce a
-        // concrete requested dtype.
-        if typed.dtype().is_variant()
-            && parent
-                .options
-                .dtype()
-                .is_some_and(|dtype| !dtype.is_variant())
-        {
-            return execute_fallback_variant_get(
-                VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
-                typed,
-                ctx,
-            )
-            .map(Some);
+        if !core_validity.definitely_no_nulls() {
+            validities.push(core_validity.to_array(node.len()));
         }
+
+        let requests_concrete = parent
+            .options
+            .dtype()
+            .is_some_and(|dtype| !dtype.is_variant());
+        let typed = if !rest.is_empty() {
+            // The walk stopped at a partially shredded (nested Variant) field. That field carries
+            // its own core storage and shredded tree, so it resolves the rest of the path itself.
+            execute_fallback_variant_get(
+                VariantGetOptions::new(
+                    VariantPath::new(rest.iter().cloned()),
+                    parent.options.dtype().cloned(),
+                ),
+                node,
+                ctx,
+            )?
+        } else if node.dtype().is_variant() && requests_concrete {
+            // A shredded Variant child still needs VariantGet at the root to produce a
+            // concrete requested dtype.
+            execute_fallback_variant_get(
+                VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
+                node,
+                ctx,
+            )?
+        } else {
+            node
+        };
+        // Null ancestors make the path null. Masking only after the nested lookups keeps those
+        // lookups on the unwrapped nested Variant, where their kernels apply.
+        let typed = validities
+            .into_iter()
+            .try_fold(typed, |typed, validity| typed.mask(validity))?;
+
         // Untyped VariantGet must return variant scalars, so typed shredded values
         // are wrapped as variants and merged with raw object fallback where needed.
         if parent.options.dtype().is_none_or(DType::is_variant) {
@@ -131,10 +151,36 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
 
         // Null typed rows are not necessarily missing from the logical variant value;
         // fill those rows from core storage and keep valid typed rows unchanged.
-        // TODO: we are computing the entire fallback array here but only take indices where
-        // typed_mask is false, so we can narrow the core_storage to only the false
-        // indices and compute from there then zip
-        let fallback = make_fallback(ctx)?;
+        if typed_mask.all_false() {
+            return make_fallback(ctx).map(Some);
+        }
+
+        // Only the null typed rows need the fallback, so evaluate it over just those rows of
+        // core storage. When none of them hold the path, the typed nulls are already correct.
+        let null_rows = !typed_mask.clone();
+        // Execute the filter before VariantGet so the core storage encoding's own VariantGet
+        // kernel applies, rather than row-by-row evaluation through the lazy filter.
+        let null_core = array
+            .core_storage()
+            .filter(null_rows.clone())?
+            .execute::<ArrayRef>(ctx)?;
+        let fallback = execute_fallback_variant_get(parent.options.clone(), null_core, ctx)?;
+        if fallback.all_invalid(ctx)? {
+            return Ok(Some(typed));
+        }
+
+        // Scatter the fallback rows back into place: null typed row `i` takes the fallback value
+        // at its position among the null rows, valid typed rows take a null index.
+        let mut next = 0u64;
+        let scatter =
+            PrimitiveArray::from_option_iter(null_rows.to_bit_buffer().iter().map(|is_null_row| {
+                is_null_row.then(|| {
+                    let index = next;
+                    next += 1;
+                    index
+                })
+            }));
+        let fallback = fallback.take(scatter.into_array())?;
         typed_mask
             .into_array()
             .zip(typed, fallback)?
@@ -143,30 +189,59 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
     }
 }
 
-fn typed_shredded_path(
+/// The shredded node a path walk reached. See [`typed_shredded_path`].
+struct ShreddedLookup<'a> {
+    /// The node the walk reached, not yet masked by the validity of its ancestors.
+    node: ArrayRef,
+    /// The part of the path `node` still has to resolve.
+    rest: &'a [VariantPathElement],
+    /// The validity of every ancestor struct that can hold nulls.
+    validities: Vec<ArrayRef>,
+}
+
+/// Walks `path` through the canonical shredded tree.
+///
+/// The walk stops early at a partially shredded field, which is itself a Variant whose own storage
+/// resolves the rest of the path. Returns `None` when the path is not represented in shredded
+/// storage.
+fn typed_shredded_path<'a>(
     shredded: &ArrayRef,
-    path: &[VariantPathElement],
+    path: &'a [VariantPathElement],
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
+) -> VortexResult<Option<ShreddedLookup<'a>>> {
     let mut current = shredded.clone();
-    for element in path {
+    let mut validities = Vec::new();
+    for (idx, element) in path.iter().enumerate() {
         let VariantPathElement::Field(name) = element else {
             return Ok(None);
         };
-        let DType::Struct(..) = current.dtype() else {
-            return Ok(None);
-        };
+        match current.dtype() {
+            DType::Struct(..) => {}
+            DType::Variant(_) => {
+                return Ok(Some(ShreddedLookup {
+                    node: current,
+                    rest: &path[idx..],
+                    validities,
+                }));
+            }
+            _ => return Ok(None),
+        }
         let current_struct = current.execute::<Array<Struct>>(ctx)?;
         let Some(field) = current_struct.unmasked_field_by_name_opt(name.as_ref()) else {
             return Ok(None);
         };
-        let len = current_struct.len();
-        let current_validity = current_struct.validity()?.to_array(len);
-
-        current = field.clone().mask(current_validity.clone())?;
+        let validity = current_struct.validity()?;
+        if !validity.definitely_no_nulls() {
+            validities.push(validity.to_array(current_struct.len()));
+        }
+        current = field.clone();
     }
 
-    Ok(Some(current))
+    Ok(Some(ShreddedLookup {
+        node: current,
+        rest: &[],
+        validities,
+    }))
 }
 
 fn merge_typed_as_variant(

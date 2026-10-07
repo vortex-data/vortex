@@ -22,6 +22,7 @@ pub mod repartition;
 pub mod row_idx;
 pub mod struct_;
 pub mod table;
+pub mod variant;
 pub mod zoned;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;

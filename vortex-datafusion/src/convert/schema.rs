@@ -90,6 +90,9 @@ fn calculate_physical_field_type(
         // RunEndEncoded loses its encoding
         DataType::RunEndEncoded(..) => logical_type.clone(),
 
+        // Variant values export to their Arrow storage struct, whose shape the export honors.
+        DataType::Struct(_) if matches!(dtype, DType::Variant(_)) => logical_type.clone(),
+
         // For struct types, recursively check each field.
         DataType::Struct(logical_fields) => {
             // Walk through any extension layers to reach the underlying struct fields.
