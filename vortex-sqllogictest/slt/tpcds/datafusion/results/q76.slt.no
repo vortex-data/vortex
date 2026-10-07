@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTIITIR
+SELECT channel,
+       col_name,
+       d_year,
+       d_qoy,
+       i_category,
+       COUNT(*) sales_cnt,
+       SUM(ext_sales_price) sales_amt
+FROM
+  ( SELECT 'store' AS channel,
+           'ss_store_sk' col_name,
+                         d_year,
+                         d_qoy,
+                         i_category,
+                         ss_ext_sales_price ext_sales_price
+   FROM store_sales,
+        item,
+        date_dim
+   WHERE ss_store_sk IS NULL
+     AND ss_sold_date_sk=d_date_sk
+     AND ss_item_sk=i_item_sk
+   UNION ALL SELECT 'web' AS channel,
+                    'ws_ship_customer_sk' col_name,
+                                          d_year,
+                                          d_qoy,
+                                          i_category,
+                                          ws_ext_sales_price ext_sales_price
+   FROM web_sales,
+        item,
+        date_dim
+   WHERE ws_ship_customer_sk IS NULL
+     AND ws_sold_date_sk=d_date_sk
+     AND ws_item_sk=i_item_sk
+   UNION ALL SELECT 'catalog' AS channel,
+                    'cs_ship_addr_sk' col_name,
+                                      d_year,
+                                      d_qoy,
+                                      i_category,
+                                      cs_ext_sales_price ext_sales_price
+   FROM catalog_sales,
+        item,
+        date_dim
+   WHERE cs_ship_addr_sk IS NULL
+     AND cs_sold_date_sk=d_date_sk
+     AND cs_item_sk=i_item_sk) foo
+GROUP BY channel,
+         col_name,
+         d_year,
+         d_qoy,
+         i_category
+ORDER BY channel NULLS FIRST,
+         col_name NULLS FIRST,
+         d_year NULLS FIRST,
+         d_qoy NULLS FIRST,
+         i_category NULLS FIRST
+LIMIT 100;
+----
+catalog cs_ship_addr_sk 1998 1 Books 5 7206.99
+catalog cs_ship_addr_sk 1998 1 Children 1 NULL
+catalog cs_ship_addr_sk 1998 1 Electronics 3 0
+catalog cs_ship_addr_sk 1998 1 Home 2 NULL
+catalog cs_ship_addr_sk 1998 1 Jewelry 5 13391.41
+catalog cs_ship_addr_sk 1998 1 Music 3 5081.44
+catalog cs_ship_addr_sk 1998 1 Shoes 1 20528.2
+catalog cs_ship_addr_sk 1998 1 Sports 1 2289.6
+catalog cs_ship_addr_sk 1998 1 Women 1 411.07
+catalog cs_ship_addr_sk 1998 2 Books 1 2254.92
+catalog cs_ship_addr_sk 1998 2 Children 2 NULL
+catalog cs_ship_addr_sk 1998 2 Jewelry 1 988.68
+catalog cs_ship_addr_sk 1998 2 Men 1 NULL
+catalog cs_ship_addr_sk 1998 2 Music 1 NULL
+catalog cs_ship_addr_sk 1998 2 Shoes 1 279
+catalog cs_ship_addr_sk 1998 2 Sports 1 5616.97
+catalog cs_ship_addr_sk 1998 3 Children 2 2587.99
+catalog cs_ship_addr_sk 1998 3 Electronics 4 11493.8
+catalog cs_ship_addr_sk 1998 3 Home 3 NULL
+catalog cs_ship_addr_sk 1998 3 Jewelry 2 14605.8
+catalog cs_ship_addr_sk 1998 3 Men 2 NULL
+catalog cs_ship_addr_sk 1998 3 Music 3 NULL
+catalog cs_ship_addr_sk 1998 3 Shoes 1 1485.8
+catalog cs_ship_addr_sk 1998 3 Sports 3 2311.34
+catalog cs_ship_addr_sk 1998 3 Women 1 507.78
+catalog cs_ship_addr_sk 1998 4 Books 2 NULL
+catalog cs_ship_addr_sk 1998 4 Children 4 7318.08
+catalog cs_ship_addr_sk 1998 4 Electronics 10 10598.91
+catalog cs_ship_addr_sk 1998 4 Home 3 NULL
+catalog cs_ship_addr_sk 1998 4 Jewelry 5 14681.6
+catalog cs_ship_addr_sk 1998 4 Men 1 1011.08
+catalog cs_ship_addr_sk 1998 4 Music 4 2.61
+catalog cs_ship_addr_sk 1998 4 Shoes 2 NULL
+catalog cs_ship_addr_sk 1998 4 Sports 2 NULL
+catalog cs_ship_addr_sk 1998 4 Women 6 11591.16
+catalog cs_ship_addr_sk 1999 1 Electronics 1 NULL
+catalog cs_ship_addr_sk 1999 1 Home 1 NULL
+catalog cs_ship_addr_sk 1999 1 Men 2 5949.64
+catalog cs_ship_addr_sk 1999 1 Shoes 1 3401.6
+catalog cs_ship_addr_sk 1999 1 Women 1 2451.6
+catalog cs_ship_addr_sk 1999 2 Electronics 1 NULL
+catalog cs_ship_addr_sk 1999 2 Home 1 157.76
+catalog cs_ship_addr_sk 1999 2 Jewelry 1 13627.53
+catalog cs_ship_addr_sk 1999 2 Men 1 6337.86
+catalog cs_ship_addr_sk 1999 2 Shoes 4 2249.07
+catalog cs_ship_addr_sk 1999 3 Books 1 4613.99
+catalog cs_ship_addr_sk 1999 3 Children 2 538.56
+catalog cs_ship_addr_sk 1999 3 Electronics 1 NULL
+catalog cs_ship_addr_sk 1999 3 Home 3 4559.91
+catalog cs_ship_addr_sk 1999 3 Jewelry 4 320
+catalog cs_ship_addr_sk 1999 3 Men 3 7168.52
+catalog cs_ship_addr_sk 1999 3 Music 2 27.54
+catalog cs_ship_addr_sk 1999 3 Shoes 2 3470.25
+catalog cs_ship_addr_sk 1999 3 Sports 1 328.6
+catalog cs_ship_addr_sk 1999 3 Women 1 NULL
+catalog cs_ship_addr_sk 1999 4 Books 2 4164.12
+catalog cs_ship_addr_sk 1999 4 Children 4 10086.76
+catalog cs_ship_addr_sk 1999 4 Electronics 2 1380.69
+catalog cs_ship_addr_sk 1999 4 Home 2 8343
+catalog cs_ship_addr_sk 1999 4 Jewelry 3 NULL
+catalog cs_ship_addr_sk 1999 4 Music 4 9293.11
+catalog cs_ship_addr_sk 1999 4 Shoes 1 355.64
+catalog cs_ship_addr_sk 1999 4 Sports 3 NULL
+catalog cs_ship_addr_sk 1999 4 Women 4 4509.26
+catalog cs_ship_addr_sk 2000 1 Children 1 809.88
+catalog cs_ship_addr_sk 2000 1 Music 2 1233.56
+catalog cs_ship_addr_sk 2000 1 Shoes 1 NULL
+catalog cs_ship_addr_sk 2000 2 Books 1 5440.76
+catalog cs_ship_addr_sk 2000 2 Children 1 452.2
+catalog cs_ship_addr_sk 2000 2 Electronics 1 15685.37
+catalog cs_ship_addr_sk 2000 2 Home 2 4743.11
+catalog cs_ship_addr_sk 2000 2 Jewelry 3 903.95
+catalog cs_ship_addr_sk 2000 2 Men 1 1608.02
+catalog cs_ship_addr_sk 2000 2 Music 2 513.88
+catalog cs_ship_addr_sk 2000 3 Books 4 4030.64
+catalog cs_ship_addr_sk 2000 3 Electronics 4 12.34
+catalog cs_ship_addr_sk 2000 3 Home 2 392.58
+catalog cs_ship_addr_sk 2000 3 Jewelry 1 NULL
+catalog cs_ship_addr_sk 2000 3 Men 4 447.6
+catalog cs_ship_addr_sk 2000 3 Music 4 1779.92
+catalog cs_ship_addr_sk 2000 3 Shoes 2 5747.7
+catalog cs_ship_addr_sk 2000 3 Sports 4 8016.55
+catalog cs_ship_addr_sk 2000 3 Women 3 5521.29
+catalog cs_ship_addr_sk 2000 4 Books 4 2817.1
+catalog cs_ship_addr_sk 2000 4 Children 2 2115.84
+catalog cs_ship_addr_sk 2000 4 Electronics 2 NULL
+catalog cs_ship_addr_sk 2000 4 Home 3 9334.32
+catalog cs_ship_addr_sk 2000 4 Jewelry 3 5684.9
+catalog cs_ship_addr_sk 2000 4 Men 2 1828.96
+catalog cs_ship_addr_sk 2000 4 Music 1 2559.04
+catalog cs_ship_addr_sk 2000 4 Shoes 4 9267.74
+catalog cs_ship_addr_sk 2000 4 Sports 4 29879.19
+catalog cs_ship_addr_sk 2000 4 Women 2 7212.38
+catalog cs_ship_addr_sk 2001 1 Children 1 NULL
+catalog cs_ship_addr_sk 2001 1 Electronics 3 NULL
+catalog cs_ship_addr_sk 2001 1 Home 2 553.28
+catalog cs_ship_addr_sk 2001 1 Jewelry 2 NULL
+catalog cs_ship_addr_sk 2001 1 Shoes 1 NULL
+catalog cs_ship_addr_sk 2001 1 Women 1 4147.72
+catalog cs_ship_addr_sk 2001 2 Children 1 657.59

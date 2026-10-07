@@ -76,6 +76,7 @@ use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
+use crate::convert::trim_offsets;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
@@ -671,19 +672,23 @@ impl ArrowSession {
             }
             DataType::List(elem_field) => {
                 let list = array.as_list::<i32>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
+                let (offsets, referenced) = trim_offsets(list.offsets());
+                let elements = self.from_arrow_array(
+                    list.values().slice(referenced.start, referenced.len()),
+                    elem_field.as_ref(),
+                )?;
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+                Ok(ListArray::try_new(elements, offsets.into_array(), validity)?.into_array())
             }
             DataType::LargeList(elem_field) => {
                 let list = array.as_list::<i64>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
+                let (offsets, referenced) = trim_offsets(list.offsets());
+                let elements = self.from_arrow_array(
+                    list.values().slice(referenced.start, referenced.len()),
+                    elem_field.as_ref(),
+                )?;
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+                Ok(ListArray::try_new(elements, offsets.into_array(), validity)?.into_array())
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
@@ -886,20 +891,69 @@ impl<S: SessionExt> ArrowSessionExt for S {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
 
     use arrow_array::DictionaryArray;
+    use arrow_array::GenericListArray;
     use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
     use arrow_array::StringArray;
     use arrow_array::types::Int32Type;
+    use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use rstest::rstest;
+    use vortex_array::VortexSessionExecute as _;
+    use vortex_array::array_session;
     use vortex_array::arrays::Dict;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
 
     use super::*;
+
+    #[rstest]
+    #[case::prefix(0, 2)]
+    #[case::middle(500, 2)]
+    #[case::empty(500, 0)]
+    #[case::empty_at_end(1000, 0)]
+    fn test_sliced_list_imports_only_its_rows(
+        #[values(false, true)] large: bool,
+        #[case] start: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let lists = |rows: Range<i64>| -> ArrowArrayRef {
+            let values = Arc::new(Int64Array::from_iter_values(
+                rows.flat_map(|row| [row, row + 1]),
+            ));
+            let len = values.len() / 2;
+            let field = Arc::new(Field::new("item", DataType::Int64, false));
+            if large {
+                Arc::new(GenericListArray::<i64>::new(
+                    field,
+                    OffsetBuffer::from_repeated_length(2, len),
+                    values,
+                    None,
+                ))
+            } else {
+                Arc::new(GenericListArray::<i32>::new(
+                    field,
+                    OffsetBuffer::from_repeated_length(2, len),
+                    values,
+                    None,
+                ))
+            }
+        };
+        let session = ArrowSession::default();
+        let sliced = session.from_arrow_array(lists(0..1000).slice(start, len), false)?;
+        let fresh = session.from_arrow_array(lists(start as i64..(start + len) as i64), false)?;
+        assert_eq!(sliced.nbytes(), fresh.nbytes());
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(sliced, fresh, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn from_arrow_fields_matches_schema_conversion() -> VortexResult<()> {

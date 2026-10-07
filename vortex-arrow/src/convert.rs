@@ -10,6 +10,7 @@
 //! thin shims over these functions and will eventually be removed.
 #![allow(deprecated)]
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::AnyDictionaryArray;
@@ -347,7 +348,24 @@ where
     })
 }
 
-/// Zero-copy conversion of an Arrow (large) string/binary array into a Vortex `VarBin` array.
+/// Rebase a (possibly sliced) Arrow offset buffer to start at zero.
+///
+/// A sliced Arrow string, binary or list array keeps its parent's whole child,
+/// so the returned range selects just the child data its rows reference.
+pub(crate) fn trim_offsets<O: OffsetSizeTrait>(
+    offsets: &OffsetBuffer<O>,
+) -> (OffsetBuffer<O>, Range<usize>) {
+    let first = offsets[0];
+    let referenced = first.as_usize()..offsets[offsets.len() - 1].as_usize();
+    if first.as_usize() == 0 {
+        return (offsets.clone(), referenced);
+    }
+    let rebased = OffsetBuffer::new(offsets.iter().map(|&offset| offset - first).collect());
+    (rebased, referenced)
+}
+
+/// Conversion of an Arrow (large) string/binary array into a Vortex `VarBin` array, sharing its
+/// bytes.
 pub fn from_arrow_bytes<T: ByteArrayType>(
     value: &GenericByteArray<T>,
     nullable: bool,
@@ -360,11 +378,15 @@ where
         DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
         dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
     };
+    let (offsets, referenced) = trim_offsets(value.offsets());
+    let bytes = value
+        .values()
+        .slice_with_length(referenced.start, referenced.len());
     // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
     Ok(unsafe {
         VarBinArray::new_unchecked(
-            value.offsets().clone().into_array(),
-            ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
+            offsets.into_array(),
+            ByteBuffer::from_arrow_buffer(bytes, Alignment::of::<u8>()),
             dtype,
             nulls(value.nulls(), nullable)?,
         )
@@ -527,13 +549,18 @@ pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
     };
 
-    let elements = from_arrow_dyn(value.values().as_ref(), elements_are_nullable)?;
-
-    // `offsets` are always non-nullable.
-    let offsets = value.offsets().clone().into_array();
+    let (offsets, referenced) = trim_offsets(value.offsets());
+    let elements = from_arrow_dyn(
+        value
+            .values()
+            .slice(referenced.start, referenced.len())
+            .as_ref(),
+        elements_are_nullable,
+    )?;
     let nulls = nulls(value.nulls(), nullable)?;
 
-    Ok(ListArray::try_new(elements, offsets, nulls)?.into_array())
+    // `offsets` are always non-nullable.
+    Ok(ListArray::try_new(elements, offsets.into_array(), nulls)?.into_array())
 }
 
 impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for ArrayRef {
@@ -882,6 +909,7 @@ impl FromArrowArray<&RecordBatch> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
 
     use arrow_array::Array as ArrowArray;
@@ -919,6 +947,7 @@ mod tests {
     use arrow_array::builder::Decimal128Builder;
     use arrow_array::builder::Decimal256Builder;
     use arrow_array::builder::Int32Builder;
+    use arrow_array::builder::Int64Builder;
     use arrow_array::builder::LargeListBuilder;
     use arrow_array::builder::ListBuilder;
     use arrow_array::builder::MapBuilder as ArrowMapBuilder;
@@ -937,6 +966,8 @@ mod tests {
     use arrow_schema::Schema;
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::VortexSessionExecute as _;
+    use vortex_array::array_session;
     use vortex_array::arrays::Decimal;
     use vortex_array::arrays::FixedSizeList;
     use vortex_array::arrays::List;
@@ -949,6 +980,7 @@ mod tests {
     use vortex_array::arrays::list::ListArraySlotsExt;
     use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -1437,6 +1469,33 @@ mod tests {
         let offsets_array_non_null = list_vortex_array_non_null.offsets().as_::<Primitive>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I32);
+    }
+
+    #[test]
+    fn test_sliced_offset_arrays_import_only_their_rows() -> VortexResult<()> {
+        let strings = |rows: Range<i64>| {
+            StringArray::from_iter_values(rows.map(|row| format!("value-{row}")))
+        };
+        let lists = |rows: Range<i64>| {
+            let mut builder = ListBuilder::new(Int64Builder::new());
+            for row in rows {
+                builder.append_value([Some(row), Some(row + 1)]);
+            }
+            builder.finish()
+        };
+        let mut ctx = array_session().create_execution_ctx();
+
+        // A slice keeps its parent's whole child; the import must not.
+        let sliced = ArrayRef::from_arrow(&strings(0..1000).slice(500, 2), false)?;
+        let fresh = ArrayRef::from_arrow(&strings(500..502), false)?;
+        assert_eq!(sliced.nbytes(), fresh.nbytes());
+        assert_arrays_eq!(sliced, fresh, &mut ctx);
+
+        let sliced = ArrayRef::from_arrow(&lists(0..1000).slice(500, 2), false)?;
+        let fresh = ArrayRef::from_arrow(&lists(500..502), false)?;
+        assert_eq!(sliced.nbytes(), fresh.nbytes());
+        assert_arrays_eq!(sliced, fresh, &mut ctx);
+        Ok(())
     }
 
     #[test]

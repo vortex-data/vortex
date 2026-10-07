@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTR
+SELECT ca_zip,
+       ca_city,
+       sum(ws_sales_price)
+FROM web_sales,
+     customer,
+     customer_address,
+     date_dim,
+     item
+WHERE ws_bill_customer_sk = c_customer_sk
+  AND c_current_addr_sk = ca_address_sk
+  AND ws_item_sk = i_item_sk
+  AND (SUBSTRING(ca_zip,1,5) IN ('85669',
+                              '86197',
+                              '88274',
+                              '83405',
+                              '86475',
+                              '85392',
+                              '85460',
+                              '80348',
+                              '81792')
+       OR i_item_id IN
+         (SELECT i_item_id
+          FROM item
+          WHERE i_item_sk IN (2,
+                              3,
+                              5,
+                              7,
+                              11,
+                              13,
+                              17,
+                              19,
+                              23,
+                              29) ))
+  AND ws_sold_date_sk = d_date_sk
+  AND d_qoy = 2
+  AND d_year = 2001
+GROUP BY ca_zip,
+         ca_city
+ORDER BY ca_zip,
+         ca_city
+LIMIT 100;
+----
+23394 Florence 4.18
+23683 Plainview 203.23
+25752 Buena Vista 46.23
+26871 Wildwood 24.38
+26971 Wilson 6.48
+29843 Oakland 37.73
+31087 Macedonia 42.77
+41711 Unionville 39.36
+49843 Oakland 26.87
+51904 Midway 14.6
+54098 Woodlawn 3.85
+55124 Valley View 20.92
+56098 Five Points 93.57
+59858 Springtown 9.93
+60150 Bunker Hill 92.31
+62297 Freeman 10.94
+62808 Hamilton 70.32
+64107 Concord 1.91
+68339 Whitney 38.48
+69454 Highland 117.73
+71904 Midway 13.34
+76614 Providence 43.1
+NULL Waterloo 139.85
+NULL NULL 57.21

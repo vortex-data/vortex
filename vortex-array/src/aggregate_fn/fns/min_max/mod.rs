@@ -74,7 +74,7 @@ pub fn min_max(
                 // caches are neither read nor written.
                 let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
                 acc.accumulate(array, ctx)?;
-                return MinMaxResult::from_scalar(acc.finish()?);
+                return MinMaxResult::from_scalar(&acc.finish()?);
             }
         }
     }
@@ -111,7 +111,7 @@ pub fn min_max(
     )?;
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
-    let result = MinMaxResult::from_scalar(result_scalar)?;
+    let result = MinMaxResult::from_scalar(&result_scalar)?;
 
     // Cache the computed min/max as statistics.
     if let Some(r) = &result {
@@ -167,7 +167,7 @@ pub struct MinMaxResult {
 
 impl MinMaxResult {
     /// Extract a `MinMaxResult` from a struct scalar with `{min, max}` fields.
-    pub fn from_scalar(scalar: Scalar) -> VortexResult<Option<Self>> {
+    pub fn from_scalar(scalar: &Scalar) -> VortexResult<Option<Self>> {
         if scalar.is_null() {
             Ok(None)
         } else {
@@ -324,7 +324,7 @@ impl AggregateFnVTable for MinMax {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let mut partial = MinMaxPartial {
             min: None,
@@ -672,7 +672,7 @@ mod tests {
         let batch2 = PrimitiveArray::new(buffer![3i32, 25], Validity::NonNullable).into_array();
         acc.accumulate(&batch2, &mut ctx)?;
 
-        let result = MinMaxResult::from_scalar(acc.finish()?)?.vortex_expect("should have result");
+        let result = MinMaxResult::from_scalar(&acc.finish()?)?.vortex_expect("should have result");
         assert_eq!(result.min, Scalar::from(3i32));
         assert_eq!(result.max, Scalar::from(25i32));
         Ok(())
@@ -686,13 +686,15 @@ mod tests {
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
-        let result1 = MinMaxResult::from_scalar(acc.finish()?)?.vortex_expect("should have result");
+        let result1 =
+            MinMaxResult::from_scalar(&acc.finish()?)?.vortex_expect("should have result");
         assert_eq!(result1.min, Scalar::from(10i32));
         assert_eq!(result1.max, Scalar::from(20i32));
 
         let batch2 = PrimitiveArray::new(buffer![3i32, 6, 9], Validity::NonNullable).into_array();
         acc.accumulate(&batch2, &mut ctx)?;
-        let result2 = MinMaxResult::from_scalar(acc.finish()?)?.vortex_expect("should have result");
+        let result2 =
+            MinMaxResult::from_scalar(&acc.finish()?)?.vortex_expect("should have result");
         assert_eq!(result2.min, Scalar::from(3i32));
         assert_eq!(result2.max, Scalar::from(9i32));
         Ok(())
@@ -711,7 +713,7 @@ mod tests {
 
         let state = MinMax.merge_partials(args, partial_of(5, 15), partial_of(2, 10))?;
 
-        let result = MinMaxResult::from_scalar(MinMax.to_scalar(args, &state)?)?
+        let result = MinMaxResult::from_scalar(&MinMax.to_scalar(args, &state)?)?
             .vortex_expect("should have result");
         assert_eq!(result.min, Scalar::from(2i32));
         assert_eq!(result.max, Scalar::from(15i32));
@@ -823,7 +825,7 @@ mod tests {
 
         let mut acc = Accumulator::try_new(MinMax, KEEP_NANS, array.dtype().clone())?;
         acc.accumulate(&array, &mut ctx)?;
-        let result = MinMaxResult::from_scalar(acc.finish()?)?.vortex_expect("should have result");
+        let result = MinMaxResult::from_scalar(&acc.finish()?)?.vortex_expect("should have result");
         assert_eq!(f64::try_from(&result.min)?, 1.0);
         assert_eq!(f64::try_from(&result.max)?, 3.0);
         Ok(())
@@ -843,7 +845,7 @@ mod tests {
         acc.accumulate(&batch2, &mut ctx)?;
         assert!(acc.is_saturated());
 
-        assert_poisoned(MinMaxResult::from_scalar(acc.finish()?)?)
+        assert_poisoned(MinMaxResult::from_scalar(&acc.finish()?)?)
     }
 
     #[test]

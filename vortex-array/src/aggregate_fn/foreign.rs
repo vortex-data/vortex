@@ -88,7 +88,7 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        _scalar: Scalar,
+        _scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }

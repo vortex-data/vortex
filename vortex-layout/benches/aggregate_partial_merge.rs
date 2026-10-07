@@ -26,6 +26,8 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AccumulatorRef;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::PrimitiveArray;
@@ -84,11 +86,14 @@ fn bloom_accumulator(block_count: u32) -> AccumulatorRef {
     )
 }
 
+/// One bound aggregate function for every zone, as a zoned layout creates its accumulators.
+static SUM_V2: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| SumV2.bind(NumericalAggregateOpts::default()));
+
 fn sum_v2_accumulator() -> AccumulatorRef {
-    Box::new(
-        Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), input_dtype())
-            .expect("sum_v2 accepts i64 input"),
-    )
+    SUM_V2
+        .accumulator(&input_dtype())
+        .expect("sum_v2 accepts i64 input")
 }
 
 /// The stored partial scalar for each zone, as a zoned layout holds them.
@@ -107,9 +112,7 @@ fn zone_partial_scalars(new_accumulator: impl Fn() -> AccumulatorRef) -> Vec<Sca
 
 fn merge_all(merged: &mut AccumulatorRef, scalars: &[Scalar]) {
     for scalar in scalars {
-        merged
-            .combine_partials(scalar.clone())
-            .expect("combine partials");
+        merged.combine_partials(scalar).expect("combine partials");
     }
 }
 

@@ -61,6 +61,14 @@ pub struct Footer {
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     metadata: Arc<[(String, SegmentSpec)]>,
+    // `segments` followed by the `metadata` segments, which is the segment table a file is opened
+    // with. Precomputed so opening a file with a cached footer does not copy every segment spec.
+    segments_with_metadata: Arc<[SegmentSpec]>,
+    // The largest end offset of any segment in `segments`, or `None` if one overflows `u64`.
+    // Precomputed so validating a cached footer against a file size does not walk every segment.
+    // Writers never overlap segments, so in a valid file this is the last segment's end, but only
+    // their order is checked when reading, and this guards against malformed footers.
+    segments_end: Option<u64>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -76,6 +84,8 @@ impl Footer {
     ) -> Self {
         Self {
             root_layout,
+            segments_with_metadata: Arc::clone(&segments),
+            segments_end: segments_end(&segments),
             segments,
             statistics,
             metadata: Arc::from([]),
@@ -148,6 +158,8 @@ impl Footer {
 
         Ok(Self {
             root_layout,
+            segments_with_metadata: segments_with_metadata(&segments, &metadata),
+            segments_end: segments_end(&segments),
             segments,
             statistics,
             metadata,
@@ -186,16 +198,13 @@ impl Footer {
     }
 
     pub(crate) fn with_metadata_segments(mut self, metadata: Arc<[(String, SegmentSpec)]>) -> Self {
+        self.segments_with_metadata = segments_with_metadata(&self.segments, &metadata);
         self.metadata = metadata;
         self
     }
 
     pub(crate) fn segment_specs_with_metadata(&self) -> Arc<[SegmentSpec]> {
-        self.segments
-            .iter()
-            .copied()
-            .chain(self.metadata.iter().map(|(_, segment)| *segment))
-            .collect()
+        Arc::clone(&self.segments_with_metadata)
     }
 
     /// Computes the compressed size in bytes of every field in the file, keyed by field path.
@@ -224,6 +233,10 @@ impl Footer {
 
     /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
     pub(crate) fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
+        if self.segments_end.is_some_and(|end| end <= file_size) {
+            return Ok(());
+        }
+        // Walk the segments only to name the offending one in the error.
         validate_segments_within_file(&self.segments, file_size)
     }
 
@@ -236,6 +249,26 @@ impl Footer {
     pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSession) -> FooterDeserializer {
         FooterDeserializer::new(eof_buffer, session)
     }
+}
+
+fn segments_with_metadata(
+    segments: &Arc<[SegmentSpec]>,
+    metadata: &[(String, SegmentSpec)],
+) -> Arc<[SegmentSpec]> {
+    if metadata.is_empty() {
+        return Arc::clone(segments);
+    }
+    segments
+        .iter()
+        .copied()
+        .chain(metadata.iter().map(|(_, segment)| *segment))
+        .collect()
+}
+
+fn segments_end(segments: &[SegmentSpec]) -> Option<u64> {
+    segments.iter().try_fold(0u64, |end, segment| {
+        Some(end.max(segment.offset.checked_add(u64::from(segment.length))?))
+    })
 }
 
 /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
@@ -292,5 +325,30 @@ mod tests {
     fn rejects_segment_offset_length_overflow() {
         let err = validate_segments_within_file(&[segment(u64::MAX, 1)], u64::MAX).unwrap_err();
         assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn segments_end_covers_overlapping_segments() {
+        // Valid files never overlap segments, but a malformed footer may declare an earlier
+        // segment that ends after a later one, and the end must cover it so that file size
+        // validation still rejects it.
+        assert_eq!(
+            segments_end(&[segment(0, 300), segment(100, 50)]),
+            Some(300)
+        );
+        assert_eq!(segments_end(&[]), Some(0));
+        assert_eq!(segments_end(&[segment(0, 1), segment(u64::MAX, 1)]), None);
+    }
+
+    #[test]
+    fn segments_with_metadata_appends_metadata_segments() {
+        let segments: Arc<[SegmentSpec]> = Arc::from([segment(0, 10), segment(10, 20)]);
+
+        let without = segments_with_metadata(&segments, &[]);
+        assert!(Arc::ptr_eq(&without, &segments));
+
+        let with = segments_with_metadata(&segments, &[("key".to_string(), segment(30, 5))]);
+        let spans: Vec<_> = with.iter().map(|s| (s.offset, s.length)).collect();
+        assert_eq!(spans, [(0, 10), (10, 20), (30, 5)]);
     }
 }

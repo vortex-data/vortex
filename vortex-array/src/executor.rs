@@ -32,7 +32,6 @@ use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
@@ -461,10 +460,9 @@ impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         trace_op!(record_single_step_start(&array));
 
-        if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            let output = Canonical::from(canonical).into_array();
-            trace_op!(record_single_step_applied("canonical", &array, &output));
-            return Ok(output);
+        if array.is::<AnyCanonical>() {
+            trace_op!(record_single_step_applied("canonical", &array, &array));
+            return Ok(array);
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 

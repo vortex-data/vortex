@@ -31,6 +31,8 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
+#[cfg(all(target_arch = "x86_64", not(miri)))]
+mod generic;
 #[cfg(all(target_arch = "aarch64", not(miri)))]
 mod neon;
 #[cfg(test)]

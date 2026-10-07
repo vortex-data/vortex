@@ -12,6 +12,7 @@ use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbin::offsets_tile_utf8;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -51,4 +52,21 @@ pub fn slice_array(binary_array: ArrayRef) {
         VarBinViewArray::from_iter_str(["hello world this is a long string"]),
         &mut ctx
     );
+}
+
+#[rstest]
+#[case::tiles_multibyte_strings(        vec![0, 1, 3, 6], "héllo".as_bytes(),  true)]
+#[case::ignores_bytes_outside_the_range(vec![1, 2, 3],    &[0xff, b'a', b'b'], true)]
+#[case::splits_a_char(                  vec![0, 2, 6],    "héllo".as_bytes(),  false)]
+#[case::invalid_byte(                   vec![0, 1, 2],    &[b'a', 0xff],       false)]
+#[case::decreasing(                     vec![0, 3, 1, 6], "héllo".as_bytes(),  false)]
+#[case::past_the_end(                   vec![0, 7],       "héllo".as_bytes(),  false)]
+#[case::no_offsets(                     vec![],           b"",                 false)]
+fn test_offsets_tile_utf8(#[case] offsets: Vec<u32>, #[case] bytes: &[u8], #[case] expected: bool) {
+    assert_eq!(offsets_tile_utf8(&offsets, bytes), expected);
+}
+
+#[test]
+fn test_offsets_tile_utf8_rejects_negative_offsets() {
+    assert!(!offsets_tile_utf8(&[-1i32, 0], b"a"));
 }

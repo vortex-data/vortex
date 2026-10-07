@@ -154,13 +154,13 @@ impl AggregateFnVTable for BoundedMin {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
         let state = if scalar.is_null() {
             BoundedMinState::Empty
         } else {
-            BoundedMinState::Value(scalar)
+            BoundedMinState::Value(scalar.clone())
         };
         Ok(BoundedMinPartial { state })
     }

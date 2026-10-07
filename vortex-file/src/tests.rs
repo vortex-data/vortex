@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::cast_possible_truncation)]
+use std::fs;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -11,7 +12,11 @@ use flatbuffers::FlatBufferBuilder;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rstest::rstest;
+use tempfile::tempdir;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -82,7 +87,10 @@ use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::VortexWrite;
+use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
+use vortex_io::std_file::FileWrite;
 use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
@@ -135,6 +143,52 @@ async fn test_eof_values() {
     // when we change the footer
     assert_eq!(VERSION, 1);
     assert_eq!(V1_FOOTER_FBS_SIZE, 32);
+}
+
+// Optional encodings affect both compression choices and the registry stored in the footer.
+#[rstest]
+#[case::default(
+    BtrBlocksCompressorBuilder::from_session(&SESSION),
+    if cfg!(feature = "zstd") { 70_036 } else { 69_972 }
+)]
+#[cfg_attr(
+    feature = "zstd",
+    case::compact(
+        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
+        55_112
+    )
+)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_stock_ticker_file_size(
+    #[case] compressor: BtrBlocksCompressorBuilder,
+    #[case] expected_size: u64,
+) -> VortexResult<()> {
+    // Same stock-ticker distribution as the Python IO doctest, with a fixed Rust RNG seed.
+    let mut rng = StdRng::seed_from_u64(0);
+    let array = PrimitiveArray::from_iter((0..100_000i64).map(|i| rng.random_range(i..=i + 10)))
+        .into_array();
+    let directory = tempdir()?;
+    let path = directory.path().join("stock_ticker.vortex");
+    let mut writer = FileWrite::create(&path, TokioRuntime::current()).await?;
+    SESSION
+        .write_options()
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+                .with_btrblocks_builder(compressor)
+                .build(),
+        )
+        .write(&mut writer, array.clone().to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let file = SESSION
+        .open_options()
+        .open_buffer(ByteBuffer::from(fs::read(&path)?))?;
+    let actual = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
+    assert_eq!(fs::metadata(path)?.len(), expected_size);
+    Ok(())
 }
 
 #[tokio::test]

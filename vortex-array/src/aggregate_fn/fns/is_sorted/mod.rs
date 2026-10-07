@@ -298,7 +298,7 @@ impl AggregateFnVTable for IsSorted {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
@@ -812,7 +812,7 @@ mod tests {
 
         let scalar = IsSorted.to_scalar(args, &partial)?;
         assert!(!scalar.is_null());
-        let parsed = IsSorted.partial_from_scalar(args, scalar)?;
+        let parsed = IsSorted.partial_from_scalar(args, &scalar)?;
         assert_eq!(
             IsSorted.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)
