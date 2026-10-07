@@ -165,6 +165,11 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         };
         // Checking the total up front is what keeps `push_value` below from panicking.
         self.check_offset_limit(self.data.len(), num_bytes)?;
+        if value.is_empty() {
+            self.offsets.push_n(self.last_offset(), n);
+            self.validity.append_n(true, n);
+            return Ok(());
+        }
         self.offsets.reserve(n);
         self.data.reserve(num_bytes);
         for _ in 0..n {
@@ -554,10 +559,32 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
 
         match validity.bit_buffer() {
             AllOr::All => {
+                // Keep the output cursor local instead of checking capacity and committing
+                // the byte-buffer length for every value.
+                let mut bytes_spare = &mut data.spare_capacity_mut()[..num_bytes];
+                let mut end_offset = data_start;
                 for (row, slot) in spare.iter_mut().enumerate() {
-                    data.extend_from_slice(value(row));
-                    slot.write(data.len().as_());
+                    let bytes = value(row);
+                    if !bytes.is_empty() {
+                        let Some((destination, remaining)) =
+                            bytes_spare.split_at_mut_checked(bytes.len())
+                        else {
+                            vortex_bail!("Value slices exceed the expected {num_bytes} bytes");
+                        };
+                        destination.write_copy_of_slice(bytes);
+                        bytes_spare = remaining;
+                        end_offset += bytes.len();
+                    }
+                    slot.write(end_offset.as_());
                 }
+                vortex_ensure!(
+                    bytes_spare.is_empty(),
+                    "Value slices total {} bytes, expected {num_bytes}",
+                    end_offset - data_start
+                );
+                // SAFETY: each copied slice initialized the next part of the spare capacity,
+                // and the check above proves that all `num_bytes` bytes were initialized.
+                unsafe { data.set_len(end_offset) };
             }
             AllOr::None => {
                 spare.fill(MaybeUninit::new(data_start.as_()));
@@ -940,29 +967,59 @@ mod tests {
         assert_eq!(builder.validity.len(), 0);
     }
 
-    /// Slices that overrun the declared byte count are rejected, and the builder is left exactly
-    /// as it was — the overrun bytes are copied before the total can be checked, so the unwind has
-    /// to put them back.
+    /// Rejecting an inaccurate byte count preserves existing bytes, offsets, and validity.
     #[rstest]
     #[case::all_valid(Mask::new_true(2))]
     #[case::some_valid(Mask::from_iter([true, false, true]))]
-    fn append_valid_slices_rejects_a_byte_count_mismatch(#[case] validity: Mask) {
+    fn append_valid_slices_rejects_a_byte_count_mismatch(
+        #[case] validity: Mask,
+        #[values(6, 8)] num_bytes: usize,
+    ) -> VortexResult<()> {
         let mut builder = VarBinBuilder::<i32>::new_in(
             DType::Utf8(Nullable),
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
+        builder.append_n_values(b"prefix", 1)?;
         let values = [b"foo".as_slice(), b"quux".as_slice()];
 
         let mut next = 0;
-        let result = builder.append_valid_slices(6, &validity, |_| {
+        let result = builder.append_valid_slices(num_bytes, &validity, |_| {
             next += 1;
             values[next - 1]
         });
 
         assert!(result.is_err());
-        assert_eq!(builder.offsets.len(), 1);
-        assert!(builder.data.is_empty());
-        assert_eq!(builder.validity.len(), 0);
+        assert_eq!(&builder.offsets[..], &[0, 6]);
+        assert_eq!(&builder.data[..], b"prefix");
+        assert_eq!(builder.validity.len(), 1);
+        Ok(())
+    }
+
+    #[rstest]
+    fn append_empty_values_preserves_offsets_after_existing_bytes(
+        #[values(DType::Utf8(Nullable), DType::Binary(Nullable))] dtype: DType,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = VarBinBuilder::<i32>::new_in(dtype.clone(), ctx.allocator());
+        builder.append_n_values(b"prefix", 1)?;
+        builder.append_n_values(b"", 3)?;
+        builder.push_nulls(1);
+        let values = [b"".as_slice(), b"suffix".as_slice()];
+        builder.append_valid_slices(6, &Mask::new_true(2), |row| values[row])?;
+        let expected = VarBinViewArray::from_iter(
+            [
+                Some("prefix"),
+                Some(""),
+                Some(""),
+                Some(""),
+                None,
+                Some(""),
+                Some("suffix"),
+            ],
+            dtype,
+        );
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
