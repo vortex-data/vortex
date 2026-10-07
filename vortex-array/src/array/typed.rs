@@ -9,13 +9,13 @@
 //! operate over any encoding, and downcast to [`Array<V>`] or [`ArrayView<V>`] only when it needs
 //! encoding-specific state.
 
-use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
@@ -374,11 +374,10 @@ impl<V: VTable> Array<V> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn downcast_inner(&self) -> &ArrayData<V> {
-        let any = self.inner.dyn_array().as_any();
-        // NOTE(ngates): use downcast_unchecked when it becomes stable
-        debug_assert!(any.is::<ArrayData<V>>());
-        // SAFETY: caller guarantees that T is the correct type
-        unsafe { &*(any as *const dyn Any as *const ArrayData<V>) }
+        debug_assert!(self.inner.is::<V>());
+        // SAFETY: `Array<V>` is only constructed around arrays whose concrete vtable is `V`, so
+        // the data pointer of the `dyn DynArrayData` points at an `ArrayData<V>`.
+        unsafe { &*ptr::from_ref(self.inner.dyn_array()).cast::<ArrayData<V>>() }
     }
 }
 

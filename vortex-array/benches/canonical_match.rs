@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compare canonical classification with the original exhaustive downcast chain.
+//! Compare canonical classification with the original exhaustive downcast chain, and measure
+//! a single-vtable type check.
 
 use std::hint::black_box;
 
@@ -47,6 +48,12 @@ fn array(case: &str) -> ArrayRef {
 fn matches_vtable(bencher: Bencher, case: &str) {
     let array = array(case);
     bencher.bench_local(|| black_box(black_box(&array).is::<AnyCanonical>()));
+}
+
+#[divan::bench(args = CASES)]
+fn single_is_primitive(bencher: Bencher, case: &str) {
+    let array = array(case);
+    bencher.bench_local(|| black_box(black_box(&array).is::<Primitive>()));
 }
 
 #[divan::bench(args = CASES)]
