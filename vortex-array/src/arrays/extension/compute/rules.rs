@@ -20,7 +20,6 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
@@ -48,7 +47,6 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
-    ParentRuleSet::lift(&BetweenReduceAdaptor(Extension)),
     ParentRuleSet::lift(&CastReduceAdaptor(Extension)),
     ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),

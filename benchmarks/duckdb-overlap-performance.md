@@ -15,7 +15,11 @@ about 20%, with unchanged read volume and instruction counts within 0.4%. The fi
 a general win, so the setting remains disabled by default. These results use V1's
 cache limits throughout.
 
-The continuation adds extension-array BETWEEN delegation. Q6 executes about 21%
+The continuation measured extension-array BETWEEN delegation, now split into
+[#10378](https://github.com/vortex-data/vortex/pull/10378). The implementation,
+regression tests, and microbenchmark are on `ji/between-remaining-encodings`;
+the driver branch no longer includes them. The measurements below describe the
+combined prototype before that split. Q6 executes about 21%
 fewer instructions: its date range reaches the storage BETWEEN path instead of
 two comparisons that can each decompress the same storage. Separate paired runs
 with the same read-ahead budget show 6.4–10.2% lower median times. The new rule is
@@ -500,7 +504,8 @@ native wall-time medians, with a one-second minimum per case:
 
 This benchmark uses primitive storage; it measures fewer predicate passes,
 allocations, and dispatches, rather than FoR decompression or IO. The SQL
-profiles provide the compressed-storage evidence. Build and reproduce with:
+profiles provide the compressed-storage evidence. Build and reproduce the
+microbenchmark on `ji/between-remaining-encodings` with:
 
 ```bash
 taskset -c 24 cargo bench --locked --profile release_debug \

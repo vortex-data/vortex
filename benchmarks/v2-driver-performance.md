@@ -16,7 +16,9 @@ queue remains disabled by default.
 The subsequent [non-compact DuckDB IO-overlap investigation](duckdb-overlap-performance.md)
 measures application IO queue depth, compares runtime capacity and projection
 read-ahead, and records Q6 before/after profiles under the same cache limits.
-Its 2026-10-07 continuation retains extension BETWEEN delegation: non-compact
+Its 2026-10-07 continuation measured extension BETWEEN delegation, now split
+into [#10378](https://github.com/vortex-data/vortex/pull/10378). Those historical
+measurements include the extracted rule: non-compact
 DuckDB Q6 executes about 21% fewer instructions by decoding date storage once,
 with additional instruction savings on Q7, Q12, and Q14.
 
@@ -1096,7 +1098,7 @@ Source findings are candidates for measurement, not established speedups.
 | Numeric unpack/compare | Q6 has substantial `unfor_pack` and i32 comparison work; compressed FastLanes compare/between kernels already stream unpacking | Earlier generic numeric experiment rejected; target a specific bit width and encoding before changing the kernel |
 | Compact string scans | FineWeb Q3 profile has 87–88% Zstd sequence-decoder self samples on busy workers; compact slowdown occurs in V1 too | Strong remaining target: measure frame/byte decode multiplicity and encoded predicate alternatives; no result or decode cache proposed |
 | Selective Zstd frame work | `decompress_slice` decodes every frame overlapping a contiguous slice; Zstd has no specialized filter/LIKE kernel. FineWeb Q3 combines a URL predicate with a text predicate and projects all fields | Source candidate: frame-aware selection after the URL predicate, coalescing selected row ranges per frame and preserving null/order semantics; count decoded frames before claiming a gain |
-| Temporal BETWEEN | Matching extension bounds now delegate a single BETWEEN to storage through a metadata-only reduce rule | Retained in the non-compact continuation: DuckDB Q6 instructions -21%, Q14 -16%, Q12 -7%; regression source added, execution not requested. DataFusion remains unmeasured for this rule |
+| Temporal BETWEEN | Matching extension bounds delegate a single BETWEEN to storage through a metadata-only reduce rule, now reviewed in #10378 | Historical non-compact continuation: DuckDB Q6 instructions -21%, Q14 -16%, Q12 -7%. The extension regression cases pass in the standalone PR. DataFusion remains unmeasured for this rule |
 | Singleton output assembly | `PackNode::assemble`, `ProjectionMorsel::finish`, and filter narrowing collect array vectors even when one piece is returned | Source candidate: bypass the second allocation for singleton pieces while retaining row-coverage and empty-array behavior |
 | DataFusion partition preparation | V2 rebuilds expression plans and walks file chunk boundaries for each preparation; it accepts but ignores V1 natural splits | Source candidate: range-aware/lazy preparation. V1 natural boundaries can include artificial intra-chunk cuts, so reusing them as V2 chunk starts may add decoding |
 | Driver IO waits | `poll_completion` builds a vector of IO roots for the common one-root case; queue priorities clone row-path vectors | Source candidates; require a scheduler-heavy profile before changing fairness or data structures |
