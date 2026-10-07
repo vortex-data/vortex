@@ -224,22 +224,25 @@ impl Debug for SplitPlanner {
 impl MorselPlanner for SplitPlanner {
     fn plan(mut self: Box<Self>) -> DFResult<Option<MorselPlan>> {
         let batches = mem::take(&mut self.ready);
-        let morsels: Vec<Box<dyn Morsel>> = if batches.is_empty() {
-            Vec::new()
-        } else {
-            vec![Box::new(SplitMorsel {
+        let morsel = (!batches.is_empty()).then(|| {
+            Box::new(SplitMorsel {
                 batches,
                 output: Arc::clone(&self.tasks.output),
-            })]
+            }) as Box<dyn Morsel>
+        });
+        // The file ends with its last morsel, or with `None` when it has none left to hand over.
+        // `FileStream` only counts a file as finished, and stops timing its opening, on one of
+        // these, so an empty plan here would leave its opening timer running.
+        let last = |morsel: Option<Box<dyn Morsel>>| {
+            morsel.map(|morsel| MorselPlan::new().with_morsels(vec![morsel]))
         };
-        let plan = MorselPlan::new().with_morsels(morsels);
 
         // A dynamic filter may have ruled out the rest of the file since the last split. Dropping
         // the planner cancels the splits still running.
         if let Some(file_pruner) = self.tasks.file_pruner.as_mut()
             && file_pruner.should_prune()?
         {
-            return Ok(Some(plan));
+            return Ok(last(morsel));
         }
 
         while self.in_flight.len() < self.tasks.max_in_flight
@@ -249,8 +252,10 @@ impl MorselPlanner for SplitPlanner {
             self.in_flight.push(task);
         }
         if self.in_flight.len() == 0 {
-            return Ok(Some(plan));
+            return Ok(last(morsel));
         }
+
+        let plan = MorselPlan::new().with_morsels(morsel.into_iter().collect());
 
         Ok(Some(plan.with_pending_planner(async move {
             if let Some(result) = self.in_flight.next().await {

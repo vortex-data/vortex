@@ -999,6 +999,8 @@ async fn register_morsel_tables(ctx: &TestSessionContext) -> anyhow::Result<()> 
 #[case::topk("SELECT a, b FROM {t} ORDER BY a DESC LIMIT 5")]
 #[case::ordered("SELECT a FROM {t} ORDER BY a LIMIT 5 OFFSET 12500")]
 #[case::empty("SELECT a FROM {t} WHERE a < 0")]
+// Statistics cannot rule out an odd product, so every split runs and returns no rows.
+#[case::no_rows_in_any_split("SELECT a FROM {t} WHERE b * 2 = 1")]
 #[tokio::test]
 async fn morsel_scan_matches_stream_scan(#[case] query: &str) -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
