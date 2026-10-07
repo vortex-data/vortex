@@ -66,6 +66,8 @@ pub struct Footer {
     segments_with_metadata: Arc<[SegmentSpec]>,
     // The largest end offset of any segment in `segments`, or `None` if one overflows `u64`.
     // Precomputed so validating a cached footer against a file size does not walk every segment.
+    // Writers never overlap segments, so in a valid file this is the last segment's end, but only
+    // their order is checked when reading, and this guards against malformed footers.
     segments_end: Option<u64>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
@@ -326,8 +328,10 @@ mod tests {
     }
 
     #[test]
-    fn segments_end_is_the_furthest_end_not_the_last() {
-        // Segments are sorted by offset, but an earlier segment can end after a later one.
+    fn segments_end_covers_overlapping_segments() {
+        // Valid files never overlap segments, but a malformed footer may declare an earlier
+        // segment that ends after a later one, and the end must cover it so that file size
+        // validation still rejects it.
         assert_eq!(
             segments_end(&[segment(0, 300), segment(100, 50)]),
             Some(300)
