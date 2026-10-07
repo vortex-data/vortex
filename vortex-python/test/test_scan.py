@@ -74,3 +74,31 @@ def test_scanner_property_dataset_schema(vxfile: vx.VortexFile) -> None:
     assert vxfile.to_dataset().scanner().dataset_schema == pa.schema(
         [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
+
+
+@pytest.mark.parametrize("row_range", [None, (1_234, 87_654)])
+def test_to_arrow_preserves_split_order(tmp_path, row_range: tuple[int, int] | None) -> None:
+    # Many small splits, so Arrow conversions run concurrently and must still come back in order.
+    fname = str(tmp_path / "many_splits.vortex")
+    n = 100_000
+    vx.io.write(
+        pa.table({"index": pa.array(range(n), type=pa.int64()), "string": [str(x * 7919) for x in range(n)]}),
+        fname,
+    )
+    vxf = vx.open(fname)
+    assert len(vxf.splits()) > 1
+
+    if row_range is None:
+        reader = vxf.scan().to_arrow()
+        expected = list(range(100_000))
+    else:
+        reader = vxf.to_repeated_scan().execute(row_range=row_range).to_arrow()
+        expected = list(range(*row_range))
+
+    assert pa.Table.from_batches(list(reader)).column("index").to_pylist() == expected
+
+
+def test_to_arrow_from_python_iterator() -> None:
+    chunks = [vx.array(pa.table({"index": pa.array([i, i + 1], type=pa.int64())})) for i in range(0, 20, 2)]
+    reader = vx.ArrayIterator.from_iter(chunks[0].dtype, iter(chunks)).to_arrow()
+    assert pa.Table.from_batches(list(reader)).column("index").to_pylist() == list(range(20))
