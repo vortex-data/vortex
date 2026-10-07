@@ -394,6 +394,20 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
+            // Counting the rows an access plan selects, with nothing to read or filter, needs no
+            // scan: the selection already says how many rows there are.
+            let counted_selection = (filter.is_none()
+                && output_schema.fields().is_empty()
+                && stream_schema.fields().is_empty())
+            .then(|| {
+                file.extensions
+                    .get::<VortexAccessPlan>()
+                    .and_then(VortexAccessPlan::selection)
+                    .cloned()
+            })
+            .flatten();
+            let mut scan_row_range = 0..vxf.row_count();
+
             if let Some(limit) = limit
                 && filter.is_none()
             {
@@ -433,12 +447,29 @@ impl FileOpener for VortexOpener {
                         return Ok(stream::empty().boxed());
                     };
 
+                    scan_row_range = row_range.clone();
                     scan_builder = scan_builder
                         .with_row_range(row_range)
                         // Hand the shared full-file boundaries back to the scan so prepare()
                         // skips its own layout walk.
                         .with_natural_splits(Arc::clone(&natural_splits.row_boundaries));
                 }
+            }
+
+            if let Some(selection) = counted_selection {
+                let selected = selection.row_count_in(&scan_row_range);
+                let rows = limit.map_or(selected, |limit| selected.min(limit));
+                if rows == 0 {
+                    return Ok(stream::empty().boxed());
+                }
+                let rows = usize::try_from(rows)
+                    .map_err(|_| exec_datafusion_err!("Selected row count {rows} exceeds usize"))?;
+                let batch = RecordBatch::try_new_with_options(
+                    Arc::clone(&output_schema),
+                    vec![],
+                    &RecordBatchOptions::new().with_row_count(Some(rows)),
+                )?;
+                return Ok(stream::once(async move { Ok(batch) }).boxed());
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
@@ -1517,6 +1548,49 @@ mod tests {
         +-------+------+
         ");
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::indices(Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter([1, 3, 5, 7, 12]))?), None, 4)]
+    #[case::roaring(Selection::IncludeRoaring([0, 2, 9, 12].into_iter().collect()), None, 3)]
+    #[case::limit(Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter([1, 3, 5, 7]))?), Some(2), 2)]
+    #[case::exclude(Selection::ExcludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter([1, 3]))?), None, 8)]
+    #[tokio::test]
+    // Counting the selected rows (no columns, no filter) answers from the selection alone, counting
+    // only selected rows that exist in the file.
+    async fn test_selection_count_only(
+        #[case] selection: Selection,
+        #[case] limit: Option<u64>,
+        #[case] expected_rows: usize,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let schema = batch.schema();
+        let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+        file.extensions
+            .insert(VortexAccessPlan::default().with_selection(selection));
+
+        let mut opener = make_test_opener(
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
+            ProjectionExprs::from_indices(&[], &schema),
+        );
+        opener.limit = limit;
+
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        assert!(data.iter().all(|batch| batch.num_columns() == 0));
+        assert_eq!(
+            data.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            expected_rows
+        );
         Ok(())
     }
 

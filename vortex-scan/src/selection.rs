@@ -42,6 +42,23 @@ impl Selection {
         }
     }
 
+    /// Return the number of rows of `range` that this selection includes, without building a mask.
+    pub fn row_count_in(&self, range: &Range<u64>) -> u64 {
+        if range.start >= range.end {
+            return 0;
+        }
+        let range_len = range.end - range.start;
+        match self {
+            Selection::All => range_len,
+            Selection::IncludeByIndex(include) => indices_in_range(range, include),
+            Selection::ExcludeByIndex(exclude) => range_len - indices_in_range(range, exclude),
+            Selection::IncludeRoaring(roaring) => roaring.range_cardinality(range.clone()),
+            Selection::ExcludeRoaring(roaring) => {
+                range_len - roaring.range_cardinality(range.clone())
+            }
+        }
+    }
+
     /// Extract the [`RowMask`] for the given range from this selection.
     pub fn row_mask(&self, range: &Range<u64>) -> RowMask {
         if range.start >= range.end {
@@ -136,6 +153,13 @@ fn relativize(range: &Range<u64>, idx: u64) -> usize {
         })
 }
 
+/// Count the sorted, unique `row_indices` that fall within `range`.
+fn indices_in_range(range: &Range<u64>, row_indices: &[u64]) -> u64 {
+    let start = row_indices.partition_point(|&idx| idx < range.start);
+    let end = row_indices.partition_point(|&idx| idx < range.end);
+    (end - start) as u64
+}
+
 /// Find the positional range within row_indices that covers all rows in the given range.
 fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>> {
     if row_indices.first().is_some_and(|&first| first >= range.end)
@@ -163,6 +187,27 @@ mod tests {
     fn strict_sorted(indices: impl IntoIterator<Item = u64>) -> StrictSortedBuffer<u64> {
         StrictSortedBuffer::try_new(Buffer::from_iter(indices))
             .expect("test indices should be strictly increasing")
+    }
+
+    #[test]
+    fn row_count_in_matches_row_mask() {
+        let indices = [0u64, 3, 4, 9, 15, 63, 64, 100];
+        let selections = [
+            Selection::All,
+            include(indices),
+            exclude(indices),
+            Selection::IncludeRoaring(indices.into_iter().collect()),
+            Selection::ExcludeRoaring(indices.into_iter().collect()),
+        ];
+        for selection in &selections {
+            for range in [0..101, 3..10, 10..15, 64..65, 50..50, 90..200] {
+                assert_eq!(
+                    selection.row_count_in(&range),
+                    selection.row_mask(&range).mask().true_count() as u64,
+                    "{selection:?} over {range:?}"
+                );
+            }
+        }
     }
 
     fn include(indices: impl IntoIterator<Item = u64>) -> Selection {
