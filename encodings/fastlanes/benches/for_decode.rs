@@ -55,36 +55,56 @@ fn values<T: NativePType + TryFrom<usize>>(len: usize) -> Buffer<T> {
         .collect()
 }
 
-fn for_array<T: NativePType + TryFrom<usize>>(len: usize, bitpacked: bool) -> ArrayRef {
+fn bitpacked_for_array<T: NativePType + TryFrom<usize>>(len: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::new(values::<T>(len), Validity::NonNullable);
     let for_array = FoR::encode_chunked(array, &mut ctx).unwrap();
-    if !bitpacked {
-        return for_array.into_array();
-    }
     let packed = BitPacked::encode(for_array.encoded(), BIT_WIDTH, &mut ctx).unwrap();
     FoR::try_new_chunked(packed.into_array(), for_array.references().clone(), 0)
         .unwrap()
         .into_array()
 }
 
-fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, bitpacked: bool) {
-    let len = bytes / size_of::<T>();
-    let array = for_array::<T>(len, bitpacked);
-    bencher
-        .counter(ItemsCount::new(len))
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
-}
-
+/// Each iteration decodes a uniquely owned FoR array over a uniquely owned buffer, so the
+/// references are added in place instead of into a copy.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, false);
+    let len = bytes / size_of::<T>();
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = PrimitiveArray::new(values::<T>(len), Validity::NonNullable);
+    let for_array = FoR::encode_chunked(array, &mut ctx).unwrap();
+    let encoded = for_array
+        .encoded()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let references = for_array.references().clone();
+
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| {
+            let encoded = PrimitiveArray::new(
+                Buffer::<T>::copy_from(encoded.as_slice::<T>()),
+                Validity::NonNullable,
+            );
+            let array = FoR::try_new_chunked(encoded.into_array(), references.clone(), 0)
+                .unwrap()
+                .into_array();
+
+            (array, SESSION.create_execution_ctx())
+        })
+        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
 fn decode_bitpacked_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, true);
+    let len = bytes / size_of::<T>();
+    let array = bitpacked_for_array::<T>(len);
+
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
