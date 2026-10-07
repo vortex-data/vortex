@@ -154,6 +154,10 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
 fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
     let schema = batch.schema();
     let chunk = SESSION.arrow().from_arrow_record_batch(batch, &schema)?;
+    // Variant arrays have no builder. The writer's compressor canonicalizes them instead.
+    if contains_variant(chunk.dtype()) {
+        return Ok(chunk);
+    }
     let mut ctx = VortexSession::default().create_execution_ctx();
     let mut builder = builder_with_capacity_in(chunk.dtype(), chunk.len(), ctx.allocator());
 
@@ -161,6 +165,16 @@ fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
     chunk.append_to_builder(builder.as_mut(), &mut ctx)?;
 
     Ok(builder.finish())
+}
+
+/// Whether `dtype` is or nests a Variant.
+fn contains_variant(dtype: &DType) -> bool {
+    match dtype {
+        DType::Variant(_) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| contains_variant(&field)),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => contains_variant(element),
+        _ => false,
+    }
 }
 
 /// Create a streaming Vortex array from a Parquet reader.

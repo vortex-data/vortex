@@ -148,6 +148,7 @@ datafusion-datasource = { version = "55.0.0", default-features = false }
 datafusion-execution = { version = "55.0.0" }
 datafusion-expr = { version = "55.0.0" }
 datafusion-functions = { version = "55.0.0" }
+datafusion-functions-json = "0.55"
 datafusion-functions-nested = { version = "55.0.0" }
 datafusion-physical-expr = { version = "55.0.0" }
 datafusion-physical-expr-adapter = { version = "55.0.0" }
@@ -161,6 +162,7 @@ env_logger = "0.11"
 fastlanes = { version = "0.7.0", features = ["runtime"] }
 fearless_simd = "1.0.0"
 fearless_simd_macros = "0.1.0"
+flate2 = "1.1"
 flatbuffers = "25.2.10"
 fsst-rs = "0.6.0"
 futures = { version = "0.3.31", default-features = false }

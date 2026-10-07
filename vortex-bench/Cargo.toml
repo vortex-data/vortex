@@ -38,6 +38,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+flate2 = { workspace = true }
 futures = { workspace = true }
 geo = { workspace = true }
 geo-traits = { workspace = true }
@@ -53,7 +54,13 @@ noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
 object_store = { workspace = true, features = ["aws"] }
 parking_lot = { workspace = true }
-parquet = { workspace = true, features = ["async", "object_store"] }
+parquet = { workspace = true, features = [
+    "async",
+    "object_store",
+    "variant_experimental",
+] }
+parquet-variant = { workspace = true }
+parquet-variant-compute = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }

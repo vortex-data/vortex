@@ -142,6 +142,9 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
 
             for format in args.formats.iter().copied() {
+                // Benchmark-specific preparation runs first so a suite can write its own Vortex
+                // files, which the generic Parquet conversion below then leaves alone.
+                benchmark.prepare_format(format, &base_path).await?;
                 match format {
                     Format::OnDiskVortex => {
                         convert_parquet_directory_to_vortex(
@@ -160,7 +163,6 @@ fn main() -> anyhow::Result<()> {
                     // OnDiskDuckDB tables are created during register_tables by loading from Parquet
                     _ => {}
                 }
-                benchmark.prepare_format(format, &base_path).await?;
             }
 
             anyhow::Ok(())
@@ -222,7 +224,7 @@ fn main() -> anyhow::Result<()> {
             if !args.reuse {
                 ctx.reopen()?;
             }
-            ctx.execute_query_result(query)
+            ctx.execute_query_result(&benchmark.query_for(Engine::DuckDB, format, query))
         },
     )?;
 

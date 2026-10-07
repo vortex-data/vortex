@@ -41,6 +41,7 @@ class Format(Enum):
     """Data formats for benchmarks."""
 
     PARQUET = "parquet"
+    PARQUET_VARIANT = "parquet-variant"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
     VORTEX_SPATIAL_NATIVE = "vortex-spatial-native"
@@ -58,6 +59,7 @@ class Benchmark(Enum):
     CLICKBENCH_SORTED = "clickbench-sorted"
     FINEWEB = "fineweb"
     GHARCHIVE = "gh-archive"
+    JSONBENCH = "jsonbench"
     POLARSIGNALS = "polarsignals"
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
@@ -69,12 +71,14 @@ class Benchmark(Enum):
 ENGINE_FORMATS: dict[Engine, list[Format]] = {
     Engine.DATAFUSION: [
         Format.PARQUET,
+        Format.PARQUET_VARIANT,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.LANCE,
     ],
     Engine.DUCKDB: [
         Format.PARQUET,
+        Format.PARQUET_VARIANT,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.VORTEX_SPATIAL_NATIVE,

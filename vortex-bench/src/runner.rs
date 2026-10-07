@@ -150,6 +150,7 @@ impl SqlBenchmarkRunner {
 
             if row_count.is_none() {
                 row_count = Some(result.row_count());
+                print_result_if_requested(query_idx, format, result);
             }
         }
 
@@ -411,6 +412,7 @@ impl SqlBenchmarkRunner {
 
                             if row_count.is_none() {
                                 row_count = Some(result.row_count());
+                                print_result_if_requested(query_idx, format, result);
                             }
                         }
 
@@ -441,6 +443,14 @@ impl SqlBenchmarkRunner {
         }
 
         Ok(())
+    }
+}
+
+/// Print a query's result to stderr when `VX_BENCH_PRINT_RESULTS=1`, so results can be compared
+/// across formats and engines.
+fn print_result_if_requested<R: BenchmarkQueryResult>(query_idx: usize, format: Format, result: R) {
+    if std::env::var("VX_BENCH_PRINT_RESULTS").is_ok_and(|v| v == "1") {
+        eprintln!("=== Q{query_idx} [{format}] ===\n{}", result.display());
     }
 }
 

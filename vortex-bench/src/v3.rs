@@ -282,6 +282,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
 /// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
 /// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
+/// | `JsonBench { n_rows }`      | `jsonbench`    | `None`              | millions of rows as string (`"1"`, `"10"`, ...)     | New live-only suite. |
 /// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
@@ -320,6 +321,11 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::PolarSignals { .. } => ("polarsignals".to_string(), None, None),
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
+        BenchmarkDataset::JsonBench { n_rows } => (
+            "jsonbench".to_string(),
+            None,
+            Some((n_rows / 1_000_000).to_string()),
+        ),
         BenchmarkDataset::Appian => ("appian".to_string(), None, None),
         BenchmarkDataset::VortexQueries => ("vortex".to_string(), None, None),
     }
@@ -742,6 +748,15 @@ mod tests {
             assert_eq!(variant, None, "dataset_variant for {case:?}");
             assert_eq!(sf, None, "scale_factor for {case:?}");
         }
+    }
+
+    #[test]
+    fn jsonbench_dims_carry_millions_of_rows() {
+        let dims = benchmark_dataset_dims(&BenchmarkDataset::JsonBench { n_rows: 10_000_000 });
+        assert_eq!(
+            dims,
+            ("jsonbench".to_string(), None, Some("10".to_string()))
+        );
     }
 
     #[test]
