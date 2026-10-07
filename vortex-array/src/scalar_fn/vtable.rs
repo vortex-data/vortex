@@ -46,9 +46,7 @@ pub enum ReduceNodeValidity<T: ReduceNode> {
     /// validity(byte_length(x)) can be symbolically reduced to validity(x)
     /// since byte_length doesn't change validity.
     ///
-    /// The reduced node **must** raise every semantic error that evaluating T raises, so it cannot
-    /// skip a computation that can fail. For example, casting `[1, null]` to non-nullable `i64`
-    /// fails, so the validity of that cast cannot reduce to the constant `true`.
+    /// The reduced node **must** still raise any semantic error that evaluating T raises.
     Reduced(T),
     /// Validity of T can't be symbolically reduced to anything, and all
     /// further reductions require evaluating T first. For an expression reduce
@@ -65,12 +63,11 @@ pub(crate) fn is_not_null_node<T: ReduceNode>(child: &T) -> VortexResult<T> {
     child.new_node(IsNotNull.bind(EmptyOptions), std::slice::from_ref(child))
 }
 
-/// Returns `is_not_null(c1) AND is_not_null(c2) AND ...` over the children of `node`.
+/// Returns `is_not_null(c1) AND is_not_null(c2) AND ...` over the children of `node`, or `true`
+/// if no terms remain.
 ///
-/// A non-nullable child is always valid, so its term is `true` and is left out. The exception is
-/// a child that [contains a fallible computation](ReduceNode::contains_fallible). Its term stays,
-/// so that evaluating the result still raises the errors of that child. With no terms left, the
-/// result is the constant `true`.
+/// The term of a non-nullable child is always `true`, so it is left out unless the child
+/// [contains a fallible computation](ReduceNode::contains_fallible) that must still be evaluated.
 pub fn union_child_validities<T: ReduceNode>(node: &T) -> VortexResult<T> {
     let mut parts = Vec::with_capacity(node.child_count());
     for i in 0..node.child_count() {
@@ -203,17 +200,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// children of node, a constant, or Irreducible which means you need to
     /// evaluate node to get its validity.
     ///
-    /// A reduced result must keep the semantic errors of node (see
-    /// [`ReduceNodeValidity::Reduced`]). A rule that does not evaluate a computation, either this
-    /// function or one of its children, must first check that the computation cannot fail:
+    /// To keep the errors that [`ReduceNodeValidity::Reduced`] requires, a rule that skips
+    /// evaluating this function or a child must first check that the skipped computation cannot
+    /// fail, with [`ScalarFnVTable::is_infallible`] or [`ReduceNode::contains_fallible`]. A child
+    /// wrapped in `is_not_null` keeps its errors.
     ///
-    /// - Use [`ScalarFnVTable::is_infallible`] for this function.
-    /// - Use [`ReduceNode::contains_fallible`] for a child.
-    ///
-    /// A child kept inside `is_not_null` keeps its errors, because the null check raises them.
-    ///
-    /// The default rule applies to a strict function that cannot fail, and returns
-    /// [`union_child_validities`].
+    /// The default rule returns [`union_child_validities`] for a strict, infallible function.
     fn validity<T: ReduceNode>(
         &self,
         options: &Self::Options,
@@ -335,15 +327,9 @@ pub trait ReduceNode: Clone {
 
     /// Returns whether evaluating this subtree can raise a semantic error.
     ///
-    /// This is `true` when any scalar function in the subtree is not
-    /// [infallible](ScalarFnVTable::is_infallible). The search does not stop at an infallible
-    /// node. In `cast(x, i8) < 5`, the comparison cannot fail, but the cast can.
-    ///
-    /// Nodes that are not scalar functions cannot fail on their own:
-    ///
-    /// - An array encoding, such as a dictionary, only decodes its children. The search still
-    ///   visits those children, which can be lazy scalar functions.
-    /// - An expression scope root is the input data, which the expression does not compute.
+    /// This is `true` if any scalar function in the subtree is not
+    /// [infallible](ScalarFnVTable::is_infallible), including one below an infallible parent, as
+    /// in `cast(x, i8) < 5`. Array encodings and expression roots raise no errors of their own.
     fn contains_fallible(&self) -> bool {
         // A recursive search can overflow the call stack on deep expression trees.
         let mut pending = vec![self.clone()];
@@ -527,9 +513,8 @@ impl ReduceNode for ArrayReduceNode<'_> {
             return scalar_fn.data().scalar_fn().validity_array(self);
         }
 
-        // An encoding builds its validity from the validity of its children without evaluating
-        // them. For example, a dictionary over a failing non-nullable cast reports only the
-        // validity of its codes, so the cast error is lost.
+        // Encodings derive validity from their children without evaluating them, which skips the
+        // errors of a fallible child.
         if self.contains_fallible() {
             return Ok(ReduceNodeValidity::Irreducible);
         }
