@@ -126,7 +126,7 @@ impl AggregateFnVTable for NanCount {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(scalar
             .as_primitive()

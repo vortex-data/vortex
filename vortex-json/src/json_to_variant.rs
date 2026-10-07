@@ -75,7 +75,7 @@ impl JsonToVariant {
     ///
     /// Returns an error if `input` is not a JSON extension array.
     pub fn try_new(input: ArrayRef, options: JsonToVariantOptions) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(JsonToVariant.bind(options), vec![input])
+        ScalarFnArray::try_new(JsonToVariant.bind(options), [input])
     }
 }
 

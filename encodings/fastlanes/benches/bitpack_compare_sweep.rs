@@ -34,6 +34,7 @@ use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitPackedData;
+use vortex_fastlanes::BitWidths;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -84,12 +85,15 @@ impl_bench_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 fn page_aligned(array: BitPackedArray) -> BitPackedArray {
     let ptype = array.dtype().as_ptype();
     let parts = BitPacked::into_parts(array);
+    let BitWidths::Global(bit_width) = parts.bit_widths else {
+        unreachable!("bitpack_encode packs every block at one bit width")
+    };
     BitPacked::try_new(
         parts.packed.ensure_aligned(Alignment::new(4096)).unwrap(),
         ptype,
         parts.validity,
         parts.patches,
-        parts.bit_width,
+        bit_width,
         parts.len,
         parts.offset,
     )

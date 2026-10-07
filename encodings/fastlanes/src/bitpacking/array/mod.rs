@@ -16,22 +16,30 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
 pub mod unpack_iter;
 
+#[cfg(test)]
+mod tests;
+
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
+use crate::bitpack_compress::bitpack_encode_blocked;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -49,6 +57,11 @@ pub struct BitPackedSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(3)]
     pub validity_child: Option<ArrayRef>,
+    /// Byte boundaries of the packed blocks as non-nullable unsigned integers, including one
+    /// trailing boundary, when the blocks have no global bit width.
+    /// Block `i` is packed at `(block_offsets[i + 1] - block_offsets[i]) / 128` bits.
+    #[slot(4)]
+    pub block_offsets: Option<ArrayRef>,
 }
 
 pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
@@ -57,9 +70,111 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
 };
 
+/// Check that `offsets` holds `num_blocks + 1` non-nullable unsigned boundaries.
+///
+/// Debug builds also assert that host-resident boundaries span `packed_len` bytes, each block a
+/// whole number of 128-byte rows with a bit width supported by `ptype`. Release builds don't check
+/// the boundary values, so decoders must bounds-check them.
+pub(crate) fn validate_block_offsets(
+    offsets: &ArrayRef,
+    ptype: PType,
+    num_blocks: usize,
+    packed_len: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        offsets.dtype().is_unsigned_int() && !offsets.dtype().is_nullable(),
+        "Expected non-nullable unsigned integer block offsets, got {}",
+        offsets.dtype()
+    );
+    vortex_ensure!(
+        offsets.len() == num_blocks + 1,
+        "Expected {} block boundaries, got {}",
+        num_blocks + 1,
+        offsets.len()
+    );
+    if cfg!(debug_assertions)
+        && let Some(primitive) = offsets.as_opt::<Primitive>()
+        && primitive.buffer_handle().is_on_host()
+    {
+        let max_bit_width = ptype.bit_width() as u64;
+        match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
+            validate_primitive_offsets(primitive.as_slice::<T>(), max_bit_width, packed_len)
+                .vortex_expect("invalid BitPacked block offsets")
+        })
+    }
+    Ok(())
+}
+
+/// Check that each block between `boundaries` is a whole number of 128-byte rows of at most
+/// `max_bit_width` bits, and that the boundaries span `packed_len` bytes.
+fn validate_primitive_offsets<T: Copy + Display>(
+    boundaries: &[T],
+    max_bit_width: u64,
+    packed_len: usize,
+) -> VortexResult<()>
+where
+    u64: From<T>,
+{
+    for pair in boundaries.windows(2) {
+        let size = u64::from(pair[1]).checked_sub(u64::from(pair[0]));
+        vortex_ensure!(
+            size.is_some_and(|size| size % 128 == 0 && size / 128 <= max_bit_width),
+            "Block boundaries {} and {} do not hold a supported bit width (at most {max_bit_width} bits)",
+            pair[0],
+            pair[1]
+        );
+    }
+    let span = match boundaries {
+        [first, .., last] => u64::from(*last) - u64::from(*first),
+        _ => 0,
+    };
+    vortex_ensure!(
+        span == packed_len as u64,
+        "Block offsets span {span} bytes, but the packed buffer has {packed_len}"
+    );
+    Ok(())
+}
+
+/// How the blocks of a [`BitPackedArray`] are packed, borrowing block offsets if present.
+#[derive(Clone, Copy, Debug)]
+pub enum BitWidthsView<'a> {
+    /// Every block is packed at this bit width.
+    Global(u8),
+    /// Byte boundaries of the packed blocks, from which each block's bit width is derived.
+    Blocked(&'a ArrayRef),
+}
+
+impl BitWidthsView<'_> {
+    /// Returns `true` if every block is packed at one bit width.
+    #[inline]
+    pub fn is_global(&self) -> bool {
+        matches!(self, Self::Global(_))
+    }
+}
+
+/// How the blocks of a [`BitPackedArray`] are packed, owning block offsets if present.
+///
+/// This is the owned form of [`BitWidthsView`], held by [`BitPackedDataParts`].
+#[derive(Clone, Debug)]
+pub enum BitWidths {
+    /// Every block is packed at this bit width.
+    Global(u8),
+    /// Byte boundaries of the packed blocks, from which each block's bit width is derived.
+    Blocked(ArrayRef),
+}
+
+impl From<BitWidthsView<'_>> for BitWidths {
+    fn from(view: BitWidthsView<'_>) -> Self {
+        match view {
+            BitWidthsView::Global(bit_width) => Self::Global(bit_width),
+            BitWidthsView::Blocked(block_offsets) => Self::Blocked(block_offsets.clone()),
+        }
+    }
+}
+
 pub struct BitPackedDataParts {
     pub offset: u16,
-    pub bit_width: u8,
+    pub bit_widths: BitWidths,
     pub len: usize,
     pub packed: BufferHandle,
     pub patches: Option<Patches>,
@@ -71,7 +186,9 @@ pub struct BitPackedData {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
-    pub(super) bit_width: u8,
+    /// The bit width shared by every block, or `None` when the block offsets child holds each
+    /// block's boundaries.
+    pub(super) global_bit_width: Option<u8>,
     pub(super) packed: BufferHandle,
     /// Patch metadata for reconstructing Patches from slots.
     pub(super) patches_data: Option<PatchesData>,
@@ -79,7 +196,10 @@ pub struct BitPackedData {
 
 impl Display for BitPackedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bit_width: {}, offset: {}", self.bit_width, self.offset)
+        match self.global_bit_width {
+            Some(bit_width) => write!(f, "bit_width: {}, offset: {}", bit_width, self.offset),
+            None => write!(f, "offset: {}", self.offset),
+        }
     }
 }
 
@@ -139,7 +259,26 @@ impl BitPackedData {
 
         Ok(Self {
             offset,
-            bit_width,
+            global_bit_width: Some(bit_width),
+            packed,
+            patches_data: patches.as_ref().map(PatchesData::from_patches),
+        })
+    }
+
+    /// Create the packed payload for blocks whose bit widths come from a block offsets child.
+    pub(crate) fn try_new_blocked(
+        packed: BufferHandle,
+        patches: Option<Patches>,
+        offset: u16,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be less than the full block i.e., 1024, got {offset}"
+        );
+
+        Ok(Self {
+            offset,
+            global_bit_width: None,
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
         })
@@ -150,17 +289,17 @@ impl BitPackedData {
         ptype: PType,
         validity: &Validity,
         patches: Option<&Patches>,
-        bit_width: u8,
+        bit_width: Option<u8>,
         length: usize,
         offset: u16,
     ) -> VortexResult<()> {
         vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
 
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == length,
-                "BitPackedArray validity length {validity_len} != array length {length}",
+            vortex_ensure_eq!(
+                validity_len,
+                length,
+                "BitPackedArray validity length must match array length"
             );
         }
 
@@ -169,15 +308,16 @@ impl BitPackedData {
             Self::validate_patches(patches, ptype, length)?;
         }
 
-        // Validate packed buffer
-        let expected_packed_len =
-            (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
-        vortex_ensure!(
-            packed.len() == expected_packed_len,
-            "Expected {} packed bytes, got {}",
-            expected_packed_len,
-            packed.len()
-        );
+        // Validate packed buffer. Block offsets are only checked against it in debug builds.
+        if let Some(bit_width) = bit_width {
+            vortex_ensure!(
+                usize::from(bit_width) <= ptype.bit_width(),
+                "Unsupported bit width {bit_width} for {ptype}"
+            );
+            let expected_packed_len =
+                (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
+            vortex_ensure_eq!(packed.len(), expected_packed_len);
+        }
 
         Ok(())
     }
@@ -191,10 +331,10 @@ impl BitPackedData {
             ptype
         );
 
-        vortex_ensure!(
-            patches.array_len() == len,
-            "BitPackedArray patches length {} != expected {len}",
+        vortex_ensure_eq!(
             patches.array_len(),
+            len,
+            "BitPackedArray patches length mismatch"
         );
 
         Ok(())
@@ -239,12 +379,6 @@ impl BitPackedData {
         BitUnpackedChunks::try_new(self, len, scratch)
     }
 
-    /// Bit-width of the packed values
-    #[inline]
-    pub fn bit_width(&self) -> u8 {
-        self.bit_width
-    }
-
     #[inline]
     pub fn offset(&self) -> u16 {
         self.offset
@@ -273,12 +407,27 @@ impl BitPackedData {
         bitpack_encode(&parray, bit_width, None, ctx)
     }
 
-    /// Calculate the maximum value that **can** be contained by this array, given its bit-width.
+    /// Bit-pack an array of primitive integers, packing each 1024-value block at its width in
+    /// `bit_widths`.
     ///
-    /// Note that this value need not actually be present in the array.
-    #[inline]
-    pub fn max_packed_value(&self) -> usize {
-        (1 << self.bit_width()) - 1
+    /// Values wider than their block's width become patches.
+    ///
+    /// # Errors
+    ///
+    /// If the provided array is not a primitive integer array or contains negative values, or if
+    /// `bit_widths` does not hold one width per block of at most the array's bit width, an error
+    /// will be returned. Nonempty arrays must have at least one block narrower than the array's
+    /// native bit width.
+    pub fn encode_blocked(
+        array: &ArrayRef,
+        bit_widths: &[u8],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BitPackedArray> {
+        let parray: PrimitiveArray = array
+            .clone()
+            .try_downcast::<Primitive>()
+            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        bitpack_encode_blocked(&parray, bit_widths, None, ctx)
     }
 }
 
@@ -288,9 +437,17 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
         BitPackedData::packed(self)
     }
 
+    /// How the blocks are packed: at one global bit width, or at the widths implied by the block
+    /// offsets.
     #[inline]
-    fn bit_width(&self) -> u8 {
-        BitPackedData::bit_width(self)
+    fn bit_widths(&self) -> BitWidthsView<'_> {
+        match (self.global_bit_width, self.block_offsets()) {
+            (Some(bit_width), None) => BitWidthsView::Global(bit_width),
+            (None, Some(block_offsets)) => BitWidthsView::Blocked(block_offsets),
+            _ => vortex_panic!(
+                "BitPacked must have exactly one of a global bit width and block offsets"
+            ),
+        }
     }
 
     #[inline]

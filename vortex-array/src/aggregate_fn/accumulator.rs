@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -88,7 +89,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         Ok(())
     }
 
-    fn fold_partial_scalar(&mut self, scalar: Scalar) -> VortexResult<()> {
+    fn fold_partial_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         let other = self
             .vtable
             .partial_from_scalar(self.dtypes.args(&self.options), scalar)?;
@@ -112,7 +113,7 @@ pub trait DynAccumulator: 'static + Send {
     ///
     /// The scalar must have the dtype reported by the vtable's `partial_dtype`, and represents
     /// input following the input already accumulated.
-    fn combine_partials(&mut self, partial: Scalar) -> VortexResult<()>;
+    fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()>;
 
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
@@ -155,12 +156,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             return Ok(());
         }
 
-        vortex_ensure!(
-            batch.dtype() == &self.dtypes.dtype,
-            "Input DType mismatch: expected {}, got {}",
-            self.dtypes.dtype,
-            batch.dtype()
-        );
+        vortex_ensure_eq!(batch.dtype(), &self.dtypes.dtype, "Input DType mismatch");
 
         // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
         //    consume that exact stat before kernel dispatch or decode.
@@ -182,7 +178,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 );
                 partial.cast(&self.dtypes.partial_dtype)?
             };
-            self.fold_partial_scalar(partial)?;
+            self.fold_partial_scalar(&partial)?;
             return Ok(());
         }
 
@@ -200,13 +196,12 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             if let Some(kernel) = kernel
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
             {
-                vortex_ensure!(
-                    result.dtype() == &self.dtypes.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
+                vortex_ensure_eq!(
                     result.dtype(),
-                    self.dtypes.partial_dtype,
+                    &self.dtypes.partial_dtype,
+                    "Aggregate kernel returned the wrong partial dtype",
                 );
-                self.fold_partial_scalar(result)?;
+                self.fold_partial_scalar(&result)?;
                 return Ok(());
             }
         }
@@ -237,13 +232,12 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id())
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
             {
-                vortex_ensure!(
-                    result.dtype() == &self.dtypes.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
+                vortex_ensure_eq!(
                     result.dtype(),
-                    self.dtypes.partial_dtype,
+                    &self.dtypes.partial_dtype,
+                    "Aggregate kernel returned the wrong partial dtype",
                 );
-                self.fold_partial_scalar(result)?;
+                self.fold_partial_scalar(&result)?;
                 return Ok(());
             }
 
@@ -277,13 +271,12 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         }
     }
 
-    fn combine_partials(&mut self, partial: Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            partial.dtype() == &self.dtypes.partial_dtype,
-            "Partial DType mismatch for {}: expected {}, got {}",
-            self.aggregate_fn,
-            self.dtypes.partial_dtype,
+    fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()> {
+        vortex_ensure_eq!(
             partial.dtype(),
+            &self.dtypes.partial_dtype,
+            "Partial DType mismatch for {}",
+            self.aggregate_fn,
         );
         self.fold_partial_scalar(partial)
     }
@@ -312,11 +305,10 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 
         #[cfg(debug_assertions)]
         {
-            vortex_ensure!(
-                partial.dtype() == args.partial_dtype,
-                "Aggregate returned incorrect DType on partial_scalar: expected {}, got {}",
-                args.partial_dtype,
+            vortex_ensure_eq!(
                 partial.dtype(),
+                args.partial_dtype,
+                "Aggregate returned incorrect DType on partial_scalar",
             );
         }
 
@@ -330,11 +322,10 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             None => self.vtable.finalize_scalar(args, &self.empty_partial()?)?,
         };
 
-        vortex_ensure!(
-            result.dtype() == args.return_dtype,
-            "Aggregate returned incorrect DType on final_scalar: expected {}, got {}",
-            args.return_dtype,
+        vortex_ensure_eq!(
             result.dtype(),
+            args.return_dtype,
+            "Aggregate returned incorrect DType on final_scalar",
         );
 
         Ok(result)

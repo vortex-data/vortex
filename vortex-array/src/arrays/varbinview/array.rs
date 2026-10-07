@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -33,6 +34,7 @@ use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::VarBinView;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::ResolvedViews;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
@@ -145,6 +147,33 @@ fn for_each_invalid_range(mask: &Mask, len: usize, mut f: impl FnMut(usize, usiz
             }
         }
     }
+}
+
+/// Calls `f` for each valid index of `mask`, and stops at the first error.
+fn try_for_each_valid(
+    mask: &Mask,
+    mut f: impl FnMut(usize) -> VortexResult<()>,
+) -> VortexResult<()> {
+    match mask.bit_buffer() {
+        AllOr::All => (0..mask.len()).try_for_each(f),
+        AllOr::None => Ok(()),
+        AllOr::Some(buffer) => buffer.set_indices().try_for_each(&mut f),
+    }
+}
+
+/// Returns `true` if all the inlined bytes of `view` are ASCII.
+fn is_inlined_ascii(view: &BinaryView) -> bool {
+    const HIGH_BITS: u128 = u128::from_le_bytes([0x80; 16]);
+
+    // The first 4 bytes hold the length, and the inlined bytes follow.
+    let data_bits = ((1u128 << (8 * view.len())) - 1) << 32;
+    view.as_u128() & data_bits & HIGH_BITS == 0
+}
+
+/// Returns `true` if `byte` starts a UTF-8 char, that is, it is not a continuation byte.
+fn is_char_boundary(byte: u8) -> bool {
+    // Continuation bytes have the form `0b10xx_xxxx`.
+    byte & 0b1100_0000 != 0b1000_0000
 }
 
 impl VarBinViewData {
@@ -333,28 +362,8 @@ impl VarBinViewData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let check_utf8 = Self::check_nullability(dtype, validity)?;
-        match validity {
-            // Array-backed validity is the only variant that needs an execution context: execute it
-            // into a mask once and zip it with the views, validating only the valid (non-null)
-            // entries.
-            Validity::Array(_) => {
-                let mask = validity.execute_mask(views.len(), ctx)?;
-                for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
-                    if valid {
-                        Self::validate_view(idx, view, buffers, check_utf8)?;
-                    }
-                }
-            }
-            // Every entry is null, so there is nothing to validate.
-            Validity::AllInvalid => {}
-            // No nulls: validate every view.
-            Validity::NonNullable | Validity::AllValid => {
-                for (idx, view) in views.iter().enumerate() {
-                    Self::validate_view(idx, view, buffers, check_utf8)?;
-                }
-            }
-        }
-        Ok(())
+        let mask = validity.execute_mask(views.len(), ctx)?;
+        Self::validate_views(views, &mask, buffers, check_utf8)
     }
 
     /// Validates components like validate() and replaces views at null slots to empty views
@@ -366,129 +375,191 @@ impl VarBinViewData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Buffer<BinaryView>> {
         let check_utf8 = Self::check_nullability(dtype, validity)?;
-        let empty = BinaryView::empty_view();
-        let len = views.len();
+        let mask = validity.execute_mask(views.len(), ctx)?;
 
-        match validity {
-            Validity::Array(_) => {
-                let mask = validity.execute_mask(len, ctx)?;
-                match views.try_into_mut() {
-                    Ok(mut views) => {
-                        let slice = views.as_mut_slice();
-                        for (idx, valid) in mask.iter().enumerate() {
-                            if valid {
-                                Self::validate_view(idx, &slice[idx], buffers, check_utf8)?;
-                            } else {
-                                slice[idx] = empty;
-                            }
-                        }
-                        Ok(views.freeze())
-                    }
-                    Err(views) => {
-                        let mut needs_replace = false;
-                        for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
-                            if valid {
-                                Self::validate_view(idx, view, buffers, check_utf8)?;
-                            } else if *view != empty {
-                                needs_replace = true;
-                            }
-                        }
-                        if !needs_replace {
-                            return Ok(views);
-                        }
-                        let mut views = views.into_mut();
-                        let slice = views.as_mut_slice();
-                        for_each_invalid_range(&mask, len, |start, end| {
-                            slice[start..end].fill(empty)
-                        });
-                        Ok(views.freeze())
+        // With nulls and views we own, validate and replace in a single pass: a second pass over
+        // many short null runs costs more than a branch per view.
+        let views = match (mask.bit_buffer(), views.try_into_mut()) {
+            (AllOr::Some(bits), Ok(mut views)) => {
+                let buffers_utf8 = Self::buffers_utf8(&mask, buffers, check_utf8);
+                let buffers_utf8 = buffers_utf8.as_deref();
+                let empty = BinaryView::empty_view();
+                let slice = views.as_mut_slice();
+                for (idx, (view, valid)) in slice.iter_mut().zip(bits.iter()).enumerate() {
+                    if valid {
+                        Self::validate_view(idx, view, buffers, buffers_utf8)?;
+                    } else {
+                        *view = empty;
                     }
                 }
+                return Ok(views.freeze());
             }
-            // Every entry is null, so there is nothing to validate: replace all views with empty.
-            Validity::AllInvalid => match views.try_into_mut() {
-                Ok(mut views) => {
-                    views.as_mut_slice().fill(empty);
-                    Ok(views.freeze())
-                }
-                Err(views) if views.iter().all(|view| *view == empty) => Ok(views),
-                Err(views) => {
-                    let mut views = views.into_mut();
-                    views.as_mut_slice().fill(empty);
-                    Ok(views.freeze())
-                }
-            },
-            // No nulls: validate every view, nothing to replace.
-            Validity::NonNullable | Validity::AllValid => {
-                for (idx, view) in views.iter().enumerate() {
-                    Self::validate_view(idx, view, buffers, check_utf8)?;
-                }
-                Ok(views)
-            }
-        }
+            (_, Ok(views)) => views.freeze(),
+            (_, Err(views)) => views,
+        };
+
+        Self::validate_views(&views, &mask, buffers, check_utf8)?;
+        Ok(Self::replace_null_views(views, &mask))
     }
 
     fn check_nullability(dtype: &DType, validity: &Validity) -> VortexResult<bool> {
         let (is_utf8, nullability) = Self::dtype_parts(dtype)?;
-        vortex_ensure!(
-            validity.nullability() == nullability,
-            InvalidArgument: "validity {:?} incompatible with nullability {:?}",
-            validity,
-            nullability
+        vortex_ensure_eq!(
+            validity.nullability(),
+            nullability,
+            InvalidArgument: "validity nullability is incompatible with dtype nullability",
         );
         Ok(is_utf8)
     }
 
+    /// Replaces the views at null slots with empty views. Copies the views only if a null slot
+    /// holds a non-empty view and the buffer is shared.
+    fn replace_null_views(views: Buffer<BinaryView>, mask: &Mask) -> Buffer<BinaryView> {
+        if mask.all_true() {
+            return views;
+        }
+
+        let empty = BinaryView::empty_view();
+        let len = views.len();
+
+        let mut views = match views.try_into_mut() {
+            Ok(views) => views,
+            Err(views) => {
+                let mut needs_replace = false;
+                for_each_invalid_range(mask, len, |start, end| {
+                    needs_replace |= views[start..end].iter().any(|view| *view != empty);
+                });
+                if !needs_replace {
+                    return views;
+                }
+                views.into_mut()
+            }
+        };
+
+        let slice = views.as_mut_slice();
+        for_each_invalid_range(mask, len, |start, end| slice[start..end].fill(empty));
+        views.freeze()
+    }
+
+    /// Validates the views at the valid slots of `mask`.
+    ///
+    /// A per-view UTF-8 check costs a function call per view, which dominates for short strings.
+    /// To avoid it, each data buffer is first checked once as a whole. If a buffer is valid UTF-8,
+    /// a view into it is valid UTF-8 if and only if it starts and ends on a char boundary.
+    ///
+    /// A buffer can hold bytes that no valid view references, for example after a slice, after a
+    /// filter, or at null views. So the whole-buffer check is only done while the total size of
+    /// the checked buffers stays within a fixed cost per valid view. The views into a buffer that
+    /// is not checked, or that is not valid UTF-8, are checked one by one.
+    fn validate_views(
+        views: &[BinaryView],
+        mask: &Mask,
+        buffers: &[ByteBuffer],
+        check_utf8: bool,
+    ) -> VortexResult<()> {
+        let buffers_utf8 = Self::buffers_utf8(mask, buffers, check_utf8);
+        let buffers_utf8 = buffers_utf8.as_deref();
+
+        try_for_each_valid(mask, |idx| {
+            Self::validate_view(idx, &views[idx], buffers, buffers_utf8)
+        })
+    }
+
+    /// The approximate cost of a per-view UTF-8 check, in bytes of a whole-buffer check.
+    const PER_VIEW_UTF8_COST: usize = 64;
+
+    /// Returns `None` if the UTF-8 check is off. Otherwise, returns for each buffer `true` if the
+    /// whole buffer was checked and is valid UTF-8.
+    ///
+    /// The budget only counts a fixed cost per valid view, not the bytes the views reference: for
+    /// long strings, the call per view is cheap next to the string, and checking a buffer larger
+    /// than the cache and then reading it again for the char boundaries is slower.
+    fn buffers_utf8(mask: &Mask, buffers: &[ByteBuffer], check_utf8: bool) -> Option<Vec<bool>> {
+        if !check_utf8 {
+            return None;
+        }
+
+        let mut budget = mask.true_count().saturating_mul(Self::PER_VIEW_UTF8_COST);
+
+        Some(
+            buffers
+                .iter()
+                .map(|buf| {
+                    if buf.len() > budget {
+                        return false;
+                    }
+
+                    budget -= buf.len();
+                    simdutf8::basic::from_utf8(buf).is_ok()
+                })
+                .collect(),
+        )
+    }
+
+    /// Checks the bounds, the prefix, and the UTF-8 of a view.
+    ///
+    /// `buffers_utf8` is `None` if the UTF-8 check is off. Otherwise, it tells which buffers are
+    /// valid UTF-8 as a whole.
     fn validate_view(
         idx: usize,
         view: &BinaryView,
-        buffers: &Arc<[ByteBuffer]>,
-        check_utf8: bool,
+        buffers: &[ByteBuffer],
+        buffers_utf8: Option<&[bool]>,
     ) -> VortexResult<()> {
-        let valid_utf8 = |bytes: &[u8]| !check_utf8 || simdutf8::basic::from_utf8(bytes).is_ok();
         if view.is_inlined() {
-            // Validate the inline bytestring
-            let bytes = &view.as_inlined().data[..view.len() as usize];
-            vortex_ensure!(
-                valid_utf8(bytes),
-                InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
-            );
-        } else {
-            // Validate the view pointer
-            let view = view.as_view();
-            let buf_index = view.buffer_index as usize;
-            let start_offset = view.offset as usize;
-            let end_offset = start_offset.saturating_add(view.size as usize);
-
-            let buf = buffers.get(buf_index).ok_or_else(||
-                vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewData with {} buffers",
-                    buffers.len()))?;
-
-            vortex_ensure!(
-                start_offset < buf.len(),
-                InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
-                buf.len(),
-            );
-
-            vortex_ensure!(
-                end_offset <= buf.len(),
-                InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
-                buf.len(),
-            );
-
-            // Make sure the prefix data matches the buffer data.
-            let bytes = &buf[start_offset..end_offset];
-            vortex_ensure!(
-                view.prefix == bytes[..4],
-                InvalidArgument: "VarBinView prefix does not match full string"
-            );
-
-            // Validate the full string
-            vortex_ensure!(
-                valid_utf8(bytes),
-                InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
-            );
+            if buffers_utf8.is_some() && !is_inlined_ascii(view) {
+                let bytes = view.as_inlined().value();
+                vortex_ensure!(
+                    simdutf8::basic::from_utf8(bytes).is_ok(),
+                    InvalidArgument: "view at index {idx}: inlined bytes failed utf-8 validation"
+                );
+            }
+            return Ok(());
         }
+
+        let view = view.as_view();
+        let buf_index = view.buffer_index as usize;
+        let start_offset = view.offset as usize;
+        let end_offset = start_offset.saturating_add(view.size as usize);
+
+        let buf = buffers.get(buf_index).ok_or_else(||
+            vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewData with {} buffers",
+                buffers.len()))?;
+
+        vortex_ensure!(
+            start_offset < buf.len(),
+            InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+            buf.len(),
+        );
+
+        vortex_ensure!(
+            end_offset <= buf.len(),
+            InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+            buf.len(),
+        );
+
+        // Make sure the prefix data matches the buffer data.
+        vortex_ensure!(
+            view.prefix == buf[start_offset..start_offset + 4],
+            InvalidArgument: "VarBinView prefix does not match full string"
+        );
+
+        let Some(buffers_utf8) = buffers_utf8 else {
+            return Ok(());
+        };
+
+        let valid_utf8 = if buffers_utf8[buf_index] {
+            is_char_boundary(buf[start_offset])
+                && (end_offset == buf.len() || is_char_boundary(buf[end_offset]))
+        } else {
+            simdutf8::basic::from_utf8(&buf[start_offset..end_offset]).is_ok()
+        };
+
+        vortex_ensure!(
+            valid_utf8,
+            InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
+        );
+
         Ok(())
     }
 
@@ -682,14 +753,15 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
+    /// Resolve the data buffers of this array for per-row access.
+    pub fn resolved_views(&self) -> ResolvedViews<'_> {
+        ResolvedViews::new(self)
+    }
+
     #[inline]
     fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: ArraySlots) -> Self {
         let len = data.len();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(VarBinView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBinView, dtype, len, data, slots)) }
     }
 
     /// Construct a `VarBinViewArray` from an iterator of optional byte slices.

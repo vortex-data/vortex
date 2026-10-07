@@ -17,6 +17,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -169,12 +170,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == self.element_dtype(),
-            "Array dtype {:?} does not match list element dtype {:?}",
-            array.dtype(),
-            self.element_dtype()
-        );
+        vortex_ensure_eq!(array.dtype(), self.element_dtype());
 
         let curr_offset = self.elements_builder.len();
         let num_elements = array.len();
@@ -254,12 +250,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         n: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == self.element_dtype(),
-            "Array dtype {:?} does not match list element dtype {:?}",
-            array.dtype(),
-            self.element_dtype()
-        );
+        vortex_ensure_eq!(array.dtype(), self.element_dtype());
 
         if n == 0 {
             return Ok(());
@@ -517,11 +508,10 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        vortex_ensure!(
-            scalar.dtype() == self.dtype(),
-            "ListViewBuilder expected scalar with dtype {}, got {}",
+        vortex_ensure_eq!(
+            scalar.dtype(),
             self.dtype(),
-            scalar.dtype()
+            "ListViewBuilder received a scalar with the wrong dtype"
         );
 
         let list_scalar = scalar.as_list();

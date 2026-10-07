@@ -51,7 +51,7 @@ impl VariantGet {
     ///
     /// Returns an error if `input` is not Variant data.
     pub fn try_new(input: ArrayRef, options: VariantGetOptions) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(VariantGet.bind(options), vec![input])
+        ScalarFnArray::try_new(VariantGet.bind(options), [input])
     }
 }
 

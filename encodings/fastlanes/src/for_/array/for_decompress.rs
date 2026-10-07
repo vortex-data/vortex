@@ -26,12 +26,16 @@ use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSinkExt;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
 use crate::for_::array::FoRArrayExt;
@@ -56,7 +60,7 @@ fn decompress_one_ref(
         return fused_decompress(array, bp, ctx);
     }
 
-    add_reference(array, reference)
+    add_reference(array, reference, ctx)
 }
 
 /// Unpack a BitPacked child and add the constant reference in one pass.
@@ -88,15 +92,20 @@ fn fused_decompress_typed<
 }
 
 /// Decode `encoded`, then add `reference` to every value.
-fn add_reference(array: &FoRArray, reference: &Scalar) -> VortexResult<PrimitiveArray> {
+fn add_reference(
+    array: &FoRArray,
+    reference: &Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     match_each_integer_ptype!(array.ptype(), |T| {
-        add_reference_typed::<T>(array, reference)
+        add_reference_typed::<T>(array, reference, ctx)
     })
 }
 
 fn add_reference_typed<T: NativePType + WrappingAdd + PrimInt>(
     array: &FoRArray,
     reference: &Scalar,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let encoded = array.encoded().as_::<Primitive>().into_owned();
     let min = reference
@@ -108,18 +117,38 @@ fn add_reference_typed<T: NativePType + WrappingAdd + PrimInt>(
     }
     let validity = encoded.validity()?;
     Ok(PrimitiveArray::new(
-        decompress_primitive(encoded.into_buffer::<T>(), min),
+        decompress_primitive(encoded.try_into_buffer_mut::<T>(), min, ctx),
         validity,
     ))
 }
 
+/// Adds `min` to every value. A uniquely owned buffer is mapped in place, a shared one is mapped
+/// into a new allocation.
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
-    values: Buffer<T>,
+    values: Result<BufferMut<T>, Buffer<T>>,
     min: T,
+    ctx: &mut ExecutionCtx,
 ) -> Buffer<T> {
-    values
-        .map_each_in_place(move |v| v.wrapping_add(&min))
-        .freeze()
+    let add = |v: T| v.wrapping_add(&min);
+
+    match values {
+        Ok(mut values) => {
+            values.as_mut_slice().map_into_in_place(add);
+            values.freeze()
+        }
+        Err(values) => {
+            let len = values.len();
+            let mut decoded = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+            values
+                .as_slice()
+                .map_into(&mut decoded.spare_capacity_mut()[..len], add);
+
+            // SAFETY: `map_into` writes every lane of the `len` items.
+            unsafe { decoded.set_len(len) };
+
+            decoded.freeze()
+        }
+    }
 }
 
 /// Decompress an array whose chunks have different references.
@@ -283,7 +312,10 @@ fn unpack_chunks<
     output: &mut [MaybeUninit<T>],
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
-    let bit_width = bp.bit_width() as usize;
+    let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
+        vortex_bail!("BitPacked array has per-block bit widths");
+    };
+    let bit_width = bit_width as usize;
     // SAFETY: `T::Physical` is `T` with the same size and alignment, and the unpack is the same
     // wrapping addition in two's complement whichever signedness `T` has.
     let output =

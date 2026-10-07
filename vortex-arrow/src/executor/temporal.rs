@@ -32,7 +32,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::TimeUnit;
@@ -122,7 +121,8 @@ where
     T: ArrowTemporalType,
     T::Native: NativePType,
 {
-    let array = array.cast(DType::Primitive(T::Native::PTYPE, Nullability::Nullable))?;
+    let dtype = DType::Primitive(T::Native::PTYPE, array.dtype().nullability());
+    let array = array.cast(dtype)?;
     let primitive = array.execute::<PrimitiveArray>(ctx)?;
     let validity = primitive
         .as_ref()

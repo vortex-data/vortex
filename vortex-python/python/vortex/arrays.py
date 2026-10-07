@@ -62,7 +62,7 @@ def arrow_table_from_struct_array(
     return pyarrow.Table.from_struct_array(array)
 
 
-def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
+def _Array_to_arrow_table(self: _arrays.Array, *, combine_chunks: bool = False) -> pyarrow.Table:
     """Construct an Arrow table from this Vortex array.
 
     .. seealso::
@@ -72,6 +72,12 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     -------
 
     Only struct-typed arrays can be converted to Arrow tables.
+
+    Parameters
+    ----------
+    combine_chunks : :class:`bool`, optional
+        If ``True``, a chunked Vortex array is concatenated natively during export so that every
+        column of the resulting table has a single chunk. Defaults to ``False``.
 
     Returns
     -------
@@ -96,7 +102,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     age: [[25,31,33,57]]
 
     """
-    array = self.to_arrow_array()
+    array = self.to_arrow_array(combine_chunks=combine_chunks)
     assert isinstance(array, pyarrow.StructArray | pyarrow.ChunkedArray)
     return arrow_table_from_struct_array(array)
 

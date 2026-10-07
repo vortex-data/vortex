@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -261,10 +262,10 @@ impl ListData {
 
         // If a validity array is present, it must be the same length as the ListArray
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len() - 1,
-                InvalidArgument: "validity with size {validity_len} does not match array size {}",
-                offsets.len() - 1
+            vortex_ensure_eq!(
+                validity_len,
+                offsets.len() - 1,
+                InvalidArgument: "validity length does not match array size",
             );
         }
 
@@ -363,9 +364,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = ListData::build(elements, offsets, validity);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `ListArray`.
@@ -378,9 +377,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = ListData::try_build(elements, offsets, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) })
     }
 
     /// Creates a new `ListArray` without validation.
@@ -393,9 +390,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = unsafe { ListData::new_unchecked() };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) }
     }
 
     pub fn into_data_parts(self) -> ListDataParts {

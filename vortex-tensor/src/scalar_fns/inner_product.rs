@@ -53,7 +53,7 @@ impl InnerProduct {
     /// Returns an error unless both inputs are float tensors with the same dtype, ignoring
     /// top-level nullability.
     pub fn try_new(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(InnerProduct.bind(EmptyOptions), vec![lhs, rhs])
+        ScalarFnArray::try_new(InnerProduct.bind(EmptyOptions), [lhs, rhs])
     }
 }
 

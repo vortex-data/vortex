@@ -96,12 +96,7 @@ impl VTable for ParquetVariant {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == ParquetVariantSlots::COUNT,
-            "ParquetVariantArray expects {} slots, got {}",
-            ParquetVariantSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), ParquetVariantSlots::COUNT);
         let validity = child_to_validity(
             slots[ParquetVariantSlots::VALIDITY].as_ref(),
             dtype.nullability(),
@@ -270,7 +265,13 @@ impl VTable for ParquetVariant {
             typed_value,
         }
         .into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            slots,
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

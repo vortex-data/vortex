@@ -130,11 +130,11 @@ impl AggregateFnVTable for Max {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let mut partial = MaxPartial { max: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, scalar);
+        partial.merge(args, scalar.clone());
         Ok(partial)
     }
 

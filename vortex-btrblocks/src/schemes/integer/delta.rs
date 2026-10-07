@@ -218,6 +218,13 @@ impl Scheme for DeltaScheme {
             exec_ctx,
         )?;
 
-        Delta::try_new(compressed_bases, compressed_deltas, 0, len).map(IntoArray::into_array)
+        Delta::try_new(
+            compressed_bases,
+            compressed_deltas,
+            primitive.validity()?,
+            0,
+            len,
+        )
+        .map(IntoArray::into_array)
     }
 }

@@ -26,8 +26,11 @@ use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedDataParts;
+use vortex::encodings::fastlanes::BitWidths;
+use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
@@ -48,12 +51,13 @@ pub(crate) struct BitPackedExecutor;
 /// Bit-unpack kernels decode full FastLanes chunks, so the packed buffer is
 /// widened to chunk boundaries and `offset` is converted into the in-chunk
 /// starting position. The returned logical range is passed to patch
-/// materialization so exception metadata is sliced consistently.
+/// materialization so exception metadata is sliced consistently. The global
+/// bit width of `bp` is returned alongside the view.
 pub(crate) fn bitpacked_slice_view(
     bp: ArrayView<'_, BitPacked>,
     offset: usize,
     len: usize,
-) -> VortexResult<(BufferHandle, u16, Range<usize>)> {
+) -> VortexResult<(BufferHandle, u8, u16, Range<usize>)> {
     let patch_range = offset..offset + len;
     let offset_start = patch_range.start + bp.offset() as usize;
     let offset_stop = offset_start + len;
@@ -61,11 +65,15 @@ pub(crate) fn bitpacked_slice_view(
     let block_start = offset_start - bitpacked_offset;
     let block_stop = offset_stop.div_ceil(PATCH_CHUNK_SIZE) * PATCH_CHUNK_SIZE;
 
-    let encoded_start = (block_start / 8) * bp.bit_width() as usize;
-    let encoded_stop = (block_stop / 8) * bp.bit_width() as usize;
+    let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
+        vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+    };
+    let encoded_start = (block_start / 8) * bit_width as usize;
+    let encoded_stop = (block_stop / 8) * bit_width as usize;
 
     Ok((
         bp.packed().slice(encoded_start..encoded_stop),
+        bit_width,
         u16::try_from(bitpacked_offset)?,
         patch_range,
     ))
@@ -90,13 +98,14 @@ impl BitPackedExecutor {
         let bp = child.as_::<BitPacked>();
         let offset = slice.data().slice_range().start;
         let len = array.len();
-        let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+        let (packed, bit_width, bitpacked_offset, patch_range) =
+            bitpacked_slice_view(bp, offset, len)?;
         let sliced = BitPacked::try_new(
             packed,
             bp.ptype(bp.dtype()),
             child.validity()?.slice(patch_range.clone())?,
             bp.patches(),
-            bp.bit_width(),
+            bit_width,
             len,
             bitpacked_offset,
         )?;
@@ -162,12 +171,15 @@ where
 {
     let BitPackedDataParts {
         offset,
-        bit_width,
+        bit_widths,
         len,
         packed,
         patches,
         validity,
     } = BitPacked::into_parts(array);
+    let BitWidths::Global(bit_width) = bit_widths else {
+        vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+    };
 
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;

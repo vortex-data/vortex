@@ -2,7 +2,6 @@
 name = "vortex-cloud"
 description = "Cloud object store integration for Vortex: URL resolution and OpenDAL-backed services"
 version = { workspace = true }
-homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }

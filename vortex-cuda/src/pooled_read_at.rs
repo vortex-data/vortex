@@ -19,6 +19,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
@@ -177,11 +178,10 @@ impl VortexReadAt for PooledObjectStoreReadAt {
                         filled = end;
                     }
 
-                    vortex_ensure!(
-                        filled == length,
-                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                    vortex_ensure_eq!(
                         filled,
                         length,
+                        "Object store stream returned too few bytes (range: {:?})",
                         range
                     );
                 }

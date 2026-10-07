@@ -164,11 +164,11 @@ impl AggregateFnVTable for GeometryAabb {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null box is an empty group's AABB.
         Ok(AabbPartial {
-            rect: rect_from_storage(&scalar)?,
+            rect: rect_from_storage(scalar)?,
         })
     }
 

@@ -34,6 +34,7 @@ use crate::arrow::FromPyArrow;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
 use crate::current_runtime;
+use crate::dataset::ProjectionColumn;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -125,7 +126,7 @@ pub fn read_url<'py>(
     py: Python<'py>,
     url: &str,
     store: Option<Bound<'py, PyAny>>,
-    projection: Option<Vec<Bound<'py, PyAny>>>,
+    projection: Option<Vec<ProjectionColumn>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
@@ -302,18 +303,16 @@ impl PyVortexWriteOptions {
     /// Let's model some stock ticker data. As you may know, the stock market always (noisly) goes
     /// up:
     ///
-    /// >>> import os
     /// >>> import random
     /// >>> sprl = vx.array([random.randint(i, i + 10) for i in range(100_000)])
     ///
-    /// If we naively wrote 4-bytes for each of these integers to a file we'd have 400,000 bytes!
-    /// Let's see how small this is when we write with the default Vortex write options (which are
-    /// also used by :func:`vortex.io.write`):
+    /// If we naively wrote 8-bytes for each of these integers to a file we'd have 800,000 bytes!
+    /// Let's see how small the array buffers are when we write with the default Vortex write
+    /// options (which are also used by :func:`vortex.io.write`):
     ///
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
-    /// >>> import os
-    /// >>> os.path.getsize('chonky.vortex')
-    /// 215788
+    /// >>> vx.open("chonky.vortex").scan().read_all().nbytes
+    /// 213248
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -322,8 +321,8 @@ impl PyVortexWriteOptions {
     /// We sure can.
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
-    /// >>> os.path.getsize('tiny.vortex')
-    /// 54992
+    /// >>> vx.open("tiny.vortex").scan().read_all().nbytes
+    /// 52564
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]

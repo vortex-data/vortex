@@ -6,6 +6,7 @@ mod avx2;
 mod records;
 mod scalar;
 mod slices;
+mod small_table;
 #[cfg(test)]
 mod tests;
 
@@ -61,7 +62,16 @@ impl<V: FixedWidthArray> TakeExecute for V {
 ///
 /// Implementors must have no uninitialized bytes. The shared AVX2 gather reads the complete
 /// representation through a same-width integer lane before writing those bytes back unchanged.
-pub(crate) unsafe trait FixedWidthTakeValue: Copy {}
+pub(crate) unsafe trait FixedWidthTakeValue: Copy {
+    /// Takes values using the kernel appropriate for this value type.
+    fn take<I: UnsignedPType>(
+        values: &[Self],
+        indices: &[I],
+        allocator: &BufferAllocatorRef,
+    ) -> Buffer<Self> {
+        take_values_fallback(values, indices, allocator)
+    }
+}
 
 macro_rules! impl_fixed_width_take_value {
     ($($ty:ty),+ $(,)?) => {
@@ -72,12 +82,17 @@ macro_rules! impl_fixed_width_take_value {
     };
 }
 
-impl_fixed_width_take_value!(u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64,);
-
-// SAFETY: Byte arrays have no padding and every byte is initialized.
-unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {}
+impl_fixed_width_take_value!(u16, u32, u64, i16, i32, i64, f16, f32, f64,);
 
 pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
+    values: &[T],
+    indices: &[I],
+    allocator: &BufferAllocatorRef,
+) -> Buffer<T> {
+    T::take(values, indices, allocator)
+}
+
+fn take_values_fallback<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
     allocator: &BufferAllocatorRef,

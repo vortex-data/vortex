@@ -292,7 +292,7 @@ fn merge_from_overflow_is_absorbing() -> VortexResult<()> {
 
     // The overflow flag survives the scalar round trip.
     let dtypes = AggregateDTypes::try_new(&SumV2, &options, dtype)?;
-    let propagated = SumV2.partial_from_scalar(dtypes.args(&options), overflow_partial)?;
+    let propagated = SumV2.partial_from_scalar(dtypes.args(&options), &overflow_partial)?;
     assert!(SumV2.is_saturated(dtypes.args(&options), &propagated));
     assert!(
         SumV2

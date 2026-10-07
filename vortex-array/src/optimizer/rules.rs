@@ -191,15 +191,17 @@ impl<V: VTable> ParentRuleSet<V> {
                 // Debug assertions because these checks are already run elsewhere.
                 #[cfg(debug_assertions)]
                 {
-                    vortex_error::vortex_ensure!(
-                        reduced.len() == parent.len(),
+                    vortex_error::vortex_ensure_eq!(
+                        reduced.len(),
+                        parent.len(),
                         "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
                         rule,
                         parent.encoding_id(),
                         reduced.encoding_id()
                     );
-                    vortex_error::vortex_ensure!(
-                        reduced.dtype() == parent.dtype(),
+                    vortex_error::vortex_ensure_eq!(
+                        reduced.dtype(),
+                        parent.dtype(),
                         "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
                         rule,
                         parent.encoding_id(),

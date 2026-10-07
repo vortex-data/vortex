@@ -30,6 +30,7 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -179,6 +180,7 @@ impl ArrowExportVTable for Point {
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let is_point = array
@@ -206,9 +208,11 @@ impl ArrowExportVTable for Point {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session
-            .arrow()
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through the GeoArrow point array type: this validates that the storage is
         // the separated-coordinate struct layout expected for a `PointType` extension field.

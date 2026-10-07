@@ -19,7 +19,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use super::pvalue::CoercePValue;
@@ -152,11 +152,10 @@ impl<'a> PrimitiveScalar<'a> {
     ///
     /// Returns an error if the primitive type of this scalar does not match the requested type.
     pub fn try_typed_value<T: NativePType>(&self) -> VortexResult<Option<T>> {
-        vortex_ensure!(
-            self.ptype == T::PTYPE,
-            "Attempting to read {} scalar as {}",
+        vortex_ensure_eq!(
             self.ptype,
-            T::PTYPE
+            T::PTYPE,
+            "Attempting to read a primitive scalar as the wrong type"
         );
 
         if let Some(pv) = self.pvalue {

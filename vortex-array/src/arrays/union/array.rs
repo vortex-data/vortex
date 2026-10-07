@@ -53,8 +53,8 @@ pub(super) fn make_union_parts(
         DType::Union(variants, nullability),
         len,
         EmptyArrayData,
+        slots,
     )
-    .with_slots(slots)
 }
 
 /// Concrete parts of a [`UnionArray`](super::UnionArray).

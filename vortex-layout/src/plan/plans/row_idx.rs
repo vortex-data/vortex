@@ -17,7 +17,7 @@ use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
@@ -135,8 +135,9 @@ pub fn plan_row_idx_expression(
         };
     }
 
-    vortex_ensure!(
-        partitioned.partition_annotations.len() == 2,
+    vortex_ensure_eq!(
+        partitioned.partition_annotations.len(),
+        2,
         "Row-index expression produced more than two partitions"
     );
     let row_idx_index = partitioned

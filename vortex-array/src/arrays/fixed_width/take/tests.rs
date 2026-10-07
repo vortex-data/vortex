@@ -44,6 +44,34 @@ fn take_eight_byte_values() {
 }
 
 #[rstest]
+#[case(64)]
+#[case(65)]
+#[case(79)]
+#[case(128)]
+fn take_small_byte_table(#[case] len: usize) {
+    let values = [10u8, 20, 30, 40];
+    let indices = (0u8..4).cycle().take(len).collect::<Vec<_>>();
+    let expected = indices
+        .iter()
+        .map(|index| values[usize::from(*index)])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        take_values(&values, &indices, &allocator()).as_slice(),
+        expected.as_slice()
+    );
+}
+
+#[rstest]
+#[case::vector(64)]
+#[case::tail(128)]
+#[should_panic]
+fn take_small_byte_table_rejects_out_of_bounds_index(#[case] offset: usize) {
+    let mut indices = vec![0u8; 129];
+    indices[offset] = 4;
+    drop(take_values(&[10u8, 20, 30, 40], &indices, &allocator()));
+}
+
+#[rstest]
 #[case(1)]
 #[case(2)]
 #[case(4)]

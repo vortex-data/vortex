@@ -53,7 +53,7 @@ impl CosineSimilarity {
     /// Returns an error unless both inputs are float tensors with the same dtype, ignoring
     /// top-level nullability.
     pub fn try_new(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(CosineSimilarity.bind(EmptyOptions), vec![lhs, rhs])
+        ScalarFnArray::try_new(CosineSimilarity.bind(EmptyOptions), [lhs, rhs])
     }
 }
 

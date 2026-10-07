@@ -8,7 +8,7 @@ use prost::Message;
 use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -104,13 +104,13 @@ impl VTable for Dict {
         let view = DictSlotsView::from_slots(slots);
         let codes = view.codes;
         let values = view.values;
-        vortex_ensure!(codes.len() == len, "DictArray codes length mismatch");
-        vortex_ensure!(
+        vortex_ensure_eq!(codes.len(), len, "DictArray codes length mismatch");
+        vortex_ensure_eq!(
             values
                 .dtype()
-                .union_nullability(codes.dtype().nullability())
-                == *dtype,
-            "DictArray dtype does not match codes/values dtype"
+                .union_nullability(codes.dtype().nullability()),
+            *dtype,
+            "DictArray dtype does not match codes/values dtype",
         );
         Ok(())
     }
@@ -182,10 +182,13 @@ impl VTable for Dict {
         let values = children.get(1, dtype, metadata.values_len as usize)?;
         let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
 
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
-            DictData::new_unchecked().set_all_values_referenced(all_values_referenced)
-        })
-        .with_slots(smallvec![Some(codes), Some(values)]))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            unsafe { DictData::new_unchecked().set_all_values_referenced(all_values_referenced) },
+            smallvec![Some(codes), Some(values)],
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

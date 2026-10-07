@@ -43,6 +43,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
@@ -106,7 +107,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             return Ok(None);
         }
 
-        let arrow_variant = array.to_arrow(ctx)?;
+        let arrow_variant = array.to_arrow(&ArrowExportOptions::default(), ctx)?;
         let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.into_inner());
         let session = ctx.session().clone();
         let as_type = to_arrow_as_type(parent.options.dtype(), &session.arrow())?;

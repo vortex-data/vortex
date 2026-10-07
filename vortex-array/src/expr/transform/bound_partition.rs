@@ -8,7 +8,7 @@ use std::hash::Hash;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
@@ -147,12 +147,7 @@ where
 
     /// Replace the partition expressions and update every root dtype in the recombination tree.
     pub fn replace_partitions(&mut self, partitions: Box<[BoundExpression]>) -> VortexResult<()> {
-        vortex_ensure!(
-            partitions.len() == self.partition_names.len(),
-            "Expected {} partitions, got {}",
-            self.partition_names.len(),
-            partitions.len()
-        );
+        vortex_ensure_eq!(partitions.len(), self.partition_names.len());
 
         let root_dtype = partition_root_dtype(&self.partition_names, &partitions);
         let root = replace_root_dtype(self.root.clone(), root_dtype)?;

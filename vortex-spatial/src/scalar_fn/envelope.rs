@@ -33,6 +33,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -54,10 +55,10 @@ use crate::scalar_fn::execute::dispatch_unary;
 
 /// Validate the native geometry operand accepted by `envelope`.
 fn validate_envelope_operands(dtypes: &[DType]) -> VortexResult<()> {
-    vortex_ensure!(
-        dtypes.len() == 1,
-        "spatial: envelope requires exactly one geometry operand, got {}",
-        dtypes.len()
+    vortex_ensure_eq!(
+        dtypes.len(),
+        1,
+        "spatial: envelope requires exactly one geometry operand"
     );
     vortex_ensure!(
         is_native_geometry(&dtypes[0]),

@@ -519,6 +519,7 @@ mod tests {
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_ensure_eq;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::layout::LayoutStrategy;
@@ -844,7 +845,7 @@ mod tests {
             let mut array = ArrowDeviceArray::empty();
             // SAFETY: This live stream owns the callback; array is writable.
             let status = unsafe { get_next(stream, &raw mut array) };
-            vortex_ensure!(status == 0, "get_next failed: {}", stream_error(stream));
+            vortex_ensure_eq!(status, 0, "get_next failed: {}", stream_error(stream));
             if array.array.release.is_none() {
                 break;
             }
@@ -1087,6 +1088,8 @@ mod tests {
     }
 
     #[test]
+    // Direct I/O adds a second case only on Linux.
+    #[cfg_attr(not(target_os = "linux"), expect(clippy::single_element_loop))]
     fn test_maps_scan_options() -> VortexResult<()> {
         let buffered = PooledFileReadAtOptions::default();
         for (flags, batch_rows, read_at_options) in [

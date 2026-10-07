@@ -31,6 +31,7 @@ use vortex::encodings::fastlanes::DeltaArrayExt;
 use vortex::encodings::fastlanes::DeltaArraySlotsExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -94,8 +95,9 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
     let ptype = deltas.ptype();
     let deltas_len = deltas.len();
     let offset = array.offset();
-    vortex_ensure!(
-        deltas_len % FL_CHUNK == 0,
+    vortex_ensure_eq!(
+        deltas_len % FL_CHUNK,
+        0,
         "Delta deltas child must be padded to a multiple of {FL_CHUNK}, got {deltas_len}"
     );
     vortex_ensure!(

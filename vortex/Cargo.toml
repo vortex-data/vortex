@@ -4,7 +4,6 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex file format with all builtin codecs and a sampling compressor."
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
@@ -46,7 +45,6 @@ vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
-vortex-tensor = { workspace = true, optional = true }
 vortex-utils = { workspace = true }
 vortex-uuid = { workspace = true }
 vortex-zigzag = { workspace = true }
@@ -89,7 +87,7 @@ zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
 # Parquet Variant encoding. Its arrow and parquet-variant dependencies need wasm-bindgen on
 # wasm32-unknown-unknown.
 parquet-variant = ["dep:vortex-parquet-variant"]
-tensor = ["dep:vortex-tensor", "vortex-file?/tensor"]
+tensor = ["vortex-file?/tensor"]
 wasm-bindgen = [
     "vortex-file?/wasm-bindgen",
     "vortex-io/wasm-bindgen",

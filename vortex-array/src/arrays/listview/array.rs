@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
@@ -245,19 +246,18 @@ impl ListViewData {
         );
 
         // Check that they have the same length.
-        vortex_ensure!(
-            offsets.len() == sizes.len(),
-            "offsets and sizes must have the same length, got {} and {}",
+        vortex_ensure_eq!(
             offsets.len(),
-            sizes.len()
+            sizes.len(),
+            "offsets and sizes must have the same length",
         );
 
         // If a validity array is present, it must be the same length as the `ListViewArray`.
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == offsets.len(),
-                "validity with size {validity_len} does not match array size {}",
-                offsets.len()
+            vortex_ensure_eq!(
+                validity_len,
+                offsets.len(),
+                "validity length does not match array size",
             );
         }
 
@@ -573,11 +573,7 @@ impl Array<ListView> {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)
             .vortex_expect("`ListViewArray` construction failed");
         let data = ListViewData::new();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `ListViewArray`.
@@ -593,9 +589,7 @@ impl Array<ListView> {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots))
         })
     }
 
@@ -614,11 +608,7 @@ impl Array<ListView> {
         let len = offsets.len();
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         let data = unsafe { ListViewData::new_unchecked() };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots)) }
     }
 
     /// Mark whether this list view can be zero-copy converted to a list.
@@ -647,11 +637,7 @@ impl Array<ListView> {
         let len = self.len();
         let slots: ArraySlots = self.slots().iter().cloned().collect();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots)) }
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {
@@ -709,10 +695,10 @@ where
         })?;
 
         if offset_u64 == elements_len {
-            vortex_ensure!(
-                size_u64 == 0,
-                "views to the end of the elements array (length {elements_len}) must have size 0 \
-                    (had size {size_u64})"
+            vortex_ensure_eq!(
+                size_u64,
+                0,
+                "views to the end of the elements array (length {elements_len}) must have size 0",
             );
         }
 

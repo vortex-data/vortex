@@ -252,8 +252,8 @@ pub fn with_empty_buffers<V: VTable>(
         array.dtype().clone(),
         array.len(),
         array.data().clone(),
-    )
-    .with_slots(array.slots().iter().cloned().collect()))
+        array.slots().iter().cloned().collect(),
+    ))
 }
 
 /// Reject buffer replacement for encodings whose exposed buffers are not runtime backing buffers.

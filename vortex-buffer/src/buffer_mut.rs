@@ -781,24 +781,6 @@ impl<T> BufferMut<T> {
         Buffer::from_allocation(self.allocation, offset, self.length, self.alignment)
     }
 
-    /// Map each element of the buffer with a closure.
-    pub fn map_each_in_place<R, F>(self, mut f: F) -> BufferMut<R>
-    where
-        T: Copy,
-        F: FnMut(T) -> R,
-    {
-        assert_eq!(
-            size_of::<T>(),
-            size_of::<R>(),
-            "Size of T and R do not match"
-        );
-        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
-        let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
-        buf.iter_mut()
-            .for_each(|item| *item = f(unsafe { std::mem::transmute_copy(item) }));
-        buf
-    }
-
     /// Return a `BufferMut<T>` with the same data as this one with the given alignment.
     ///
     /// If the data is already properly aligned, this is a metadata-only operation.
@@ -1288,14 +1270,6 @@ mod tests {
         // Uses as_mut
         buf.as_mut()[2] = 0;
         assert_eq!(buf.as_slice(), &[0, 0, 0]);
-    }
-
-    #[test]
-    fn map_each() {
-        let buf = buffer_mut![0i32, 1, 2];
-        // Add one, and cast to an unsigned u32 in the same closure
-        let buf = buf.map_each_in_place(|i| (i + 1) as u32);
-        assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
     }
 
     #[test]
