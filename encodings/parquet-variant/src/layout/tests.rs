@@ -1,16 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
+use arrow_array::Array as _;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::BinaryArray;
+use arrow_array::BinaryViewArray;
+use arrow_array::StructArray as ArrowStructArray;
+use arrow_schema::DataType as ArrowDataType;
+use arrow_schema::Field as ArrowField;
+use parquet_variant_compute::unshred_variant;
+use parquet_variant_compute::variant_to_json;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
@@ -28,6 +41,7 @@ use vortex_array::expr::variant_get;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_array::stream::ArrayStreamExt;
+use vortex_arrow::ArrowExportOptions;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -41,7 +55,10 @@ use vortex_session::VortexSession;
 
 use super::ParquetVariantLayoutEncoding;
 use super::expr::storage_field_masks;
+use crate::ParquetVariant;
+use crate::ParquetVariantArrayExt;
 use crate::ShreddingSpec;
+use crate::arrow::parquet_variant_for_export;
 use crate::json_to_variant;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -96,6 +113,42 @@ fn table() -> VortexResult<ArrayRef> {
     Ok(StructArray::from_fields(&[("data", data)])?.into_array())
 }
 
+/// Renders the `data` Variant column of `table` as JSON documents.
+fn documents(table: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<Option<String>>> {
+    let data = table
+        .clone()
+        .execute::<StructArray>(ctx)?
+        .unmasked_field_by_name("data")?
+        .clone();
+    let parquet = parquet_variant_for_export(data, ctx)?;
+    let arrow = parquet
+        .as_::<ParquetVariant>()
+        .to_arrow(&ArrowExportOptions::default(), ctx)?;
+    let unshredded = unshred_variant(&arrow)?.into_inner();
+    // `variant_to_json` reads `Binary` children.
+    let binary = |name: &str| -> VortexResult<ArrowArrayRef> {
+        let column = unshredded
+            .column_by_name(name)
+            .ok_or_else(|| vortex_err!("missing {name}"))?;
+        let column = column
+            .as_any()
+            .downcast_ref::<BinaryViewArray>()
+            .ok_or_else(|| vortex_err!("{name} is not BinaryView"))?;
+        Ok(Arc::new(column.iter().collect::<BinaryArray>()))
+    };
+    let storage = ArrowStructArray::try_new(
+        vec![
+            Arc::new(ArrowField::new("metadata", ArrowDataType::Binary, false)),
+            Arc::new(ArrowField::new("value", ArrowDataType::Binary, true)),
+        ]
+        .into(),
+        vec![binary("metadata")?, binary("value")?],
+        unshredded.nulls().cloned(),
+    )?;
+    let json = variant_to_json(&(Arc::new(storage) as ArrowArrayRef))?;
+    Ok(json.iter().map(|doc| doc.map(str::to_string)).collect())
+}
+
 async fn write_file(table: ArrayRef) -> VortexResult<VortexFile> {
     let mut bytes = ByteBufferMut::empty();
     SESSION
@@ -128,6 +181,57 @@ async fn writes_parquet_variant_layout() -> VortexResult<()> {
         data.typed_paths(),
         [vec![FieldName::from("b"), FieldName::from("c")]]
     );
+    Ok(())
+}
+
+/// Chunks shredded differently from the first are re-shredded to its schema.
+#[tokio::test]
+async fn reshreds_chunks_to_the_first_schema() -> VortexResult<()> {
+    let shredded = table()?;
+    let json = ExtensionArray::try_new_from_vtable(
+        Json,
+        EmptyMetadata,
+        VarBinViewArray::from_iter_str(DOCUMENTS.iter().copied()).into_array(),
+    )?
+    .into_array();
+    let unshredded = json
+        .apply(&json_to_variant(root(), ShreddingSpec::empty()))?
+        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
+    let unshredded = StructArray::from_fields(&[("data", unshredded)])?.into_array();
+    let input = ChunkedArray::try_new(
+        vec![shredded.clone(), unshredded.clone()],
+        shredded.dtype().clone(),
+    )?
+    .into_array();
+
+    let file = write_file(input).await?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let rows = DOCUMENTS.len();
+    let actual = file.scan()?.into_array_stream()?.read_all().await?;
+    // A re-shredded chunk holds the same values in different storage, so compare the values.
+    assert_eq!(
+        documents(&shredded, &mut ctx)?,
+        documents(&actual.slice(0..rows)?, &mut ctx)?
+    );
+    assert_eq!(
+        documents(&unshredded, &mut ctx)?,
+        documents(&actual.slice(rows..2 * rows)?, &mut ctx)?
+    );
+
+    let expr = variant_get(
+        col("data"),
+        path(&["b", "c"]),
+        Some(DType::Utf8(Nullability::Nullable)),
+    );
+    let expected = shredded.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+    let actual = file
+        .scan()?
+        .with_projection(expr.bind(file.dtype())?)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(expected, actual.slice(0..rows)?, &mut ctx);
+    assert_arrays_eq!(expected, actual.slice(rows..2 * rows)?, &mut ctx);
     Ok(())
 }
 

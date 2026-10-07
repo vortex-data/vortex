@@ -3,10 +3,14 @@
 
 use std::sync::Arc;
 
+use arrow_schema::DataType as ArrowDataType;
+use arrow_schema::Field as ArrowField;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream;
 use parking_lot::Mutex;
+use parquet_variant_compute::shred_variant;
+use parquet_variant_compute::unshred_variant;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -19,6 +23,8 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_arrow::ArrowExportOptions;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -37,6 +43,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::ShreddedPath;
 use super::expr::is_wrapper;
 use super::new_parquet_variant_layout;
+use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
 use crate::arrow::parquet_variant_for_export;
@@ -48,7 +55,8 @@ use crate::arrow::parquet_variant_for_export;
 /// Residual `value` columns, which hold whatever was not shredded, go to the table's
 /// [`variant_residual_strategy`][TableStrategy::variant_residual_strategy] when it has one.
 ///
-/// Every chunk must decompose to the same storage dtype, i.e. use the same shredding schema.
+/// The first chunk's storage dtype fixes the shredding schema: later chunks shredded differently
+/// are re-shredded to match it.
 pub struct ParquetVariantLayoutStrategy {
     storage: TableStrategy,
 }
@@ -99,7 +107,11 @@ impl LayoutStrategy for ParquetVariantLayoutStrategy {
         let rest = stream.map(move |chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut exec_ctx = rest_session.create_execution_ctx();
-            let storage = storage_struct(chunk, &mut exec_ctx)?;
+            let mut storage = storage_struct(chunk.clone(), &mut exec_ctx)?;
+            if storage.dtype() != &rest_dtype {
+                storage =
+                    storage_struct(reshred(chunk, &rest_dtype, &mut exec_ctx)?, &mut exec_ctx)?;
+            }
             if storage.dtype() != &rest_dtype {
                 vortex_bail!(
                     "Variant chunks must share a storage dtype to be written as a \
@@ -136,7 +148,7 @@ impl LayoutStrategy for ParquetVariantLayoutStrategy {
 /// Decomposes a Variant chunk into its Parquet Variant storage struct.
 fn storage_struct(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let parquet = parquet_variant_for_export(chunk, ctx)?;
-    let parquet = parquet.as_::<crate::ParquetVariant>();
+    let parquet = parquet.as_::<ParquetVariant>();
 
     let mut names = vec![FieldName::from("metadata")];
     let mut fields = vec![parquet.metadata().clone()];
@@ -155,6 +167,72 @@ fn storage_struct(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Array
         parquet.parquet_variant_validity(),
     )?
     .into_array())
+}
+
+/// Re-shreds a Variant chunk to the shredding schema of `storage_dtype`.
+fn reshred(
+    chunk: ArrayRef,
+    storage_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let nullable = chunk.dtype().is_nullable();
+    let parquet = parquet_variant_for_export(chunk, ctx)?;
+    let arrow_variant = parquet
+        .as_::<ParquetVariant>()
+        .to_arrow(&ArrowExportOptions::default(), ctx)?;
+    let session = ctx.session().clone();
+    let arrow = session.arrow();
+    let mut arrow_variant = unshred_variant(&arrow_variant)?;
+    if let Some(typed_value) = storage_dtype
+        .as_struct_fields_opt()
+        .and_then(|fields| fields.field("typed_value"))
+    {
+        let physical = arrow.to_arrow_field("typed_value", &typed_value)?;
+        arrow_variant = shred_variant(
+            &arrow_variant,
+            &logical_shredding_type(physical.data_type()),
+        )?;
+    }
+    if nullable {
+        ParquetVariant::from_arrow_variant_nullable(&arrow_variant, &arrow)
+    } else {
+        ParquetVariant::from_arrow_variant(&arrow_variant, &arrow)
+    }
+}
+
+/// The shredding schema `shred_variant` takes for a physical `typed_value` type, i.e. the type
+/// with its Parquet `{value, typed_value}` field wrappers removed.
+fn logical_shredding_type(physical: &ArrowDataType) -> ArrowDataType {
+    let unwrap = |wrapper: &ArrowDataType| match wrapper {
+        ArrowDataType::Struct(fields) => fields
+            .find("typed_value")
+            .map(|(_, typed)| logical_shredding_type(typed.data_type())),
+        _ => None,
+    };
+    match physical {
+        ArrowDataType::Struct(fields) => ArrowDataType::Struct(
+            fields
+                .iter()
+                .filter_map(|field| {
+                    unwrap(field.data_type())
+                        .map(|dtype| Arc::new(ArrowField::new(field.name(), dtype, true)))
+                })
+                .collect(),
+        ),
+        ArrowDataType::List(element) => match unwrap(element.data_type()) {
+            Some(dtype) => {
+                ArrowDataType::List(Arc::new(ArrowField::new(element.name(), dtype, true)))
+            }
+            None => physical.clone(),
+        },
+        ArrowDataType::LargeList(element) => match unwrap(element.data_type()) {
+            Some(dtype) => {
+                ArrowDataType::LargeList(Arc::new(ArrowField::new(element.name(), dtype, true)))
+            }
+            None => physical.clone(),
+        },
+        _ => physical.clone(),
+    }
 }
 
 /// The paths of every residual `value` column in a Parquet Variant storage struct.

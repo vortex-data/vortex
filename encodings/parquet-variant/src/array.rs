@@ -18,7 +18,6 @@ use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
-use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
@@ -199,9 +198,12 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         .into_array());
     }
 
-    let Some(struct_array) = typed_value.as_opt::<Struct>() else {
+    // Object shredding may arrive in any struct encoding, e.g. constant when evaluating a single
+    // row, so match on the dtype rather than the encoding.
+    if !typed_value.dtype().is_struct() {
         return Ok(typed_value);
-    };
+    }
+    let struct_array = typed_value.clone().execute::<StructArray>(ctx)?;
 
     // For object shredding, each struct field is a logical object field. Fields that
     // are known wrapper shells without typed data are omitted from the canonical tree.
@@ -238,9 +240,10 @@ fn logical_shredded_from_parquet_field(
     field: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(field_struct) = field.as_opt::<Struct>() else {
+    if !field.dtype().is_struct() {
         return Ok(Some(field));
-    };
+    }
+    let field_struct = field.clone().execute::<StructArray>(ctx)?;
 
     let only_parquet_fields = field_struct
         .names()
@@ -345,7 +348,12 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
         .into_array());
     }
 
-    let Some(struct_array) = shredded.as_opt::<Struct>() else {
+    let struct_array = shredded
+        .dtype()
+        .is_struct()
+        .then(|| shredded.clone().execute::<StructArray>(ctx))
+        .transpose()?;
+    let Some(struct_array) = struct_array else {
         // A bare typed leaf (a fully shredded scalar) is already a valid Parquet `typed_value`.
         return Ok(shredded);
     };
