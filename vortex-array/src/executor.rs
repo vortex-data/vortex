@@ -40,11 +40,12 @@ use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
+use crate::optimizer::optimize_with_kernels;
 use crate::stats::StatsSet;
 use crate::trace_op;
 
@@ -242,7 +243,7 @@ impl ArrayRef {
                 }
             {
                 let frame = stack.pop().vortex_expect("just peeked");
-                let optimized = result.optimize_ctx(ctx.session())?;
+                let optimized = optimize_with_kernels(&result, ctx.kernels())?;
                 trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
@@ -260,7 +261,7 @@ impl ArrayRef {
                 && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
-                let optimized = rewritten.optimize_ctx(ctx.session())?;
+                let optimized = optimize_with_kernels(&rewritten, ctx.kernels())?;
                 trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
                 continue;
@@ -359,6 +360,9 @@ pub struct ExecutionCtx {
     session: VortexSession,
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
+    // OnceLock: the registry handle is only needed once a parent kernel has applied, so a
+    // context that never gets there (most of them) does not pay for it.
+    kernels: OnceLock<ArrayKernels>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
     #[cfg(debug_assertions)]
     id: usize,
@@ -377,6 +381,7 @@ impl ExecutionCtx {
         Self {
             session,
             allocator: OnceLock::new(),
+            kernels: OnceLock::new(),
             execute_parent_kernels,
             #[cfg(debug_assertions)]
             id: {
@@ -396,6 +401,13 @@ impl ExecutionCtx {
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
+    }
+
+    /// The session's kernel registry, so rewrites between execution steps skip the session
+    /// variable lookup.
+    fn kernels(&self) -> &ArrayKernels {
+        self.kernels
+            .get_or_init(|| self.session.kernels().kernels().clone())
     }
 
     /// Set the allocator for this execution context.

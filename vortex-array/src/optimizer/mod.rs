@@ -63,7 +63,8 @@ impl ArrayOptimizer for ArrayRef {
     }
 
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(try_optimize(self, Some(session))?.unwrap_or_else(|| self.clone()))
+        let kernels = session.kernels();
+        Ok(try_optimize(self, Some(&kernels))?.unwrap_or_else(|| self.clone()))
     }
 
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
@@ -71,15 +72,24 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
+/// Optimize `array` against an explicit kernel registry, as [`ArrayOptimizer::optimize_ctx`]
+/// does with the session's registry. The executor calls this with the registry captured in its
+/// [`ExecutionCtx`](crate::ExecutionCtx), skipping the session variable lookup on every rewrite.
+pub(crate) fn optimize_with_kernels(
+    array: &ArrayRef,
+    kernels: &ArrayKernels,
+) -> VortexResult<ArrayRef> {
+    Ok(try_optimize(array, Some(kernels))?.unwrap_or_else(|| array.clone()))
+}
+
 fn try_optimize(
     array: &ArrayRef,
-    session: Option<&VortexSession>,
+    session_kernels: Option<&ArrayKernels>,
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
-    let session_kernels = session.map(|session| session.kernels());
 
-    trace_op!(record_optimize_start(array, session.is_some()));
+    trace_op!(record_optimize_start(array, session_kernels.is_some()));
 
     for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
         trace_op!(record_optimize_loop_start(&current_array));
@@ -179,7 +189,7 @@ fn try_optimize_recursive(
 
     trace_op!(record_optimize_recursive_start(array));
 
-    if let Some(new_array) = try_optimize(&current_array, Some(session))? {
+    if let Some(new_array) = try_optimize(&current_array, Some(&session.kernels()))? {
         current_array = new_array;
         any_optimizations = true;
     }
