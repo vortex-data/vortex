@@ -3,10 +3,13 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::Filter;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::filter::FilterArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
@@ -14,6 +17,7 @@ use vortex_error::VortexResult;
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 use crate::array::RunEndArraySlotsExt;
+use crate::compute::filter::filter_uses_direct_take;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;
@@ -51,25 +55,88 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
     }
 }
 
+/// Looks up dictionary values per run when the run-end codes are filtered.
+///
+/// Rewrites `Dict(Filter(RunEnd(ends, codes)), values)` to
+/// `Filter(RunEnd(ends, take(values, codes)))`. Executing the dictionary directly would decode the
+/// filtered codes to one integer per selected row and then take a value per row; this takes one
+/// value per run and lets the run-end filter kernel select rows. The result holds no dictionary,
+/// so the dictionary filter rule cannot push the filter back into the codes.
+///
+/// Sparse selections, which the run-end filter kernel serves by taking rows, keep the per-row
+/// lookup.
+#[derive(Debug)]
+pub(crate) struct RunEndFilteredTakeFrom;
+
+impl ExecuteParentKernel<Filter> for RunEndFilteredTakeFrom {
+    type Parent = Dict;
+
+    fn execute_parent(
+        &self,
+        filter: ArrayView<'_, Filter>,
+        dict: ArrayView<'_, Dict>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 {
+            return Ok(None);
+        }
+        // Only `Primitive` and `Bool` are valid run-end value types.
+        if !matches!(dict.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
+            return Ok(None);
+        }
+        let Some(codes) = filter.child().as_opt::<RunEnd>() else {
+            return Ok(None);
+        };
+        // A sparse selection takes rows directly, where decoding the selected codes is already
+        // proportional to the selection and a per-run lookup only adds work.
+        if filter_uses_direct_take(filter.filter_mask().true_count(), codes.ends().len()) {
+            return Ok(None);
+        }
+
+        let values = dict
+            .values()
+            .take(codes.values().clone())?
+            .execute::<Canonical>(ctx)?
+            .into_array();
+        // SAFETY: we are copying ends from an existing valid RunEndArray, and the taken values
+        // have one entry per run.
+        let ree_array = unsafe {
+            RunEnd::new_unchecked(codes.ends().clone(), values, codes.offset(), codes.len())
+        };
+        Ok(Some(
+            ree_array
+                .into_array()
+                .filter(filter.filter_mask().clone())?,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::Filter;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::kernel::ExecuteParentKernel;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::RunEnd;
     use crate::RunEndArray;
     use crate::array::RunEndArraySlotsExt;
+    use crate::compute::take_from::RunEndFilteredTakeFrom;
     use crate::compute::take_from::RunEndTakeFrom;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -185,6 +252,57 @@ mod tests {
 
         let result = RunEndTakeFrom.execute_parent(codes.as_view(), dict.as_view(), 1, &mut ctx)?;
         assert!(result.is_none());
+        Ok(())
+    }
+
+    /// Codes with runs of 1 to 9 rows over a 4-entry dictionary, with every seventh run null when
+    /// `nullable` is set.
+    fn run_codes(nullable: bool) -> PrimitiveArray {
+        let codes = (0..60u32).flat_map(|run| {
+            let code = (!nullable || run % 7 != 3).then_some(run % 4);
+            std::iter::repeat_n(code, (run as usize * 5) % 9 + 1)
+        });
+        if nullable {
+            PrimitiveArray::from_option_iter(codes)
+        } else {
+            PrimitiveArray::from_iter(codes.map(Option::unwrap))
+        }
+    }
+
+    #[rstest]
+    #[case::bool_dense(BoolArray::from_iter([true, false, false, true]).into_array(), false, 2, true)]
+    #[case::bool_sparse(BoolArray::from_iter([true, false, false, true]).into_array(), false, 97, false)]
+    #[case::bool_nullable_codes(BoolArray::from_iter([true, false, false, true]).into_array(), true, 2, true)]
+    #[case::primitive_dense(buffer![10i64, 20, 30, 40].into_array(), false, 3, true)]
+    #[case::primitive_nullable_codes(buffer![10i64, 20, 30, 40].into_array(), true, 3, true)]
+    fn filtered_run_end_codes_look_up_per_run(
+        #[case] values: ArrayRef,
+        #[case] nullable: bool,
+        #[case] keep_every: usize,
+        #[case] applies: bool,
+        #[values(0, 11)] offset: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let primitive_codes = run_codes(nullable).into_array();
+        let primitive_codes = primitive_codes.slice(offset..primitive_codes.len())?;
+        let codes = RunEnd::encode(primitive_codes.clone(), &mut ctx)?.into_array();
+        let mask = Mask::from_iter((0..codes.len()).map(|i| i % keep_every == 0));
+
+        let filtered = codes.filter(mask.clone())?;
+        let dict = DictArray::try_new(filtered.clone(), values.clone())?;
+        let looked_up = RunEndFilteredTakeFrom.execute_parent(
+            filtered.as_::<Filter>(),
+            dict.as_view(),
+            0,
+            &mut ctx,
+        )?;
+        assert_eq!(looked_up.is_some(), applies);
+
+        let expected = DictArray::try_new(primitive_codes.filter(mask)?, values)?.into_array();
+        if let Some(looked_up) = looked_up {
+            assert_arrays_eq!(looked_up, expected, &mut ctx);
+        }
+        assert_arrays_eq!(dict.into_array(), expected, &mut ctx);
         Ok(())
     }
 }

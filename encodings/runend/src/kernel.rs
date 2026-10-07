@@ -25,6 +25,7 @@ use vortex_session::VortexSession;
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 use crate::array::RunEndArraySlotsExt;
+use crate::compute::take_from::RunEndFilteredTakeFrom;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) fn initialize(session: &VortexSession) {
@@ -34,6 +35,7 @@ pub(super) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Filter.id(), RunEnd, FilterExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Dict.id(), RunEnd, TakeExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Dict.id(), RunEnd, RunEndTakeFrom);
+    kernels.register_execute_parent_kernel(Dict.id(), Filter, RunEndFilteredTakeFrom);
 }
 
 /// Kernel to execute slicing on a RunEnd array.
