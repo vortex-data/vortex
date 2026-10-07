@@ -64,9 +64,12 @@ impl ArrayExporter {
         cache: &ConversionCache,
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        let validity = array.validity()?.execute_mask(array.len(), &mut ctx)?;
-        assert!(validity.all_true());
-
+        debug_assert!(
+            array
+                .validity()?
+                .execute_mask(array.len(), &mut ctx)?
+                .all_true()
+        );
         let fields = array
             .iter_unmasked_fields()
             .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
