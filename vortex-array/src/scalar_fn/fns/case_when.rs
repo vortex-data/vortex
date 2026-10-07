@@ -48,6 +48,7 @@ use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::zip::zip_nullability_union;
 
 /// Options for the n-ary CaseWhen expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -172,32 +173,32 @@ impl ScalarFnVTable for CaseWhen {
 
         // Unlike SQL which coerces all branches to a common supertype, we require
         // all THEN/ELSE branches to have the same base dtype (ignoring nullability).
-        // The result nullability is the union of all branches.
+        // The result nullability is the union of all branches, at every nesting level.
         let first_then = &arg_dtypes[1];
         let mut result_dtype = first_then.clone();
 
         for i in 1..options.num_when_then_pairs as usize {
             let then_i = &arg_dtypes[i * 2 + 1];
-            if !first_then.eq_ignore_nullability(then_i) {
+            let Some(union) = zip_nullability_union(&result_dtype, then_i) else {
                 vortex_bail!(
                     "CaseWhen THEN dtypes must match (ignoring nullability), got {} and {}",
                     first_then,
                     then_i
                 );
-            }
-            result_dtype = result_dtype.union_nullability(then_i.nullability());
+            };
+            result_dtype = union;
         }
 
         if options.has_else {
             let else_dtype = &arg_dtypes[options.num_when_then_pairs as usize * 2];
-            if !result_dtype.eq_ignore_nullability(else_dtype) {
+            let Some(union) = zip_nullability_union(&result_dtype, else_dtype) else {
                 vortex_bail!(
                     "CaseWhen THEN and ELSE dtypes must match (ignoring nullability), got {} and {}",
                     first_then,
                     else_dtype
                 );
-            }
-            result_dtype = result_dtype.union_nullability(else_dtype.nullability());
+            };
+            result_dtype = union;
         } else {
             // No ELSE means unmatched rows are NULL
             result_dtype = result_dtype.as_nullable();
@@ -252,7 +253,8 @@ impl ScalarFnVTable for CaseWhen {
             return else_value.cast(output_dtype);
         }
 
-        merge_case_branches(branches, else_value, ctx)?.cast(output_dtype)
+        // `remaining` now selects the rows that no branch matched.
+        merge_case_branches(&branches, &remaining, &else_value, &output_dtype, ctx)
     }
 
     fn simplify(
@@ -317,36 +319,32 @@ impl ScalarFnVTable for CaseWhen {
 }
 
 /// Assemble coarse runs directly; compact fragmented branches before restoring row positions.
+///
+/// `else_mask` selects the rows that no branch matched. Every branch and the ELSE value
+/// are cast to `output_dtype`, the dtype that `return_dtype` reports.
 fn merge_case_branches(
-    branches: Vec<(Mask, ArrayRef)>,
-    else_value: ArrayRef,
+    branches: &[(Mask, ArrayRef)],
+    else_mask: &Mask,
+    else_value: &ArrayRef,
+    output_dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let output_nullability = branches
-        .iter()
-        .fold(else_value.dtype().nullability(), |acc, (_, arr)| {
-            acc | arr.dtype().nullability()
-        });
-    let output_dtype = else_value.dtype().with_nullability(output_nullability);
-    let len = else_value.len();
-    if branches.is_empty() {
-        return else_value.cast(output_dtype);
-    }
     if let Some((_, value)) = branches.iter().find(|(mask, _)| mask.all_true()) {
-        return value.cast(output_dtype);
+        return value.cast(output_dtype.clone());
     }
 
-    if prefer_runs(&branches, len) {
-        return merge_runs(&branches, &else_value, &output_dtype, ctx);
+    if prefer_runs(branches, else_value.len()) {
+        return merge_runs(branches, else_value, output_dtype, ctx);
     }
 
-    merge_compact(&branches, &else_value, &output_dtype, ctx)
+    merge_compact(branches, else_mask, else_value, output_dtype, ctx)
 }
 
 fn prefer_runs(branches: &[(Mask, ArrayRef)], len: usize) -> bool {
     // A span may add an ELSE run. Coarse runs amortize slicing without the
     // extra compact-output buffer and gather; isolated branch selections do too.
     const MIN_ROWS_PER_RUN: usize = 128;
+
     let mut remaining_spans = branches.len().max(len / (2 * MIN_ROWS_PER_RUN));
     for (mask, _) in branches {
         let count = match mask {
@@ -363,41 +361,42 @@ fn prefer_runs(branches: &[(Mask, ArrayRef)], len: usize) -> bool {
                 |slices| slices.len(),
             ),
         };
+
         if count > remaining_spans {
             return false;
         }
         remaining_spans -= count;
     }
+
     true
 }
 
 fn merge_compact(
     branches: &[(Mask, ArrayRef)],
+    else_mask: &Mask,
     else_value: &ArrayRef,
     output_dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = else_value.len();
-    let mut remaining = Mask::new_true(len);
     let mut builder = builder_with_capacity_in(output_dtype, len, ctx.allocator());
     let mut indices = BufferMut::<u64>::zeroed_in(len, ctx.allocator().clone());
-    for (mask, value) in branches {
+
+    let else_branch = (!else_mask.all_false()).then_some((else_mask, else_value));
+    let selections = branches
+        .iter()
+        .map(|(mask, value)| (mask, value))
+        .chain(else_branch);
+
+    for (mask, value) in selections {
         let offset = builder.len();
         value
             .filter(mask.clone())?
             .cast(output_dtype.clone())?
             .append_to_builder(builder.as_mut(), ctx)?;
         assign_positions(&mut indices, mask, offset);
-        remaining = remaining.bitand_not(mask);
     }
-    if !remaining.all_false() {
-        let offset = builder.len();
-        else_value
-            .filter(remaining.clone())?
-            .cast(output_dtype.clone())?
-            .append_to_builder(builder.as_mut(), ctx)?;
-        assign_positions(&mut indices, &remaining, offset);
-    }
+
     builder.finish().take(indices.freeze().into_array())
 }
 
@@ -414,26 +413,34 @@ fn merge_runs(
         }
     }
     spans.sort_unstable_by_key(|&(start, ..)| start);
-    let mut builder = builder_with_capacity_in(output_dtype, else_value.len(), ctx.allocator());
+
+    // Cast once up front: every span below is a slice of these arrays.
+    let values = branches
+        .iter()
+        .map(|(_, value)| value.cast(output_dtype.clone()))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let else_value = else_value.cast(output_dtype.clone())?;
+    let len = else_value.len();
+
+    let mut builder = builder_with_capacity_in(output_dtype, len, ctx.allocator());
     for (start, end, branch) in spans {
         if builder.len() < start {
             else_value
                 .slice(builder.len()..start)?
-                .cast(output_dtype.clone())?
                 .append_to_builder(builder.as_mut(), ctx)?;
         }
-        branches[branch]
-            .1
+
+        values[branch]
             .slice(start..end)?
-            .cast(output_dtype.clone())?
             .append_to_builder(builder.as_mut(), ctx)?;
     }
-    if builder.len() < else_value.len() {
+
+    if builder.len() < len {
         else_value
-            .slice(builder.len()..else_value.len())?
-            .cast(output_dtype.clone())?
+            .slice(builder.len()..len)?
             .append_to_builder(builder.as_mut(), ctx)?;
     }
+
     Ok(builder.finish())
 }
 
@@ -452,10 +459,13 @@ fn assign_positions(indices: &mut [u64], mask: &Mask, offset: usize) {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
     use vortex_session::VortexSession;
@@ -527,25 +537,149 @@ mod tests {
             .into_array(),
             StructArray::try_from_iter([("nested", primitive)])?.into_array(),
         ];
+        // Each case lists the branch selections in branch order. Rows that no branch
+        // selects come from ELSE.
+        let cases: [&[[bool; 4]]; 5] = [
+            &[[true, false, true, false]],
+            &[[true, true, false, false]],
+            &[[false, true, false, false]],
+            &[[true, false, false, false], [false, false, true, false]],
+            &[[false, false, false, true], [false, true, false, false]],
+        ];
+
         let mut ctx = SESSION.create_execution_ctx();
         for value in fixtures {
-            let otherwise = value
-                .take(buffer![3u32, 2, 1, 0].into_array())?
-                .execute::<Canonical>(&mut ctx)?
-                .into_array();
-            for selection in [
-                [true, false, true, false],
-                [true, true, false, false],
-                [false, true, false, false],
-            ] {
-                let branches = vec![(Mask::from_iter(selection), value.clone())];
+            let reorder =
+                |indices: Buffer<u32>, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+                    Ok(value
+                        .take(indices.into_array())?
+                        .execute::<Canonical>(ctx)?
+                        .into_array())
+                };
+            let branch_values = [value.clone(), reorder(buffer![1u32, 0, 3, 2], &mut ctx)?];
+            let otherwise = reorder(buffer![3u32, 2, 1, 0], &mut ctx)?;
+
+            for selections in cases {
+                let branches: Vec<_> = selections
+                    .iter()
+                    .zip(&branch_values)
+                    .map(|(selection, value)| (Mask::from_iter(*selection), value.clone()))
+                    .collect();
+                let else_mask = Mask::from_iter(
+                    (0..4).map(|row| !selections.iter().any(|selection| selection[row])),
+                );
+
                 assert_arrays_eq!(
                     merge_runs(&branches, &otherwise, value.dtype(), &mut ctx)?,
-                    merge_compact(&branches, &otherwise, value.dtype(), &mut ctx)?,
+                    merge_compact(&branches, &else_mask, &otherwise, value.dtype(), &mut ctx)?,
                     &mut ctx
                 );
             }
         }
+
+        Ok(())
+    }
+
+    fn nested_struct(values: [Option<i32>; 4], nullable: bool) -> VortexResult<ArrayRef> {
+        let field = if nullable {
+            PrimitiveArray::from_option_iter(values).into_array()
+        } else {
+            PrimitiveArray::from_iter(values.map(|value| value.vortex_expect("non-null value")))
+                .into_array()
+        };
+
+        Ok(StructArray::try_from_iter([("a", field)])?.into_array())
+    }
+
+    /// THEN and ELSE may differ in nested nullability. The output must keep nested nulls from
+    /// either side, on the run merge, the compact merge and when no branch matches.
+    #[rstest]
+    #[case::compact_nullable_then([true, false, true, false], true)]
+    #[case::compact_nullable_else([true, false, true, false], false)]
+    #[case::runs_nullable_then([true, true, false, false], true)]
+    #[case::runs_nullable_else([true, true, false, false], false)]
+    #[case::no_match_nullable_else([false, false, false, false], false)]
+    fn nested_nullability_is_merged_across_branches(
+        #[case] selection: [bool; 4],
+        #[case] nullable_then: bool,
+    ) -> VortexResult<()> {
+        let nullable = [None, Some(2), None, Some(4)];
+        let non_nullable = [Some(10), Some(20), Some(30), Some(40)];
+        let (then_values, else_values) = if nullable_then {
+            (nullable, non_nullable)
+        } else {
+            (non_nullable, nullable)
+        };
+
+        let array = ScalarFnArray::try_new(
+            CaseWhen.bind(CaseWhenOptions {
+                num_when_then_pairs: 1,
+                has_else: true,
+            }),
+            vec![
+                BoolArray::from_iter(selection).into_array(),
+                nested_struct(then_values, nullable_then)?,
+                nested_struct(else_values, !nullable_then)?,
+            ],
+        )?
+        .into_array();
+
+        let expected = (0..4).map(|row| {
+            if selection[row] {
+                then_values[row]
+            } else {
+                else_values[row]
+            }
+        });
+        let expected = StructArray::try_from_iter([(
+            "a",
+            PrimitiveArray::from_option_iter(expected).into_array(),
+        )])?
+        .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            array.execute::<Canonical>(&mut ctx)?.into_array(),
+            expected,
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_return_dtype_merges_nested_nullability() -> VortexResult<()> {
+        let field = |nullability| {
+            DType::Struct(
+                StructFields::new(
+                    ["a"].into(),
+                    vec![DType::Primitive(PType::I32, nullability)],
+                ),
+                Nullability::NonNullable,
+            )
+        };
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 1,
+            has_else: true,
+        };
+        let condition = DType::Bool(Nullability::NonNullable);
+
+        for (then_dtype, else_dtype) in [
+            (
+                field(Nullability::Nullable),
+                field(Nullability::NonNullable),
+            ),
+            (
+                field(Nullability::NonNullable),
+                field(Nullability::Nullable),
+            ),
+        ] {
+            assert_eq!(
+                CaseWhen.return_dtype(&options, &[condition.clone(), then_dtype, else_dtype])?,
+                field(Nullability::Nullable)
+            );
+        }
+
         Ok(())
     }
 
@@ -1715,8 +1849,10 @@ mod tests {
         let branch0_mask = Mask::from_indices(n, (0..n).step_by(2));
         let branch1_mask = Mask::from_indices(n, (1..n).step_by(2));
 
+        let else_value = PrimitiveArray::from_option_iter(vec![Some(99i32); n]).into_array();
+        let output_dtype = else_value.dtype().clone();
         let result = merge_case_branches(
-            vec![
+            &[
                 (
                     branch0_mask,
                     PrimitiveArray::from_option_iter(vec![Some(0i32); n]).into_array(),
@@ -1726,7 +1862,9 @@ mod tests {
                     PrimitiveArray::from_option_iter(vec![Some(1i32); n]).into_array(),
                 ),
             ],
-            PrimitiveArray::from_option_iter(vec![Some(99i32); n]).into_array(),
+            &Mask::new_false(n),
+            &else_value,
+            &output_dtype,
             &mut SESSION.create_execution_ctx(),
         )?;
 
