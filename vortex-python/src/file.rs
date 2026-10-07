@@ -80,16 +80,18 @@ pub fn open(
     let owned_path = path.to_string();
     let vxf = py.detach(move || {
         current_runtime().block_on(async move {
-            let mut options = session().open_options();
-            if !without_segment_cache {
-                // TODO(ngates): use a globally shared segment cache for all files
-                options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
-            }
-
+            let options = session().open_options();
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
+                    let options = if without_segment_cache {
+                        options
+                    } else {
+                        // TODO(ngates): use a globally shared segment cache for all files
+                        options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
+                    };
                     options.open_object_store(&store, path).await
                 }
+                // Local files are served from the OS page cache.
                 ResolvedStore::Path(path) => options.open_path(path).await,
             }
         })

@@ -37,6 +37,8 @@ use crate::footer::Footer;
 use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::segments::PageCacheSegmentCache;
 use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
@@ -225,13 +227,25 @@ impl VortexOpenOptions {
     }
 
     /// Open a Vortex file from a filesystem path.
+    ///
+    /// Unless a cache is configured with [`Self::with_segment_cache`], segments that are already
+    /// resident in the OS page cache are read without blocking via [`PageCacheSegmentCache`].
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         use vortex_io::std_file::FileReadAt;
         let handle = self.session.handle();
         let allocator = self.session.allocator();
-        let source = Arc::new(FileReadAt::open_with_allocator(path, handle, allocator)?);
-        self.open(source).await
+        let source = FileReadAt::open_with_allocator(path, handle, allocator.clone())?;
+        let file = Arc::clone(source.file());
+        let source: Arc<dyn VortexReadAt> = Arc::new(source);
+        self.open_read_with_default_cache(source, move |footer| {
+            Arc::new(PageCacheSegmentCache::new(
+                file,
+                footer.segment_specs_with_metadata(),
+                allocator,
+            ))
+        })
+        .await
     }
 
     /// Open a Vortex file from an in-memory buffer.
@@ -281,11 +295,17 @@ impl VortexOpenOptions {
     ///
     /// This is the common path for files, object stores, and custom random-access sources.
     pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
-        let segment_cache = self
-            .segment_cache
-            .clone()
-            .unwrap_or_else(|| Arc::new(NoOpSegmentCache));
+        self.open_read_with_default_cache(reader, |_| Arc::new(NoOpSegmentCache))
+            .await
+    }
 
+    /// Open a [`VortexFile`], using `default_cache` to build the segment cache when none was
+    /// configured with [`Self::with_segment_cache`].
+    async fn open_read_with_default_cache<R: VortexReadAt + Clone>(
+        self,
+        reader: R,
+        default_cache: impl FnOnce(&Footer) -> Arc<dyn SegmentCache>,
+    ) -> VortexResult<VortexFile> {
         let metrics_registry = self
             .metrics_registry
             .clone()
@@ -305,6 +325,11 @@ impl VortexOpenOptions {
         } else {
             self.read_footer(&reader).await?
         };
+
+        let segment_cache = self
+            .segment_cache
+            .clone()
+            .unwrap_or_else(|| default_cache(&footer));
 
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {

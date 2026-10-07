@@ -57,6 +57,42 @@ pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<
     }
 }
 
+/// Read exactly `buffer.len()` bytes from `file` at `offset`, but only if they are already resident
+/// in the OS page cache.
+///
+/// Returns `Ok(true)` when the buffer was filled without blocking on storage, and `Ok(false)` when
+/// any part of the range would require device IO. A `false` result may leave `buffer` partially
+/// written. On Linux this uses `preadv2(RWF_NOWAIT)`; other platforms always return `Ok(false)`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn try_read_exact_at_cached(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        use rustix::io::Errno;
+        use rustix::io::ReadWriteFlags;
+
+        let mut filled = 0;
+        while filled < buffer.len() {
+            let bufs = &mut [io::IoSliceMut::new(&mut buffer[filled..])];
+            match rustix::io::preadv2(file, bufs, offset + filled as u64, ReadWriteFlags::NOWAIT) {
+                // EOF: let the regular read path report the error.
+                Ok(0) => return Ok(false),
+                Ok(n) => filled += n,
+                Err(Errno::INTR) => {}
+                // EAGAIN: data is not cached. EOPNOTSUPP/EINVAL: the kernel or filesystem does not
+                // support RWF_NOWAIT for this file.
+                Err(Errno::AGAIN | Errno::OPNOTSUPP | Errno::INVAL) => return Ok(false),
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(true)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (file, buffer, offset);
+        Ok(false)
+    }
+}
+
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_CONCURRENCY: usize = 32;
 
@@ -89,6 +125,11 @@ impl FileReadAt {
             handle,
             allocator,
         })
+    }
+
+    /// The underlying file handle.
+    pub fn file(&self) -> &Arc<File> {
+        &self.file
     }
 }
 
