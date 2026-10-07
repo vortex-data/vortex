@@ -25,7 +25,6 @@ use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::layout::scan::split_by::SplitBy;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
 
@@ -35,6 +34,7 @@ use crate::arrow::ToPyArrow;
 use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::file::scan_split_by;
 use crate::install_module;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
@@ -217,7 +217,7 @@ impl PyVortexDataset {
             .scan()?
             .with_projection(projection)
             .with_some_filter(filter)
-            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
+            .with_split_by(scan_split_by(split_by));
         if let Some((l, r)) = row_range {
             scan = scan.with_row_range(l..r);
         }
@@ -260,7 +260,7 @@ impl PyVortexDataset {
                 .scan()?
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
+                .with_split_by(scan_split_by(split_by));
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }

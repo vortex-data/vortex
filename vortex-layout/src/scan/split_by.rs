@@ -35,6 +35,13 @@ pub enum SplitBy {
     ///
     /// This is the default, with [`DEFAULT_MAX_SPLIT_ROWS`].
     LayoutSubSplitting { max_rows: u64 },
+    /// Splits like [`SplitBy::LayoutSubSplitting`], except that adjacent spans are first merged
+    /// for as long as the merged span stays within `max_rows` rows. `max_rows` must be non-zero.
+    ///
+    /// A scan over many columns splits at the chunk boundaries of every column, and columns of
+    /// wide values chunk every few thousand rows, so wide scans otherwise run as many small
+    /// splits whose fixed per-split cost dominates. Merged splits still end on chunk boundaries.
+    LayoutCoalescing { max_rows: u64 },
     /// Splits every n rows.
     RowCount(usize),
     // UncompressedSize(u64),
@@ -69,6 +76,19 @@ impl SplitBy {
                     max_rows,
                 )
             }
+            SplitBy::LayoutCoalescing { max_rows } => {
+                vortex_ensure!(
+                    max_rows > 0,
+                    "SplitBy::LayoutCoalescing requires a non-zero max_rows"
+                );
+                subdivide_large_spans(
+                    coalesce_small_spans(
+                        layout_boundaries(layout_reader, row_range, field_mask)?,
+                        max_rows,
+                    ),
+                    max_rows,
+                )
+            }
             SplitBy::RowCount(n) => row_range
                 .clone()
                 .step_by(n)
@@ -94,6 +114,34 @@ fn layout_boundaries(
         &mut row_splits,
     )?;
     Ok(row_splits.into_sorted_deduped())
+}
+
+/// Drop interior boundaries so that adjacent spans merge while the merged span is at most
+/// `max_span` rows. Spans already wider than `max_span` are left alone.
+///
+/// Only removes boundaries, never adds or moves one, so the first and last boundary and the
+/// contiguous row coverage are unchanged, and every remaining boundary is still a chunk boundary.
+fn coalesce_small_spans(boundaries: Vec<u64>, max_span: u64) -> Vec<u64> {
+    debug_assert!(boundaries.is_sorted(), "boundaries must be sorted");
+    let Some((&last, interior)) = boundaries.split_last() else {
+        return boundaries;
+    };
+    if interior.is_empty() {
+        return boundaries;
+    }
+
+    let mut out = Vec::with_capacity(boundaries.len());
+    out.push(interior[0]);
+    for (i, &boundary) in interior.iter().enumerate().skip(1) {
+        let next = interior.get(i + 1).copied().unwrap_or(last);
+        let start = *out.last().vortex_expect("out starts non-empty");
+        // Keep `boundary` only if dropping it would make the span from `start` too wide.
+        if next - start > max_span {
+            out.push(boundary);
+        }
+    }
+    out.push(last);
+    out
 }
 
 /// Sub-divide any gap between adjacent split boundaries that is wider than `max_span` into evenly
@@ -156,6 +204,7 @@ mod test {
     use std::sync::Arc;
 
     use futures::future::BoxFuture;
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -348,6 +397,44 @@ mod test {
             &(0..10),
             &[FieldMask::All],
         );
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    #[case::merges_up_to_cap(vec![0, 10, 20, 30, 40, 50], 25, vec![0, 20, 40, 50])]
+    #[case::exact_cap(vec![0, 10, 20, 30], 30, vec![0, 30])]
+    #[case::keeps_wide_spans(vec![0, 100, 105, 110, 300], 20, vec![0, 100, 110, 300])]
+    #[case::single_span(vec![0, 7], 3, vec![0, 7])]
+    #[case::empty(vec![], 3, vec![])]
+    fn coalesce_small_spans_cases(
+        #[case] boundaries: Vec<u64>,
+        #[case] max_span: u64,
+        #[case] expected: Vec<u64>,
+    ) {
+        assert_eq!(coalesce_small_spans(boundaries, max_span), expected);
+    }
+
+    #[test]
+    fn test_layout_coalescing_merges_then_subdivides() -> VortexResult<()> {
+        // Small chunks merge up to max_rows; the wide trailing chunk is still sub-divided.
+        let reader = StubReader::new(100, vec![2, 4, 6, 8, 10]);
+        let splits = SplitBy::LayoutCoalescing { max_rows: 5 }.splits(
+            &reader,
+            &(0..100),
+            &[FieldMask::All],
+        )?;
+        let coalesced = coalesce_small_spans(vec![0, 2, 4, 6, 8, 10, 100], 5);
+        assert_eq!(coalesced, vec![0, 4, 8, 10, 100]);
+        assert_eq!(splits, subdivide_large_spans(coalesced, 5));
+        assert!(splits.windows(2).all(|w| w[1] - w[0] <= 5));
+        Ok(())
+    }
+
+    #[test]
+    fn test_layout_coalescing_rejects_zero_max_rows() {
+        let reader = StubReader::new(10, vec![]);
+        let result =
+            SplitBy::LayoutCoalescing { max_rows: 0 }.splits(&reader, &(0..10), &[FieldMask::All]);
         assert!(result.is_err());
     }
 

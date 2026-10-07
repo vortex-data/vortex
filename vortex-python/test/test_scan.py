@@ -76,26 +76,27 @@ def test_scanner_property_dataset_schema(vxfile: vx.VortexFile) -> None:
     )
 
 
-@pytest.mark.parametrize("row_range", [None, (1_234, 87_654)])
+@pytest.mark.parametrize("row_range", [None, (1_234, 387_654)])
 def test_to_arrow_preserves_split_order(tmp_path, row_range: tuple[int, int] | None) -> None:
-    # Many small splits, so Arrow conversions run concurrently and must still come back in order.
+    # Several splits, so Arrow conversions run concurrently and must still come back in order.
     fname = str(tmp_path / "many_splits.vortex")
-    n = 100_000
+    n = 500_000
     vx.io.write(
         pa.table({"index": pa.array(range(n), type=pa.int64()), "string": [str(x * 7919) for x in range(n)]}),
         fname,
     )
     vxf = vx.open(fname)
-    assert len(vxf.splits()) > 1
 
     if row_range is None:
         reader = vxf.scan().to_arrow()
-        expected = list(range(100_000))
+        expected = list(range(n))
     else:
         reader = vxf.to_repeated_scan().execute(row_range=row_range).to_arrow()
         expected = list(range(*row_range))
 
-    assert pa.Table.from_batches(list(reader)).column("index").to_pylist() == expected
+    batches = list(reader)
+    assert len(batches) > 1
+    assert pa.Table.from_batches(batches).column("index").to_pylist() == expected
 
 
 def test_to_arrow_from_python_iterator() -> None:
