@@ -8,6 +8,7 @@ use std::sync::Arc;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
+use arrow_schema::SortOptions;
 use async_trait::async_trait;
 use datafusion_catalog::Session;
 use datafusion_common::ColumnStatistics;
@@ -29,6 +30,7 @@ use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_compression_type::FileCompressionType;
 use datafusion_datasource::file_format::FileFormat;
 use datafusion_datasource::file_format::FileFormatFactory;
+use datafusion_datasource::file_format::FileMeta;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
@@ -36,7 +38,10 @@ use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_expr::dml::InsertOp;
+use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::LexRequirement;
+use datafusion_physical_expr::PhysicalSortExpr;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::FutureExt;
 use futures::StreamExt as _;
@@ -55,6 +60,7 @@ use vortex::error::vortex_err;
 use vortex::expr::stats::Precision;
 use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
+use vortex::file::FileStatistics;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
@@ -468,6 +474,86 @@ impl VortexFormat {
         self.expression_convertor = Some(expression_convertor);
         self
     }
+
+    /// Reads the parts of a file's footer that planning needs, through the file metadata cache.
+    #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]
+    async fn read_footer_summary(
+        &self,
+        state: &dyn Session,
+        store: &Arc<dyn ObjectStore>,
+        object: &ObjectMeta,
+    ) -> DFResult<FooterSummary> {
+        let object = object.clone();
+        let store = Arc::clone(store);
+        let session = self.session.clone();
+        let opts = self.opts.clone();
+        let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+
+        SpawnedTask::spawn(async move {
+            // Try to get entry metadata first
+            let cached_metadata = file_metadata_cache
+                .get(&object.location)
+                .filter(|entry| entry.is_valid_for(&object))
+                .and_then(|entry| {
+                    entry
+                        .file_metadata
+                        .as_any()
+                        .downcast_ref::<CachedVortexMetadata>()
+                        .map(|m| {
+                            (
+                                m.footer().dtype().clone(),
+                                m.footer().statistics().cloned(),
+                                m.footer().row_count(),
+                            )
+                        })
+                });
+
+            let (dtype, file_stats, row_count) = match cached_metadata {
+                Some(metadata) => metadata,
+                None => {
+                    // Not entry - open the file
+                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
+                        store,
+                        object.location.clone(),
+                        session.handle(),
+                        session.allocator(),
+                    ));
+
+                    let vxf = session
+                        .open_options()
+                        .with_initial_read_size(opts.footer_initial_read_size_bytes)
+                        .with_file_size(object.size)
+                        .open_read(reader)
+                        .await
+                        .map_err(|e| {
+                            DataFusionError::Execution(format!(
+                                "Failed to open Vortex file {}: {e}",
+                                object.location
+                            ))
+                        })?;
+
+                    // Cache the metadata
+                    let file_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
+                    let entry = CachedFileMetadataEntry::new(object.clone(), file_metadata);
+                    file_metadata_cache.put(&object.location, entry);
+
+                    (
+                        vxf.dtype().clone(),
+                        vxf.file_stats().cloned(),
+                        vxf.row_count(),
+                    )
+                }
+            };
+
+            Ok(FooterSummary {
+                dtype,
+                file_stats,
+                row_count,
+            })
+        })
+        .await
+        .vortex_expect("Failed to spawn footer read")
+    }
 }
 
 #[async_trait]
@@ -565,7 +651,6 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(Schema::try_merge(file_schemas)?))
     }
 
-    #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]
     async fn infer_stats(
         &self,
         state: &dyn Session,
@@ -573,152 +658,31 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let object = object.clone();
-        let store = Arc::clone(store);
-        let session = self.session.clone();
-        let opts = self.opts.clone();
-        let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+        let footer = self.read_footer_summary(state, store, object).await?;
+        footer.statistics(&table_schema)
+    }
 
-        SpawnedTask::spawn(async move {
-            // Try to get entry metadata first
-            let cached_metadata = file_metadata_cache
-                .get(&object.location)
-                .filter(|entry| entry.is_valid_for(&object))
-                .and_then(|entry| {
-                    entry
-                        .file_metadata
-                        .as_any()
-                        .downcast_ref::<CachedVortexMetadata>()
-                        .map(|m| {
-                            (
-                                m.footer().dtype().clone(),
-                                m.footer().statistics().cloned(),
-                                m.footer().row_count(),
-                            )
-                        })
-                });
+    async fn infer_ordering(
+        &self,
+        state: &dyn Session,
+        store: &Arc<dyn ObjectStore>,
+        table_schema: SchemaRef,
+        object: &ObjectMeta,
+    ) -> DFResult<Option<LexOrdering>> {
+        let footer = self.read_footer_summary(state, store, object).await?;
+        Ok(footer.ordering(&table_schema, &self.session))
+    }
 
-            let (dtype, file_stats, row_count) = match cached_metadata {
-                Some(metadata) => metadata,
-                None => {
-                    // Not entry - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
-                        store,
-                        object.location.clone(),
-                        session.handle(),
-                        session.allocator(),
-                    ));
-
-                    let vxf = session
-                        .open_options()
-                        .with_initial_read_size(opts.footer_initial_read_size_bytes)
-                        .with_file_size(object.size)
-                        .open_read(reader)
-                        .await
-                        .map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to open Vortex file {}: {e}",
-                                object.location
-                            ))
-                        })?;
-
-                    // Cache the metadata
-                    let file_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
-                    let entry = CachedFileMetadataEntry::new(object.clone(), file_metadata);
-                    file_metadata_cache.put(&object.location, entry);
-
-                    (
-                        vxf.dtype().clone(),
-                        vxf.file_stats().cloned(),
-                        vxf.row_count(),
-                    )
-                }
-            };
-
-            let struct_dtype = dtype
-                .as_struct_fields_opt()
-                .vortex_expect("dtype is not a struct");
-
-            // Evaluate the statistics for each column that we are able to return to DataFusion.
-            let Some(file_stats) = file_stats else {
-                // If the file has no column stats, the best we can do is return a row count.
-                return Ok(Statistics {
-                    num_rows: DFPrecision::Exact(
-                        usize::try_from(row_count)
-                            .map_err(|_| vortex_err!("Row count overflow"))
-                            .vortex_expect("Row count overflow"),
-                    ),
-                    total_byte_size: DFPrecision::Absent,
-                    column_statistics: vec![
-                        ColumnStatistics::default();
-                        table_schema.fields().len()
-                    ],
-                });
-            };
-
-            let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
-
-            for field in table_schema.fields().iter() {
-                // If the column does not exist, continue. This can happen if the schema has evolved
-                // but we have not yet updated the Vortex file.
-                let Some(col_idx) = struct_dtype.find(field.name()) else {
-                    // The default sets all statistics to `Precision<Absent>`.
-                    column_statistics.push(ColumnStatistics::default());
-                    continue;
-                };
-                let (stats_set, stats_dtype) = file_stats.get(col_idx);
-
-                // Update the total size in bytes.
-                let column_size =
-                    stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
-
-                let min = scalar_stat_to_df(
-                    Stat::Min,
-                    stats_set.get(Stat::Min),
-                    stats_dtype,
-                    field.data_type(),
-                );
-
-                let max = scalar_stat_to_df(
-                    Stat::Max,
-                    stats_set.get(Stat::Max),
-                    stats_dtype,
-                    field.data_type(),
-                );
-
-                let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
-
-                column_statistics.push(ColumnStatistics {
-                    null_count: null_count.to_df(),
-                    min_value: min,
-                    max_value: max,
-                    sum_value: DFPrecision::Absent,
-                    distinct_count: is_constant_to_distinct_count(
-                        stats_set.get_as::<bool>(
-                            Stat::IsConstant,
-                            &DType::Bool(Nullability::NonNullable),
-                        ),
-                    ),
-                    byte_size: column_size.to_df(),
-                })
-            }
-
-            let total_byte_size = column_statistics
-                .iter()
-                .fold(DFPrecision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
-
-            Ok(Statistics {
-                num_rows: DFPrecision::Exact(
-                    usize::try_from(row_count)
-                        .map_err(|_| vortex_err!("Row count overflow"))
-                        .vortex_expect("Row count overflow"),
-                ),
-                total_byte_size,
-                column_statistics,
-            })
-        })
-        .await
-        .vortex_expect("Failed to spawn infer_stats")
+    async fn infer_stats_and_ordering(
+        &self,
+        state: &dyn Session,
+        store: &Arc<dyn ObjectStore>,
+        table_schema: SchemaRef,
+        object: &ObjectMeta,
+    ) -> DFResult<FileMeta> {
+        let footer = self.read_footer_summary(state, store, object).await?;
+        let statistics = footer.statistics(&table_schema)?;
+        Ok(FileMeta::new(statistics).with_ordering(footer.ordering(&table_schema, &self.session)))
     }
 
     async fn create_physical_plan(
@@ -767,6 +731,186 @@ impl FileFormat for VortexFormat {
         }
         Arc::new(source) as _
     }
+}
+
+/// The parts of a Vortex file footer used to plan scans over it.
+struct FooterSummary {
+    dtype: DType,
+    file_stats: Option<FileStatistics>,
+    row_count: u64,
+}
+
+impl FooterSummary {
+    /// Converts the footer's file statistics into DataFusion statistics for `table_schema`.
+    fn statistics(&self, table_schema: &Schema) -> DFResult<Statistics> {
+        let struct_dtype = self
+            .dtype
+            .as_struct_fields_opt()
+            .vortex_expect("dtype is not a struct");
+
+        // Evaluate the statistics for each column that we are able to return to DataFusion.
+        let Some(file_stats) = &self.file_stats else {
+            // If the file has no column stats, the best we can do is return a row count.
+            return Ok(Statistics {
+                num_rows: DFPrecision::Exact(
+                    usize::try_from(self.row_count)
+                        .map_err(|_| vortex_err!("Row count overflow"))
+                        .vortex_expect("Row count overflow"),
+                ),
+                total_byte_size: DFPrecision::Absent,
+                column_statistics: vec![ColumnStatistics::default(); table_schema.fields().len()],
+            });
+        };
+
+        let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
+
+        for field in table_schema.fields().iter() {
+            // If the column does not exist, continue. This can happen if the schema has evolved
+            // but we have not yet updated the Vortex file.
+            let Some(col_idx) = struct_dtype.find(field.name()) else {
+                // The default sets all statistics to `Precision<Absent>`.
+                column_statistics.push(ColumnStatistics::default());
+                continue;
+            };
+            let (stats_set, stats_dtype) = file_stats.get(col_idx);
+
+            // Update the total size in bytes.
+            let column_size =
+                stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
+
+            let min = scalar_stat_to_df(
+                Stat::Min,
+                stats_set.get(Stat::Min),
+                stats_dtype,
+                field.data_type(),
+            );
+
+            let max = scalar_stat_to_df(
+                Stat::Max,
+                stats_set.get(Stat::Max),
+                stats_dtype,
+                field.data_type(),
+            );
+
+            let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+
+            column_statistics.push(ColumnStatistics {
+                null_count: null_count.to_df(),
+                min_value: min,
+                max_value: max,
+                sum_value: DFPrecision::Absent,
+                distinct_count: is_constant_to_distinct_count(
+                    stats_set
+                        .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable)),
+                ),
+                byte_size: column_size.to_df(),
+            })
+        }
+
+        let total_byte_size = column_statistics
+            .iter()
+            .fold(DFPrecision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
+
+        Ok(Statistics {
+            num_rows: DFPrecision::Exact(
+                usize::try_from(self.row_count)
+                    .map_err(|_| vortex_err!("Row count overflow"))
+                    .vortex_expect("Row count overflow"),
+            ),
+            total_byte_size,
+            column_statistics,
+        })
+    }
+
+    /// Returns the ordering this file is known to have over the columns of `table_schema`.
+    ///
+    /// A column is ordered when the writer proved it non-decreasing ([`Stat::IsSorted`]) and it
+    /// holds no nulls. Rows sorted by each of several columns are sorted by all of them together,
+    /// so every such column joins the ordering, in table schema order. Columns whose minimum
+    /// equals their maximum are left out because a constant column would hide the columns after
+    /// it.
+    ///
+    /// Columns with nulls are left out even though Vortex sorts them first: DataFusion checks
+    /// that files read one after another keep an ordering by comparing only their minimums and
+    /// maximums, so it would accept a later file's nulls following an earlier file's values.
+    fn ordering(&self, table_schema: &Schema, session: &VortexSession) -> Option<LexOrdering> {
+        let struct_dtype = self.dtype.as_struct_fields_opt()?;
+        let file_stats = self.file_stats.as_ref()?;
+        let sort_exprs = table_schema
+            .fields()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, field)| {
+                let (stats_set, stats_dtype) = file_stats.get(struct_dtype.find(field.name())?);
+                let is_sorted = stats_set
+                    .get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable));
+                if is_sorted != Precision::Exact(true)
+                    || !orders_like_vortex(stats_dtype, field.data_type(), session)
+                {
+                    return None;
+                }
+                if stats_set.get_as::<u64>(Stat::NullCount, &PType::U64.into())
+                    != Precision::Exact(0)
+                {
+                    return None;
+                }
+                if let (Precision::Exact(min), Precision::Exact(max)) =
+                    (stats_set.get(Stat::Min), stats_set.get(Stat::Max))
+                    && min == max
+                {
+                    return None;
+                }
+                Some(PhysicalSortExpr::new(
+                    Arc::new(Column::new(field.name(), idx)),
+                    SortOptions {
+                        descending: false,
+                        nulls_first: false,
+                    },
+                ))
+            });
+        LexOrdering::new(sort_exprs)
+    }
+}
+
+/// Returns whether DataFusion orders values of `table_type`, read from a Vortex column of
+/// `file_dtype`, the same way Vortex does when computing [`Stat::IsSorted`].
+///
+/// Floats are excluded because DataFusion sorts them by total order, which separates `-0.0` from
+/// `0.0` where Vortex treats them as equal. Columns read as a different type than the file stores
+/// are excluded because the cast may reorder values.
+fn orders_like_vortex(file_dtype: &DType, table_type: &DataType, session: &VortexSession) -> bool {
+    let Ok(file_type) = session.arrow().to_arrow_datatype(file_dtype) else {
+        return false;
+    };
+    let is_string =
+        |t: &DataType| matches!(t, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View);
+    let is_binary = |t: &DataType| {
+        matches!(
+            t,
+            DataType::Binary | DataType::LargeBinary | DataType::BinaryView
+        )
+    };
+    let same_type = file_type == *table_type
+        || (is_string(&file_type) && is_string(table_type))
+        || (is_binary(&file_type) && is_binary(table_type));
+    same_type
+        && (table_type.is_integer()
+            || is_string(table_type)
+            || is_binary(table_type)
+            || matches!(
+                table_type,
+                DataType::Boolean
+                    | DataType::Decimal32(..)
+                    | DataType::Decimal64(..)
+                    | DataType::Decimal128(..)
+                    | DataType::Decimal256(..)
+                    | DataType::Date32
+                    | DataType::Date64
+                    | DataType::Timestamp(..)
+                    | DataType::Time32(_)
+                    | DataType::Time64(_)
+                    | DataType::Duration(_)
+            ))
 }
 
 fn scalar_stat_to_df(
@@ -972,7 +1116,7 @@ mod tests {
     }
 
     fn expression_convertor_test_filter() -> Arc<dyn PhysicalExpr> {
-        let column = Arc::new(df_expr::Column::new("a", 0)) as Arc<dyn PhysicalExpr>;
+        let column = Arc::new(Column::new("a", 0)) as Arc<dyn PhysicalExpr>;
         let literal =
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as Arc<dyn PhysicalExpr>;
         Arc::new(df_expr::BinaryExpr::new(column, Operator::Gt, literal))

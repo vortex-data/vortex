@@ -812,9 +812,10 @@ async fn topk_inexact_sort_pushdown(
         Field::new("a", DataType::Int32, false),
         Field::new("b", DataType::Int32, false),
     ]));
-    // Disjoint value ranges, written so that file names don't follow value order.
+    // Disjoint value ranges, written so that file names don't follow value order. Values are
+    // shuffled within each file so that the files have no known ordering.
     for file in [3, 0, 4, 1, 2] {
-        let a = Int32Array::from_iter_values((0..100).map(|i| file * 100 + i));
+        let a = Int32Array::from_iter_values((0..100).map(|i| file * 100 + i * 37 % 100));
         let b = Int32Array::from_iter_values((0..100).map(|i| i % 7));
         let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(a), Arc::new(b)])?;
         ctx.write_arrow_batch(format!("sorted/{file}.vortex"), &batch)
@@ -845,5 +846,100 @@ async fn topk_inexact_sort_pushdown(
     );
 
     assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// Writes five files of a sorted `a` column and an unsorted `b` column under `/ordered/` and
+/// registers them as `o`. Each file in `null_files` starts with five nulls in `a`. With
+/// `overlapping`, the files' value ranges overlap.
+async fn register_ordered_table(
+    ctx: &TestSessionContext,
+    nullable: bool,
+    null_files: &[i32],
+    overlapping: bool,
+) -> anyhow::Result<()> {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Int32, nullable),
+        Field::new("b", DataType::Int32, false),
+    ]));
+    let stride = if overlapping { 10 } else { 100 };
+    for file in [3, 0, 4, 1, 2] {
+        let has_nulls = null_files.contains(&file);
+        let a = (0..100).map(|i| (!has_nulls || i >= 5).then_some(file * stride + i));
+        let b = Int32Array::from_iter_values((0..100).map(|i| i % 7));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int32Array::from_iter(a)), Arc::new(b)],
+        )?;
+        ctx.write_arrow_batch(format!("ordered/{file}.vortex"), &batch)
+            .await?;
+    }
+    let a_type = if nullable { "INT" } else { "INT NOT NULL" };
+    ctx.session
+        .sql(&format!(
+            "CREATE EXTERNAL TABLE o (a {a_type}, b INT NOT NULL) STORED AS vortex LOCATION '/ordered/'"
+        ))
+        .await?;
+    Ok(())
+}
+
+async fn physical_plan_string(ctx: &TestSessionContext, sql: &str) -> anyhow::Result<String> {
+    let plan = ctx.session.sql(sql).await?.create_physical_plan().await?;
+    Ok(DisplayableExecutionPlan::new(plan.as_ref())
+        .indent(true)
+        .to_string())
+}
+
+/// Files whose columns the writer proved sorted declare that ordering, so a query sorting by it
+/// over files with disjoint ranges needs no sort at all.
+#[rstest]
+#[case::not_null(false, &[], "ORDER BY a LIMIT 3", "output_ordering=[a@0 ASC NULLS LAST]", "0, 1, 2")]
+#[case::nullable_without_nulls(true, &[], "ORDER BY a LIMIT 3", "output_ordering=[a@0 ASC NULLS LAST]", "0, 1, 2")]
+#[tokio::test]
+async fn inferred_file_ordering_removes_sort(
+    #[case] nullable: bool,
+    #[case] null_files: &[i32],
+    #[case] order: &str,
+    #[case] ordering: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_ordered_table(&ctx, nullable, null_files, false).await?;
+
+    let query = format!("SELECT a, b FROM o {order}");
+    let plan_str = physical_plan_string(&ctx, &query).await?;
+    assert!(plan_str.contains(ordering), "{plan_str}");
+    assert!(!plan_str.contains("SortExec"), "{plan_str}");
+
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}
+
+/// Queries the inferred file orderings cannot answer without sorting still sort correctly:
+/// columns with nulls, a descending sort, and files whose ranges overlap.
+#[rstest]
+// Each file's nulls come first, but files read one after another would interleave them with
+// values, so files with nulls must not declare an ordering.
+#[case::nulls_first(true, &[0, 1, 2, 3, 4], false, "ORDER BY a NULLS FIRST OFFSET 25 LIMIT 3", "5, 6, 7")]
+#[case::nulls_last(true, &[0, 1, 2, 3, 4], false, "ORDER BY a NULLS LAST LIMIT 3", "5, 6, 7")]
+#[case::descending(false, &[], false, "ORDER BY a DESC LIMIT 3", "499, 498, 497")]
+#[case::mixed_null_files(true, &[0], false, "ORDER BY a NULLS FIRST LIMIT 7", "NULL, NULL, NULL, NULL, NULL, 5, 6")]
+#[case::overlapping(false, &[], true, "ORDER BY a LIMIT 5", "0, 1, 2, 3, 4")]
+#[case::overlapping_desc(false, &[], true, "ORDER BY a DESC LIMIT 4", "139, 138, 137, 136")]
+#[tokio::test]
+async fn inferred_file_ordering_keeps_results_correct(
+    #[case] nullable: bool,
+    #[case] null_files: &[i32],
+    #[case] overlapping: bool,
+    #[case] order: &str,
+    #[case] expected: &str,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_ordered_table(&ctx, nullable, null_files, overlapping).await?;
+
+    assert_eq!(
+        query_values(&ctx, &format!("SELECT a FROM o {order}")).await?,
+        expected
+    );
     Ok(())
 }

@@ -69,6 +69,9 @@ pub fn accumulate_stats(
 struct StatsAccumulator {
     builders: Vec<Box<dyn StatsArrayBuilder>>,
     length: usize,
+    /// Set once a chunk is known to be unsorted, after which the file cannot be sorted and
+    /// `IsSorted` is no longer computed for later chunks.
+    unsorted: bool,
 }
 
 impl StatsAccumulator {
@@ -77,6 +80,7 @@ impl StatsAccumulator {
             return Self {
                 builders: Vec::new(),
                 length: 0,
+                unsorted: false,
             };
         }
 
@@ -97,12 +101,21 @@ impl StatsAccumulator {
         Self {
             builders,
             length: 0,
+            unsorted: false,
         }
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for builder in &mut self.builders {
+            let is_sorted_stat = builder.stat() == Stat::IsSorted;
+            if is_sorted_stat && self.unsorted {
+                builder.append_scalar(Scalar::bool(false, Nullability::Nullable))?;
+                continue;
+            }
             if let Some(value) = array.statistics().compute_stat(builder.stat(), ctx)? {
+                if is_sorted_stat && value.as_bool().value() == Some(false) {
+                    self.unsorted = true;
+                }
                 builder.append_scalar(value.cast(&value.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
@@ -185,11 +198,98 @@ impl StatsAccumulator {
                         stats_set.set(stat, Precision::exact(sum_value));
                     }
                 }
-                Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {}
+                Stat::IsSorted => {
+                    if let Some(is_sorted) = chunks_are_sorted(&stats_table, values, ctx)? {
+                        stats_set.set(stat, Precision::exact(is_sorted));
+                    }
+                }
+                Stat::IsConstant | Stat::IsStrictSorted => {}
             }
         }
         Ok(stats_set)
     }
+}
+
+/// Returns whether a column is sorted across the whole file, in the sense of
+/// [`Stat::IsSorted`]: non-decreasing, with nulls first.
+///
+/// The column is sorted when every chunk is sorted, each chunk's minimum is at least the previous
+/// chunks' maximum, and no nulls follow a non-null value. `None` means the stats table cannot
+/// prove either answer, for example because a bound was truncated or a float column holds NaNs,
+/// which the min and max statistics skip.
+fn chunks_are_sorted(
+    stats_table: &StructArray,
+    chunk_is_sorted: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<bool>> {
+    let field = |stat: Stat| stats_table.unmasked_field_by_name_opt(stat.name());
+    let Some(null_counts) = field(Stat::NullCount) else {
+        return Ok(None);
+    };
+    let (mins, maxes) = (field(Stat::Min), field(Stat::Max));
+    if let Some(mins) = mins
+        && mins.dtype().is_float()
+    {
+        let Some(nan_counts) = field(Stat::NaNCount) else {
+            return Ok(None);
+        };
+        for chunk in 0..stats_table.len() {
+            if nan_counts
+                .execute_scalar(chunk, ctx)?
+                .as_primitive()
+                .as_::<u64>()
+                != Some(0)
+            {
+                return Ok(None);
+            }
+        }
+    }
+
+    // The largest non-null value in the chunks seen so far.
+    let mut prev_max: Option<Scalar> = None;
+    for chunk in 0..stats_table.len() {
+        match chunk_is_sorted
+            .execute_scalar(chunk, ctx)?
+            .as_bool()
+            .value()
+        {
+            Some(true) => {}
+            Some(false) => return Ok(Some(false)),
+            None => return Ok(None),
+        }
+        let Some(null_count) = null_counts
+            .execute_scalar(chunk, ctx)?
+            .as_primitive()
+            .as_::<u64>()
+        else {
+            return Ok(None);
+        };
+        if null_count > 0 && prev_max.is_some() {
+            return Ok(Some(false));
+        }
+
+        // A chunk without a minimum has no non-null values.
+        let Some(min) = mins
+            .map(|mins| mins.execute_scalar(chunk, ctx))
+            .transpose()?
+            .filter(|min| !min.is_null())
+        else {
+            continue;
+        };
+        // Truncated bounds stay valid bounds, so this check is conservative but sound.
+        if prev_max.as_ref().is_some_and(|prev_max| prev_max > &min) {
+            return Ok(None);
+        }
+        let Some(max) = maxes
+            .map(|maxes| maxes.execute_scalar(chunk, ctx))
+            .transpose()?
+            .filter(|max| !max.is_null())
+        else {
+            return Ok(None);
+        };
+        prev_max = Some(max);
+    }
+    Ok(Some(true))
 }
 
 fn stat_was_truncated(
@@ -643,6 +743,118 @@ mod tests {
             stats_table.names().as_ref(),
             &[Stat::Max.name(), Stat::Min.name(), Stat::Sum.name()]
         );
+    }
+
+    const SORTEDNESS_STATS: &[Stat] = &[
+        Stat::Min,
+        Stat::Max,
+        Stat::NullCount,
+        Stat::NaNCount,
+        Stat::IsSorted,
+    ];
+
+    #[rstest]
+    #[case::ascending_chunks(vec![vec![Some(1), Some(2)], vec![Some(2), Some(5)]], Some(true))]
+    #[case::unsorted_chunk(vec![vec![Some(1), Some(2)], vec![Some(4), Some(3)]], Some(false))]
+    #[case::overlapping_chunks(vec![vec![Some(1), Some(4)], vec![Some(3), Some(5)]], None)]
+    #[case::leading_nulls(vec![vec![None, None], vec![None, Some(1)], vec![Some(2)]], Some(true))]
+    #[case::nulls_after_values(vec![vec![Some(1)], vec![None, Some(2)]], Some(false))]
+    #[case::empty_chunk(vec![vec![Some(1)], vec![], vec![Some(2)]], Some(true))]
+    fn combines_chunk_sortedness(
+        #[case] chunks: Vec<Vec<Option<i64>>>,
+        #[case] expected: Option<bool>,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mut acc = StatsAccumulator::new(&dtype, SORTEDNESS_STATS, 12);
+        for chunk in chunks {
+            acc.push_chunk(
+                &PrimitiveArray::from_option_iter(chunk).into_array(),
+                &mut ctx,
+            )?;
+        }
+
+        let stats = acc.as_stats_set(SORTEDNESS_STATS, &mut ctx)?;
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable)),
+            expected.map_or(Precision::Absent, Precision::exact)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sortedness_skips_chunks_after_an_unsorted_chunk() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let unsorted = buffer![3i64, 1].into_array();
+        let sorted = buffer![4i64, 5].into_array();
+        let mut acc = StatsAccumulator::new(unsorted.dtype(), SORTEDNESS_STATS, 12);
+        acc.push_chunk(&unsorted, &mut ctx)?;
+        acc.push_chunk(&sorted, &mut ctx)?;
+
+        assert_eq!(
+            sorted
+                .statistics()
+                .to_owned()
+                .get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable)),
+            Precision::Absent
+        );
+        let stats = acc.as_stats_set(SORTEDNESS_STATS, &mut ctx)?;
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable)),
+            Precision::exact(false)
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::no_nans(vec![1.0, 2.0], vec![2.5, 3.0], Some(true))]
+    #[case::nan(vec![1.0, f64::NAN], vec![2.0, 3.0], None)]
+    fn float_sortedness_requires_no_nans(
+        #[case] first: Vec<f64>,
+        #[case] second: Vec<f64>,
+        #[case] expected: Option<bool>,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = StatsAccumulator::new(&dtype, SORTEDNESS_STATS, 12);
+        for chunk in [first, second] {
+            acc.push_chunk(&PrimitiveArray::from_iter(chunk).into_array(), &mut ctx)?;
+        }
+
+        let stats = acc.as_stats_set(SORTEDNESS_STATS, &mut ctx)?;
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable)),
+            expected.map_or(Precision::Absent, Precision::exact)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn truncated_string_bounds_still_prove_sortedness() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Utf8(Nullability::NonNullable);
+        let mut acc = StatsAccumulator::new(&dtype, SORTEDNESS_STATS, 4);
+        for values in [
+            ["apple pie", "apricot jam"],
+            ["banana split", "cherry tart"],
+        ] {
+            let mut builder = VarBinViewBuilder::with_capacity_in(
+                dtype.clone(),
+                2,
+                vortex_buffer::BufferAllocatorRef::statically_allocated(),
+            );
+            for value in values {
+                builder.append_value(value);
+            }
+            acc.push_chunk(&builder.finish(), &mut ctx)?;
+        }
+
+        let stats = acc.as_stats_set(SORTEDNESS_STATS, &mut ctx)?;
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable)),
+            Precision::exact(true)
+        );
+        Ok(())
     }
 
     #[rstest]
