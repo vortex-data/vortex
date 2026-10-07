@@ -14,6 +14,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
@@ -21,6 +22,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::cast;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::pack;
+use vortex_array::expr::bound::select;
 use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -176,6 +178,10 @@ fn assemble_variant(storage: BoundExpression) -> VortexResult<BoundExpression> {
 /// whole path is shredded, its residual `value` is known to be empty, and its typed column has the
 /// requested dtype, the result is the typed column itself. Otherwise the rest of the path is
 /// extracted from a Variant assembled from the shared `metadata` and the wrapper alone.
+///
+/// When the rest of the path starts with an object field that is not shredded, only the wrapper's
+/// residual `value` can hold it: shredded object fields never appear in the residual, and a value
+/// that is not an object has no fields. Its `typed_value` is then left unread.
 fn rewrite_variant_get(
     options: &VariantGetOptions,
     storage_root: &BoundExpression,
@@ -213,14 +219,23 @@ fn rewrite_variant_get(
         });
     }
 
+    let residual_only = residual_holds_rest(wrapper.dtype(), &remaining);
     let variant = if consumed.is_empty() {
-        assemble_variant(storage_root.clone())?
+        if residual_only {
+            // Keep the storage validity: null Variant rows stay null.
+            assemble_variant(select(
+                FieldNames::from_iter([FieldName::from(METADATA), FieldName::from(VALUE)]),
+                storage_root.clone(),
+            ))?
+        } else {
+            assemble_variant(storage_root.clone())?
+        }
     } else {
         // A shredded object field shares the top-level metadata with its own wrapper columns.
         let metadata = get_item(METADATA, storage_root.clone());
         let mut fields = vec![(FieldName::from(METADATA), metadata)];
         for name in [VALUE, TYPED_VALUE] {
-            if has_field(wrapper.dtype(), name) {
+            if has_field(wrapper.dtype(), name) && !(residual_only && name == TYPED_VALUE) {
                 fields.push((FieldName::from(name), get_item(name, wrapper.clone())));
             }
         }
@@ -230,6 +245,15 @@ fn rewrite_variant_get(
         VariantGetOptions::new(remaining, options.dtype().cloned()),
         [variant],
     )
+}
+
+/// Whether only the residual `value` of `wrapper` can hold the rest of a path that the shredded
+/// tree could not follow.
+fn residual_holds_rest(wrapper: &DType, remaining: &VariantPath) -> bool {
+    matches!(
+        remaining.elements().first(),
+        Some(VariantPathElement::Field(_))
+    ) && has_field(wrapper, VALUE)
 }
 
 /// Returns the wrapper `{value, typed_value}` of object field `name` shredded under `wrapper`.
@@ -329,6 +353,14 @@ pub(crate) fn storage_field_masks(
             consumed.push(name.clone());
         }
 
+        let rest_is_field = consumed.len() < path.parts().len()
+            && matches!(path.parts()[consumed.len()], Field::Name(_))
+            && has_field(&wrapper, VALUE);
+        if rest_is_field {
+            storage_masks.push(FieldMask::Prefix(FieldPath::from_name(METADATA)));
+            storage_masks.push(FieldMask::Prefix(storage_path.push(VALUE)));
+            continue;
+        }
         if consumed.is_empty() {
             return vec![FieldMask::All];
         }

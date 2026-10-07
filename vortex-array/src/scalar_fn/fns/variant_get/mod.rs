@@ -18,6 +18,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VariantArray;
 use crate::builders::builder_with_capacity_in;
@@ -25,6 +26,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::expr::display::ExprDisplay;
+use crate::matcher::Matcher;
 use crate::proto::expr as pb;
 use crate::proto::expr::variant_path_element;
 use crate::scalar::Scalar;
@@ -138,6 +140,16 @@ impl ScalarFnVTable for VariantGet {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+        // A lazy input, such as another scalar function's result, would be evaluated row by row
+        // below. Materialize it and re-dispatch, so the Variant encoding it produces can serve the
+        // extraction with its own kernel.
+        if input.is::<ScalarFn>() {
+            let input = input.execute_until::<NotScalarFn>(ctx)?;
+            return VariantGet::try_new(input, options.clone())?
+                .into_array()
+                .execute::<ArrayRef>(ctx);
+        }
+
         // Missing paths, traversal mismatches, and cast failures all produce nulls.
         let dtype = options
             .dtype()
@@ -170,6 +182,17 @@ impl ScalarFnVTable for VariantGet {
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
+    }
+}
+
+/// Matches arrays that are not lazy scalar function results.
+struct NotScalarFn;
+
+impl Matcher for NotScalarFn {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (!array.is::<ScalarFn>()).then_some(array)
     }
 }
 
