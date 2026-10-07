@@ -104,6 +104,8 @@ pub(crate) struct VortexOpener {
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
+    /// Read each file's splits from its end towards its start.
+    pub reverse_splits: bool,
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
     pub file_metadata_cache: Option<Arc<FileMetadataCache>>,
@@ -144,6 +146,7 @@ impl FileOpener for VortexOpener {
         let layout_readers = Arc::clone(&self.layout_readers);
         let natural_splits = Arc::clone(&self.natural_splits);
         let has_output_ordering = self.has_output_ordering;
+        let reverse_splits = self.reverse_splits;
         let scan_concurrency = self.scan_concurrency;
 
         let expr_convertor = Arc::clone(&self.expression_convertor);
@@ -467,6 +470,7 @@ impl FileOpener for VortexOpener {
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
+                .with_reverse_splits(reverse_splits)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
                     let arrow_session = ctx.session().clone();
@@ -900,6 +904,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
+            reverse_splits: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
@@ -1183,6 +1188,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
+            reverse_splits: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
@@ -1270,6 +1276,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
+            reverse_splits: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
@@ -1424,6 +1431,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
+            reverse_splits: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
@@ -1484,6 +1492,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
+            reverse_splits: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
@@ -1691,6 +1700,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
+            reverse_splits: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
             projection_pushdown: false,

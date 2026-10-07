@@ -62,6 +62,8 @@ pub struct ScanBuilder<A> {
     filter: Option<BoundExpression>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
+    /// Whether to execute splits from the end of the file towards its start.
+    reverse_splits: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -96,6 +98,7 @@ impl ScanBuilder<ArrayRef> {
             projection,
             filter: None,
             ordered: true,
+            reverse_splits: false,
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::default(),
@@ -161,6 +164,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Configure whether output chunks must be yielded in file order.
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
+        self
+    }
+
+    /// Execute splits from the end of the file towards its start.
+    ///
+    /// Rows within a split keep their file order, so the scan's output is not reversed row by
+    /// row. This lets a consumer that benefits from seeing the file's later rows first, such as
+    /// a descending TopK over data stored in ascending order, reach them sooner. A limit applies
+    /// to the rows in this execution order.
+    pub fn with_reverse_splits(mut self, reverse_splits: bool) -> Self {
+        self.reverse_splits = reverse_splits;
         self
     }
 
@@ -284,6 +298,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             projection: self.projection,
             filter: self.filter,
             ordered: self.ordered,
+            reverse_splits: self.reverse_splits,
             row_range: self.row_range,
             selection: self.selection,
             split_by: self.split_by,
@@ -360,7 +375,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
-        ))
+        )
+        .with_reverse_splits(self.reverse_splits))
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -1009,6 +1025,32 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [1, 2]);
 
+        Ok(())
+    }
+
+    /// Reversed splits run back to front, while each split keeps its rows in file order.
+    #[test]
+    fn reverse_splits_execute_back_to_front() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_natural_splits(vec![0u64, 2, 4].into())
+            .with_reverse_splits(true)
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut chunks = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            chunks.push(prim.into_buffer::<i32>().to_vec());
+        }
+
+        assert_eq!(chunks, [vec![2, 3], vec![0, 1]]);
         Ok(())
     }
 }

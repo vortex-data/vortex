@@ -794,3 +794,56 @@ async fn topk_dynamic_filter_with_cast_column(
     assert_eq!(query_values(&ctx, &query).await?, expected);
     Ok(())
 }
+
+/// A TopK over a column that isn't declared sorted is pushed down inexactly: the scan reads the
+/// most promising files first, and the TopK still produces exactly the right rows.
+#[rstest]
+#[case("ORDER BY a DESC LIMIT 3", "499, 498, 497", true)]
+#[case("ORDER BY a ASC LIMIT 3", "1, 2, 3", false)]
+#[case("ORDER BY a DESC, b ASC LIMIT 2", "499, 498", true)]
+#[tokio::test]
+async fn topk_inexact_sort_pushdown(
+    #[case] order: &str,
+    #[case] expected: &str,
+    #[case] reverse_splits: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Int32, false),
+        Field::new("b", DataType::Int32, false),
+    ]));
+    // Disjoint value ranges, written so that file names don't follow value order.
+    for file in [3, 0, 4, 1, 2] {
+        let a = Int32Array::from_iter_values((0..100).map(|i| file * 100 + i));
+        let b = Int32Array::from_iter_values((0..100).map(|i| i % 7));
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(a), Arc::new(b)])?;
+        ctx.write_arrow_batch(format!("sorted/{file}.vortex"), &batch)
+            .await?;
+    }
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE s (a INT NOT NULL, b INT NOT NULL) STORED AS vortex LOCATION '/sorted/'")
+        .await?;
+
+    let query = format!("SELECT a FROM s WHERE a > 0 {order}");
+    let plan = ctx
+        .session
+        .sql(&query)
+        .await?
+        .create_physical_plan()
+        .await?;
+    let plan_str = DisplayableExecutionPlan::new(plan.as_ref())
+        .indent(true)
+        .to_string();
+    assert!(
+        plan_str.contains("read_order: ["),
+        "expected an inexact sort pushdown:\n{plan_str}"
+    );
+    assert_eq!(
+        plan_str.contains("reverse_splits"),
+        reverse_splits,
+        "{plan_str}"
+    );
+
+    assert_eq!(query_values(&ctx, &query).await?, expected);
+    Ok(())
+}

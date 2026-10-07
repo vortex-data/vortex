@@ -29,6 +29,7 @@ pub mod metrics;
 mod opener;
 pub mod reader;
 mod sink;
+mod sort;
 mod source;
 mod stream;
 

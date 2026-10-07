@@ -8,6 +8,7 @@ use std::sync::Weak;
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
+use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
@@ -38,6 +39,9 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use super::sort::ReadOrder;
+use super::sort::plan_read_order;
+use super::sort::reorder_files_by_statistics;
 use crate::VortexTableOptions;
 use crate::convert::dynamic::as_column_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConvertor;
@@ -202,6 +206,8 @@ pub struct VortexSource {
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
+    /// Set by an inexact sort pushdown to read the most promising data first for a TopK.
+    read_order: Option<ReadOrder>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
@@ -237,6 +243,7 @@ impl VortexSource {
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
             ordered: false,
+            read_order: None,
             options: VortexTableOptions::default(),
         }
     }
@@ -372,6 +379,10 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             natural_splits: Arc::clone(&self.natural_splits),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
+            reverse_splits: self
+                .read_order
+                .as_ref()
+                .is_some_and(|read_order| read_order.reverse_splits),
             expression_convertor: Arc::clone(&self.expression_convertor),
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
@@ -431,7 +442,29 @@ impl FileSource for VortexSource {
             });
         }
 
-        Ok(SortOrderPushdownResult::Unsupported)
+        // The TopK above still sorts; reading the most promising data first lets its dynamic
+        // filter tighten sooner and skip more of the rest.
+        let Some(read_order) =
+            plan_read_order(order, eq_properties, self.table_schema.file_schema())?
+        else {
+            return Ok(SortOrderPushdownResult::Unsupported);
+        };
+        let mut this = self.clone();
+        this.read_order = Some(read_order);
+        Ok(SortOrderPushdownResult::Inexact {
+            inner: Arc::new(this) as Arc<dyn FileSource>,
+        })
+    }
+
+    fn reorder_files(&self, files: Vec<PartitionedFile>) -> Vec<PartitionedFile> {
+        match &self.read_order {
+            Some(read_order) => reorder_files_by_statistics(
+                files,
+                &read_order.sort_order,
+                self.table_schema.table_schema(),
+            ),
+            None => files,
+        }
     }
 
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
@@ -439,6 +472,12 @@ impl FileSource for VortexSource {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 if let Some(predicate) = &self.vortex_predicate {
                     write!(f, ", predicate: {predicate}")?;
+                }
+                if let Some(read_order) = &self.read_order {
+                    write!(f, ", read_order: [{}]", read_order.sort_order)?;
+                    if read_order.reverse_splits {
+                        write!(f, ", reverse_splits")?;
+                    }
                 }
             }
             // Use TreeRender style key=value formatting to display the predicate
