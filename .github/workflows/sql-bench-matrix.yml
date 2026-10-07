@@ -258,10 +258,10 @@ jobs:
         with:
           file-path: comment.md
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
-          # this action will *update* the comment instead of posting a new comment. The preset is
-          # deliberately not part of the tag, so every preset that runs a benchmark updates the same
-          # comment and the latest run wins.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+          # this action will *update* the comment instead of posting a new comment. `comment_key`
+          # ignores the preset, so every label that runs a benchmark updates the same comment, but
+          # separates compact-only runs, whose formats differ (see bench-orchestrator ci_matrix).
+          comment-tag: bench-pr-comment-${{ matrix.comment_key }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -271,7 +271,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+          comment-tag: bench-pr-comment-${{ matrix.comment_key }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
