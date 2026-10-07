@@ -64,9 +64,23 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 /// so the dictionary filter rule cannot push the filter back into the codes.
 ///
 /// Sparse selections, which the run-end filter kernel serves by taking rows, keep the per-row
-/// lookup.
+/// lookup. Dense selections of short boolean runs decode every row and then filter the bits.
 #[derive(Debug)]
 pub(crate) struct RunEndFilteredTakeFrom;
+
+/// Decodes all rows before filtering boolean values from this many selected rows per run.
+///
+/// Decoding every row and filtering the bits walks the runs once; filtering runs walks them for
+/// the filter and again for the decode. Measured with the `run_end_dict_bool_filter` benchmark,
+/// whole-row decoding wins from about one selected row per two runs. A larger value favors
+/// filtering runs.
+const DECODE_ALL_BOOLS_MIN_SELECTED_ROWS_PER_RUN: f64 = 0.5;
+
+/// Filters runs instead of decoding all rows when boolean runs average at least this many rows.
+///
+/// With long runs, the run filter touches few runs and decodes only the selected rows, while
+/// decoding all rows still pays for every row. A larger value favors decoding all rows.
+const DECODE_ALL_BOOLS_MAX_ROWS_PER_RUN: usize = 256;
 
 impl ExecuteParentKernel<Filter> for RunEndFilteredTakeFrom {
     type Parent = Dict;
@@ -99,16 +113,26 @@ impl ExecuteParentKernel<Filter> for RunEndFilteredTakeFrom {
             .take(codes.values().clone())?
             .execute::<Canonical>(ctx)?
             .into_array();
+        let run_count = codes.ends().len();
         // SAFETY: we are copying ends from an existing valid RunEndArray, and the taken values
         // have one entry per run.
         let ree_array = unsafe {
             RunEnd::new_unchecked(codes.ends().clone(), values, codes.offset(), codes.len())
-        };
-        Ok(Some(
-            ree_array
-                .into_array()
-                .filter(filter.filter_mask().clone())?,
-        ))
+        }
+        .into_array();
+
+        let mask = filter.filter_mask();
+        let selected_rows_per_run = mask.true_count() as f64 / run_count as f64;
+        if dict.dtype().is_boolean()
+            && codes.len() < DECODE_ALL_BOOLS_MAX_ROWS_PER_RUN * run_count
+            && selected_rows_per_run >= DECODE_ALL_BOOLS_MIN_SELECTED_ROWS_PER_RUN
+        {
+            // Decode eagerly: a lazy filter over run-end values would filter the runs instead.
+            let decoded = ree_array.execute::<Canonical>(ctx)?.into_array();
+            return Ok(Some(decoded.filter(mask.clone())?));
+        }
+
+        Ok(Some(ree_array.filter(mask.clone())?))
     }
 }
 
@@ -258,7 +282,7 @@ mod tests {
     /// Codes with runs of 1 to 9 rows over a 4-entry dictionary, with every seventh run null when
     /// `nullable` is set.
     fn run_codes(nullable: bool) -> PrimitiveArray {
-        let codes = (0..60u32).flat_map(|run| {
+        let codes = (0..300u32).flat_map(|run| {
             let code = (!nullable || run % 7 != 3).then_some(run % 4);
             std::iter::repeat_n(code, (run as usize * 5) % 9 + 1)
         });
@@ -271,6 +295,7 @@ mod tests {
 
     #[rstest]
     #[case::bool_dense(BoolArray::from_iter([true, false, false, true]).into_array(), false, 2, true)]
+    #[case::bool_moderate(BoolArray::from_iter([true, false, false, true]).into_array(), false, 15, true)]
     #[case::bool_sparse(BoolArray::from_iter([true, false, false, true]).into_array(), false, 97, false)]
     #[case::bool_nullable_codes(BoolArray::from_iter([true, false, false, true]).into_array(), true, 2, true)]
     #[case::primitive_dense(buffer![10i64, 20, 30, 40].into_array(), false, 3, true)]
