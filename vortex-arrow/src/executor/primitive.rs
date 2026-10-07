@@ -41,8 +41,13 @@ pub(super) fn to_arrow_primitive<T: ArrowPrimitiveType>(
 where
     T::Native: NativePType,
 {
-    // We use nullable here so we can essentially ignore nullability during the cast.
-    let array = array.cast(DType::Primitive(T::Native::PTYPE, Nullability::Nullable))?;
+    // Arrow null buffers preserve validity independently of the Vortex dtype's nullability.
+    let dtype = DType::Primitive(T::Native::PTYPE, Nullability::Nullable);
+    let array = if array.dtype().eq_ignore_nullability(&dtype) {
+        array
+    } else {
+        array.cast(dtype)?
+    };
     let primitive = array.execute::<PrimitiveArray>(ctx)?;
     canonical_primitive_to_arrow::<T>(primitive, ctx)
 }
