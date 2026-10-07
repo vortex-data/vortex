@@ -32,6 +32,9 @@ use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+mod small;
+
 impl TakeExecute for Bool {
     fn take(
         array: ArrayView<'_, Bool>,
@@ -57,12 +60,21 @@ impl TakeExecute for Bool {
                 .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;
-        let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
-            take_valid_indices(
-                array.bit_buffer_view(),
-                indices_nulls_zeroed.as_slice::<I>(),
-            )
-        });
+        let buffer = match indices_nulls_zeroed.ptype() {
+            #[cfg(all(target_arch = "aarch64", not(miri)))]
+            crate::dtype::PType::U8 if array.len() <= 64 && indices_nulls_zeroed.len() >= 64 => {
+                small::take(
+                    array.bit_buffer_view(),
+                    indices_nulls_zeroed.as_slice::<u8>(),
+                )
+            }
+            _ => match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
+                take_valid_indices(
+                    array.bit_buffer_view(),
+                    indices_nulls_zeroed.as_slice::<I>(),
+                )
+            }),
+        };
 
         Ok(Some(
             BoolArray::new(buffer, array.validity()?.take(indices)?).into_array(),
