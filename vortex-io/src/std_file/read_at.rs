@@ -63,6 +63,33 @@ pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<
     }
 }
 
+/// Read `buffer` at `offset` only if the bytes are already in the page cache.
+///
+/// Returns `None` when the read would block on storage (or is not supported), so the caller can
+/// fall back to the blocking pool without ever stalling an async worker on disk I/O.
+#[cfg(target_os = "linux")]
+fn read_cached_at(file: &File, buffer: &mut [u8], offset: u64) -> Option<io::Result<()>> {
+    use rustix::io::Errno;
+    use rustix::io::ReadWriteFlags;
+
+    match rustix::io::preadv2(
+        file,
+        &mut [io::IoSliceMut::new(buffer)],
+        offset,
+        ReadWriteFlags::NOWAIT,
+    ) {
+        // A short read means part of the range is not cached; let the blocking pool finish it.
+        Ok(read) if read == buffer.len() => Some(Ok(())),
+        Ok(_) | Err(Errno::AGAIN | Errno::OPNOTSUPP | Errno::NOSYS | Errno::INVAL) => None,
+        Err(error) => Some(Err(error.into())),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_cached_at(_file: &File, _buffer: &mut [u8], _offset: u64) -> Option<io::Result<()>> {
+    None
+}
+
 /// Bytes a single blocking task reads from a batch before the batch is split across more tasks.
 ///
 /// Handing a read to the blocking pool costs a thread wake-up, which is far more than a small
@@ -155,6 +182,35 @@ impl VortexReadAt for FileReadAt {
     }
 
     fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
+        // Small ranges are first served straight from the page cache on the calling thread; only
+        // the ranges that would block, and large ones worth spreading across threads, go to the
+        // blocking pool.
+        let mut cached = Vec::new();
+        let mut uncached = Vec::new();
+        for &request in requests.iter() {
+            if request.length > BLOCKING_TASK_READ_BYTES {
+                uncached.push(request);
+                continue;
+            }
+            let mut buffer = self
+                .allocator
+                .with_capacity_aligned::<u8>(request.length, request.alignment);
+            // SAFETY: the buffer is only frozen after a read initialized every byte.
+            unsafe { buffer.set_len(request.length) };
+            match read_cached_at(&self.file, buffer.as_mut_slice(), request.offset) {
+                Some(result) => cached.push((
+                    request,
+                    result
+                        .map(|()| BufferHandle::new_host(buffer.freeze()))
+                        .map_err(Into::into),
+                )),
+                None => uncached.push(request),
+            }
+        }
+        if uncached.is_empty() {
+            return stream::iter(cached).boxed();
+        }
+        let requests: Arc<[ReadAtRequest]> = uncached.into();
         let total_bytes: usize = requests.iter().map(|request| request.length).sum();
         let tasks = total_bytes
             .div_ceil(BLOCKING_TASK_READ_BYTES)
@@ -183,6 +239,8 @@ impl VortexReadAt for FileReadAt {
                     .collect::<Vec<_>>()
             }));
         }
-        reads.flat_map(stream::iter).boxed()
+        stream::iter(cached)
+            .chain(reads.flat_map(stream::iter))
+            .boxed()
     }
 }

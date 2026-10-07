@@ -27,6 +27,8 @@ use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_error::SharedVortexResult;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -289,6 +291,8 @@ pub struct FileSegmentSource {
     next_id: Arc<AtomicUsize>,
     /// Page size for partial segment reads, or `None` to read whole segments.
     preferred_read_size: Option<u64>,
+    /// The reader, used directly for partial segment ranges.
+    reader: Arc<dyn VortexReadAt>,
 }
 
 impl FileSegmentSource {
@@ -333,6 +337,7 @@ impl FileSegmentSource {
         )
         .boxed();
 
+        let direct_reader: Arc<dyn VortexReadAt> = Arc::new(reader.clone());
         let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics).collect::<()>();
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
@@ -361,6 +366,7 @@ impl FileSegmentSource {
             driver_panic,
             next_id: Arc::new(AtomicUsize::new(0)),
             preferred_read_size: None,
+            reader: direct_reader,
         }
     }
 }
@@ -375,13 +381,7 @@ impl FileSegmentSource {
         self
     }
 
-    fn register(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-        coalesce_distance: Option<u64>,
-    ) -> SegmentFuture {
+    fn register(&self, offset: u64, length: usize, alignment: Alignment) -> SegmentFuture {
         let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let event = ReadEvent::Request(ReadRequest {
@@ -389,7 +389,6 @@ impl FileSegmentSource {
             offset,
             length,
             alignment,
-            coalesce_distance,
             callback: send,
         });
 
@@ -430,31 +429,121 @@ impl SegmentSource for FileSegmentSource {
         let Some(spec) = self.segments.get(*id as usize) else {
             return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
         };
-        self.register(spec.offset, spec.length as usize, spec.alignment, None)
+        self.register(spec.offset, spec.length as usize, spec.alignment)
     }
 
     fn request_range(&self, id: SegmentId, range: Range<u64>) -> SegmentFuture {
-        let Some(spec) = self.segments.get(*id as usize) else {
-            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        self.request_ranges(id, vec![range])
+            .pop()
+            .vortex_expect("one future per requested range")
+    }
+
+    /// Partial ranges bypass the coalescing driver and are read as one batch by whichever task
+    /// first polls them.
+    ///
+    /// Pages of one segment are far apart, so the driver would rarely merge them, while routing
+    /// every range through its single task serialized all reads of a scan. Reading each batch
+    /// directly lets concurrent splits read in parallel.
+    fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<u64>>) -> Vec<SegmentFuture> {
+        let fail = |error: VortexError| -> Vec<SegmentFuture> {
+            let error = Arc::new(error);
+            ranges
+                .iter()
+                .map(|_| future::ready(Err(VortexError::from(Arc::clone(&error)))).boxed())
+                .collect()
         };
-        if range.start > range.end || range.end > u64::from(spec.length) {
-            return future::ready(Err(vortex_err!(
-                "Segment {} range {}..{} is out of bounds for a {}-byte segment",
-                id,
-                range.start,
-                range.end,
-                spec.length
-            )))
-            .boxed();
+        let Some(spec) = self.segments.get(*id as usize).copied() else {
+            return fail(vortex_err!("Missing segment: {}", id));
+        };
+        let mut requests = Vec::with_capacity(ranges.len());
+        for range in &ranges {
+            if range.start > range.end || range.end > u64::from(spec.length) {
+                return fail(vortex_err!(
+                    "Segment {} range {}..{} is out of bounds for a {}-byte segment",
+                    id,
+                    range.start,
+                    range.end,
+                    spec.length
+                ));
+            }
+            // A range can start anywhere inside the segment, so callers align the bytes they
+            // materialize themselves rather than forcing a copy here.
+            requests.push(ReadAtRequest::new(
+                spec.offset + range.start,
+                (range.end - range.start) as usize,
+                Alignment::none(),
+            ));
         }
-        // A range can start anywhere inside the segment, so callers align the bytes they
-        // materialize themselves rather than forcing a copy here.
-        self.register(
-            spec.offset + range.start,
-            (range.end - range.start) as usize,
-            Alignment::none(),
-            self.preferred_read_size.map(|size| size / 4),
-        )
+        // Merge ranges whose gap is at most a quarter page into one physical read, matching the
+        // partial-read planner's cost estimate; each range is then a slice of its read.
+        let coalesce_distance = self.preferred_read_size.map_or(0, |size| size / 4);
+        let mut order = (0..requests.len()).collect::<Vec<_>>();
+        order.sort_unstable_by_key(|&index| requests[index].offset);
+        let mut physical: Vec<ReadAtRequest> = Vec::new();
+        // For each logical range: the physical read serving it and its offset within that read.
+        let mut placement = vec![(0usize, 0usize); requests.len()];
+        for index in order {
+            let request = requests[index];
+            let last = physical.len().checked_sub(1);
+            match last.filter(|&last| {
+                let read = physical[last];
+                request.offset <= read.offset + read.length as u64 + coalesce_distance
+            }) {
+                Some(last) => {
+                    let read = &mut physical[last];
+                    let end = (request.offset + request.length as u64)
+                        .max(read.offset + read.length as u64);
+                    read.length = (end - read.offset) as usize;
+                    placement[index] = (last, (request.offset - read.offset) as usize);
+                }
+                None => {
+                    placement[index] = (physical.len(), 0);
+                    physical.push(request);
+                }
+            }
+        }
+        let physical: Arc<[ReadAtRequest]> = physical.into();
+
+        let reader = Arc::clone(&self.reader);
+        let batch_requests = Arc::clone(&physical);
+        let batch = async move {
+            let mut results: Vec<Option<SharedVortexResult<BufferHandle>>> =
+                vec![None; batch_requests.len()];
+            let mut stream = reader.read_ranges(Arc::clone(&batch_requests));
+            while let Some((request, result)) = stream.next().await {
+                if let Some(slot) = batch_requests
+                    .iter()
+                    .zip(results.iter_mut())
+                    .find_map(|(r, slot)| (*r == request && slot.is_none()).then_some(slot))
+                {
+                    *slot = Some(result.map_err(Arc::new));
+                }
+            }
+            Arc::new(results)
+        }
+        .boxed()
+        .shared();
+
+        requests
+            .iter()
+            .zip(placement)
+            .map(|(request, (read, offset))| {
+                let batch = batch.clone();
+                let length = request.length;
+                async move {
+                    batch.await[read]
+                        .clone()
+                        .unwrap_or_else(|| {
+                            Err(Arc::new(vortex_err!(
+                                "FileSegmentSource: read_ranges ended before resolving a range"
+                            )))
+                        })
+                        .map(|buffer| buffer.slice(offset..offset + length))
+                        .map_err(VortexError::from)
+                }
+                .boxed()
+            })
+            .collect()
     }
 }
 
@@ -629,7 +718,6 @@ mod tests {
             offset,
             length,
             alignment: Alignment::none(),
-            coalesce_distance: None,
             callback,
         })
     }
@@ -879,6 +967,42 @@ mod tests {
                 .request_range(SegmentId::from(1), 8..17)
                 .await
                 .is_err()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn request_ranges_merges_nearby_ranges_into_one_read() -> VortexResult<()> {
+        let data = ByteBuffer::from((0u8..64).collect::<Vec<_>>());
+        let segments: Arc<[SegmentSpec]> = Arc::new([SegmentSpec {
+            offset: 16,
+            length: 48,
+            alignment: Alignment::none(),
+        }]);
+        let metrics = DefaultMetricsRegistry::default();
+        // A preferred read size of 16 lets ranges up to 4 bytes apart share one read.
+        let source = FileSegmentSource::open(
+            segments,
+            data,
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        )
+        .with_preferred_read_size(Some(16));
+
+        let reads = source.request_ranges(SegmentId::from(0), vec![8..10, 0..2, 4..6, 30..33]);
+        let results = future::try_join_all(reads).await?;
+        let results = results
+            .into_iter()
+            .map(BufferHandle::unwrap_host)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            results,
+            [
+                ByteBuffer::from(vec![24u8, 25]),
+                ByteBuffer::from(vec![16u8, 17]),
+                ByteBuffer::from(vec![20u8, 21]),
+                ByteBuffer::from(vec![46u8, 47, 48]),
+            ]
         );
         Ok(())
     }
