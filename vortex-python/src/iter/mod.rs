@@ -13,6 +13,7 @@ use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
+use arrow_schema::Schema;
 use parking_lot::Mutex;
 use pyo3::Bound;
 use pyo3::PyResult;
@@ -33,6 +34,7 @@ use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::FromPyArrow;
 use crate::arrow::IntoPyArrow;
 use crate::current_runtime;
 use crate::dtype::PyDType;
@@ -121,8 +123,19 @@ impl PyArrayIterator {
     /// Chunks are pulled on the current thread, and each chunk's conversion to Arrow runs on the
     /// Vortex runtime's worker pool, with up to one conversion in flight per core. Batches are
     /// returned in iterator order.
-    fn to_arrow(slf: Bound<Self>) -> PyVortexResult<Py<PyAny>> {
-        let schema = Arc::new(session().arrow().to_arrow_schema(slf.get().dtype())?);
+    ///
+    /// Parameters
+    /// ----------
+    /// schema : :class:`pyarrow.Schema` | None
+    ///     The Arrow schema to return. Use ``pyarrow.string()`` for ``StringArray`` fields and
+    ///     ``pyarrow.binary()`` for ``BinaryArray`` fields. Converting to these types directly
+    ///     avoids a second copy of the data when casting from the default view types.
+    #[pyo3(signature = (*, schema = None))]
+    fn to_arrow(slf: Bound<Self>, schema: Option<&Bound<PyAny>>) -> PyVortexResult<Py<PyAny>> {
+        let schema = match schema {
+            Some(schema) => Arc::new(Schema::from_pyarrow(&schema.as_borrowed())?),
+            None => Arc::new(session().arrow().to_arrow_schema(slf.get().dtype())?),
+        };
         let target = Field::new_struct("", schema.fields().clone(), false);
 
         let iter = slf.get().take().unwrap_or_else(|| {

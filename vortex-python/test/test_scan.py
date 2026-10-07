@@ -103,3 +103,10 @@ def test_to_arrow_from_python_iterator() -> None:
     chunks = [vx.array(pa.table({"index": pa.array([i, i + 1], type=pa.int64())})) for i in range(0, 20, 2)]
     reader = vx.ArrayIterator.from_iter(chunks[0].dtype, iter(chunks)).to_arrow()
     assert pa.Table.from_batches(list(reader)).column("index").to_pylist() == list(range(20))
+
+
+def test_to_arrow_with_schema(vxfile: vx.VortexFile) -> None:
+    schema = pa.schema([("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string())])
+    table = pa.Table.from_batches(list(vxfile.scan(["bool", "float", "index", "string"]).to_arrow(schema=schema)))
+    assert table.schema == schema
+    assert table.column("string").to_pylist() == [str(x) for x in range(1_000)]
