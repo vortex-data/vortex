@@ -13,10 +13,16 @@
 //! bound, so the Vortex filter only ever keeps a superset of the rows DataFusion's filter keeps.
 //! That is sufficient because the operators that produce dynamic filters still enforce their own
 //! semantics; the filter only lets the scan skip data.
+//!
+//! Filters that are already complete when the file is opened (typically hash-join filters, whose
+//! build side has finished) can never change again. Their bounds are read once and only applied
+//! when the file's statistics suggest they will skip a meaningful share of rows, because
+//! evaluating a non-selective filter costs more than it saves.
 
 use std::sync::Arc;
 
 use datafusion_expr::Operator as DFOperator;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::split_conjunction;
@@ -26,16 +32,25 @@ use vortex::dtype::DType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::binary;
 use vortex::expr::dynamic;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
+use vortex::expr::lit;
 use vortex::expr::or;
 use vortex::expr::root;
+use vortex::expr::stats::Stat;
+use vortex::file::FileStatistics;
+use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::session::VortexSession;
 
 use crate::convert::scalar_from_df;
+
+/// Complete filters are only applied when they are estimated to keep at most this fraction of a
+/// file's value range for some column.
+const MAX_KEPT_FRACTION: f64 = 0.5;
 
 const TEMPLATE_OPS: [CompareOperator; 4] = [
     CompareOperator::Lt,
@@ -59,11 +74,12 @@ pub(crate) fn as_column_dynamic_filter(
 
 /// Converts a DataFusion dynamic filter into a Vortex expression over a file with `file_fields`.
 ///
-/// Returns `None` when none of the filter's columns can be tracked, in which case the filter is
-/// simply not applied by the scan.
+/// Returns `None` when the filter is not worth applying to this file, in which case the scan
+/// simply ignores it.
 pub(crate) fn dynamic_filter_to_vortex(
     expr: &Arc<dyn PhysicalExpr>,
     file_fields: &StructFields,
+    file_stats: Option<&FileStatistics>,
     session: &VortexSession,
 ) -> Option<Expression> {
     let dynamic_filter = as_column_dynamic_filter(expr)?;
@@ -87,6 +103,13 @@ pub(crate) fn dynamic_filter_to_vortex(
         session: session.clone(),
         cache: Mutex::new(None),
     });
+
+    if matches!(
+        DynamicFilterTracking::classify(expr),
+        DynamicFilterTracking::AllComplete
+    ) {
+        return bounds.selective_static_filter(file_fields, file_stats?);
+    }
 
     let per_column = columns
         .into_iter()
@@ -132,6 +155,53 @@ struct LiveBounds {
 }
 
 impl LiveBounds {
+    /// Builds static comparisons from the filter's current bounds, keeping only columns whose
+    /// bounds are estimated to exclude a meaningful share of the file.
+    fn selective_static_filter(
+        &self,
+        file_fields: &StructFields,
+        file_stats: &FileStatistics,
+    ) -> Option<Expression> {
+        let bounds = self.extract_bounds();
+        let per_column = self
+            .columns
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, (name, dtype))| {
+                let column_bounds: Vec<_> = bounds
+                    .iter()
+                    .filter(|(c, ..)| *c == idx)
+                    .map(|(_, op, value)| {
+                        (*op, Scalar::try_new(dtype.clone(), Some(value.clone())))
+                    })
+                    .map(|(op, scalar)| Some((op, scalar.ok()?)))
+                    .collect::<Option<_>>()?;
+                if column_bounds.is_empty() {
+                    return None;
+                }
+
+                let (stats, _) = file_stats.get(file_fields.find(name)?);
+                let stat = |stat| Scalar::try_new(dtype.clone(), stats.get(stat).into_inner()).ok();
+                let kept = kept_fraction(&column_bounds, &stat(Stat::Min)?, &stat(Stat::Max)?)?;
+                if kept > MAX_KEPT_FRACTION {
+                    return None;
+                }
+
+                let lhs = get_item(name.clone(), root());
+                let comparisons = and_collect(
+                    column_bounds
+                        .into_iter()
+                        .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
+                )?;
+                Some(if dtype.is_nullable() {
+                    or(is_null(lhs), comparisons)
+                } else {
+                    comparisons
+                })
+            });
+        and_collect(per_column)
+    }
+
     fn value(&self, column: usize, op: CompareOperator) -> Option<ScalarValue> {
         let generation = self.filter.snapshot_generation();
         let mut cache = self.cache.lock();
@@ -234,6 +304,27 @@ impl LiveBounds {
     }
 }
 
+/// Estimates the fraction of the `[min, max]` range kept by `bounds`, assuming values are spread
+/// uniformly. Returns `None` for non-numeric columns.
+fn kept_fraction(bounds: &[(CompareOperator, Scalar)], min: &Scalar, max: &Scalar) -> Option<f64> {
+    let as_f64 = |s: &Scalar| s.as_primitive_opt()?.as_::<f64>();
+    let (min, max) = (as_f64(min)?, as_f64(max)?);
+    let mut lower = min;
+    let mut upper = max;
+    for (op, value) in bounds {
+        let value = as_f64(value)?;
+        match op {
+            CompareOperator::Gt | CompareOperator::Gte => lower = lower.max(value),
+            CompareOperator::Lt | CompareOperator::Lte => upper = upper.min(value),
+            CompareOperator::Eq | CompareOperator::NotEq => {}
+        }
+    }
+    if max <= min {
+        return Some(if lower <= upper { 1.0 } else { 0.0 });
+    }
+    Some(((upper - lower) / (max - min)).clamp(0.0, 1.0))
+}
+
 fn compare_op(op: &DFOperator) -> Option<CompareOperator> {
     Some(match op {
         DFOperator::Lt => CompareOperator::Lt,
@@ -262,8 +353,13 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::stats::StatsSet;
     use vortex::buffer::buffer;
     use vortex::error::VortexResult;
+    use vortex::expr::stats::Precision;
+    use vortex::expr::stats::Stat;
+    use vortex::file::FileStatistics;
+    use vortex::scalar::ScalarValue as VxScalarValue;
     use vortex::session::VortexSession;
 
     use super::dynamic_filter_to_vortex;
@@ -290,7 +386,7 @@ mod tests {
     ) -> VortexResult<()> {
         let fields = input.dtype().as_struct_fields_opt().expect("struct input");
         let converted =
-            dynamic_filter_to_vortex(filter, fields, session).expect("filter should convert");
+            dynamic_filter_to_vortex(filter, fields, None, session).expect("filter should convert");
         let actual = input.clone().apply(&converted)?;
         assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
         Ok(())
@@ -308,8 +404,8 @@ mod tests {
         ));
         let filter: PhysicalExprRef = Arc::clone(&dynamic) as _;
         let fields = input.dtype().as_struct_fields_opt().expect("struct input");
-        let converted =
-            dynamic_filter_to_vortex(&filter, fields, &session).expect("filter should convert");
+        let converted = dynamic_filter_to_vortex(&filter, fields, None, &session)
+            .expect("filter should convert");
         let mut ctx = session.create_execution_ctx();
 
         assert_arrays_eq!(
@@ -396,6 +492,61 @@ mod tests {
         assert_filter(&session, &input, &filter, expected)
     }
 
+    fn complete_filter(current: PhysicalExprRef) -> PhysicalExprRef {
+        let filter = DynamicFilterPhysicalExpr::new(vec![col_a()], current);
+        filter.mark_complete();
+        Arc::new(filter)
+    }
+
+    /// Complete filters are applied as static bounds only when they skip enough of the file.
+    #[rstest]
+    // Keeps [4, 5] of [1, 10]: applied.
+    #[case(4, 5, Some([false, true, false]))]
+    // Keeps [2, 10] of [1, 10]: not worth evaluating.
+    #[case(2, 10, None)]
+    fn complete_filter_applied_when_selective(
+        #[case] lower: i32,
+        #[case] upper: i32,
+        #[case] expected: Option<[bool; 3]>,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input =
+            StructArray::from_fields(&[("a", buffer![1i32, 5, 10].into_array())])?.into_array();
+        let stats = StatsSet::from_iter([
+            (Stat::Min, Precision::exact(VxScalarValue::from(1i32))),
+            (Stat::Max, Precision::exact(VxScalarValue::from(10i32))),
+        ]);
+        let file_stats = FileStatistics::new_with_dtype(Arc::from([stats]), input.dtype());
+        let filter = complete_filter(binary(
+            binary(col_a(), DFOperator::GtEq, lit_i32(lower)),
+            DFOperator::And,
+            binary(col_a(), DFOperator::LtEq, lit_i32(upper)),
+        ));
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+
+        let converted = dynamic_filter_to_vortex(&filter, fields, Some(&file_stats), &session);
+        match (converted, expected) {
+            (Some(converted), Some(expected)) => assert_arrays_eq!(
+                input.apply(&converted)?,
+                BoolArray::from_iter(expected),
+                &mut session.create_execution_ctx()
+            ),
+            (None, None) => {}
+            (converted, expected) => panic!("expected {expected:?}, got {converted:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn complete_filter_without_stats_is_not_converted() -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input = StructArray::from_fields(&[("a", buffer![1i32].into_array())])?.into_array();
+        let filter = complete_filter(binary(col_a(), DFOperator::Lt, lit_i32(5)));
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+        assert!(dynamic_filter_to_vortex(&filter, fields, None, &session).is_none());
+        Ok(())
+    }
+
     #[test]
     fn missing_column_is_not_converted() -> VortexResult<()> {
         let session = VortexSession::default();
@@ -405,7 +556,7 @@ mod tests {
             binary(col_a(), DFOperator::Lt, lit_i32(5)),
         ));
         let fields = input.dtype().as_struct_fields_opt().expect("struct input");
-        assert!(dynamic_filter_to_vortex(&filter, fields, &session).is_none());
+        assert!(dynamic_filter_to_vortex(&filter, fields, None, &session).is_none());
         Ok(())
     }
 }

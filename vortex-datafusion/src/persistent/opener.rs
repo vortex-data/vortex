@@ -367,11 +367,9 @@ impl FileOpener for VortexOpener {
                 .partition(|expr| as_column_dynamic_filter(expr).is_some());
             let filter = (!filter.is_empty()).then(|| conjunction(filter));
             let dynamic_filter = vxf.dtype().as_struct_fields_opt().and_then(|fields| {
-                and_collect(
-                    dynamic_filters
-                        .iter()
-                        .filter_map(|expr| dynamic_filter_to_vortex(expr, fields, &session)),
-                )
+                and_collect(dynamic_filters.iter().filter_map(|expr| {
+                    dynamic_filter_to_vortex(expr, fields, vxf.file_stats(), &session)
+                }))
             });
 
             let filter = filter
