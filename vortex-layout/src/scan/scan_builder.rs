@@ -538,6 +538,7 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
+    use crate::scan::split_by::SplitBy;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::session_with_handle;
 
@@ -810,7 +811,10 @@ mod test {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
 
-        let stream = ScanBuilder::new(session, reader).into_stream()?;
+        // One split per row, so each chunk's first value identifies its split.
+        let stream = ScanBuilder::new(session, reader)
+            .with_split_by(SplitBy::Layout)
+            .into_stream()?;
         let mut iter = runtime.block_on_stream(stream);
 
         let mut values = Vec::new();
@@ -859,6 +863,7 @@ mod test {
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
         let splits = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_split_by(SplitBy::Layout)
             .with_row_range(1..3)
             .full_file_splits()?;
 

@@ -446,9 +446,10 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
     let session = VortexSession::default();
     let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
 
-    let chunk_1_len = 2_000;
-    let chunk_2_len = 5_000;
-    let chunk_3_len = 6_000;
+    // Adjacent chunks sum past the default coalescing target, so each chunk stays its own split.
+    let chunk_1_len = 20_000;
+    let chunk_2_len = 30_000;
+    let chunk_3_len = 25_000;
     let row_count = chunk_1_len + chunk_2_len + chunk_3_len;
 
     let chunk_1 = StructArray::try_new(

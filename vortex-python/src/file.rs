@@ -235,9 +235,7 @@ impl PyVortexFile {
             builder = builder.with_limit(limit);
         }
 
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-        }
+        builder = builder.with_split_by(scan_split_by(batch_size));
 
         let schema = match schema {
             Some(schema) => schema,
@@ -310,11 +308,12 @@ fn scan_builder(
         builder = builder.with_row_indices(indices);
     }
 
-    if let Some(batch_size) = batch_size {
-        builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-    }
+    Ok(builder.with_split_by(scan_split_by(batch_size)))
+}
 
-    Ok(builder)
+/// Splits Python scans every `batch_size` rows when given, and otherwise by the default strategy.
+pub(crate) fn scan_split_by(batch_size: Option<usize>) -> SplitBy {
+    batch_size.map(SplitBy::RowCount).unwrap_or_default()
 }
 
 pub struct PyIntoProjection(Expression);

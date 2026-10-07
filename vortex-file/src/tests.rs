@@ -101,6 +101,7 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::split_by::DEFAULT_COALESCE_TARGET_ROWS;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
@@ -2653,10 +2654,10 @@ async fn test_flat_chunk_scan_with_row_count_splits(
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<()> {
+async fn test_string_chunks_coalesce_up_to_target() -> VortexResult<()> {
     // Default writing targets ~1MiB uncompressed blocks, so ~120-byte strings chunk at a few
-    // thousand rows (~8k with today's defaults). These natural boundaries sit far below the
-    // sub-split cap, and SplitBy::LayoutSubSplitting must pass them through untouched.
+    // thousand rows (~8k with today's defaults). The default split strategy merges these small
+    // chunks into splits of at most DEFAULT_COALESCE_TARGET_ROWS, still tiling the file exactly.
     let mut ctx = SESSION.create_execution_ctx();
     const N_ROWS: usize = 40_000;
     let strings = VarBinArray::from_iter(
@@ -2677,13 +2678,17 @@ async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<
     let splits = file.splits()?;
     assert!(
         splits.len() > 1,
-        "expected multiple natural chunks: {splits:?}"
+        "expected the 40k rows to need more than one split: {splits:?}"
     );
     assert!(
         splits
             .iter()
-            .all(|r| r.end - r.start < DEFAULT_MAX_SPLIT_ROWS / 4),
-        "string chunks should stay fine-grained, nowhere near the split cap: {splits:?}"
+            .all(|r| r.end - r.start <= DEFAULT_COALESCE_TARGET_ROWS),
+        "coalesced splits must stay within the target: {splits:?}"
+    );
+    assert!(
+        splits.len() < N_ROWS.div_ceil(8_192),
+        "string chunks should merge into fewer splits than chunks: {splits:?}"
     );
     assert_eq!(splits.first().map(|r| r.start), Some(0));
     assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
