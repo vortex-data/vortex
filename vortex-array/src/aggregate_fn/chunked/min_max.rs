@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::Bounded;
-
 use super::CHUNK;
 use super::ChunkAccumulator;
+use super::Extremes;
 use super::forward_fill;
 
-/// The smallest and largest valid integer.
+/// The smallest and largest valid value.
 ///
 /// Each lane keeps its own bounds, which are reduced once at the end.
 pub struct MinMax<T> {
@@ -19,18 +18,21 @@ pub struct MinMax<T> {
     any_valid: bool,
 }
 
-impl<T: Copy + Ord + Bounded> Default for MinMax<T> {
+impl<T: Extremes> Default for MinMax<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Copy + Ord + Bounded> MinMax<T> {
+/// The lanes of values wider than 64 bits. Without vector compares, more lanes only add work.
+const WIDE_LANES: usize = 1;
+
+impl<T: Extremes> MinMax<T> {
     /// Returns an accumulator that has seen no values.
     pub fn new() -> Self {
         Self {
-            min: [T::max_value(); CHUNK],
-            max: [T::min_value(); CHUNK],
+            min: [T::HIGHEST; CHUNK],
+            max: [T::LOWEST; CHUNK],
             any_valid: false,
         }
     }
@@ -38,8 +40,8 @@ impl<T: Copy + Ord + Bounded> MinMax<T> {
     /// Returns the smallest and largest valid value, or `None` if no value was valid.
     pub fn finish(&self) -> Option<(T, T)> {
         self.any_valid.then(|| {
-            let min = self.min.iter().fold(T::max_value(), |acc, &v| acc.min(v));
-            let max = self.max.iter().fold(T::min_value(), |acc, &v| acc.max(v));
+            let min = self.min.iter().fold(T::HIGHEST, |acc, &v| acc.min(v));
+            let max = self.max.iter().fold(T::LOWEST, |acc, &v| acc.max(v));
             (min, max)
         })
     }
@@ -60,8 +62,9 @@ impl<T: Copy + Ord + Bounded> MinMax<T> {
             2 => self.lanes::<CHUNK>(values),
             4 if avx2 => self.lanes::<CHUNK>(values),
             4 => self.lanes::<16>(values),
-            _ if avx2 => self.lanes::<8>(values),
-            _ => self.lanes::<4>(values),
+            8 if avx2 => self.lanes::<8>(values),
+            8 => self.lanes::<4>(values),
+            _ => self.lanes::<WIDE_LANES>(values),
         }
     }
 
@@ -84,7 +87,7 @@ impl<T: Copy + Ord + Bounded> MinMax<T> {
     }
 }
 
-impl<T: Copy + Ord + Bounded> ChunkAccumulator<T> for MinMax<T> {
+impl<T: Extremes> ChunkAccumulator<T> for MinMax<T> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn chunk(&mut self, values: &[T; CHUNK]) {

@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use super::IsSortedIteratorExt;
+use super::primitive::sorted;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::chunked::IsSorted;
 use crate::arrays::DecimalArray;
-use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 
 pub(super) fn check_decimal_sorted(
@@ -16,48 +14,17 @@ pub(super) fn check_decimal_sorted(
     strict: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    match_each_decimal_value_type!(array.values_type(), |S| {
-        compute_is_sorted::<S>(array, strict, ctx)
-    })
-}
-
-fn compute_is_sorted<T: NativeDecimalType>(
-    array: &DecimalArray,
-    strict: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<bool>
-where
-    dyn Iterator<Item = T>: IsSortedIteratorExt,
-{
-    match array
+    let validity = array
         .as_ref()
         .validity()?
-        .execute_mask(array.as_ref().len(), ctx)?
-    {
-        Mask::AllFalse(_) => Ok(!strict),
-        Mask::AllTrue(_) => {
-            let buf = array.buffer::<T>();
-            let iter = buf.iter().copied();
-
-            Ok(if strict {
-                IsSortedIteratorExt::is_strict_sorted(iter)
-            } else {
-                iter.is_sorted()
-            })
+        .execute_mask(array.as_ref().len(), ctx)?;
+    // Decimals are ordered by their storage integers.
+    Ok(match_each_decimal_value_type!(array.values_type(), |D| {
+        let values = array.buffer::<D>();
+        if strict {
+            sorted(&values, &validity, IsSorted::<D, true>::new()).finish()
+        } else {
+            sorted(&values, &validity, IsSorted::<D, false>::new()).finish()
         }
-        Mask::Values(mask_values) => {
-            let values = array.buffer::<T>();
-            let iter = mask_values
-                .bit_buffer()
-                .iter()
-                .zip_eq(values)
-                .map(|(is_valid, v)| is_valid.then_some(v));
-
-            Ok(if strict {
-                IsSortedIteratorExt::is_strict_sorted(iter)
-            } else {
-                iter.is_sorted()
-            })
-        }
-    }
+    }))
 }

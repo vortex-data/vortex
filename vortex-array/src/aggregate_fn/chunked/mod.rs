@@ -17,6 +17,7 @@
 //! let (min_max, sorted) = (acc.0.finish(), acc.1.finish());
 //! ```
 
+mod float;
 mod is_constant;
 mod is_sorted;
 mod min_max;
@@ -25,6 +26,9 @@ mod sum;
 #[cfg(test)]
 mod tests;
 
+pub use float::FloatKey;
+pub use float::FloatSum;
+pub use float::Keyed;
 pub use is_constant::IsConstant;
 pub use is_sorted::IsSorted;
 pub use min_max::MinMax;
@@ -32,6 +36,36 @@ pub(crate) use stats::compute_primitive_stats;
 pub use sum::Sum;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+
+/// A totally ordered value with a lowest and a highest value, which [`MinMax`] starts from.
+pub trait Extremes: Copy + Ord {
+    /// The lowest value.
+    const LOWEST: Self;
+    /// The highest value.
+    const HIGHEST: Self;
+}
+
+macro_rules! impl_extremes {
+    ($($T:ty),+) => {
+        $(impl Extremes for $T {
+            const LOWEST: Self = <$T>::MIN;
+            const HIGHEST: Self = <$T>::MAX;
+        })+
+    };
+}
+
+impl_extremes!(
+    u8,
+    u16,
+    u32,
+    u64,
+    i8,
+    i16,
+    i32,
+    i64,
+    i128,
+    crate::dtype::i256
+);
 
 /// The values per chunk: one validity word.
 pub const CHUNK: usize = 64;

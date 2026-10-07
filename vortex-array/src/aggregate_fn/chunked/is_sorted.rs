@@ -48,8 +48,8 @@ impl<T: Copy + Ord, const STRICT: bool> IsSorted<T, STRICT> {
 
     /// Checks a run of valid values, which follows the previous valid value.
     ///
-    /// Without 64-bit vector compares in the baseline instruction set, 64-bit values compare one
-    /// at a time and stop at the first disorder. Otherwise each chunk compares branch-free, so
+    /// Values without vector compares in the instruction set (64-bit values without AVX2, and
+    /// wider values) compare one at a time and stop at the first disorder. Otherwise each chunk compares branch-free, so
     /// that the comparison vectorizes, and the first disordered chunk stops the comparison.
     /// `size_of` and `cfg!` are constants, so the choice folds.
     #[allow(clippy::inline_always)]
@@ -59,7 +59,9 @@ impl<T: Copy + Ord, const STRICT: bool> IsSorted<T, STRICT> {
             Some(prev) => (prev, values),
             None => (values[0], &values[1..]),
         };
-        let ordered = if size_of::<T>() == 8 && !cfg!(target_feature = "avx2") {
+        // Values with vector compares in the instruction set compare a chunk at a time.
+        let vector = size_of::<T>() < 8 || (size_of::<T>() == 8 && cfg!(target_feature = "avx2"));
+        let ordered = if !vector {
             Self::ordered_scalar(prev, rest)
         } else {
             Self::ordered_chunks(prev, rest)
