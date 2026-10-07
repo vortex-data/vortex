@@ -185,8 +185,9 @@ impl ScalarFnVTable for Cast {
     ) -> VortexResult<ReduceNodeValidity<T>> {
         let input = node.child(0);
 
-        // A cast that only adds nullability, or changes nothing, cannot fail. Any other cast can
-        // reject a value or a null, so its validity requires evaluating the cast.
+        // Only a cast that keeps the type and does not remove nullability always succeeds, such as
+        // `i32` to `i32?`. Other casts can fail on a value (`300` to `i8`) or on a null (`i32?` to
+        // `i32`), so their validity requires evaluating the cast.
         if !dtype.eq_with_nullability_superset(&input.node_dtype()?) {
             return Ok(ReduceNodeValidity::Irreducible);
         }

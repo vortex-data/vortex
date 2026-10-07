@@ -37,9 +37,10 @@ use crate::scalar_fn::is_not_null_node;
 /// IsNull(x) -> if !x.nullable lit(false) else not(x.validity())
 /// IsNotNull(x) -> if !x.nullable lit(true) or x.validity()
 ///
-/// The constant drops x, so it applies only when x does not
-/// [contain a fallible computation](ReduceNode::contains_fallible). A reduced x.validity() keeps
-/// the semantic errors of x, as [`ReduceNodeValidity::Reduced`] requires.
+/// The constant never evaluates x, so it applies only when x does not
+/// [contain a fallible computation](ReduceNode::contains_fallible). Replacing the check with
+/// x.validity() is safe because a reduced validity keeps the errors of x (see
+/// [`ReduceNodeValidity::Reduced`]).
 ///
 /// In expression and array contexts for x, y where x is nullable but y is not,
 /// reduce
@@ -52,13 +53,13 @@ use crate::scalar_fn::is_not_null_node;
 /// Latter optimizations make sense because calculating IsNull(x)/IsNotNull(x)
 /// is at most expensive as calculating x, but usually much cheaper. Although
 /// in two cases you exchange 4 computations to 4 computations, the latter
-/// four are cheaper. They keep x under the new check and y as a value, so
-/// they keep the semantic errors of both.
+/// four are cheaper. These rewrites still evaluate x (inside the new null
+/// check) and y (as a value), so they raise the same errors as the original.
 pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResult<Option<T>> {
     let child = node.child(0);
     if !child.node_dtype()?.is_nullable() {
-        // `execute_if_fallible` evaluates a fallible child before the kernel reads validity, so keep
-        // the check.
+        // Keep the check for a fallible child. The kernel evaluates the child through
+        // `execute_if_fallible`, which raises its error.
         if child.contains_fallible() {
             return Ok(None);
         }
@@ -118,12 +119,13 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
 
 /// Executes the input of a null check to columnar form when evaluating it can fail.
 ///
-/// Reading validity does not evaluate values. A non-nullable dtype answers without looking at the
-/// array, and an encoding can derive validity without evaluating a child. Executing a fallible
-/// input first raises its semantic errors, and columnar form keeps a constant input constant.
+/// [`ArrayRef::validity`] does not evaluate the array. It reports "all valid" for a non-nullable
+/// dtype, and an encoding can derive validity without evaluating its children. Without this step,
+/// a null check over a failing cast returns a result instead of the cast error. Columnar form,
+/// rather than canonical form, keeps a constant input constant.
 ///
-/// The null check discards the computed values. A plan that also reads the values of the same
-/// fallible input computes them a second time, which is the accepted cost of raising its errors.
+/// The null check then discards the computed values. A plan that also reads the values of the
+/// same fallible input computes them twice. That is the accepted cost of raising its errors.
 pub(crate) fn execute_if_fallible(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -485,7 +487,7 @@ mod tests {
         IsNotNull,
     }
 
-    /// Builds the check with the array builtins, which reduce it before the kernel executes.
+    /// Runs the check through the array builtins, so the reduction rules apply before the kernel.
     fn run_null_check(
         input: &ArrayRef,
         check: NullCheck,
@@ -508,49 +510,55 @@ mod tests {
         }
     }
 
+    /// Covers the constant fold for a non-nullable input.
     fn null_into_non_nullable_cast() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(1i64), None])
             .into_array()
             .cast(PType::I64.into())
     }
 
+    /// Covers the `Cast` validity rule.
     fn nullable_out_of_range_cast() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(300i64), None])
             .into_array()
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))
     }
 
+    /// Covers the default validity rule for strict functions.
     fn nullable_overflowing_add() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(i64::MAX), None])
             .into_array()
             .binary(ConstantArray::new(1i64, 2).into_array(), Operator::Add)
     }
 
-    /// The failing cast is the non-nullable operand of a nullable comparison.
+    /// The failing cast is the non-nullable operand of a nullable comparison, which covers
+    /// `union_child_validities`.
     fn comparison_with_failing_cast() -> VortexResult<ArrayRef> {
         PrimitiveArray::from_option_iter([Some(1i64), None])
             .into_array()
             .binary(null_into_non_nullable_cast()?, Operator::Lt)
     }
 
+    /// Covers the validity of an encoding over a failing child.
     fn dictionary_of_failing_cast() -> VortexResult<ArrayRef> {
         let codes = PrimitiveArray::from_option_iter([Some(0u8), None]).into_array();
         Ok(DictArray::try_new(codes, null_into_non_nullable_cast()?)?.into_array())
     }
 
-    /// A nullable fill value keeps the result nullable, so the fill-null validity rule applies.
+    /// A nullable fill value keeps the result nullable, which covers the `FillNull` validity rule.
     fn fill_null_of_failing_cast() -> VortexResult<ArrayRef> {
         nullable_out_of_range_cast()?.fill_null(Scalar::primitive(0i8, Nullability::Nullable))
     }
 
-    /// The out-of-range value is null, so the cast succeeds.
+    /// The out-of-range value is null, so the cast succeeds and the null check must return values.
     fn successful_cast() -> VortexResult<ArrayRef> {
         PrimitiveArray::new(buffer![300i64, 1], Validity::from_iter([false, true]))
             .into_array()
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))
     }
 
-    /// The validity of a Kleene `and` over two nullable inputs is irreducible.
+    /// The validity of a Kleene `and` over two nullable inputs is irreducible, so the null check
+    /// must evaluate it and finish.
     fn kleene_and() -> VortexResult<ArrayRef> {
         let lhs = BoolArray::from_iter([Some(false), None, None, Some(true)]).into_array();
         let rhs = BoolArray::from_iter([None, Some(false), None, Some(true)]).into_array();

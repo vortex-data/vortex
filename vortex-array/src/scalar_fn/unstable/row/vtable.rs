@@ -76,7 +76,8 @@ impl<F: RowFn> ScalarFnVTable for F {
         _options: &Self::Options,
         node: &T,
     ) -> VortexResult<ReduceNodeValidity<T>> {
-        // The union of child validities drops this function, so it must not fail.
+        // `union_child_validities` reads only the inputs and never evaluates this function, so it
+        // is valid only when the function cannot fail.
         if !F::INFALLIBLE {
             return Ok(ReduceNodeValidity::Irreducible);
         }

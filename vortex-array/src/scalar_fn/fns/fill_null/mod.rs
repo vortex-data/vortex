@@ -141,7 +141,8 @@ impl ScalarFnVTable for FillNull {
         _options: &Self::Options,
         node: &T,
     ) -> VortexResult<ReduceNodeValidity<T>> {
-        // The rule below drops the input, so it applies only when evaluating the input cannot fail.
+        // The rule below reads only the fill value and never evaluates the input, so it is valid
+        // only when the input cannot fail.
         if node.child(0).contains_fallible() {
             return Ok(ReduceNodeValidity::Irreducible);
         }
