@@ -34,6 +34,8 @@ mod options;
 mod run_end_import;
 mod scalar;
 mod session;
+#[cfg(test)]
+mod tests;
 
 pub use convert::IntoVortexArray;
 pub use convert::nulls;
