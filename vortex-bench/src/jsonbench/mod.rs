@@ -7,7 +7,7 @@
 //! Every event lives in a single `data` column of the `bluesky` table. The baseline Parquet format
 //! stores it as a JSON string; `parquet-variant` and the Vortex formats store it as a shredded
 //! Variant. The queries in `sql/jsonbench.sql` address JSON paths with placeholders that
-//! [`JsonBenchBenchmark::query_for`] expands into each engine's idiom for each format.
+//! [`expand_placeholders`] expands into each engine's idiom for each format.
 
 pub mod data;
 
@@ -55,6 +55,7 @@ static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
 pub struct JsonBenchBenchmark {
     /// Number of one-million-row raw files the dataset is built from.
     n_files: usize,
+    data_dir: PathBuf,
     data_url: Url,
     /// Directory holding the downloaded raw files, shared by every scale.
     raw_dir: PathBuf,
@@ -70,15 +71,10 @@ impl JsonBenchBenchmark {
             .map_err(|_| anyhow::anyhow!("invalid data directory {}", data_dir.display()))?;
         Ok(Self {
             n_files: scale_factor,
+            data_dir,
             data_url,
             raw_dir: root.join("json"),
         })
-    }
-
-    fn base_path(&self) -> anyhow::Result<PathBuf> {
-        self.data_url
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("jsonbench data URL must be a file URL"))
     }
 
     fn raw_path(&self, file_idx: usize) -> PathBuf {
@@ -90,7 +86,7 @@ impl JsonBenchBenchmark {
     }
 
     fn shredding_schema(&self) -> anyhow::Result<ShreddingSchema> {
-        let path = self.base_path()?.join("shredding.json");
+        let path = self.data_dir.join("shredding.json");
         idempotent(&path, |tmp| {
             let schema = ShreddingSchema::infer(&self.raw_path(1))?;
             info!(
@@ -146,7 +142,7 @@ impl JsonBenchBenchmark {
 
     fn prepare_variant_parquet(&self) -> anyhow::Result<PathBuf> {
         let shredding = self.shredding_schema()?;
-        let dir = self.base_path()?.join(Format::ParquetVariant.name());
+        let dir = self.data_dir.join(Format::ParquetVariant.name());
         self.convert_files(&dir, "parquet", |raw, output| {
             write_variant_parquet(raw, output, &shredding)
         })?;
@@ -158,8 +154,8 @@ impl JsonBenchBenchmark {
             Format::VortexCompact => CompactionStrategy::Compact,
             _ => CompactionStrategy::Default,
         };
-        let variant_dir = self.prepare_variant_parquet()?;
-        let vortex_dir = self.base_path()?.join(format.name());
+        let variant_dir = tokio::task::block_in_place(|| self.prepare_variant_parquet())?;
+        let vortex_dir = self.data_dir.join(format.name());
         fs::create_dir_all(&vortex_dir)?;
         for file_idx in self.file_indices() {
             let stem = output_stem(file_idx);
@@ -171,18 +167,16 @@ impl JsonBenchBenchmark {
         }
         Ok(())
     }
+}
 
-    /// Expand `{str:path}` and `{i64:path}` placeholders into `engine`'s idiom for reading that
-    /// JSON path from `format`.
-    pub fn expand_placeholders(engine: Engine, format: Format, query: &str) -> String {
-        PLACEHOLDER
-            .replace_all(query, |caps: &Captures| {
-                let ty = &caps[1];
-                let path = &caps[2];
-                expand_path(engine, format, ty, path)
-            })
-            .into_owned()
-    }
+/// Expand `{str:path}` and `{i64:path}` placeholders into `engine`'s idiom for reading that JSON
+/// path from `format`.
+pub fn expand_placeholders(engine: Engine, format: Format, query: &str) -> String {
+    PLACEHOLDER
+        .replace_all(query, |caps: &Captures| {
+            expand_path(engine, format, &caps[1], &caps[2])
+        })
+        .into_owned()
 }
 
 /// The SQL expression reading JSON `path` as `ty` (`str` or `i64`) on `engine` from `format`.
@@ -240,7 +234,7 @@ impl Benchmark for JsonBenchBenchmark {
     }
 
     fn query_for(&self, engine: Engine, format: Format, query: &str) -> String {
-        Self::expand_placeholders(engine, format, query)
+        expand_placeholders(engine, format, query)
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {
@@ -267,7 +261,7 @@ impl Benchmark for JsonBenchBenchmark {
             .await?;
         }
 
-        let parquet_dir = self.base_path()?.join(Format::Parquet.name());
+        let parquet_dir = self.data_dir.join(Format::Parquet.name());
         tokio::task::block_in_place(|| {
             self.shredding_schema()?;
             self.convert_files(&parquet_dir, "parquet", write_json_parquet)
@@ -279,10 +273,7 @@ impl Benchmark for JsonBenchBenchmark {
             Format::ParquetVariant => {
                 tokio::task::block_in_place(|| self.prepare_variant_parquet())?;
             }
-            Format::OnDiskVortex | Format::VortexCompact => {
-                tokio::task::block_in_place(|| self.prepare_variant_parquet())?;
-                self.prepare_vortex(format).await?;
-            }
+            Format::OnDiskVortex | Format::VortexCompact => self.prepare_vortex(format).await?,
             _ => {}
         }
         Ok(())
@@ -349,9 +340,6 @@ mod tests {
         #[case] format: Format,
         #[case] expected: &str,
     ) {
-        assert_eq!(
-            JsonBenchBenchmark::expand_placeholders(engine, format, QUERY),
-            expected
-        );
+        assert_eq!(expand_placeholders(engine, format, QUERY), expected);
     }
 }

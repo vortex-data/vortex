@@ -63,7 +63,8 @@ const SHREDDING_MAX_DEPTH: usize = 6;
 /// URL of the `file_idx`-th (1-based) raw JSONBench file.
 pub fn raw_json_url(file_idx: usize) -> String {
     format!(
-        "https://clickhouse-public-datasets.s3.amazonaws.com/bluesky/file_{file_idx:04}.json.gz"
+        "https://clickhouse-public-datasets.s3.amazonaws.com/bluesky/{}",
+        raw_json_name(file_idx)
     )
 }
 
