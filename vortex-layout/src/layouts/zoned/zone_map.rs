@@ -168,9 +168,10 @@ impl ZoneMap {
     }
 }
 
-/// This is equivalent to fill_null(false)?.execute::<Mask>(ctx).
-/// However, prune work is very fast, and fill_null + optimize calls
-/// dominate the runtime.
+/// This is equivalent to `fill_null(false)?.execute::<Mask>(ctx)`.
+/// However, in the case of very frequend and very short operations the cost of
+/// filling nulls and then canonicalizing is greater than canonicalizing and
+/// then intersecting the bitbuffer.
 fn null_as_false_mask(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
     if !array.dtype().is_nullable() {
         return array.execute::<Mask>(ctx);
