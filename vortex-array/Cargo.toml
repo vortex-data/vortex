@@ -107,6 +107,10 @@ name = "aggregate_max"
 harness = false
 
 [[bench]]
+name = "between_extension"
+harness = false
+
+[[bench]]
 name = "aggregate_sum"
 harness = false
 
