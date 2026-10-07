@@ -15,7 +15,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
+use futures::stream;
+use futures::stream::FuturesUnordered;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
@@ -23,6 +26,8 @@ use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
 use crate::FILE_PREFERRED_READ_SIZE;
+use crate::ReadAtRequest;
+use crate::ReadAtStream;
 use crate::VortexReadAt;
 use crate::runtime::Handle;
 
@@ -57,6 +62,13 @@ pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<
         file_ref.read_exact(buffer)
     }
 }
+
+/// Bytes a single blocking task reads from a batch before the batch is split across more tasks.
+///
+/// Handing a read to the blocking pool costs a thread wake-up, which is far more than a small
+/// read from the page cache. Batches of small ranges therefore share one task, while large ranges
+/// still spread across threads.
+const BLOCKING_TASK_READ_BYTES: usize = 256 << 10;
 
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_CONCURRENCY: usize = 32;
@@ -140,5 +152,37 @@ impl VortexReadAt for FileReadAt {
                 .await
         }
         .boxed()
+    }
+
+    fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
+        let total_bytes: usize = requests.iter().map(|request| request.length).sum();
+        let tasks = total_bytes
+            .div_ceil(BLOCKING_TASK_READ_BYTES)
+            .clamp(1, requests.len().min(DEFAULT_CONCURRENCY));
+        let per_task = requests.len().div_ceil(tasks);
+
+        let reads = FuturesUnordered::new();
+        for start in (0..requests.len()).step_by(per_task) {
+            let end = (start + per_task).min(requests.len());
+            let requests = Arc::clone(&requests);
+            let file = Arc::clone(&self.file);
+            let allocator = self.allocator.clone();
+            reads.push(self.handle.spawn_blocking(move || {
+                requests[start..end]
+                    .iter()
+                    .map(|&request| {
+                        let mut buffer = allocator
+                            .with_capacity_aligned::<u8>(request.length, request.alignment);
+                        // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
+                        unsafe { buffer.set_len(request.length) };
+                        let result = read_exact_at(&file, buffer.as_mut_slice(), request.offset)
+                            .map(|()| BufferHandle::new_host(buffer.freeze()))
+                            .map_err(Into::into);
+                        (request, result)
+                    })
+                    .collect::<Vec<_>>()
+            }));
+        }
+        reads.flat_map(stream::iter).boxed()
     }
 }

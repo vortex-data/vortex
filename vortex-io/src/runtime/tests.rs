@@ -393,3 +393,39 @@ fn test_nested_spawns() {
         block_on(|h| h.spawn_nested(|h| async move { h.spawn(async move { 42 }).await + 10 }));
     assert_eq!(result, 52);
 }
+
+#[tokio::test]
+async fn test_file_read_ranges_batches_into_blocking_tasks() -> VortexResult<()> {
+    use std::io::Write;
+
+    use futures::StreamExt;
+
+    use crate::ReadAtRequest;
+
+    let data = (0..3 << 20).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+    let mut temp_file = NamedTempFile::new()?;
+    temp_file.write_all(&data)?;
+    temp_file.flush()?;
+    let file_read = FileReadAt::open(temp_file.path(), TokioRuntime::current())?;
+
+    // Small ranges share a blocking task; the megabyte ranges split the batch across tasks.
+    let mut requests = (0..16u64)
+        .map(|i| ReadAtRequest::new(i * 4096, 100, Alignment::none()))
+        .collect::<Vec<_>>();
+    requests.extend((0..3u64).map(|i| ReadAtRequest::new(i << 20, 1 << 20, Alignment::new(8))));
+
+    let mut results = file_read
+        .read_ranges(requests.clone().into())
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(results.len(), requests.len());
+    results.sort_by_key(|(request, _)| (request.offset, request.length));
+    requests.sort_by_key(|request| (request.offset, request.length));
+    for ((request, result), expected) in results.into_iter().zip(requests) {
+        assert_eq!(request, expected);
+        let buffer = result?.to_host().await;
+        let start = request.offset as usize;
+        assert_eq!(buffer.as_slice(), &data[start..start + request.length]);
+    }
+    Ok(())
+}
