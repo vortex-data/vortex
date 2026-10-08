@@ -18,13 +18,80 @@ use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
 
 /// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
+///
+/// Bits within the slice's whole 64-bit words are filled a word at a time, while bits in the
+/// trailing bytes that do not make up a whole word, where appends usually land, are filled a byte
+/// at a time.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 pub(crate) fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
     if start_bit >= end_bit {
         return;
     }
+    debug_assert!(end_bit <= slice.len() * 8);
 
+    let word_bits = slice.len() / 8 * 64;
+    if end_bit <= word_bits {
+        fill_word_bits(slice, start_bit, end_bit, value);
+        return;
+    }
+    if start_bit < word_bits {
+        fill_word_bits(slice, start_bit, word_bits, value);
+    }
+    fill_byte_bits(slice, start_bit.max(word_bits), end_bit, value);
+}
+
+/// Fills the non-empty bit-range `[start_bit, end_bit)`, which must lie within whole 64-bit words
+/// of `slice`. The partial words at either end get one masked read-modify-write each and the
+/// whole words between them are filled directly.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn fill_word_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
+    let words = slice.as_chunks_mut::<8>().0;
+    let (start_word, start_rem) = (start_bit / 64, start_bit % 64);
+    let (end_word, end_rem) = (end_bit / 64, end_bit % 64);
+
+    if start_word == end_word {
+        // `start_rem < end_rem` because the range is non-empty and within one word.
+        fill_word_mask(
+            &mut words[start_word],
+            low_bits(end_rem) & !low_bits(start_rem),
+            value,
+        );
+        return;
+    }
+
+    fill_word_mask(&mut words[start_word], !low_bits(start_rem), value);
+    words[start_word + 1..end_word].fill(if value { [0xFF; 8] } else { [0x00; 8] });
+    if end_rem != 0 {
+        fill_word_mask(&mut words[end_word], low_bits(end_rem), value);
+    }
+}
+
+/// A `u64` with the low `n < 64` bits set.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+const fn low_bits(n: usize) -> u64 {
+    (1u64 << n) - 1
+}
+
+/// Sets the bits of the little-endian `word` selected by `mask` to `value`.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn fill_word_mask(word: &mut [u8; 8], mask: u64, value: bool) {
+    let current = u64::from_le_bytes(*word);
+    let updated = if value {
+        current | mask
+    } else {
+        current & !mask
+    };
+    *word = updated.to_le_bytes();
+}
+
+/// Fills the non-empty bit-range `[start_bit, end_bit)` of `slice` a byte at a time.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn fill_byte_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
     let fill_byte: u8 = if value { 0xFF } else { 0x00 };
 
     let start_byte = start_bit / 8;
@@ -558,9 +625,11 @@ impl BitBufferMut {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        let start = self.len;
+        let start = self.offset + self.len;
         self.len += n;
-        self.fill_range(start, self.len, value);
+        // Appends write the trailing bytes, which rarely form whole words, so fill bytewise
+        // rather than splitting the range between the word and byte paths of `fill_bits`.
+        fill_byte_bits(self.buffer.as_mut_slice(), start, end_bit_pos, value);
     }
 
     /// Sets all bits in the range `[start, end)` to `value`.
@@ -758,9 +827,39 @@ mod tests {
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
+    use crate::bit::buf_mut::fill_bits;
     use crate::bitbuffer;
     use crate::bitbuffer_mut;
     use crate::buffer_mut;
+
+    /// Checks every range of slices that end on and off a word boundary against a bit-by-bit
+    /// fill, starting from a pattern so that bits outside the range must be preserved.
+    #[rstest]
+    fn fill_bits_matches_bitwise_fill(
+        #[values(1, 7, 8, 9, 16, 17)] slice_len: usize,
+        #[values(false, true)] value: bool,
+    ) {
+        let pattern: Vec<u8> = (0u8..)
+            .take(slice_len)
+            .map(|i| i.wrapping_mul(0x5B) ^ 0xA6)
+            .collect();
+        for start in 0..=slice_len * 8 {
+            for end in start..=slice_len * 8 {
+                let mut actual = pattern.clone();
+                fill_bits(&mut actual, start, end, value);
+
+                let mut expected = pattern.clone();
+                for bit in start..end {
+                    if value {
+                        expected[bit / 8] |= 1 << (bit % 8);
+                    } else {
+                        expected[bit / 8] &= !(1 << (bit % 8));
+                    }
+                }
+                assert_eq!(actual, expected, "range {start}..{end}");
+            }
+        }
+    }
 
     #[test]
     fn test_bits_mut() {

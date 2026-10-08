@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferMut;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -87,40 +86,22 @@ fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) 
     }
 
     let cache_slices = list_size >= MIN_CACHED_SLICES_LIST_SIZE;
-    let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));
-    let words_mut = words.as_mut_slice();
+    let mut elements = BitBufferMut::new_unset(len);
     let mut slices = Vec::new();
     for (start, end) in selection.set_slices() {
         let (start, end) = (start * list_size, end * list_size);
-        set_bit_range(words_mut, start, end);
+        // SAFETY: selected lists lie within the selection, so `start <= end <= len`.
+        unsafe { elements.fill_range_unchecked(start, end, true) };
         if cache_slices {
             slices.push((start, end));
         }
     }
 
-    let elements = BitBuffer::new(words.freeze().into_byte_buffer(), len);
+    let elements = elements.freeze();
     if cache_slices {
         Mask::from_buffer_with_slices(elements, slices)
     } else {
         Mask::from_buffer(elements)
-    }
-}
-
-/// Sets bits `start..end` of the little-endian bitmap `words`.
-fn set_bit_range(words: &mut [u64], start: usize, end: usize) {
-    debug_assert!(start < end);
-    let (start_word, start_bit) = (start / 64, start % 64);
-    let (end_word, end_bit) = (end / 64, end % 64);
-
-    if start_word == end_word {
-        words[start_word] |= (u64::MAX << start_bit) & !(u64::MAX << end_bit);
-        return;
-    }
-
-    words[start_word] |= u64::MAX << start_bit;
-    words[start_word + 1..end_word].fill(u64::MAX);
-    if end_bit != 0 {
-        words[end_word] |= !(u64::MAX << end_bit);
     }
 }
 
