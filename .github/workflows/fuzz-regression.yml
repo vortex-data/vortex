@@ -23,6 +23,7 @@ on:
       - "rust-toolchain.toml"
       - "fuzz/**"
       - ".github/actions/build-fuzzers/**"
+      - ".github/actions/setup-fuzz-linker/**"
       - ".github/actions/setup-fuzz-llvm/**"
       - ".github/actions/setup-prebuild/**"
       - ".github/actions/setup-rust/**"

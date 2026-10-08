@@ -306,6 +306,10 @@ name = "filter_fixed_width"
 harness = false
 
 [[bench]]
+name = "filter_fsl"
+harness = false
+
+[[bench]]
 name = "filter_list"
 harness = false
 

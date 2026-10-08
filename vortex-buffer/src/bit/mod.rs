@@ -16,6 +16,7 @@ mod meta;
 mod ops;
 mod pack;
 mod select;
+mod take;
 mod view;
 
 pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
@@ -29,6 +30,7 @@ pub use buf::*;
 pub use buf_mut::*;
 pub use meta::*;
 pub use pack::*;
+pub use take::*;
 pub use view::*;
 
 /// Packs up to 64 boolean values into a little-endian `u64` word.

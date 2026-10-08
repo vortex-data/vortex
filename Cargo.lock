@@ -11554,6 +11554,7 @@ dependencies = [
  "memmap2",
  "mimalloc",
  "num-traits",
+ "rand 0.10.3",
  "rstest",
  "serde",
  "simdutf8",
