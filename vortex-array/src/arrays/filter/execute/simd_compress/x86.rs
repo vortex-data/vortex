@@ -34,8 +34,7 @@ use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
 
-use vortex_mask::MaskValues;
-
+use super::super::slice::MaskBits;
 use super::super::slice::for_each_mask_word;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
@@ -47,7 +46,7 @@ use super::generic::compress_generic_16;
 ///
 /// Sparse masks stay on the scalar set-bit walk. See `benches/filter_fixed_width.rs` when
 /// changing these thresholds.
-pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
+pub(super) fn select_kernel<T, const IN_PLACE: bool>(density: f64) -> Option<Kernel> {
     let (kernel, min_density) = match size_of::<T>() {
         1 if avx512_vbmi2() => (compress_avx512_epi8::<IN_PLACE> as Kernel, 0.0),
         2 if avx512_vbmi2() => (compress_avx512_epi16::<IN_PLACE> as Kernel, 0.15),
@@ -61,7 +60,7 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
         _ => return None,
     };
 
-    (mask.density() >= min_density).then_some(kernel)
+    (density >= min_density).then_some(kernel)
 }
 
 fn avx512f() -> bool {
@@ -171,10 +170,10 @@ macro_rules! avx512_compress_kernel {
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            bits: MaskBits<'_>,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(bits, |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
@@ -413,10 +412,10 @@ macro_rules! avx2_compress_kernel {
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            bits: MaskBits<'_>,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(bits, |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)

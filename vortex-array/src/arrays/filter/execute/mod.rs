@@ -49,6 +49,7 @@ mod bitbuffer;
 mod bool;
 pub(crate) mod buffer;
 pub(crate) mod byte_compress;
+pub(crate) mod chunked;
 mod fixed_size_list;
 mod listview;
 mod simd_compress;

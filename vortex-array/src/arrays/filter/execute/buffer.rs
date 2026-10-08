@@ -83,15 +83,6 @@ fn filter_slice<T: Copy>(
     }
 }
 
-/// Returns whether filtering a buffer of `T` by the bitmap of `mask` compacts it with a SIMD
-/// kernel, which the target supports for some widths above a density that depends on the width.
-///
-/// Encodings that can filter without decompressing may prefer to decompress and filter when this
-/// holds.
-pub fn uses_simd_compress<T>(mask: &MaskValues) -> bool {
-    simd_compress::applies::<T>(mask)
-}
-
 fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize {
     if let Some(slices) = useful_cached_slices(mask) {
         return slice::filter_slice_mut_by_slices(values, slices);
@@ -110,13 +101,13 @@ fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize 
     slice::filter_slice_mut_by_bitmap(values, mask)
 }
 
-fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
+pub(super) fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
     mask.cached_slices().filter(|slices| {
         slices.len() == 1 || mask.true_count() / slices.len() >= MIN_SLICES_AVERAGE_RUN_LENGTH
     })
 }
 
-fn byte_compress_density_threshold<T>() -> f64 {
+pub(super) fn byte_compress_density_threshold<T>() -> f64 {
     let width = size_of::<T>();
 
     // A density at or above the table entry selects byte compress after the higher-priority

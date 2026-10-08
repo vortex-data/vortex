@@ -31,6 +31,8 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
+use super::slice::MaskBits;
+
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 mod generic;
 #[cfg(all(target_arch = "aarch64", not(miri)))]
@@ -42,10 +44,10 @@ mod x86;
 
 const MIN_LEN: usize = 64;
 
-const SLACK_BYTES: usize = 64;
+pub(super) const SLACK_BYTES: usize = 64;
 
 /// `dst == src` for in-place kernels.
-type Kernel = unsafe fn(*const u8, *mut u8, &MaskValues) -> usize;
+type Kernel = unsafe fn(*const u8, *mut u8, MaskBits<'_>) -> usize;
 
 /// Filter a slice with a SIMD compress kernel, if one applies.
 ///
@@ -57,7 +59,7 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
     allocator: &BufferAllocatorRef,
 ) -> Option<Buffer<T>> {
     debug_assert_eq!(values.len(), mask.len());
-    let kernel = select_kernel::<T, false>(mask)?;
+    let kernel = select_kernel::<T, false>(mask.len(), mask.density())?;
 
     let true_count = mask.true_count();
     let mut out = BufferMut::<T>::with_capacity_in(
@@ -71,7 +73,7 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
         kernel(
             values.as_ptr().cast(),
             out.spare_capacity_mut().as_mut_ptr().cast(),
-            mask,
+            MaskBits::Mask(mask),
         )
     };
     debug_assert_eq!(written, true_count);
@@ -87,39 +89,56 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
     mask: &MaskValues,
 ) -> Option<usize> {
     debug_assert_eq!(values.len(), mask.len());
-    let kernel = select_kernel::<T, true>(mask)?;
+    let kernel = select_kernel::<T, true>(mask.len(), mask.density())?;
 
     let dst = values.as_mut_ptr().cast::<u8>();
     // SAFETY: `select_kernel` probed the kernel's target features; the in-place instantiation
     // compacts forward (stores never pass the positions it has already read) and keeps partial
     // tail chunks off the full-width store path, so all accesses stay inside `values`.
-    let written = unsafe { kernel(dst.cast_const(), dst, mask) };
+    let written = unsafe { kernel(dst.cast_const(), dst, MaskBits::Mask(mask)) };
     debug_assert_eq!(written, mask.true_count());
     Some(written)
 }
 
-/// Returns whether [`filter_slice_by_bitmap`] would compact `T` values by `mask`.
-pub(super) fn applies<T>(mask: &MaskValues) -> bool {
-    select_kernel::<T, false>(mask).is_some()
+/// Compact the elements of `src` selected by `bits` to `dst` with a SIMD kernel, if one applies
+/// at `density`, and return the number of elements written.
+///
+/// Returns `None` when the caller should use a scalar strategy.
+///
+/// # Safety
+///
+/// `bits` must select only elements of `src`, and `dst` must be valid for writes of every
+/// selected element plus [`SLACK_BYTES`] and must not overlap `src`.
+#[inline]
+pub(super) unsafe fn compress_bits<T: Copy>(
+    src: &[T],
+    bits: MaskBits<'_>,
+    density: f64,
+    dst: *mut T,
+) -> Option<usize> {
+    let kernel = select_kernel::<T, false>(src.len(), density)?;
+    // SAFETY: `select_kernel` probed the kernel's target features, and the caller upholds the
+    // out-of-place pointer contract of `filter_slice_by_bitmap`.
+    Some(unsafe { kernel(src.as_ptr().cast(), dst.cast(), bits) })
 }
 
-/// Choose the widest profitable kernel available for `T`.
-fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
-    if mask.len() < MIN_LEN {
+/// Choose the widest profitable kernel available for `T` to filter `len` elements at `density`.
+fn select_kernel<T, const IN_PLACE: bool>(len: usize, density: f64) -> Option<Kernel> {
+    if len < MIN_LEN {
         return None;
     }
 
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
-        x86::select_kernel::<T, IN_PLACE>(mask)
+        x86::select_kernel::<T, IN_PLACE>(density)
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        neon::select_kernel::<T, IN_PLACE>(mask)
+        neon::select_kernel::<T, IN_PLACE>(density)
     }
     #[cfg(any(not(any(target_arch = "x86_64", target_arch = "aarch64")), miri))]
     {
-        let _ = mask;
+        let _ = density;
         None
     }
 }

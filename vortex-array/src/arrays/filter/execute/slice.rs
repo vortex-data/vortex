@@ -13,11 +13,32 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
-/// Invoke `f` with each `(word, word_start, word_len)` of the mask bitmap, where `word` holds
-/// the mask bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
+/// The mask bits that a word walker visits.
+#[derive(Clone, Copy)]
+pub(super) enum MaskBits<'a> {
+    /// The whole bitmap of a mask.
+    Mask(&'a MaskValues),
+    /// The first `len` bits of `words`, with any bits past `len` cleared.
+    Words { words: &'a [u64], len: usize },
+}
+
+/// Invoke `f` with each `(word, word_start, word_len)` of `bits`, where `word` holds the mask
+/// bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-pub(super) fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
+pub(super) fn for_each_mask_word(bits: MaskBits<'_>, mut f: impl FnMut(u64, usize, usize)) {
+    let mask = match bits {
+        MaskBits::Mask(mask) => mask,
+        MaskBits::Words { words, len } => {
+            debug_assert!(words.len() * 64 >= len);
+            for (word_idx, &word) in words.iter().enumerate() {
+                let word_start = word_idx * 64;
+                f(word, word_start, (len - word_start).min(64));
+            }
+            return;
+        }
+    };
+
     let bits = mask.bit_buffer();
     let unaligned = bits.unaligned_chunks();
     let lead = unaligned.lead_padding();
@@ -68,37 +89,60 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
 
     let output_len = mask.true_count();
     let mut out = BufferMut::<T>::with_capacity_in(output_len, allocator.clone());
-    let src_ptr = slice.as_ptr();
-    let spare = out.spare_capacity_mut();
+    // SAFETY: the mask selects only elements of `slice`, and the output was allocated for exactly
+    // `mask.true_count()` values.
+    let written = unsafe {
+        compact_by_bitmap(
+            slice,
+            MaskBits::Mask(mask),
+            out.spare_capacity_mut().as_mut_ptr().cast(),
+        )
+    };
+
+    debug_assert_eq!(written, output_len);
+    // SAFETY: every output slot was initialized exactly once above.
+    unsafe { out.set_len(output_len) };
+    out.freeze()
+}
+
+/// Copy the elements of `src` selected by `bits` to `dst` and return the number copied.
+///
+/// # Safety
+///
+/// `bits` must select only elements of `src`, and `dst` must be valid for writes of every
+/// selected element.
+#[inline]
+pub(super) unsafe fn compact_by_bitmap<T: Copy>(
+    src: &[T],
+    bits: MaskBits<'_>,
+    dst: *mut T,
+) -> usize {
+    let src_ptr = src.as_ptr();
     let mut write_pos = 0;
 
-    for_each_mask_word(mask, |word, word_start, word_len| {
+    for_each_mask_word(bits, |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {
-            spare[write_pos..][..word_len].write_copy_of_slice(&slice[word_start..][..word_len]);
+            // SAFETY: the word covers `word_len` elements of `src`, and `dst` has room for them.
+            unsafe {
+                ptr::copy_nonoverlapping(src_ptr.add(word_start), dst.add(write_pos), word_len)
+            };
             write_pos += word_len;
         } else {
             let mut selected = word;
             while selected != 0 {
                 let index = word_start + selected.trailing_zeros() as usize;
-                // SAFETY: set bits are limited to `word_len`, and the output was allocated for
-                // exactly `mask.true_count()` values.
-                unsafe {
-                    spare
-                        .get_unchecked_mut(write_pos)
-                        .write(*src_ptr.add(index));
-                }
+                // SAFETY: set bits index into `src`, and `dst` has room for every selected
+                // element.
+                unsafe { dst.add(write_pos).write(*src_ptr.add(index)) };
                 write_pos += 1;
                 selected &= selected - 1;
             }
         }
     });
 
-    debug_assert_eq!(write_pos, output_len);
-    // SAFETY: every output slot was initialized exactly once above.
-    unsafe { out.set_len(output_len) };
-    out.freeze()
+    write_pos
 }
 
 /// Filter a slice by a set of strictly increasing indices.
@@ -148,7 +192,7 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
     let ptr = slice.as_mut_ptr();
     let mut write_pos = 0;
 
-    for_each_mask_word(mask, |word, word_start, word_len| {
+    for_each_mask_word(MaskBits::Mask(mask), |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {

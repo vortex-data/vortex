@@ -9,12 +9,13 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::ChunkDecoder;
+use vortex_array::arrays::filter::FILTER_CHUNK_LEN;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::arrays::filter::uses_simd_compress;
+use vortex_array::arrays::filter::filter_chunked;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -24,33 +25,10 @@ use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitWidthsView;
 
-/// Number of values in a FastLanes chunk.
-const CHUNK_LEN: usize = 1024;
-/// Number of 64-bit mask words that cover a FastLanes chunk.
-const CHUNK_WORDS: usize = CHUNK_LEN / 64;
-/// Chunks with at most this many selected values per byte of value width unpack only those
-/// values rather than the whole chunk. Wider values make a whole chunk more expensive to unpack,
-/// so the threshold grows with the width, see [`sparse_chunk_threshold`].
-const SPARSE_VALUES_PER_BYTE: usize = 16;
-/// The largest [`sparse_chunk_threshold`], for 8-byte values.
-const MAX_SPARSE_CHUNK_THRESHOLD: usize = SPARSE_VALUES_PER_BYTE * 8;
-/// Masks at most this dense are always filtered chunk by chunk, since most chunks are skipped or
-/// only partly unpacked.
-const MAX_SPARSE_DENSITY: f64 = 0.02;
-/// Selections whose runs of selected values average at least this length are compacted by
-/// copying each run.
-const MIN_COPIED_RUN_LEN: u32 = 8;
-
 /// Kernel to execute filtering directly on a bit-packed array.
 ///
-/// The selection is applied one FastLanes chunk at a time, from the mask's cached slices if they
-/// form long runs and otherwise from its bitmap, without materializing selected indices. Chunks
-/// without selected values are never unpacked, fully selected chunks are unpacked straight into
-/// the output, sparsely selected chunks unpack only their selected values, and the remaining
-/// chunks are unpacked into a cache-resident scratch buffer and then compacted into the output.
-///
-/// Masks that the canonical filter compacts with SIMD decline the kernel unless they are very
-/// sparse or form long runs, see [`prefer_chunked_filter`].
+/// [`filter_chunked`] unpacks only the FastLanes chunks that hold selected values, and compacts
+/// each chunk while it is in cache, rather than unpack the whole array and then filter it.
 impl FilterKernel for BitPacked {
     fn filter(
         array: ArrayView<'_, Self>,
@@ -70,24 +48,9 @@ impl FilterKernel for BitPacked {
         // FastLanes only unpacks unsigned types, so filter as unsigned and reinterpret the
         // resulting buffer with the array's (possibly signed) ptype.
         let ptype = array.dtype().as_ptype();
-        if !match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
-            prefer_chunked_filter::<U>(values)
-        }) {
-            return Ok(None);
-        }
-
         let validity = array.validity()?.filter(mask)?;
         let buffer = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
-            match long_run_slices(values) {
-                Some(slices) => filter_values_by_slices::<U>(
-                    array.data(),
-                    bit_width,
-                    slices,
-                    values.true_count(),
-                ),
-                None => filter_values::<U>(array.data(), bit_width, values),
-            }
-            .into_byte_buffer()
+            filter_values::<U>(array.data(), bit_width, values).into_byte_buffer()
         });
         let primitive = PrimitiveArray::from_byte_buffer(buffer, ptype, validity);
 
@@ -104,34 +67,6 @@ impl FilterKernel for BitPacked {
     }
 }
 
-/// Returns whether to filter `T` values chunk by chunk rather than unpack the whole array and
-/// filter the unpacked values with the canonical filter.
-///
-/// Above the sparsest masks, the canonical filter's SIMD compress, where the target has one for
-/// `T`'s width and the mask's density, is faster than compacting each chunk unless the selected
-/// values form long runs. Without SIMD compress, filtering chunk by chunk is faster, because it
-/// skips unselected chunks and never materializes the whole unpacked array.
-fn prefer_chunked_filter<T>(mask: &MaskValues) -> bool {
-    long_run_slices(mask).is_some()
-        || mask.density() <= MAX_SPARSE_DENSITY
-        || !uses_simd_compress::<T>(mask)
-}
-
-/// Returns the mask's cached slices if its runs of selected values average at least
-/// [`MIN_COPIED_RUN_LEN`] values.
-///
-/// Shorter runs are filtered faster from the bitmap than by walking the slices one by one.
-fn long_run_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
-    mask.cached_slices()
-        .filter(|slices| mask.true_count() >= MIN_COPIED_RUN_LEN as usize * slices.len())
-}
-
-/// Returns the largest number of selected `T` values for which a chunk unpacks only those values
-/// rather than the whole chunk.
-const fn sparse_chunk_threshold<T>() -> usize {
-    SPARSE_VALUES_PER_BYTE * size_of::<T>()
-}
-
 /// Unpacks the values of `array` selected by `mask`, ignoring patches and validity.
 ///
 /// Because the FastLanes bit-packing kernels are only implemented for unsigned types, `T` must
@@ -141,327 +76,52 @@ fn filter_values<T: NativePType + BitPacking>(
     bit_width: u8,
     mask: &MaskValues,
 ) -> Buffer<T> {
-    let len = mask.len();
-    let offset = array.offset() as usize;
     let bit_width = bit_width as usize;
-    let packed = array.packed_slice::<T>();
-    let packed_chunk_len = 128 * bit_width / size_of::<T>();
-
-    let bits = mask.bit_buffer();
-    let bits_bytes = bits.inner().as_slice();
-
-    let true_count = mask.true_count();
-    let mut values = BufferMut::<T>::with_capacity(true_count);
-    let out = values.spare_capacity_mut().as_mut_ptr().cast::<T>();
-    let mut written = 0;
-
-    let mut unpacked = [const { MaybeUninit::<T>::uninit() }; CHUNK_LEN];
-    let mut words = [0u64; CHUNK_WORDS];
-    let mut indices = [0usize; MAX_SPARSE_CHUNK_THRESHOLD];
-    let indices = &mut indices[..sparse_chunk_threshold::<T>()];
-
-    for chunk_idx in 0..(offset + len).div_ceil(CHUNK_LEN) {
-        // The logical range `start..end` of the array that falls within this chunk, which begins
-        // at index `chunk_offset` within the chunk.
-        let chunk_start = chunk_idx * CHUNK_LEN;
-        let start = chunk_start.saturating_sub(offset);
-        let end = (chunk_start + CHUNK_LEN - offset).min(len);
-        let chunk_offset = start + offset - chunk_start;
-
-        load_chunk_words(bits_bytes, bits.offset() + start, end - start, &mut words);
-        // Classify the chunk with bitwise reductions and a bounded scan rather than a popcount,
-        // which is not a native instruction on baseline x86-64.
-        if words.iter().all(|&w| w == 0) {
-            continue;
-        }
-        let words = &words[..(end - start).div_ceil(64)];
-
-        let packed = &packed[chunk_idx * packed_chunk_len..][..packed_chunk_len];
-
-        if words.len() == CHUNK_WORDS && words.iter().all(|&w| w == u64::MAX) {
-            // SAFETY: the output has capacity for every selected value, including this chunk.
-            unsafe {
-                let dst = std::slice::from_raw_parts_mut(out.add(written), CHUNK_LEN);
-                BitPacking::unchecked_unpack(bit_width, packed, dst);
-            }
-            written += CHUNK_LEN;
-        } else if let Some(indices) = sparse_indices(words, chunk_offset, indices) {
-            // SAFETY: every index is below `CHUNK_LEN` and the output has capacity for every
-            // selected value.
-            unsafe {
-                let dst = std::slice::from_raw_parts_mut(
-                    out.add(written).cast::<MaybeUninit<T>>(),
-                    indices.len(),
-                );
-                BitPacking::unchecked_unpack_indices(bit_width, packed, indices, dst);
-            }
-            written += indices.len();
-        } else {
-            // SAFETY: `MaybeUninit<T>` has the same layout as `T`, and the unpack initializes all
-            // `CHUNK_LEN` values.
-            let unpacked = unsafe {
-                let dst = std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut unpacked);
-                BitPacking::unchecked_unpack(bit_width, packed, dst);
-                &*dst
-            };
-            for (word_idx, &word) in words.iter().enumerate() {
-                let word_offset = chunk_offset + word_idx * 64;
-                let src = &unpacked[word_offset..(word_offset + 64).min(CHUNK_LEN)];
-                // SAFETY: the output has capacity for every selected value.
-                written += unsafe { compact_word(word, src, out.add(written)) };
-            }
-        }
-    }
-
-    debug_assert_eq!(written, true_count);
-    // SAFETY: the first `true_count` output values were initialized above.
-    unsafe { values.set_len(true_count) };
-    values.freeze()
+    let chunks = PackedChunks {
+        packed: array.packed_slice::<T>(),
+        bit_width,
+        packed_chunk_len: 128 * bit_width / size_of::<T>(),
+    };
+    filter_chunked(&chunks, array.offset() as usize, mask)
 }
 
-/// Unpacks the values of `array` within the sorted, disjoint `slices`, ignoring patches and
-/// validity.
-///
-/// Walking the ranges directly avoids scanning the whole mask bitmap when the selection is
-/// already known to be grouped into runs.
-fn filter_values_by_slices<T: NativePType + BitPacking>(
-    array: &BitPackedData,
-    bit_width: u8,
-    slices: &[(usize, usize)],
-    true_count: usize,
-) -> Buffer<T> {
-    let offset = array.offset() as usize;
-    let bit_width = bit_width as usize;
-    let packed = array.packed_slice::<T>();
-    let packed_chunk_len = 128 * bit_width / size_of::<T>();
-
-    let mut values = BufferMut::<T>::with_capacity(true_count);
-    let out = values.spare_capacity_mut().as_mut_ptr().cast::<T>();
-    let mut written = 0;
-
-    let mut unpacked = [const { MaybeUninit::<T>::uninit() }; CHUNK_LEN];
-    let mut indices = [0usize; MAX_SPARSE_CHUNK_THRESHOLD];
-
-    // Slices are processed one chunk at a time. `slices[next..]` holds the slices that are not yet
-    // fully processed, and `resume` is the start of the first chunk not yet processed, from which
-    // `slices[next]` resumes if it began in an earlier chunk. Positions are relative to the start
-    // of the first chunk.
-    let mut next = 0;
-    let mut resume = 0;
-    while let Some(&(first_start, _)) = slices.get(next) {
-        let chunk_idx = (first_start + offset).max(resume) / CHUNK_LEN;
-        let chunk_start = chunk_idx * CHUNK_LEN;
-        let chunk_end = chunk_start + CHUNK_LEN;
-
-        // The in-chunk ranges selected within this chunk.
-        let runs = slices[next..]
-            .iter()
-            .map(|&(start, end)| (start + offset, end + offset))
-            .take_while(|&(start, _)| start < chunk_end)
-            .map(|(start, end)| {
-                (
-                    start.max(chunk_start) - chunk_start,
-                    end.min(chunk_end) - chunk_start,
-                )
-            });
-        let packed = &packed[chunk_idx * packed_chunk_len..][..packed_chunk_len];
-
-        let mut chunk_true_count = 0;
-        for (start, end) in runs.clone() {
-            chunk_true_count += end - start;
-        }
-
-        if chunk_true_count == CHUNK_LEN {
-            // SAFETY: the output has capacity for every selected value, including this chunk.
-            unsafe {
-                let dst = std::slice::from_raw_parts_mut(out.add(written), CHUNK_LEN);
-                BitPacking::unchecked_unpack(bit_width, packed, dst);
-            }
-        } else if chunk_true_count <= sparse_chunk_threshold::<T>() {
-            for (index, chunk_index) in indices
-                .iter_mut()
-                .zip(runs.clone().flat_map(|(start, end)| start..end))
-            {
-                *index = chunk_index;
-            }
-            // SAFETY: every index is below `CHUNK_LEN` and the output has capacity for every
-            // selected value.
-            unsafe {
-                let dst = std::slice::from_raw_parts_mut(
-                    out.add(written).cast::<MaybeUninit<T>>(),
-                    chunk_true_count,
-                );
-                BitPacking::unchecked_unpack_indices(
-                    bit_width,
-                    packed,
-                    &indices[..chunk_true_count],
-                    dst,
-                );
-            }
-        } else {
-            // SAFETY: `MaybeUninit<T>` has the same layout as `T` and the unpack initializes all
-            // `CHUNK_LEN` values.
-            let unpacked = unsafe {
-                let dst = std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut unpacked);
-                BitPacking::unchecked_unpack(bit_width, packed, dst);
-                &*dst
-            };
-            let mut chunk_written = 0;
-            for (start, end) in runs.clone() {
-                // SAFETY: the output has capacity for every selected value.
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        unpacked.as_ptr().add(start),
-                        out.add(written + chunk_written),
-                        end - start,
-                    );
-                }
-                chunk_written += end - start;
-            }
-        }
-        written += chunk_true_count;
-
-        // Skip the slices that end within this chunk; the last one may continue into the next.
-        next += slices[next..]
-            .iter()
-            .take_while(|&&(_, end)| end + offset <= chunk_end)
-            .count();
-        resume = chunk_end;
-    }
-
-    debug_assert_eq!(written, true_count);
-    // SAFETY: the first `true_count` output values were initialized above.
-    unsafe { values.set_len(true_count) };
-    values.freeze()
+/// The packed FastLanes chunks of a bit-packed array.
+struct PackedChunks<'a, T> {
+    packed: &'a [T],
+    bit_width: usize,
+    /// Number of `T` words that hold each packed chunk.
+    packed_chunk_len: usize,
 }
 
-/// Collects the in-chunk indices of the bits set in `words`, whose first bit is chunk index
-/// `chunk_offset`, or returns `None` if more bits are set than `indices` can hold.
-#[inline]
-fn sparse_indices<'a>(
-    words: &[u64],
-    chunk_offset: usize,
-    indices: &'a mut [usize],
-) -> Option<&'a [usize]> {
-    let mut n = 0;
-    for (word_idx, &word) in words.iter().enumerate() {
-        let word_offset = chunk_offset + word_idx * 64;
-        let mut word = word;
-        while word != 0 {
-            *indices.get_mut(n)? = word_offset + word.trailing_zeros() as usize;
-            n += 1;
-            word &= word - 1;
-        }
-    }
-    Some(&indices[..n])
-}
-
-/// Number of mask bytes read to assemble the words of a chunk at an arbitrary bit offset.
-const CHUNK_WORD_BYTES: usize = CHUNK_LEN / 8 + 8;
-
-/// Loads the `len <= CHUNK_LEN` mask bits starting at bit `start` of `bytes` into `words`, with
-/// any bits past `len` cleared.
-#[inline]
-fn load_chunk_words(bytes: &[u8], start: usize, len: usize, words: &mut [u64; CHUNK_WORDS]) {
-    debug_assert!(len <= CHUNK_LEN);
-    let byte_start = start / 8;
-    let shift = start % 8;
-
-    if len == CHUNK_LEN {
-        if shift == 0
-            && let Some(src) = bytes[byte_start..].first_chunk::<{ CHUNK_LEN / 8 }>()
-        {
-            for (word, src) in words.iter_mut().zip(src.as_chunks::<8>().0) {
-                *word = u64::from_le_bytes(*src);
-            }
-            return;
-        }
-        if let Some(src) = bytes[byte_start..].first_chunk::<CHUNK_WORD_BYTES>() {
-            assemble_words(src, shift, words);
-            return;
-        }
-    }
-
-    // Near the end of the bitmap, copy into a zero-padded buffer so the words can still be
-    // assembled from fixed-size reads.
-    let byte_len = (shift + len).div_ceil(8);
-    let mut buf = [0u8; CHUNK_WORD_BYTES];
-    buf[..byte_len].copy_from_slice(&bytes[byte_start..][..byte_len]);
-    assemble_words(&buf, shift, words);
-    for (i, word) in words.iter_mut().enumerate() {
-        let valid = len.saturating_sub(i * 64).min(64);
-        *word &= u64::MAX.checked_shr((64 - valid) as u32).unwrap_or(0);
+impl<T> PackedChunks<'_, T> {
+    fn chunk(&self, chunk_idx: usize) -> &[T] {
+        &self.packed[chunk_idx * self.packed_chunk_len..][..self.packed_chunk_len]
     }
 }
 
-/// Assembles 64-bit words from `src`, starting `shift < 8` bits into its first byte.
-#[inline]
-fn assemble_words(src: &[u8; CHUNK_WORD_BYTES], shift: usize, words: &mut [u64; CHUNK_WORDS]) {
-    for (i, word) in words.iter_mut().enumerate() {
-        let (lo, rest) = src[i * 8..]
-            .split_first_chunk::<8>()
-            .unwrap_or_else(|| unreachable!());
-        let lo = u64::from_le_bytes(*lo);
-        let hi = u64::from(rest[0]);
-        // Shifting `hi` in two steps keeps the shift amount below 64 when `shift == 0`.
-        *word = (lo >> shift) | ((hi << 1) << (63 - shift));
-    }
-}
-
-/// Returns the number of runs of set bits in `word`.
-#[inline]
-fn runs(word: u64) -> u32 {
-    (word & !(word << 1)).count_ones()
-}
-
-/// Copies the values of `src` whose bit is set in `word` to `dst`, returning the number copied.
-///
-/// # Safety
-///
-/// `dst` must be valid for writes of `word.count_ones()` values, and every set bit of `word` must
-/// index into `src`.
-#[inline]
-unsafe fn compact_word<T: Copy>(word: u64, src: &[T], dst: *mut T) -> usize {
-    if word == u64::MAX {
-        // SAFETY: a full word selects 64 values of `src`, all of which fit in `dst`.
-        unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), dst, 64) };
-        return 64;
-    }
-
-    let selected = word.count_ones();
-    let mut written = 0;
-    let mut word = word;
-
-    if selected >= MIN_COPIED_RUN_LEN && selected >= MIN_COPIED_RUN_LEN * runs(word) {
-        // Long runs of selected values, e.g. from a list-level selection, are copied whole.
-        while word != 0 {
-            let run_start = word.trailing_zeros();
-            let run_len = (!(word >> run_start)).trailing_zeros() as usize;
-            // SAFETY: the run lies within the selected bits of `src` and fits in `dst`.
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    src.as_ptr().add(run_start as usize),
-                    dst.add(written),
-                    run_len,
-                )
-            };
-            written += run_len;
-            // Adding the run's lowest bit carries through the run, clearing it.
-            word &= word.wrapping_add(1 << run_start);
-        }
-    } else {
-        while word != 0 {
-            // SAFETY: set bits index into `src` and `dst` has room for every selected value.
-            unsafe {
-                dst.add(written)
-                    .write(*src.get_unchecked(word.trailing_zeros() as usize));
-            }
-            written += 1;
-            word &= word - 1;
+// SAFETY: the FastLanes unpack kernels initialize every value of `dst`.
+unsafe impl<T: BitPacking> ChunkDecoder<T> for PackedChunks<'_, T> {
+    fn decode_chunk(&self, chunk_idx: usize, dst: &mut [MaybeUninit<T>; FILTER_CHUNK_LEN]) {
+        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, the unpack only writes to `dst`,
+        // and the packed chunk holds `FILTER_CHUNK_LEN` values of `bit_width` bits.
+        unsafe {
+            let dst = &mut *(dst as *mut [MaybeUninit<T>] as *mut [T]);
+            BitPacking::unchecked_unpack(self.bit_width, self.chunk(chunk_idx), dst);
         }
     }
 
-    written
+    fn decode_indices(&self, chunk_idx: usize, indices: &[usize], dst: &mut [MaybeUninit<T>]) {
+        debug_assert!(indices.iter().all(|&index| index < FILTER_CHUNK_LEN));
+        // SAFETY: every index is within the chunk, and `dst` holds one value for each index.
+        unsafe {
+            BitPacking::unchecked_unpack_indices(
+                self.bit_width,
+                self.chunk(chunk_idx),
+                indices,
+                dst,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -491,7 +151,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::filter_values;
-    use super::filter_values_by_slices;
     use crate::BitPacked;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
@@ -662,10 +321,10 @@ mod tests {
     enum Pattern {
         /// Each value is selected independently with the given probability.
         Random(f64),
-        /// Runs of 12 values every 64 values, which are compacted by copying runs.
+        /// Runs of 12 values every 64 values.
         Runs,
         /// Half of the values in the first 400 of every 1024 positions, which are too dense
-        /// within a chunk to unpack individually but sparse enough overall to filter by chunk.
+        /// within a chunk to unpack individually.
         Clustered,
         /// Everything except a single value, so most chunks are fully selected.
         AllButOne,
@@ -734,56 +393,8 @@ mod tests {
         Ok(())
     }
 
-    /// Checks both unpacking strategies directly, including on masks for which the kernel would
-    /// rather unpack the whole array.
-    #[rstest]
-    fn filter_values_matches_canonical(
-        #[values(
-            Pattern::Random(0.0005),
-            Pattern::Random(0.05),
-            Pattern::Random(0.15),
-            Pattern::Random(0.5),
-            Pattern::Random(0.95),
-            Pattern::Runs,
-            Pattern::Clustered,
-            Pattern::AllButOne
-        )]
-        pattern: Pattern,
-        #[values(0..5000, 3..5000, 1000..4099, 1024..3072)] range: Range<usize>,
-    ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let len = range.len();
-        let unpacked = PrimitiveArray::from_iter((0..7000u32).map(|i| i % 1000));
-        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 10, &mut ctx)?
-            .into_array()
-            .slice(range.clone())?;
-        let bitpacked = bitpacked.as_::<BitPacked>();
-
-        let bits = selection(pattern, len);
-        let expected: Vec<u32> = (range.start as u32..range.end as u32)
-            .zip(bits.iter())
-            .filter_map(|(i, selected)| selected.then_some(i % 1000))
-            .collect();
-
-        let Mask::Values(mask) = Mask::from_buffer(bits.clone()) else {
-            unreachable!("patterns select some but not all values")
-        };
-        assert_eq!(
-            filter_values::<u32>(bitpacked.data(), 10, &mask).as_slice(),
-            expected
-        );
-
-        let slices: Vec<_> = bits.set_slices().collect();
-        assert_eq!(
-            filter_values_by_slices::<u32>(bitpacked.data(), 10, &slices, expected.len())
-                .as_slice(),
-            expected
-        );
-        Ok(())
-    }
-
-    /// Checks both unpacking strategies for every value width, since the number of selected
-    /// values for which a chunk unpacks only those values depends on the width.
+    /// Checks every value width, since the number of selected values for which a chunk unpacks
+    /// only those values depends on the width.
     #[rstest]
     fn filter_values_matches_expected_for_every_width(
         #[values(
@@ -808,7 +419,8 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let range = 3..5000;
 
-        let unpacked = PrimitiveArray::from_iter((0..5000u32).map(|i| T::from((i % 100) as u8)));
+        let unpacked =
+            PrimitiveArray::from_iter((0..5000u32).map(|i| <T as From<u8>>::from((i % 100) as u8)));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?
             .into_array()
             .slice(range.clone())?;
@@ -817,20 +429,14 @@ mod tests {
         let bits = selection(pattern, range.len());
         let expected: Vec<T> = range
             .zip(bits.iter())
-            .filter_map(|(i, selected)| selected.then_some(T::from((i % 100) as u8)))
+            .filter_map(|(i, selected)| selected.then_some(<T as From<u8>>::from((i % 100) as u8)))
             .collect();
 
-        let Mask::Values(mask) = Mask::from_buffer(bits.clone()) else {
+        let Mask::Values(mask) = Mask::from_buffer(bits) else {
             unreachable!("patterns select some but not all values")
         };
         assert_eq!(
             filter_values::<T>(bitpacked.data(), 7, &mask).as_slice(),
-            expected
-        );
-
-        let slices: Vec<_> = bits.set_slices().collect();
-        assert_eq!(
-            filter_values_by_slices::<T>(bitpacked.data(), 7, &slices, expected.len()).as_slice(),
             expected
         );
         Ok(())
