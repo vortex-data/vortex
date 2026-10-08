@@ -16,7 +16,7 @@ use crate::plan::exec::piece::empty_piece;
 /// Passes chunk pieces through in arrival order, rebased into the concatenated row domain.
 ///
 /// Only chunks overlapping the selection's rows are spawned. A chunk whose slice of the mask is
-/// all false is never spawned; its rows are covered by an empty piece instead.
+/// all false is never spawned; each gap of unselected chunks is covered by one empty piece.
 pub(crate) struct ConcatNode {
     plan: ConcatPlan,
     selection: Selection,
@@ -43,8 +43,7 @@ impl ConcatNode {
         offsets[index]..end
     }
 
-    /// Spawns every chunk overlapping the selection's rows, and emits an empty piece for each
-    /// overlapping chunk with nothing selected.
+    /// Spawns selected chunks and emits one empty piece for each gap of unselected chunks.
     fn start(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
         let rows = self.selection.rows().clone();
         let offsets = self.plan.row_offsets();
@@ -53,6 +52,7 @@ impl ConcatNode {
             .partition_point(|&offset| offset <= rows.start)
             .saturating_sub(1);
         let end = offsets.partition_point(|&offset| offset < rows.end);
+        let mut empty_start = None;
         for index in first..end {
             let chunk = self.chunk_rows(index);
             let local = rows.start.max(chunk.start)..rows.end.min(chunk.end);
@@ -61,8 +61,11 @@ impl ConcatNode {
             }
             let mask = self.selection.slice(&local);
             if mask.all_false() {
-                cx.emit(empty_piece(self.plan.dtype(), local));
+                empty_start.get_or_insert(local.start);
                 continue;
+            }
+            if let Some(start) = empty_start.take() {
+                cx.emit(empty_piece(self.plan.dtype(), start..local.start));
             }
             let child = self.plan.child_required(index)?;
             cx.spawn(
@@ -72,6 +75,12 @@ impl ConcatNode {
                 mask,
             );
             self.open += 1;
+        }
+        if let Some(start) = empty_start {
+            cx.emit(empty_piece(
+                self.plan.dtype(),
+                start..rows.end.min(self.plan.row_count()),
+            ));
         }
         Ok(())
     }

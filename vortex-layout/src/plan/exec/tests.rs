@@ -543,6 +543,42 @@ fn unselected_chunks_are_never_read(
 }
 
 #[rstest]
+#[case::whole(0..20, &[3, 14])]
+#[case::offset(2..18, &[1, 12])]
+fn concat_coalesces_empty_gaps(
+    #[case] rows: Range<u64>,
+    #[case] indices: &[usize],
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected =
+        PrimitiveArray::from_option_iter((0..20).map(|i| (i % 3 != 0).then_some(i))).into_array();
+    let plan = lower(&store.chunked(&expected, &[1; 20])?)?;
+    let mask = Mask::from_indices((rows.end - rows.start) as usize, indices.iter().copied());
+    let run = run(
+        Executor::Nodes,
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(order),
+    )?;
+    assert_eq!(reads(&run.events), 2);
+    // Two selected chunks and three gaps, regardless of how many chunks the gaps cover.
+    assert_eq!(run.pieces.len(), 5);
+    assert_view(&expected, &rows, &mask, run.pieces)
+}
+
+#[test]
+fn join_preserves_the_only_nonempty_array() -> VortexResult<()> {
+    let values = PrimitiveArray::from_option_iter([None, Some(7_i32)]).into_array();
+    let empty = empty_piece(values.dtype(), 0..1000).array;
+    let joined = join(values.dtype(), vec![empty.clone(), values.clone(), empty])?;
+    assert!(ArrayRef::ptr_eq(&joined, &values));
+    Ok(())
+}
+
+#[rstest]
 fn nothing_selected_issues_no_io(
     #[values(Executor::Nodes, Executor::Pipelines)] executor: Executor,
 ) -> VortexResult<()> {

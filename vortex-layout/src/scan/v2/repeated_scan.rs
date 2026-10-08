@@ -41,6 +41,7 @@ use crate::plan::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ScanPlans;
+use crate::scan::planning::plan_sparse_projection;
 use crate::scan::planning::plan_split;
 use crate::scan::scan_builder;
 use crate::scan::splits::Splits;
@@ -57,10 +58,12 @@ use crate::scan::v2::pruning::file_pruning_enabled;
 use crate::scan::v2::pruning::prune_file;
 use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitPlan;
+use crate::scan::v2::splits::MAX_SPARSE_ROWS;
 use crate::scan::v2::splits::chunk_starts;
 use crate::scan::v2::splits::filter_split_boundaries;
 use crate::scan::v2::splits::layout_chunk_starts;
 use crate::scan::v2::splits::max_split_rows;
+use crate::scan::v2::splits::sparse_filter_split_boundaries;
 
 /// Computes split ranges for `builder` and returns an executable scan over `file`, the file the
 /// builder's reader was opened over.
@@ -106,20 +109,43 @@ pub(super) fn prepare_scan<A: 'static + Send>(
         decoded: DecodeCache::disabled(),
     };
 
+    let sparse_projection = builder.projection.is_root()
+        && builder.filter.is_none()
+        && matches!(&builder.selection, Selection::IncludeByIndex(indices) if indices.len() <= MAX_SPARSE_ROWS);
     let splits = match attempt_split_ranges(&builder.selection, builder.row_range.as_ref()) {
         Some(ranges) => Splits::Ranges(ranges),
-        None => Splits::Natural(
-            filter_split_boundaries(
-                &prepared.filter_starts,
-                &prepared.all_starts,
-                0..shared.root.row_count(),
-                max_split_rows(
+        None => {
+            let threads = get_available_parallelism().unwrap_or(1);
+            let boundaries = if sparse_projection
+                && builder.limit.is_none()
+                && let Selection::IncludeByIndex(indices) = &builder.selection
+            {
+                let indices = indices.as_slice();
+                let indices = match &builder.row_range {
+                    Some(range) => {
+                        let start = indices.partition_point(|row| *row < range.start);
+                        let end = indices.partition_point(|row| *row < range.end);
+                        &indices[start..end]
+                    }
+                    None => indices,
+                };
+                sparse_filter_split_boundaries(
+                    &prepared.filter_starts,
+                    &prepared.all_starts,
                     shared.root.row_count(),
-                    get_available_parallelism().unwrap_or(1),
-                ),
-            )
-            .into(),
-        ),
+                    indices,
+                    threads,
+                )
+            } else {
+                filter_split_boundaries(
+                    &prepared.filter_starts,
+                    &prepared.all_starts,
+                    0..shared.root.row_count(),
+                    max_split_rows(shared.root.row_count(), threads),
+                )
+            };
+            Splits::Natural(boundaries.into())
+        }
     };
 
     Ok(RepeatedScanV2 {
@@ -133,6 +159,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
             ))
         }),
         shared,
+        sparse_projection,
         row_range: builder.row_range,
         selection: builder.selection,
         splits,
@@ -266,6 +293,7 @@ fn join_batches(mut batches: Vec<ArrayRef>, dtype: &DType) -> VortexResult<Optio
 ///
 /// The replacement for [`RepeatedScan`](crate::scan::repeated_scan::RepeatedScan).
 pub struct RepeatedScanV2<A: 'static + Send> {
+    sparse_projection: bool,
     shared: Arc<SharedFile>,
     /// Proves rows can't match the filter from zone statistics, when the filter allows it.
     pruning: Option<PlanRef>,
@@ -505,13 +533,17 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                     rows: row_mask.row_range(),
                 };
                 splits.push(SplitPlan {
-                    root: plan_split(
-                        self.plans.clone(),
-                        pruning.clone(),
-                        self.filter.clone(),
-                        scope.clone(),
-                        mask,
-                    )?,
+                    root: if self.sparse_projection {
+                        plan_sparse_projection(self.plans.clone(), scope.clone(), mask)
+                    } else {
+                        plan_split(
+                            self.plans.clone(),
+                            pruning.clone(),
+                            self.filter.clone(),
+                            scope.clone(),
+                            mask,
+                        )?
+                    },
                     scope,
                 });
             }

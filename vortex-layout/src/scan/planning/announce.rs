@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
@@ -19,6 +20,7 @@ use vortex_scan::planning::planner::State;
 
 use crate::plan::PlanRef;
 use crate::scan::planning::FilterPlans;
+use crate::scan::planning::ProjectionPlanner;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::SelectedRows;
 use crate::scan::planning::plan_selected;
@@ -42,6 +44,7 @@ pub struct AnnouncePlanner {
 enum Continuation {
     Next(Next<SelectedRows>),
     Split(Option<PlanRef>),
+    SparseProjection { rows: Option<Range<u64>> },
 }
 
 impl AnnouncePlanner {
@@ -76,11 +79,28 @@ impl AnnouncePlanner {
         }
     }
 
+    pub(super) fn for_sparse_projection(plans: ScanPlans, selected: SelectedRows) -> Self {
+        // Input index masks retain their indices unless limited. Keep contiguous ranges on
+        // the projection path that preserves their chunk slices.
+        let has_gaps = selected
+            .mask
+            .first()
+            .zip(selected.mask.last())
+            .is_some_and(|(first, last)| last - first + 1 > selected.mask.true_count());
+        if !has_gaps {
+            return Self::for_split(plans, None, None, selected);
+        }
+        Self {
+            next: Some(Continuation::SparseProjection { rows: None }),
+            ..Self::for_split(plans, None, None, selected)
+        }
+    }
+
     fn announce(
         &self,
         selected: &SelectedRows,
         project_before_filter: bool,
-    ) -> VortexResult<IoBatch> {
+    ) -> VortexResult<(IoBatch, Option<Range<u64>>)> {
         let plans = self
             .plans
             .as_ref()
@@ -101,6 +121,7 @@ impl AnnouncePlanner {
         }
         // V1 constructs projection futures before filtering, so a shared segment read remains
         // live for each pending projection. Keep one registration per potential consumer.
+        let mut projection_rows: Option<Range<u64>> = None;
         if self.filter.is_none() || project_before_filter {
             for rows in projection_splits(&plans.projection_starts, rows.clone()) {
                 // The input selection is already known, even before predicates run. Empty chunks
@@ -110,10 +131,12 @@ impl AnnouncePlanner {
                 if selected.mask.slice(start..end).all_false() {
                     continue;
                 }
+                projection_rows.get_or_insert_with(|| rows.clone()).end = rows.end;
                 announce(&plans.projection, rows)?;
             }
         }
-        ids.into_iter()
+        let batch = ids
+            .into_iter()
             .enumerate()
             .map(|(index, id)| {
                 let location = plans
@@ -126,7 +149,8 @@ impl AnnouncePlanner {
                     target: location.target(),
                 })
             })
-            .collect()
+            .collect::<VortexResult<IoBatch>>()?;
+        Ok((batch, projection_rows))
     }
 }
 
@@ -149,10 +173,13 @@ impl Planner for AnnouncePlanner {
         });
         if !self.announced {
             self.announced = true;
-            let batch = match &self.selected {
+            let (batch, rows) = match &self.selected {
                 Some(selected) => self.announce(selected, *PROJECT_BEFORE_FILTER)?,
-                None => Vec::new(),
+                None => (Vec::new(), None),
             };
+            if let Some(Continuation::SparseProjection { rows: selected }) = &mut self.next {
+                *selected = rows;
+            }
             if !batch.is_empty() {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
@@ -170,6 +197,28 @@ impl Planner for AnnouncePlanner {
                     .ok_or_else(|| vortex_err!("AnnouncePlanner has no plans"))?;
                 plan_selected(plans, pruning, self.filter.take(), selected)?
             }
+            Some(Continuation::SparseProjection { rows }) => {
+                let mut plans = self
+                    .plans
+                    .take()
+                    .ok_or_else(|| vortex_err!("AnnouncePlanner has no plans"))?;
+                let mut selected = selected;
+                if let Some(rows) = rows {
+                    // Reuse the populated cuts found by announcements to trim empty edges,
+                    // especially when only one cut contains rows.
+                    let offset = selected.scope.rows.start;
+                    let start = usize::try_from(rows.start - offset)?;
+                    let end = usize::try_from(rows.end - offset)?;
+                    selected.mask = selected.mask.slice(start..end);
+                    selected.scope.rows = rows;
+                }
+                if selected.mask.true_count() <= selected.mask.len() / 8 {
+                    // The graph follows each column's own chunk boundaries. Keep the original
+                    // boundaries for announcements, which must still skip unselected chunks.
+                    plans.projection_starts = Default::default();
+                }
+                Box::new(ProjectionPlanner::new(plans, selected))
+            }
             None => vortex_bail!("AnnouncePlanner has no continuation"),
         };
         Ok(PlannerOutput::Planner(scope, next))
@@ -178,6 +227,7 @@ impl Planner for AnnouncePlanner {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
 
     use rstest::rstest;
@@ -198,8 +248,17 @@ mod tests {
     use crate::segments::SegmentId;
     use crate::test::new_session;
 
-    #[test]
-    fn announcements_skip_chunks_without_selected_rows() -> VortexResult<()> {
+    #[rstest]
+    #[case::default(false, &[150, 2800], None)]
+    #[case::one_cut(true, &[150], Some(vec![100..1000]))]
+    #[case::two_rows_in_one_cut(true, &[150, 160], Some(vec![100..1000]))]
+    #[case::two_cuts(true, &[150, 2800], Some(vec![100..2900]))]
+    #[case::contiguous_across_cuts(true, &[999, 1000], Some(vec![100..1000, 1000..2000]))]
+    fn announcements_skip_chunks_without_selected_rows(
+        #[case] sparse: bool,
+        #[case] indices: &[usize],
+        #[case] morsel_rows: Option<Vec<Range<u64>>>,
+    ) -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, NonNullable);
         let chunks = (0..3)
             .map(|segment| {
@@ -228,21 +287,21 @@ mod tests {
                 file_ordinal: 0,
                 rows: 100..2900,
             },
-            mask: Mask::from_iter((100..2900).map(|row| row == 150 || row == 2800)),
+            mask: Mask::from_indices(2800, indices.iter().map(|row| row - 100)),
         };
-        let mut planner = AnnouncePlanner::for_split(
-            ScanPlans {
-                session: new_session(),
-                locations: Arc::clone(&locations),
-                projection: ConcatPlan::try_new(dtype, chunks)?.into_plan(),
-                projection_starts: Arc::from([0, 1000, 2000]),
-                row_offset: 0,
-                decoded: DecodeCache::disabled(),
-            },
-            None,
-            None,
-            selected,
-        );
+        let plans = ScanPlans {
+            session: new_session(),
+            locations: Arc::clone(&locations),
+            projection: ConcatPlan::try_new(dtype, chunks)?.into_plan(),
+            projection_starts: Arc::from([0, 1000, 2000]),
+            row_offset: 0,
+            decoded: DecodeCache::disabled(),
+        };
+        let mut planner = if sparse {
+            AnnouncePlanner::for_sparse_projection(plans, selected)
+        } else {
+            AnnouncePlanner::for_split(plans, None, None, selected)
+        };
         let PlannerOutput::NeedsIO(requests) = planner.compute()? else {
             vortex_bail!("expected announcements");
         };
@@ -252,7 +311,28 @@ mod tests {
                 .all(|request| request.intent == IoIntent::Announce)
         );
         let targets: Vec<_> = requests.iter().map(|request| request.target).collect();
-        assert_eq!(targets, vec![locations[0].target(), locations[2].target()]);
+        let mut expected: Vec<_> = indices
+            .iter()
+            .map(|row| locations[row / 1000].target())
+            .collect();
+        expected.dedup();
+        assert_eq!(targets, expected);
+        if let Some(morsel_rows) = morsel_rows {
+            let PlannerOutput::Planner(_, mut projection) = planner.compute()? else {
+                vortex_bail!("expected projection planner");
+            };
+            for rows in morsel_rows {
+                let mut output = projection.compute()?;
+                if matches!(output, PlannerOutput::NeedsIO(_)) {
+                    output = projection.compute()?;
+                }
+                let PlannerOutput::Morsel(scope, _) = output else {
+                    vortex_bail!("expected a projection morsel");
+                };
+                assert_eq!(scope.rows, rows);
+            }
+            assert_eq!(projection.state(), State::Done);
+        }
         Ok(())
     }
 
@@ -309,7 +389,7 @@ mod tests {
             filter,
             selected,
         );
-        let batch = planner.announce(planner.selected.as_ref().unwrap(), early_projection)?;
+        let (batch, _) = planner.announce(planner.selected.as_ref().unwrap(), early_projection)?;
         let actual: Vec<_> = batch.iter().map(|request| request.target).collect();
         let expected: Vec<_> = expected
             .iter()

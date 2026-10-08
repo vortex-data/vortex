@@ -26,6 +26,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
@@ -54,6 +55,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
@@ -520,6 +522,69 @@ impl SegmentSource for CountedSegments {
         }
         .boxed()
     }
+}
+
+#[rstest]
+#[case::whole(None, None, &[0, 1000, 2000, 3999], 5)]
+#[case::range(Some(500..3500), None, &[1000, 2000], 3)]
+#[case::limit(None, Some(2), &[0, 1000], 3)]
+#[tokio::test]
+async fn sparse_projection_reads_each_column_chunk_once(
+    #[case] row_range: Option<Range<u64>>,
+    #[case] limit: Option<u64>,
+    #[case] expected_indices: &[usize],
+    #[case] expected_reads: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let written = Arc::new(TestSegments::default());
+    let values = PrimitiveArray::from_option_iter((0..4000_i32).map(|i| (i % 7 != 0).then_some(i)))
+        .into_array();
+    let expected =
+        StructArray::from_fields(&[("a", values.clone()), ("b", values.clone())])?.into_array();
+    let mut fields = Vec::new();
+    for chunk_rows in [1000, 4000] {
+        let (mut sequence, eof) = SequenceId::root().split();
+        let chunks = (0..4000)
+            .step_by(chunk_rows)
+            .map(|start| Ok((sequence.advance(), values.slice(start..start + chunk_rows)?)))
+            .collect::<Vec<_>>();
+        fields.push(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&written),
+                    SequentialStreamAdapter::new(values.dtype().clone(), stream::iter(chunks))
+                        .sendable(),
+                    eof,
+                    &session,
+                )
+                .await?,
+        );
+    }
+    let layout = StructLayout::new(4000, expected.dtype().clone(), fields).into_layout();
+    let reads = Arc::default();
+    let segments: Arc<dyn SegmentSource> = Arc::new(CountedSegments {
+        inner: written,
+        reads: Arc::clone(&reads),
+    });
+    let case = Case {
+        rows: Some(&[0, 1000, 2000, 3999]),
+        row_range,
+        limit,
+        ..Default::default()
+    };
+    let scan = v2::prepare(
+        builder(&session, &segments, &layout, &case)?,
+        scan_file(&segments, &layout)?,
+    )?;
+    let expected = expected.filter(Mask::from_indices(4000, expected_indices.iter().copied()))?;
+    for _ in 0..2 {
+        reads.lock().clear();
+        let actual = await_tasks(expected.dtype().clone(), scan.execute(None)?).await?;
+        assert_eq!(reads.lock().len(), expected_reads);
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    }
+    Ok(())
 }
 
 #[rstest]

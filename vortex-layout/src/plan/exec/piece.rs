@@ -61,6 +61,9 @@ pub(crate) fn empty_piece(dtype: &DType, rows: Range<u64>) -> Piece {
 
 /// Joins arrays covering consecutive rows.
 pub(crate) fn join(dtype: &DType, mut arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+    // Empty pieces establish row coverage, but carrying their arrays into nested columns would
+    // make the consumer traverse and canonicalize every skipped chunk.
+    arrays.retain(|array| !array.is_empty());
     if arrays.len() == 1 {
         return Ok(arrays.remove(0));
     }

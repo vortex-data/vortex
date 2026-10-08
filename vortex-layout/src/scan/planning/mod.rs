@@ -72,7 +72,7 @@ pub struct ScanPlans {
     pub projection: PlanRef,
     /// Where the chunks the projection reads start, over the root row domain, sorted. A split's
     /// projection is cut at each of these, so every projection split reads at most one chunk of
-    /// every column.
+    /// every column. Bounded sparse identity scans may omit these cuts after IO announcements.
     pub projection_starts: Arc<[u64]>,
     /// The global row index of the root row domain's first row.
     pub row_offset: u64,
@@ -97,6 +97,19 @@ pub fn plan_split(
         filter,
         SelectedRows { scope, mask },
     )))
+}
+
+/// Plans a bounded row-index selection with an identity projection and no filter or pruning.
+/// One graph per split avoids decoding a column again at another column's chunk boundary.
+pub(crate) fn plan_sparse_projection(
+    plans: ScanPlans,
+    scope: WorkScope,
+    mask: Mask,
+) -> Box<dyn Planner> {
+    Box::new(AnnouncePlanner::for_sparse_projection(
+        plans,
+        SelectedRows { scope, mask },
+    ))
 }
 
 /// Builds execution stages only after the announcement. Split construction and early IO

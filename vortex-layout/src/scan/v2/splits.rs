@@ -29,6 +29,9 @@ use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::Take;
 
+/// Bounds the selected output retained by a sparse projection graph.
+pub(crate) const MAX_SPARSE_ROWS: usize = 1024;
+
 /// The most rows a filter split has, which amortises a split's fixed cost over a large scan.
 const MAX_SPLIT_ROWS: u64 = 1 << 16;
 
@@ -192,6 +195,41 @@ pub(super) fn filter_split_boundaries(
     boundaries
 }
 
+/// Coarsens sparse identity scans only when their selected rows would otherwise occupy many
+/// small tasks. Keep two active splits per worker, with a minimum budget of eight, so small
+/// scans do not become one large nested assembly on machines with few workers.
+pub(super) fn sparse_filter_split_boundaries(
+    filter_starts: &[u64],
+    finer_starts: &[u64],
+    row_count: u64,
+    indices: &[u64],
+    threads: usize,
+) -> Vec<u64> {
+    let threads = threads.max(1);
+    let boundaries = filter_split_boundaries(
+        filter_starts,
+        finer_starts,
+        0..row_count,
+        max_split_rows(row_count, threads),
+    );
+    let active = indices
+        .iter()
+        .map(|row| boundaries.partition_point(|boundary| boundary <= row))
+        .dedup()
+        .count();
+    if active <= threads.saturating_mul(2).max(8) {
+        return boundaries;
+    }
+    // The minimum split length is a quarter of max_rows. Aim for roughly one task per worker;
+    // retaining chunk boundaries avoids introducing additional partial-chunk decodes.
+    filter_split_boundaries(
+        filter_starts,
+        finer_starts,
+        0..row_count,
+        row_count.div_ceil(threads as u64).saturating_mul(4),
+    )
+}
+
 /// `rows` cut at every one of `starts` inside it that is at least `min_rows` from the cut before
 /// and from `rows.end`, as every cut including `rows.start` and `rows.end`.
 fn cut_at(starts: &[u64], rows: Range<u64>, min_rows: u64) -> Vec<u64> {
@@ -228,6 +266,36 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    #[rstest]
+    #[case::few_active(8, 2, 32)]
+    #[case::two_per_worker(8, 16, 32)]
+    #[case::many_active(8, 32, 8)]
+    #[case::few_single_worker(1, 8, 32)]
+    #[case::many_single_worker(1, 32, 1)]
+    fn sparse_splits_preserve_parallelism(
+        #[case] threads: usize,
+        #[case] active: u64,
+        #[case] expected: usize,
+    ) {
+        let starts = (0..32).map(|i| i * 32_768).collect::<Vec<_>>();
+        let indices = (0..active).map(|i| i * 32_768 + 1).collect::<Vec<_>>();
+        let boundaries =
+            sparse_filter_split_boundaries(&starts, &starts, 1_048_576, &indices, threads);
+        assert_eq!(boundaries.len() - 1, expected);
+    }
+
+    #[rstest]
+    fn sparse_splits_do_not_merge_an_already_parallel_short_tail(#[values(1, 8)] threads: usize) {
+        let starts = (0..8).map(|i| i * 131_072).collect::<Vec<_>>();
+        let indices = starts.iter().map(|i| i + 1).collect::<Vec<_>>();
+        let mut expected = starts.clone();
+        expected.push(1_000_000);
+        assert_eq!(
+            sparse_filter_split_boundaries(&starts, &starts, 1_000_000, &indices, threads),
+            expected,
+        );
+    }
 
     #[rstest]
     #[case::whole_when_no_starts(&[], &[], 0..150_000, 65_536, vec![0, 150_000])]
