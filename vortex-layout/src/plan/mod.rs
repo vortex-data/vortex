@@ -9,6 +9,7 @@
 
 mod children;
 mod display;
+pub mod exec;
 mod lower;
 mod optimize;
 pub mod optimizer;
