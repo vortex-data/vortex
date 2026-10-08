@@ -75,7 +75,7 @@ fn read_to_batch(path: &Path) -> VortexResult<RecordBatch> {
 }
 
 /// Run one query with the current reader and export the result as a record batch.
-fn run_query(path: &Path, query: &Query) -> VortexResult<RecordBatch> {
+pub fn query_batch(path: &Path, query: &Query) -> VortexResult<RecordBatch> {
     let bytes = std::fs::read(path).map_err(|e| vortex_err!("read {}: {e}", path.display()))?;
     let session = VortexSession::default().with_tokio();
     let file = session.open_options().open_buffer(ByteBuffer::from(bytes))?;
@@ -282,7 +282,7 @@ pub fn check_reader(dir: &Path, arrow_dir: &Path) -> VortexResult<()> {
                     vortex_bail!("old reader produced no output for this query");
                 }
                 let current = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run_query(&dir.join(&name), query)
+                    query_batch(&dir.join(&name), query)
                 }))
                 .unwrap_or_else(|panic| {
                     let msg = panic

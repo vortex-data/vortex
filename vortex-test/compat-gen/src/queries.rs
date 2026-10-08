@@ -167,7 +167,8 @@ pub fn generate(
     let DType::Struct(fields, _) = array.dtype() else {
         return Ok(vec![]);
     };
-    let names: Vec<String> = fields.names().iter().map(|n| n.to_string()).collect();
+    // Use the raw name: `Display` for a field name escapes control characters.
+    let names: Vec<String> = fields.names().iter().map(|n| n.as_ref().to_string()).collect();
     if names.is_empty() {
         return Ok(vec![]);
     }

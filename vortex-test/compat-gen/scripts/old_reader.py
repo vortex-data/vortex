@@ -77,7 +77,8 @@ def run_query(src: pathlib.Path, dst: pathlib.Path, query: dict) -> int:
         indices = vx.array(pa.array(query["indices"], type=pa.uint64()))
         table = f.scan(projection, indices=indices).read_all().to_arrow_table()
     elif query.get("limit") is not None:
-        table = f.to_arrow(projection, limit=query["limit"]).read_all()
+        # `scan(limit=)` exists on every wheel; `to_arrow(limit=)` does not.
+        table = f.scan(projection, limit=query["limit"]).read_all().to_arrow_table()
     elif query.get("filter") is None:
         table = f.to_arrow(projection).read_all()
     else:

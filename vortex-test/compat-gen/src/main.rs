@@ -9,6 +9,7 @@ use vortex_compat::adapter;
 use vortex_compat::check;
 use vortex_compat::describe;
 use vortex_compat::generate;
+use vortex_compat::probe;
 use vortex_compat::reader_check;
 use vortex_compat::sweep;
 use vortex_error::VortexResult;
@@ -136,6 +137,18 @@ enum Commands {
         filter: Option<String>,
     },
 
+    /// Debug: evaluate one f64 comparison by pushed-down scan and by plain Rust, print both counts.
+    Probe {
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        column: String,
+        #[arg(long)]
+        op: String,
+        #[arg(long)]
+        value: f64,
+    },
+
     /// Check that an old reader decoded the fixtures in a directory to the same values as the
     /// current reader.
     ///
@@ -180,6 +193,12 @@ fn main() -> VortexResult<()> {
             sweep::sweep(&output, first_seed, seeds, max_len)
         }
         Commands::Describe { dir, filter } => describe::describe(&dir, filter.as_deref()),
+        Commands::Probe {
+            file,
+            column,
+            op,
+            value,
+        } => probe::probe(&file, &column, &op, value),
         Commands::CheckReader { dir, arrow_dir } => reader_check::check_reader(&dir, &arrow_dir),
     }
 }
