@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use rand::prelude::*;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -27,25 +28,13 @@ fn main() {
     divan::main();
 }
 
-/// A seeded xorshift generator, so that every build benchmarks the same data.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u32 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        (self.0 >> 32) as u32
-    }
-}
-
 /// Runs of up to 8 values, drawn from 1024 distinct values.
 fn values() -> Buffer<f64> {
-    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    let mut rng = StdRng::seed_from_u64(0);
     let mut values = Vec::with_capacity(LEN);
     while values.len() < LEN {
-        let value = rng.next() % 1024;
-        let run = (rng.next() % 8 + 1) as usize;
+        let value: u32 = rng.random_range(0..1024);
+        let run = rng.random_range(1..=8);
         values.extend(std::iter::repeat_n(
             f64::from(value),
             run.min(LEN - values.len()),
@@ -56,10 +45,8 @@ fn values() -> Buffer<f64> {
 
 /// One value in ten null, at random, so almost every chunk of 64 values has a null.
 fn sparse_nulls() -> Validity {
-    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
-    Validity::from(BitBuffer::from_iter(
-        (0..LEN).map(|_| !rng.next().is_multiple_of(10)),
-    ))
+    let mut rng = StdRng::seed_from_u64(1);
+    Validity::from(BitBuffer::from_iter((0..LEN).map(|_| rng.random_bool(0.9))))
 }
 
 /// Computes the statistics of a fresh array each iteration, so that the bounds cached on the array
