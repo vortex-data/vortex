@@ -189,126 +189,88 @@ impl WriteStrategyBuilder {
 
         let compressor = self.compressor;
 
-        // Experimental: repartition columns at content-defined boundaries so files written from
-        // edited versions of the same data deduplicate well on content-addressed stores. Zone
-        // maps are kept: statistics are computed over the fixed row blocks produced upstream of
-        // the CDC repartitioner, which is free to re-chunk the data child afterwards because
-        // ZonedLayout maps rows to zones by zone length alone. Only the cross-chunk dictionary
-        // layer is omitted (a chunk's bytes must depend only on the chunk's own content); the
-        // full BtrBlocks compressor, including its per-chunk dictionary schemes, still runs on
-        // every chunk.
-        if let Some(cdc_options) = self.content_defined_chunking {
-            let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
-                CompressorConfig::BtrBlocks(builder) => Arc::new(builder.clone().build()),
-                CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
-            };
-            // No BufferedStrategy here: it regroups chunks by accumulated byte counts, so an
-            // edit anywhere shifts the physical interleaving of every later segment. Keeping
-            // segment order a pure function of sequence ids keeps unchanged regions of two file
-            // versions byte-identical, at the cost of a larger reorder window while writing.
-            let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
-            let compressing = CompressingStrategy::new(chunked, data_compressor);
-            let cdc = CdcRepartitionStrategy::new(compressing, cdc_options);
-
-            let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-                CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
-                CompressorConfig::Opaque(compressor) => compressor,
-            };
-            let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
-
-            let row_block_size =
-                NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
-            let stats = ZonedStrategy::new(
-                cdc,
-                compress_then_flat.clone(),
-                ZonedLayoutOptions {
-                    block_size: row_block_size,
-                    ..Default::default()
-                },
-            );
-            // One fixed-size chunk per zone for the stats accumulator; the CDC repartitioner
-            // below re-cuts the same rows at content-defined boundaries, which is invariant to
-            // how the incoming stream is split.
-            let repartition = RepartitionStrategy::new(
-                stats,
-                RepartitionWriterOptions {
-                    block_size_minimum: 0,
-                    block_len_multiple: self.row_block_size,
-                    block_size_target: None,
-                    canonicalize: false,
-                },
-            );
-
-            let validity_strategy = CollectStrategy::new(compress_then_flat);
-            let table_strategy =
-                TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-                    .with_field_writers(self.field_writers);
-            return Arc::new(table_strategy);
-        }
-
-        // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
-        // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
-
-        // 5. compress each chunk.
-        // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
-        // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
-        // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(
-                builder
-                    .clone()
-                    .exclude_schemes([IntDictScheme.id()])
-                    .build(),
-            ),
+        // 2.1. | 3.1. compress stats tables and dict values.
+        let stats_compressor: Arc<dyn CompressorPlugin> = match &compressor {
+            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.clone().build()),
             CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
-        let compressing = CompressingStrategy::new(buffered, data_compressor);
+        let compress_then_flat =
+            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&stats_compressor));
 
-        // 4. prior to compression, coalesce up to a minimum size
-        let coalescing = RepartitionStrategy::new(
-            compressing,
-            RepartitionWriterOptions {
-                // Write stream partitions roughly become segments. Because Vortex never reads less
-                // than one segment, the size of segments and, therefore, partitions, must be small
-                // enough to both (1) allow fine-grained random access reads and (2) allow
-                // sufficient read concurrency for the desired throughput. One megabyte is small
-                // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
-                // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
-                block_len_multiple: self.row_block_size,
-                block_size_target: self.data_block_target_bytes,
-                canonicalize: true,
-            },
-        );
+        // 7. for each chunk create a flat layout
+        let chunked = ChunkedLayoutStrategy::new(flat);
 
-        // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
-            CompressorConfig::Opaque(compressor) => compressor,
-        };
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
-
-        // 3. apply dict encoding or fallback
-        let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
-            probe_compressor
+        let data: Arc<dyn LayoutStrategy> = if let Some(cdc_options) = self.content_defined_chunking
+        {
+            // Experimental: cut columns at content-defined boundaries, so files written from
+            // edited versions of the same data deduplicate well on content-addressed stores.
+            // Zone maps still apply: ZonedLayout maps rows to zones by zone length alone, so the
+            // cuts may re-chunk the fixed row blocks below, and they do not depend on how those
+            // blocks split the stream. Steps 3, 4 and 6 are left out because each couples a
+            // chunk's bytes to data outside it: the dictionary is shared across chunks, and
+            // coalescing and buffering regroup chunks by accumulated bytes, so an edit would
+            // shift everything after it. With no dictionary codes to avoid re-encoding, chunks
+            // get the full compressor, per-chunk dictionary schemes included.
+            Arc::new(CdcRepartitionStrategy::new(
+                CompressingStrategy::new(chunked, Arc::clone(&stats_compressor)),
+                cdc_options,
+            ))
         } else {
-            Arc::clone(&stats_compressor)
+            // 6. buffer chunks so they end up with closer segment ids physically
+            let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
+
+            // 5. compress each chunk.
+            // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
+            // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
+            // dictionary-encode the integer codes produced by that earlier step.
+            let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
+                CompressorConfig::BtrBlocks(builder) => Arc::new(
+                    builder
+                        .clone()
+                        .exclude_schemes([IntDictScheme.id()])
+                        .build(),
+                ),
+                CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
+            };
+            let compressing = CompressingStrategy::new(buffered, data_compressor);
+
+            // 4. prior to compression, coalesce up to a minimum size
+            let coalescing = RepartitionStrategy::new(
+                compressing,
+                RepartitionWriterOptions {
+                    // Write stream partitions roughly become segments. Because Vortex never reads
+                    // less than one segment, the size of segments and, therefore, partitions, must
+                    // be small enough to both (1) allow fine-grained random access reads and (2)
+                    // allow sufficient read concurrency for the desired throughput. One megabyte is
+                    // small enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object
+                    // Storage for High-Performance Analytics", VLDB Vol 16, Iss 11).
+                    block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: self.data_block_target_bytes,
+                    canonicalize: true,
+                },
+            );
+
+            // 3. apply dict encoding or fallback
+            let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
+                probe_compressor
+            } else {
+                Arc::clone(&stats_compressor)
+            };
+            Arc::new(DictStrategy::new(
+                coalescing.clone(),
+                compress_then_flat.clone(),
+                coalescing,
+                Default::default(),
+                probe_compressor,
+            ))
         };
-        let dict = DictStrategy::new(
-            coalescing.clone(),
-            compress_then_flat.clone(),
-            coalescing,
-            Default::default(),
-            probe_compressor,
-        );
 
         let row_block_size = NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
 
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(
-            dict,
+            data,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: row_block_size,
