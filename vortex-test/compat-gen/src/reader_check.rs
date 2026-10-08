@@ -32,12 +32,29 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use tokio::runtime::Runtime;
+use vortex::VortexSessionDefault;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::expr::root;
+use vortex_array::expr::select;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
+
 use crate::adapter;
+use crate::queries;
+use crate::queries::Query;
+use crate::queries::QueryFile;
 
 #[derive(Serialize)]
 struct CheckResult {
     passed: Vec<String>,
     failed: Vec<FailedFixture>,
+    queries_passed: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +69,33 @@ fn read_to_batch(path: &Path) -> VortexResult<RecordBatch> {
     let bytes = std::fs::read(path).map_err(|e| vortex_err!("read {}: {e}", path.display()))?;
     let array = adapter::read_file(ByteBuffer::from(bytes))?;
     let session = array_session();
+    let mut ctx = session.create_execution_ctx();
+    let arrow = session.arrow().execute_arrow(array, None, &mut ctx)?;
+    to_batch(arrow)
+}
+
+/// Run one query with the current reader and export the result as a record batch.
+fn run_query(path: &Path, query: &Query) -> VortexResult<RecordBatch> {
+    let bytes = std::fs::read(path).map_err(|e| vortex_err!("read {}: {e}", path.display()))?;
+    let session = VortexSession::default().with_tokio();
+    let file = session.open_options().open_buffer(ByteBuffer::from(bytes))?;
+    let dtype = file.dtype().clone();
+    let mut scan = file.scan()?;
+    if let Some(filter) = &query.filter {
+        scan = scan.with_filter(queries::filter_expression(filter)?.bind(&dtype)?);
+    }
+    if let Some(projection) = &query.projection {
+        let names = FieldNames::from_iter(projection.iter().map(|n| FieldName::from(n.as_str())));
+        scan = scan.with_projection(select(names, root()).bind(&dtype)?);
+    }
+    if let Some(indices) = &query.indices {
+        scan = scan.with_row_indices(StrictSortedBuffer::try_new(Buffer::from(indices.clone()))?);
+    }
+    if let Some(limit) = query.limit {
+        scan = scan.with_limit(limit);
+    }
+    let runtime = Runtime::new().map_err(|e| vortex_err!("failed to create tokio runtime: {e}"))?;
+    let array = runtime.block_on(scan.into_array_stream()?.read_all())?;
     let mut ctx = session.create_execution_ctx();
     let arrow = session.arrow().execute_arrow(array, None, &mut ctx)?;
     to_batch(arrow)
@@ -174,6 +218,14 @@ pub fn check_reader(dir: &Path, arrow_dir: &Path) -> VortexResult<()> {
     let mut result = CheckResult {
         passed: Vec::new(),
         failed: Vec::new(),
+        queries_passed: Vec::new(),
+    };
+    let queries_path = dir.join(queries::QUERIES_FILE);
+    let queries: QueryFile = if queries_path.exists() {
+        let text = std::fs::read_to_string(&queries_path).map_err(|e| vortex_err!("{e}"))?;
+        serde_json::from_str(&text).map_err(|e| vortex_err!("bad {}: {e}", queries::QUERIES_FILE))?
+    } else {
+        QueryFile::new()
     };
 
     for name in names {
@@ -206,14 +258,53 @@ pub fn check_reader(dir: &Path, arrow_dir: &Path) -> VortexResult<()> {
         match outcome {
             Ok(()) => {
                 eprintln!("  pass {name}");
-                result.passed.push(name);
+                result.passed.push(name.clone());
             }
             Err(e) => {
                 eprintln!("  FAIL {name}: {e}");
                 result.failed.push(FailedFixture {
-                    name,
+                    name: name.clone(),
                     error: e.to_string(),
                 });
+            }
+        }
+
+        for query in queries.get(&name).map(Vec::as_slice).unwrap_or_default() {
+            let label = format!("{name}#q{}", query.id);
+            let outcome = (|| -> VortexResult<()> {
+                let error_path = arrow_dir.join(format!("{name}.q{}.error", query.id));
+                if error_path.exists() {
+                    let msg = std::fs::read_to_string(&error_path).map_err(|e| vortex_err!("{e}"))?;
+                    vortex_bail!("old reader failed the query: {msg}");
+                }
+                let arrow_path = arrow_dir.join(format!("{name}.q{}.arrow", query.id));
+                if !arrow_path.exists() {
+                    vortex_bail!("old reader produced no output for this query");
+                }
+                let current = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_query(&dir.join(&name), query)
+                }))
+                .unwrap_or_else(|panic| {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "unknown panic".to_string());
+                    Err(vortex_err!("current reader panicked: {msg}"))
+                })?;
+                let old = read_ipc(&arrow_path)?;
+                compare(&current, &old)
+            })();
+            match outcome {
+                Ok(()) => result.queries_passed.push(label),
+                Err(e) => {
+                    let detail = serde_json::to_string(query).unwrap_or_default();
+                    eprintln!("  FAIL {label}: {e}  query={detail}");
+                    result.failed.push(FailedFixture {
+                        name: label,
+                        error: format!("{e}  query={detail}"),
+                    });
+                }
             }
         }
     }
@@ -222,9 +313,10 @@ pub fn check_reader(dir: &Path, arrow_dir: &Path) -> VortexResult<()> {
         .map_err(|e| vortex_err!("failed to serialize result: {e}"))?;
     println!("{json}");
     eprintln!(
-        "\nresult: {} passed, {} failed",
+        "\nresult: {} passed, {} failed, {} queries passed",
         result.passed.len(),
-        result.failed.len()
+        result.failed.len(),
+        result.queries_passed.len()
     );
     if !result.failed.is_empty() {
         vortex_bail!("{} fixture(s) failed on the old reader", result.failed.len());
