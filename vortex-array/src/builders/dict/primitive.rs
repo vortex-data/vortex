@@ -101,8 +101,7 @@ where
         match self.lookup.entry(NativeValue(v)) {
             Entry::Occupied(o) => Some(*o.get()),
             Entry::Vacant(vac) => {
-                // Always admit the first entry so an empty dictionary always makes progress;
-                // otherwise the caller retries a chunk it encoded 0 rows of forever.
+                // Admit the first entry even if it exceeds the budget, so the caller makes progress.
                 if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
                     return None;
                 }
@@ -123,7 +122,6 @@ where
             return Some(*code);
         }
 
-        // Always admit the first entry so an empty dictionary always makes progress.
         if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
             return None;
         }
