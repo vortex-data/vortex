@@ -271,13 +271,7 @@ impl Array<Dict> {
         let len = codes.len();
         let data =
             unsafe { DictData::new_unchecked().set_all_values_referenced(all_values_referenced) };
-        ArrayParts::new(
-            Dict,
-            dtype,
-            len,
-            data,
-            smallvec![Some(codes), Some(values)],
-        )
+        ArrayParts::new(Dict, dtype, len, data, smallvec![Some(codes), Some(values)])
     }
 
     /// Build a new `DictArray` without validating the codes or values.
