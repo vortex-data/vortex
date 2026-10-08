@@ -84,3 +84,21 @@ def test_polars_time_literals(tmp_path):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == [1, 3]
+
+
+def test_polars_conditional(tmp_path):
+    frame = pl.DataFrame(
+        {
+            "id": [0, 1, 2, 3],
+            "p": [True, False, None, False],
+            "x": [1, 2, 3, 4],
+            "y": [4, 5, 6, None],
+        }
+    )
+    expr = pl.when(pl.col("p")).then(pl.col("x")).otherwise(pl.col("y")) >= 5
+    path = tmp_path / "conditional.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1, 2]

@@ -65,6 +65,9 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
         return cast(ve.Expr, _OPS[op](lhs, rhs))
 
+    if "Ternary" in expr:
+        node = expr["Ternary"]
+        return ve.zip_(*[_polars_to_vortex(node[k]) for k in ("predicate", "truthy", "falsy")])
     if "Column" in expr:
         return ve.column(expr["Column"])
 
