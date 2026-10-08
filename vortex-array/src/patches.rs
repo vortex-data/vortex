@@ -378,6 +378,13 @@ impl Patches {
         &self.chunk_offsets
     }
 
+    /// Whether [`Self::slice`] only binary-searches host-resident primitive indices, so a reduce
+    /// rule can slice the patches without decoding or fetching any buffer.
+    pub fn is_cheap_to_slice(&self) -> bool {
+        let cheap = |array: &ArrayRef| array.is::<Primitive>() && array.is_host();
+        cheap(&self.indices) && self.chunk_offsets.as_ref().is_none_or(cheap)
+    }
+
     #[inline]
     #[allow(clippy::disallowed_methods)]
     pub fn chunk_offset_at(&self, idx: usize) -> VortexResult<usize> {

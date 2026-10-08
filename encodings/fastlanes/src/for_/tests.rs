@@ -262,8 +262,8 @@ fn fused_decode_sliced(
     let (array, expected) = fused(bit_width, signed)?;
     let sliced = array.into_array().slice(start..end)?;
     let sliced_for = sliced.as_::<FoR>();
-    // A BitPacked child with patches slices lazily, which takes the unfused path.
-    assert_eq!(sliced_for.encoded().is::<BitPacked>(), bit_width == 3);
+    // Host-resident patches are sliced along with the packed buffer.
+    assert!(sliced_for.encoded().is::<BitPacked>());
     assert_eq!(usize::from(sliced_for.offset()), start % FL_CHUNK_SIZE);
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
     Ok(())

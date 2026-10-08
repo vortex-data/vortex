@@ -8,6 +8,7 @@ use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -35,4 +36,5 @@ pub(super) const RULES: ParentRuleSet<ALP> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BetweenReduceAdaptor(ALP)),
     ParentRuleSet::lift(&CastReduceAdaptor(ALP)),
     ParentRuleSet::lift(&MaskReduceAdaptor(ALP)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ALP)),
 ]);

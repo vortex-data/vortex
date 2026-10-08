@@ -22,12 +22,14 @@ impl SliceReduce for BitPacked {
         let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
-        // We cannot access buffers (to slice the patches).
-        if array.patches().is_some() {
-            return Ok(None);
-        }
+        let patches = match array.patches() {
+            None => None,
+            Some(patches) if patches.is_cheap_to_slice() => patches.slice(range.clone())?,
+            // Slicing these patches would read their buffers.
+            Some(_) => return Ok(None),
+        };
 
-        Ok(Some(slice_bitpacked(array, bit_width, range, None)?))
+        Ok(Some(slice_bitpacked(array, bit_width, range, patches)?))
     }
 }
 
@@ -84,9 +86,11 @@ mod tests {
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
 
     use crate::BitPacked;
+    use crate::BitPackedArrayExt;
     use crate::bitpack_compress::bitpack_encode;
 
     #[test]
@@ -107,6 +111,22 @@ mod tests {
         assert_eq!(reduced_bp.offset(), 500);
         assert_eq!(reduced.len(), 1000);
 
+        Ok(())
+    }
+
+    #[test]
+    fn slice_reduces_with_host_patches() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = PrimitiveArray::from_iter(
+            (0u32..4096).map(|i| if i % 91 == 0 { 100_000 + i } else { i % 100 }),
+        );
+        let bitpacked = bitpack_encode(&values, 7, None, &mut ctx)?;
+        assert!(bitpacked.patches().is_some(), "test setup expects patches");
+
+        let sliced = bitpacked.into_array().slice(700..3500)?;
+
+        assert!(sliced.is::<BitPacked>());
+        assert_arrays_eq!(sliced, values.into_array().slice(700..3500)?, &mut ctx);
         Ok(())
     }
 }

@@ -287,9 +287,7 @@ mod tests {
         assert!(packed.patches().is_some(), "test setup expects patches");
 
         let (start, end) = (700usize, 3500usize);
-        // `ArrayRef::slice` leaves a lazy `SliceArray` over a patched `BitPacked` (the
-        // `SliceReduce` path bails when patches are present), so go through the `SliceKernel`,
-        // which reads the buffers and produces a sliced `BitPacked` with sliced patches.
+        // Go through the `SliceKernel`, which produces a sliced `BitPacked` with sliced patches.
         let sliced = <BitPacked as SliceKernel>::slice(packed.as_view(), start..end, &mut ctx)?
             .expect("slice kernel produces a sliced bitpacked array");
         let rhs = ConstantArray::new(50i32, end - start).into_array();
