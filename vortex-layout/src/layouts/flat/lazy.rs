@@ -339,6 +339,7 @@ impl LazyRead<'_> {
             runs = runs.len(),
             eager_bytes,
             lazy_bytes,
+            needed_bytes = eager_bytes + mask.true_count() * lazy_total / self.row_count.max(1),
             segment_len = self.segment_len,
             "Flat lazy read registered"
         );

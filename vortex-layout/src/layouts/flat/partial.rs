@@ -240,6 +240,15 @@ impl PartialReadPlan {
                 .saturating_sub(1)
                 .checked_mul(preferred_read_size)?,
         )?;
+        // The bytes the selected rows occupy, before rounding to pages and adding whole buffers:
+        // a lower bound for what a read must fetch.
+        let needed_bytes = mask.true_count().saturating_mul(self.bytes_per_row)
+            + match &self.kind {
+                PartialReadKind::Alprd(plan) => {
+                    plan.patch_buffers.iter().map(|b| b.range().len()).sum()
+                }
+                PartialReadKind::Fixed(_) => 0,
+            };
         if partial_cost.saturating_mul(min_saving_factor) > segment_len {
             tracing::trace!(
                 layout_len,
@@ -248,6 +257,7 @@ impl PartialReadPlan {
                 partial_bytes,
                 request_count,
                 partial_cost,
+                needed_bytes,
                 segment_len,
                 "Flat partial read rejected by I/O cost"
             );
@@ -260,6 +270,7 @@ impl PartialReadPlan {
             partial_bytes,
             request_count,
             partial_cost,
+            needed_bytes,
             segment_len,
             "Flat partial read registered"
         );
