@@ -646,13 +646,18 @@ enum Algorithm {
     /// the splits are computed inside the run, as a V1 scan prepares on every scan; the other
     /// algorithms use plans built once, so they isolate the executor from planning.
     Query,
+    /// `Query` with one decode cache for the run, advanced a generation per split, so a segment
+    /// spanning consecutive splits is decoded once and dropped once the splits have passed it.
+    /// The V1 scan decodes such a segment once per split.
+    QueryStreaming,
 }
 
-const ALGORITHMS: [Algorithm; 4] = [
+const ALGORITHMS: [Algorithm; 5] = [
     Algorithm::Whole,
     Algorithm::Conjuncts,
     Algorithm::ConjunctsRedecode,
     Algorithm::Query,
+    Algorithm::QueryStreaming,
 ];
 
 fn run(
@@ -667,22 +672,25 @@ fn run(
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
+        Algorithm::QueryStreaming => shared.clone(),
     };
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
     let mut rows = 0;
-    if matches!(algorithm, Algorithm::Query) {
+    if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source);
         for split in splits {
             let len = (split.end - split.start) as usize;
+            let cache = cache();
             drive(
                 &segments,
                 &plan,
                 split,
                 Mask::new_true(len),
-                &cache(),
+                &cache,
                 |array| rows += array.len(),
             );
+            cache.next_generation();
         }
         return rows;
     }
@@ -690,7 +698,7 @@ fn run(
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
-            Algorithm::Query => unreachable!("handled above"),
+            Algorithm::Query | Algorithm::QueryStreaming => unreachable!("handled above"),
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
                     let pieces = predicate(&segments, filter, split.clone(), &cache());
@@ -739,7 +747,7 @@ fn run(
 }
 
 /// One exec graph run of the query over the file's natural splits, under each filter algorithm.
-#[divan::bench(args = cases(), consts = [0, 1, 2, 3])]
+#[divan::bench(args = cases(), consts = [0, 1, 2, 3, 4])]
 fn exec<const ALGORITHM: usize>(bencher: Bencher, case: &str) {
     let (fixture, query) = lookup(case);
     let algorithm = ALGORITHMS[ALGORITHM];

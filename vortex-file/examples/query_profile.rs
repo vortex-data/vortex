@@ -24,6 +24,8 @@
 use std::ops::BitAnd;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use futures::StreamExt;
@@ -79,6 +81,9 @@ use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+/// Segment reads the exec graph issued in the current run.
+static READS: AtomicUsize = AtomicUsize::new(0);
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_current_thread()
@@ -543,6 +548,7 @@ fn drive(
             ExecState::NeedsCompute => match graph.compute().expect("compute") {
                 ExecOutput::Piece(array) => sink(array),
                 ExecOutput::NeedsIO(batch) => {
+                    READS.fetch_add(batch.len(), Ordering::Relaxed);
                     let reads = batch
                         .iter()
                         .map(|request| source.request(request.segment_id))
@@ -638,6 +644,10 @@ enum Algorithm {
     ConjunctsRedecode,
     /// One `Query` plan per split: conjuncts and projection as one graph.
     Query,
+    /// `Query` with one decode cache for the run, advanced a generation per split, so a segment
+    /// spanning consecutive splits is decoded once and dropped once the splits have passed it.
+    /// The V1 scan decodes such a segment once per split.
+    QueryStreaming,
 }
 
 fn run(
@@ -652,22 +662,25 @@ fn run(
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
+        Algorithm::QueryStreaming => shared.clone(),
     };
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
     let mut rows = 0;
-    if matches!(algorithm, Algorithm::Query) {
+    if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source);
         for split in splits {
             let len = (split.end - split.start) as usize;
+            let cache = cache();
             drive(
                 &segments,
                 &plan,
                 split,
                 Mask::new_true(len),
-                &cache(),
+                &cache,
                 |array| rows += array.len(),
             );
+            cache.next_generation();
         }
         return rows;
     }
@@ -675,7 +688,7 @@ fn run(
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
-            Algorithm::Query => unreachable!("handled above"),
+            Algorithm::Query | Algorithm::QueryStreaming => unreachable!("handled above"),
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
                     let pieces = predicate(&segments, filter, split.clone(), &cache());
@@ -755,6 +768,7 @@ fn main() {
         Ok("whole") => Algorithm::Whole,
         Ok("redecode") => Algorithm::ConjunctsRedecode,
         Ok("query") => Algorithm::Query,
+        Ok("stream") => Algorithm::QueryStreaming,
         _ => Algorithm::Conjuncts,
     };
     let Fixture {
@@ -774,13 +788,15 @@ fn main() {
             splits.len()
         );
         if std::env::var("PLAN").is_ok() {
-            println!("{built}");
+            println!("{}", built.display_tree());
         }
     }
     for _ in 0..2 {
         if only != "v1" {
             let start = std::time::Instant::now();
+            READS.store(0, Ordering::Relaxed);
             let rows = run_exec(file, query, algorithm, source);
+            println!("exec reads={}", READS.load(Ordering::Relaxed));
             println!("exec rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
         }
         if only != "exec" {

@@ -26,6 +26,7 @@ use crate::layouts::struct_::Struct;
 use crate::layouts::struct_::StructLayout;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
+use crate::layouts::zoned::ZonedLayout;
 use crate::plan::ConcatPlan;
 use crate::plan::FilterPlan;
 use crate::plan::ListPackPlan;
@@ -34,6 +35,7 @@ use crate::plan::PlanChildren;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScanPlan;
 use crate::plan::TakePlan;
+use crate::plan::ZonedPlan;
 
 /// Constructs a physical-plan fixture from `layout` for tests.
 ///
@@ -58,9 +60,13 @@ pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
     if let Some(layout) = layout.as_opt::<List>() {
         return Ok(lower_list(layout)?.into_plan());
     }
+    if let Some(zoned) = layout.as_opt::<Zoned>()
+        && zoned.zone_len() > 0
+    {
+        return Ok(lower_zoned(zoned)?.into_plan());
+    }
     if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
-        // Zone statistics only drive pruning, which plans do not do yet. The data child holds
-        // the layout's rows.
+        // An empty zone map, or a legacy one, prunes nothing. The data child holds the rows.
         let data = layout
             .slot(0)?
             .ok_or_else(|| vortex_err!("Zoned layout is missing its data child"))?;
@@ -151,6 +157,16 @@ fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {
             lazy_children(layout.to_layout(), slots),
         )
     })
+}
+
+fn lower_zoned(layout: &ZonedLayout) -> VortexResult<ZonedPlan> {
+    Ok(ZonedPlan::from_children(
+        layout.dtype().clone(),
+        layout.row_count(),
+        lazy_children(layout.to_layout(), vec![0, 1]),
+        u64::try_from(layout.zone_len())?,
+        layout.aggregate_fns(),
+    ))
 }
 
 fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {

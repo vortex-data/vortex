@@ -51,6 +51,7 @@ mod selection;
 mod stream;
 pub mod synthetic;
 mod take;
+mod zoned;
 
 use std::collections::VecDeque;
 use std::mem;
@@ -278,20 +279,49 @@ impl ExecContext {
 /// read is fetched and decoded once.
 ///
 /// A segment decodes the same way wherever it appears, so entries are keyed by segment id alone.
+///
+/// An owner running graphs over consecutive row ranges can bound the cache by generation: a
+/// segment spanning several ranges stays decoded while the ranges reading it are consecutive,
+/// and one no graph of the last two generations used is dropped.
 #[derive(Clone, Default)]
 pub struct DecodeCache {
-    decoded: Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>,
+    inner: Arc<Mutex<DecodeCacheInner>>,
+}
+
+#[derive(Default)]
+struct DecodeCacheInner {
+    /// Each decoded segment with the generation that last used it.
+    decoded: FxHashMap<SegmentId, (ArrayRef, u64)>,
+    generation: u64,
 }
 
 impl DecodeCache {
     /// The whole decoded array of `id`, if a graph sharing this cache decoded it.
     pub fn get(&self, id: SegmentId) -> Option<ArrayRef> {
-        self.decoded.lock().get(&id).cloned()
+        let mut inner = self.inner.lock();
+        let generation = inner.generation;
+        inner.decoded.get_mut(&id).map(|(array, used)| {
+            *used = generation;
+            array.clone()
+        })
     }
 
     /// Shares the whole decoded array of `id` with the graphs sharing this cache.
     pub fn insert(&self, id: SegmentId, array: ArrayRef) {
-        self.decoded.lock().insert(id, array);
+        let mut inner = self.inner.lock();
+        let generation = inner.generation;
+        inner.decoded.insert(id, (array, generation));
+    }
+
+    /// Starts a new generation, dropping the segments no graph used in the last one or this.
+    ///
+    /// Called between the row ranges an owner runs in order, it keeps the cache to the segments
+    /// the current and the next range can share.
+    pub fn next_generation(&self) {
+        let mut inner = self.inner.lock();
+        let generation = inner.generation + 1;
+        inner.generation = generation;
+        inner.decoded.retain(|_, (_, used)| *used + 1 >= generation);
     }
 }
 
@@ -703,6 +733,7 @@ pub(crate) use selection::Selection;
 pub use stream::ExecStream;
 pub use stream::execute;
 pub(crate) use take::TakeNode;
+pub(crate) use zoned::ZonePruneNode;
 
 #[cfg(test)]
 mod scheduling_tests;

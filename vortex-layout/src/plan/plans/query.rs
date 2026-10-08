@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::expr::BoundExpression;
@@ -12,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::EvalPlan;
@@ -21,6 +23,7 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::Zoned;
 use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::QueryNode;
@@ -31,20 +34,25 @@ use crate::scan::filter::FilterExpr;
 /// A filter and a projection over one source, evaluated the way a scan evaluates them.
 ///
 /// The filter is split into conjuncts, each planned over the source on its own. An execution
-/// evaluates them one at a time, in the order the shared [`FilterExpr`] prefers, each under the
-/// rows the earlier ones kept, so a selective conjunct spares the later ones most of the rows.
-/// The projection, planned over the source, then runs under the rows that passed every conjunct.
-/// A split whose rows no conjunct keeps produces nothing and reads nothing more.
+/// first prunes with the zone statistics of each conjunct's column, where the conjunct is over a
+/// zoned column its zones can prove false, so a split whose zones no conjunct can match reads no
+/// data. It then evaluates the conjuncts one at a time, in the order the shared [`FilterExpr`]
+/// prefers, each under the rows the earlier ones kept, so a selective conjunct spares the later
+/// ones most of the rows. The projection, planned over the source, then runs under the rows that
+/// passed every conjunct. A split whose rows nothing keeps produces nothing and reads nothing
+/// more.
 ///
 /// The conjunct order adapts across executions: every execution reports each conjunct's
 /// selectivity to the shared scheduler, as the splits of a scan do.
 #[derive(Clone, Debug)]
 pub struct Query;
 
-/// The scheduler of a [`Query`]'s conjuncts.
+/// The scheduler of a [`Query`]'s conjuncts, and the pruning plan of each.
 #[derive(Clone)]
 pub struct QueryData {
     scheduler: Option<Arc<FilterExpr>>,
+    /// Per conjunct, the plan pruning zones for it, once an execution asked.
+    pruning: Arc<[OnceLock<Option<PlanRef>>]>,
 }
 
 impl fmt::Debug for QueryData {
@@ -93,12 +101,14 @@ impl QueryPlan {
             }
         }
         let projection = &children[PROJECTION];
+        let children_len = children.len();
         Ok(PlanParts {
             vtable: Query,
             dtype: projection.dtype().clone(),
             row_count: projection.row_count(),
             children: children.into(),
             data: QueryData {
+                pruning: (1..children_len).map(|_| OnceLock::new()).collect(),
                 scheduler: scheduler.map(Arc::new),
             },
         }
@@ -123,6 +133,25 @@ impl QueryPlan {
     /// The shared scheduler of the conjuncts, if there is a filter.
     pub(crate) fn scheduler(&self) -> Option<&Arc<FilterExpr>> {
         self.data().scheduler.as_ref()
+    }
+
+    /// The plan telling which rows' zones may hold a row passing conjunct `index`, when the
+    /// conjunct is over a zoned column and its zones can prove it false. Built once.
+    pub(crate) fn pruning(
+        &self,
+        index: usize,
+        session: &VortexSession,
+    ) -> VortexResult<Option<PlanRef>> {
+        let cell = &self.data().pruning[index];
+        if let Some(plan) = cell.get() {
+            return Ok(plan.clone());
+        }
+        let plan = match self.conjunct(index)?.as_opt::<Zoned>() {
+            Some(zoned) => zoned.pruning_plan(session)?,
+            None => None,
+        };
+        // Another execution may have built it meanwhile; both built the same plan.
+        Ok(cell.get_or_init(|| plan).clone())
     }
 }
 

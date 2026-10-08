@@ -4,6 +4,7 @@
 // Fixtures use a 20-row domain and name columns after their struct fields.
 #![allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use futures::FutureExt;
@@ -16,6 +17,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -36,19 +38,28 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
+use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::runtime::single::block_on as block_on_runtime;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::LayoutRef;
+use crate::LayoutStrategy;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::zoned::writer::ZonedLayoutOptions;
+use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::plan::EvalPlan;
 use crate::plan::Filter;
 use crate::plan::QueryPlan;
@@ -59,6 +70,9 @@ use crate::plan::lower;
 use crate::plan::optimize;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentSource;
+use crate::segments::TestSegments;
+use crate::sequence::SequenceId;
+use crate::sequence::SequentialArrayStreamExt;
 use crate::test::SESSION;
 
 const ROWS: u64 = 20;
@@ -911,5 +925,149 @@ fn query_stops_reading_once_nothing_is_selected() -> VortexResult<()> {
     // Only the three chunks of `a`, the first conjunct's column, are read.
     assert_eq!(reads(&run.events), 3);
     assert!(pieces(&run.events).is_empty());
+    Ok(())
+}
+
+/// One `i32` column `1..=9`, written as three chunks of three rows with a zone map of
+/// three-row zones, lowered to a plan over a store of its segments.
+///
+/// Segments: chunk 0 = 0, chunk 1 = 1, chunk 2 = 2, zone table = 3.
+fn zoned_column() -> VortexResult<(Store, PlanRef)> {
+    let segments = Arc::new(TestSegments::default());
+    let (ptr, eof) = SequenceId::root().split();
+    let strategy = ZonedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        FlatLayoutStrategy::default(),
+        ZonedLayoutOptions {
+            block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+            ..Default::default()
+        },
+    );
+    let stream = ChunkedArray::from_iter([
+        buffer![1_i32, 2, 3].into_array(),
+        buffer![4_i32, 5, 6].into_array(),
+        buffer![7_i32, 8, 9].into_array(),
+    ])
+    .into_array()
+    .to_array_stream()
+    .sequenced(ptr);
+    let sink = Arc::clone(&segments);
+    let layout = block_on_runtime(|handle| async move {
+        let session = SESSION.clone().with_handle(handle);
+        strategy
+            .write_stream(ArrayContext::empty().into(), sink, stream, eof, &session)
+            .await
+    })?;
+    let mut store = Store::default();
+    while let Ok(segment) = block_on(segments.request(SegmentId::from(store.segments.len() as u32)))
+    {
+        store.segments.push(segment);
+    }
+    Ok((store, lower(&layout)?))
+}
+
+/// A query over a zoned column prunes the zones its conjunct cannot match before reading any
+/// data, reads the zone table once per plan, and reads nothing for a split its zones rule out.
+#[test]
+fn query_prunes_zones_before_reading_data() -> VortexResult<()> {
+    let (store, source) = zoned_column()?;
+    let filter = gt(root(), lit(6_i32)).bind(source.dtype())?;
+    let projection = root().bind(source.dtype())?;
+    let plan = QueryPlan::try_new(Some(filter), projection, source)?.into_plan();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let first = run(
+        &store,
+        &plan,
+        0..ROWS_ZONED,
+        Mask::new_true(ROWS_ZONED as usize),
+        delivery(Delivery::Fifo),
+    )?;
+    // The zone table, then only the chunk whose zone may hold a row above 6.
+    assert_eq!(
+        first.events,
+        [
+            Event::Io(vec![3]),
+            Event::Delivered(3),
+            Event::Io(vec![2]),
+            Event::Delivered(2),
+            Event::Piece(3),
+        ]
+    );
+    let expected = buffer![7_i32, 8, 9].into_array();
+    assert_arrays_eq!(join(expected.dtype(), first.arrays)?, expected, &mut ctx);
+
+    // The zone table and its proof are kept on the plan: only the chunk is read again.
+    let second = run(
+        &store,
+        &plan,
+        0..ROWS_ZONED,
+        Mask::new_true(ROWS_ZONED as usize),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&second.events), 1);
+
+    // A split whose zones are all pruned reads nothing and produces nothing.
+    let pruned = run(
+        &store,
+        &plan,
+        0..6,
+        Mask::new_true(6),
+        delivery(Delivery::Fifo),
+    )?;
+    assert!(pruned.events.is_empty(), "{:?}", pruned.events);
+    Ok(())
+}
+
+const ROWS_ZONED: u64 = 9;
+
+/// Pruning changes what is read, not what comes out: a view over zones partly pruned returns
+/// the selected rows that pass the filter.
+#[test]
+fn query_over_pruned_zones_returns_the_passing_rows() -> VortexResult<()> {
+    let (store, source) = zoned_column()?;
+    let filter = lt(root(), lit(5_i32)).bind(source.dtype())?;
+    let projection = root().bind(source.dtype())?;
+    let plan = QueryPlan::try_new(Some(filter), projection, source)?.into_plan();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let rows = 2..8;
+    let mask = Sel::EveryOther.mask(6);
+    let run = run(&store, &plan, rows, mask, delivery(Delivery::Lifo))?;
+    // Rows 2, 4 and 6 hold 3, 5 and 7; only 3 is below 5. The third chunk's zone is pruned.
+    assert_eq!(reads(&run.events), 3);
+    let expected = buffer![3_i32].into_array();
+    assert_arrays_eq!(join(expected.dtype(), run.arrays)?, expected, &mut ctx);
+    Ok(())
+}
+
+/// A cache advanced a generation between graphs keeps a segment for the next generation and
+/// drops it after a generation that did not use it.
+#[test]
+fn decode_cache_drops_segments_unused_for_a_generation() -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, _) = two_columns(&mut store)?;
+    let decoded = DecodeCache::default();
+    let all = Mask::new_true(ROWS as usize);
+    let run_shared = |decoded: &DecodeCache| {
+        run_with(
+            &store,
+            &plan,
+            0..ROWS,
+            all.clone(),
+            delivery(Delivery::Fifo),
+            decoded.clone(),
+        )
+    };
+
+    let first = run_shared(&decoded)?;
+    assert_eq!(reads(&first.events), 4);
+    decoded.next_generation();
+    assert_eq!(reads(&run_shared(&decoded)?.events), 0);
+
+    // Two generations with no graph touching the segments drop them.
+    decoded.next_generation();
+    decoded.next_generation();
+    assert_eq!(reads(&run_shared(&decoded)?.events), 4);
     Ok(())
 }
