@@ -128,7 +128,7 @@ struct RegisteredPage {
 
 impl PartialReadPlan {
     pub(super) fn supports_mask(mask: &Mask) -> bool {
-        !mask.all_true()
+        !mask.all_false()
     }
 
     pub(super) fn try_new(layout: &FlatLayout) -> VortexResult<Option<Self>> {
@@ -224,11 +224,12 @@ impl PartialReadPlan {
         // Each extra read costs a request, an allocation and a decode, while a whole segment read
         // usually coalesces with its neighbours into one, and cached bytes are cheap to copy.
         // Charge a page of bytes per extra read. Encodings that decode per row (ALP-RD,
-        // bit-packing) also save decode work, so they go partial once the reads cost at most a
-        // quarter of the segment; uncompressed buffers decode for free and need an eighth.
+        // bit-packing) also save decode work in proportion to the rows they skip, so they go
+        // partial once the reads cost at most half the segment; uncompressed buffers decode for
+        // free and need an eighth.
         let min_saving_factor =
             if matches!(self.kind, PartialReadKind::Alprd(_)) || self.row_granularity > 1 {
-                4
+                2
             } else {
                 8
             };
@@ -684,22 +685,22 @@ fn selected_pages(
     mask: &Mask,
 ) -> Option<Vec<Range<usize>>> {
     let mut page_indices = BTreeSet::new();
-    match mask.slices() {
-        AllOr::All => return None,
-        AllOr::None => {}
-        AllOr::Some(slices) => {
-            for &(start, end) in slices {
-                if start >= end {
-                    continue;
-                }
-                let global_start = row_range.start.checked_add(start)?;
-                let global_end = row_range.start.checked_add(end)?;
-                if global_end > row_range.end || global_end > layout_len {
-                    return None;
-                }
-                page_indices.extend(global_start / page_rows..=(global_end - 1) / page_rows);
-            }
+    let all = [(0, mask.len())];
+    let slices: &[(usize, usize)] = match mask.slices() {
+        AllOr::None => &[],
+        AllOr::All => &all,
+        AllOr::Some(slices) => slices,
+    };
+    for &(start, end) in slices {
+        if start >= end {
+            continue;
         }
+        let global_start = row_range.start.checked_add(start)?;
+        let global_end = row_range.start.checked_add(end)?;
+        if global_end > row_range.end || global_end > layout_len {
+            return None;
+        }
+        page_indices.extend(global_start / page_rows..=(global_end - 1) / page_rows);
     }
     // Adjacent pages form one run, so they are read with one request and decoded once.
     let mut runs: Vec<Range<usize>> = Vec::new();

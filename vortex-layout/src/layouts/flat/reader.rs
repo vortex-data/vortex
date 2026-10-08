@@ -804,6 +804,7 @@ mod test {
     /// Row-index scans (random access) read pages; any other scan reads whole segments.
     #[rstest]
     #[case::row_indices(Some(vec![1u64, 10]), None, true)]
+    #[case::contiguous_row_indices(Some(vec![40u64, 41, 42, 43]), None, true)]
     #[case::row_indices_opted_out(Some(vec![1u64, 10]), Some(false), false)]
     #[case::full_scan(None, None, false)]
     fn scan_reads_pages_only_for_random_access(

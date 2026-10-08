@@ -42,7 +42,9 @@ pub fn split_exec<A: 'static + Send>(
 ) -> VortexResult<TaskFuture<Option<A>>> {
     let row_range = read_mask.row_range();
     let row_mask = read_mask.mask().clone();
-    let partial_reads_allowed = ctx.partial_segment_reads && !row_mask.all_true();
+    // An all-true mask still selects only this split's rows, which for a run of row indices is
+    // a small part of each segment, so let the reader's cost check decide.
+    let partial_reads_allowed = ctx.partial_segment_reads;
 
     let filter_mask = match ctx.filter.as_ref() {
         // No filter == immediate mask
