@@ -45,14 +45,10 @@ use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::arrays::varbinview::VarBinViewArrayExt;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 /// One row's digest and the serialized width of its content in bytes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -114,46 +110,30 @@ pub(super) fn row_digests(
         ]),
 
         Canonical::Bool(array) => {
-            let validity = array.validity()?;
             let bits = array.clone().into_bit_buffer();
-            leaf_digests(len, &validity, ctx, |row, seed| {
+            leaf_digests(len, &array.validity()?, ctx, |row, seed| {
                 (mix64(seed ^ u64::from(bits.value(row))), 1)
             })
         }
 
-        Canonical::Primitive(array) => {
-            let validity = PrimitiveArrayExt::validity(array);
-            let width = array.ptype().byte_width();
-            let bytes = match_each_native_ptype!(array.ptype(), |P| {
-                array.to_buffer::<P>().into_byte_buffer()
-            });
-            let bytes = bytes.as_slice();
-            leaf_digests(len, &validity, ctx, |row, seed| {
-                (
-                    fold_bytes(seed, &bytes[row * width..(row + 1) * width]),
-                    width as u64,
-                )
-            })
-        }
+        Canonical::Primitive(array) => fixed_width_digests(
+            len,
+            &PrimitiveArrayExt::validity(array),
+            ctx,
+            &array.buffer_handle().to_host_sync(),
+            array.ptype().byte_width(),
+        ),
 
-        Canonical::Decimal(array) => {
-            let validity = DecimalArrayExt::validity(array);
-            let width = array.values_type().byte_width();
-            let bytes = match_each_decimal_value_type!(array.values_type(), |D| {
-                array.buffer::<D>().into_byte_buffer()
-            });
-            let bytes = bytes.as_slice();
-            leaf_digests(len, &validity, ctx, |row, seed| {
-                (
-                    fold_bytes(seed, &bytes[row * width..(row + 1) * width]),
-                    width as u64,
-                )
-            })
-        }
+        Canonical::Decimal(array) => fixed_width_digests(
+            len,
+            &DecimalArrayExt::validity(array),
+            ctx,
+            &array.buffer_handle().to_host_sync(),
+            array.values_type().byte_width(),
+        ),
 
         Canonical::VarBinView(array) => {
-            let validity = array.varbinview_validity();
-            leaf_digests(len, &validity, ctx, |row, seed| {
+            leaf_digests(len, &array.varbinview_validity(), ctx, |row, seed| {
                 let view = &array.views()[row];
                 let seed = mix64(seed ^ u64::from(view.len()));
                 let digest = if view.is_inlined() {
@@ -170,51 +150,52 @@ pub(super) fn row_digests(
         }
 
         Canonical::Struct(array) => {
-            let validity = RowValidity::new(&array.struct_validity(), len, ctx)?;
-            let mut digests = marker_digests(&validity, len);
-            for field in array.iter_unmasked_fields() {
-                let field = field.clone().execute::<Canonical>(ctx)?;
-                let field = row_digests(&field, ctx)?;
-                for (row, (digest, field)) in digests.iter_mut().zip(field).enumerate() {
-                    // The fields behind a null struct are undefined, like any other null's.
-                    if validity.is_valid(row) {
-                        digest.fold(field);
-                    }
+            let fields = array
+                .iter_unmasked_fields()
+                .map(|field| child_digests(field, ctx))
+                .collect::<VortexResult<Vec<_>>>()?;
+            leaf_digests(len, &array.struct_validity(), ctx, |row, seed| {
+                let mut digest = RowDigest {
+                    hash: seed,
+                    width: 0,
+                };
+                for field in &fields {
+                    digest.fold(field[row]);
                 }
-            }
-            Ok(digests)
-        }
-
-        Canonical::FixedSizeList(array) => {
-            let validity = array.fixed_size_list_validity();
-            let list_size = usize::try_from(array.list_size())
-                .map_err(|_| vortex_err!("fixed size list size overflows usize"))?;
-            let elements = child_digests(array.elements(), ctx)?;
-            nested_digests(len, &validity, ctx, &elements, |row| {
-                row * list_size..(row + 1) * list_size
+                (digest.hash, digest.width)
             })
         }
 
+        Canonical::FixedSizeList(array) => {
+            let list_size = usize::try_from(array.list_size())
+                .map_err(|_| vortex_err!("fixed size list size overflows usize"))?;
+            let elements = child_digests(array.elements(), ctx)?;
+            nested_digests(
+                len,
+                &array.fixed_size_list_validity(),
+                ctx,
+                &elements,
+                |row| row * list_size..(row + 1) * list_size,
+            )
+        }
+
         Canonical::List(array) => {
-            let validity = array.listview_validity();
             let elements = child_digests(array.elements(), ctx)?;
             // List views may overlap and need not ascend, so each row's range comes from its own
             // offset and size rather than from a cumulative scan of the offsets.
             let offsets = to_indices(array.offsets(), ctx)?;
             let sizes = to_indices(array.sizes(), ctx)?;
-            nested_digests(len, &validity, ctx, &elements, |row| {
+            nested_digests(len, &array.listview_validity(), ctx, &elements, |row| {
                 offsets[row]..offsets[row] + sizes[row]
             })
         }
 
         // A map is stored as a list of non-nullable {key, value} structs, and that list also
         // carries the map's validity, so its rows already digest exactly as the map's rows do.
-        Canonical::Map(array) => row_digests(&array.entries().clone().execute(ctx)?, ctx),
+        Canonical::Map(array) => child_digests(array.entries(), ctx),
 
         Canonical::Union(array) => {
             let type_ids = array.type_ids().clone().execute::<PrimitiveArray>(ctx)?;
-            // A union's nulls live in its type ids rather than in a validity slot.
-            let validity = PrimitiveArrayExt::validity(&type_ids);
             let tags = type_ids.as_slice::<u8>();
             // Unions are sparse: every child is row-aligned with the union, so each child is
             // digested once and the tag selects which digest a row takes.
@@ -223,42 +204,43 @@ pub(super) fn row_digests(
                 .map(|child| child_digests(child, ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             let variants = array.variants();
-            leaf_digests(len, &validity, ctx, |row, seed| {
-                let tag = tags[row];
-                let seed = mix64(seed ^ u64::from(tag));
-                match variants
-                    .tag_to_child_index(tag)
-                    .and_then(|child| children.get(child))
-                {
-                    Some(child) => (mix64(seed ^ child[row].hash), 1 + child[row].width),
-                    None => (seed, 1),
-                }
-            })
+            // A union's nulls live in its type ids rather than in a validity slot.
+            leaf_digests(
+                len,
+                &PrimitiveArrayExt::validity(&type_ids),
+                ctx,
+                |row, seed| {
+                    let tag = tags[row];
+                    let seed = mix64(seed ^ u64::from(tag));
+                    match variants
+                        .tag_to_child_index(tag)
+                        .and_then(|child| children.get(child))
+                    {
+                        Some(child) => (mix64(seed ^ child[row].hash), 1 + child[row].width),
+                        None => (seed, 1),
+                    }
+                },
+            )
         }
 
-        Canonical::Extension(array) => row_digests(&array.storage().clone().execute(ctx)?, ctx),
+        Canonical::Extension(array) => child_digests(array.storage(), ctx),
 
         // A variant row's value spans an arbitrary encoding plus an optional shredded tree that
         // `execute_scalar` merges, so there is no flat buffer to walk: digest the scalars
         // themselves, at the cost of materializing one per row.
         Canonical::Variant(array) => {
-            let validity = RowValidity::new(&array.validity()?, len, ctx)?;
-            let mut digests = marker_digests(&validity, len);
+            let validity = array.validity()?;
             let array = array.clone().into_array();
-            // This mirrors `leaf_digests`, which cannot be reused here because reading a scalar
-            // borrows the execution context that its closure would have to capture.
-            for (row, digest) in digests.iter_mut().enumerate() {
-                if validity.is_valid(row) {
-                    let mut hasher = DigestHasher {
-                        digest: digest.hash,
-                        width: 0,
-                    };
+            let scalars = (0..len)
+                .map(|row| {
+                    let mut hasher = DigestHasher::default();
                     array.execute_scalar(row, ctx)?.hash(&mut hasher);
-                    digest.hash = hasher.digest;
-                    digest.width += hasher.width;
-                }
-            }
-            Ok(digests)
+                    Ok(hasher)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            leaf_digests(len, &validity, ctx, |row, seed| {
+                (mix64(seed ^ scalars[row].digest), scalars[row].width)
+            })
         }
     }
 }
@@ -269,7 +251,7 @@ fn child_digests(child: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<R
     row_digests(&child, ctx)
 }
 
-/// Digest the rows of a leaf array.
+/// Digest the rows of an array.
 ///
 /// Each row is seeded with its validity marker; `value` folds a valid row's content into that
 /// seed and reports the content's serialized width. Null rows keep the bare seed.
@@ -279,28 +261,36 @@ fn leaf_digests(
     ctx: &mut ExecutionCtx,
     mut value: impl FnMut(usize, u64) -> (u64, u64),
 ) -> VortexResult<Vec<RowDigest>> {
-    let validity = RowValidity::new(validity, len, ctx)?;
-    let mut digests = marker_digests(&validity, len);
-    for (row, digest) in digests.iter_mut().enumerate() {
-        if validity.is_valid(row) {
-            let (hash, width) = value(row, digest.hash);
-            digest.hash = hash;
-            digest.width += width;
-        }
-    }
-    Ok(digests)
+    // A non-nullable dtype serializes no validity marker at all.
+    let marker_width = u64::from(validity.nullability() == Nullability::Nullable);
+    let mask = validity.execute_mask(len, ctx)?;
+    Ok((0..len)
+        .map(|row| {
+            let valid = mask.value(row);
+            let seed = mix64(u64::from(valid));
+            let (hash, width) = if valid { value(row, seed) } else { (seed, 0) };
+            RowDigest {
+                hash,
+                width: width + marker_width,
+            }
+        })
+        .collect())
 }
 
-/// The validity marker alone: what a null row digests to, and the seed a valid row folds its
-/// content into.
-fn marker_digests(validity: &RowValidity, len: usize) -> Vec<RowDigest> {
-    let width = validity.marker_width();
-    (0..len)
-        .map(|row| RowDigest {
-            hash: mix64(u64::from(validity.is_valid(row))),
-            width,
-        })
-        .collect()
+/// Digest fixed-width values stored back to back in `bytes`.
+fn fixed_width_digests(
+    len: usize,
+    validity: &Validity,
+    ctx: &mut ExecutionCtx,
+    bytes: &[u8],
+    width: usize,
+) -> VortexResult<Vec<RowDigest>> {
+    leaf_digests(len, validity, ctx, |row, seed| {
+        (
+            fold_bytes(seed, &bytes[row * width..(row + 1) * width]),
+            width as u64,
+        )
+    })
 }
 
 /// Digest rows whose content is a range of a child array's already-digested elements.
@@ -342,48 +332,9 @@ fn to_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usiz
     })
 }
 
-/// Per-row validity, resolved once so that row loops avoid re-dispatching on the mask.
-enum RowValidity {
-    /// The dtype is non-nullable, so rows carry no validity marker at all.
-    NonNullable,
-    AllValid,
-    AllNull,
-    Bits(BitBuffer),
-}
-
-impl RowValidity {
-    fn new(validity: &Validity, len: usize, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if validity.nullability() == Nullability::NonNullable {
-            return Ok(Self::NonNullable);
-        }
-        Ok(match validity.execute_mask(len, ctx)? {
-            Mask::AllTrue(_) => Self::AllValid,
-            Mask::AllFalse(_) => Self::AllNull,
-            Mask::Values(values) => Self::Bits(values.bit_buffer().clone()),
-        })
-    }
-
-    #[inline]
-    fn is_valid(&self, row: usize) -> bool {
-        match self {
-            Self::NonNullable | Self::AllValid => true,
-            Self::AllNull => false,
-            Self::Bits(bits) => bits.value(row),
-        }
-    }
-
-    /// The bytes a row's validity marker adds to its serialized width.
-    #[inline]
-    fn marker_width(&self) -> u64 {
-        match self {
-            Self::NonNullable => 0,
-            _ => 1,
-        }
-    }
-}
-
 /// A [`Hasher`] that folds written bytes into a whitened digest, so values with no flat buffer
 /// to walk can be digested through their [`Hash`] implementation.
+#[derive(Default)]
 struct DigestHasher {
     digest: u64,
     width: u64,

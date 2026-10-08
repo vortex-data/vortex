@@ -3046,7 +3046,7 @@ async fn test_content_defined_chunking_roundtrip() -> VortexResult<()> {
         .with_content_defined_chunking(ContentDefinedChunkingOptions {
             min_chunk_bytes: 32 * 1024,
             max_chunk_bytes: 128 * 1024,
-            boundary_mask_bits: 16,
+            boundary_mask_bits: 13,
         })
         .build();
 
@@ -3101,7 +3101,7 @@ async fn test_content_defined_chunking_with_list_layout() -> VortexResult<()> {
         .with_content_defined_chunking(ContentDefinedChunkingOptions {
             min_chunk_bytes: 16 * 1024,
             max_chunk_bytes: 64 * 1024,
-            boundary_mask_bits: 13,
+            boundary_mask_bits: 10,
         })
         .build();
     let mut buf = ByteBufferMut::empty();

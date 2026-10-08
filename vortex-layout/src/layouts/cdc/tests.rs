@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use gearhash::DEFAULT_TABLE;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
@@ -74,11 +75,11 @@ fn digests_of(rows: &[u64]) -> VortexResult<Vec<RowDigest>> {
 }
 
 fn test_options() -> ContentDefinedChunkingOptions {
-    // Small sizes keep tests fast: chunks of roughly 1 KiB + 2^10 bytes.
+    // Small sizes keep tests fast: past a 1 KiB minimum, a candidate roughly every 2^7 rows.
     ContentDefinedChunkingOptions {
         min_chunk_bytes: 1024,
         max_chunk_bytes: 8192,
-        boundary_mask_bits: 10,
+        boundary_mask_bits: 7,
     }
 }
 
