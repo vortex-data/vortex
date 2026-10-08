@@ -79,9 +79,14 @@ where
                 *bools.get_unchecked(idx)
             })
         } else {
+            #[cfg(target_arch = "x86_64")]
+            if let Some(taken) = avx2::take(bits, indices, None) {
+                return taken;
+            }
+
             let ptr = bits.inner().as_ptr();
             let offset = bits.offset();
-            BitBuffer::collect_bool(indices.len(), |i| unsafe {
+            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
                 // SAFETY: we're already iterating over every index, a bound
                 // is excessive
                 let idx = indices.get_unchecked(i).as_();
@@ -91,6 +96,11 @@ where
         };
     };
 
+    #[cfg(target_arch = "x86_64")]
+    if let Some(taken) = avx2::take(bits, indices, Some(validity)) {
+        return taken;
+    }
+
     let ptr = validity.inner().as_ptr();
     if bits.len() <= COLLECT_TO_VEC {
         let offset = validity.offset();
@@ -99,7 +109,7 @@ where
             // SAFETY: we're already iterating over every index, a bound
             // is excessive
             let idx = unsafe { indices.get_unchecked(i).as_() };
-            // SAFETY: we're verified validity has same size as indices before
+            // SAFETY: we've verified validity has same size as indices before
             let mask_idx: usize = unsafe { get_bit_unchecked(ptr, offset + i) }.as_();
             bools[idx & mask_idx.wrapping_neg()]
         });
@@ -112,7 +122,7 @@ where
         // SAFETY: we're already iterating over every index, a bound
         // is excessive
         let idx = unsafe { indices.get_unchecked(i).as_() };
-        // SAFETY: we're verified validity has same size as indices before
+        // SAFETY: we've verified validity has same size as indices before
         let mask_idx: usize = unsafe { get_bit_unchecked(ptr, validity_offset + i) }.as_();
         let masked_idx = idx & mask_idx.wrapping_neg();
         get_bit(buf, bits_offset + masked_idx)
@@ -132,8 +142,14 @@ fn first_unset(bits: BitBufferView<'_>) -> Option<usize> {
     (target < bits.len()).then_some(target)
 }
 
+#[cfg(target_arch = "x86_64")]
+#[path = "take_avx2.rs"]
+mod avx2;
+
 #[cfg(test)]
 mod tests {
+    use num_traits::AsPrimitive;
+    use num_traits::Zero;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -152,34 +168,32 @@ mod tests {
         (0..len).map(|_| rng.random_range(0..bound)).collect()
     }
 
-    #[rstest]
-    #[case(300)]
-    #[case(5000)]
-    fn gathers(#[case] bits_len: usize) {
+    fn check_gathers<I>(bits_len: usize, garbage: [I; 2])
+    where
+        I: AsPrimitive<usize> + TryFrom<usize> + Ord + Zero,
+        <I as TryFrom<usize>>::Error: std::fmt::Debug,
+    {
         let bits = random_bits(bits_len + 11);
         let view = bits.as_view().slice(11..);
-        let len = 400;
-        let indices: Vec<i64> = random_indices(len, bits_len)
+        let len = 403;
+        let indices: Vec<I> = random_indices(len, bits_len)
             .into_iter()
-            .map(|idx| i64::try_from(idx).unwrap())
+            .map(|idx| I::try_from(idx).unwrap())
             .collect();
 
         let taken = take_bits(view, &indices, None);
         assert_eq!(taken.len(), len);
         for (i, &idx) in indices.iter().enumerate() {
-            assert_eq!(
-                taken.value(i),
-                bits.value(usize::try_from(idx).unwrap() + 11)
-            );
+            assert_eq!(taken.value(i), bits.value(idx.as_() + 11));
         }
 
         let validity = BitBuffer::collect_bool(len, |i| i % 3 != 0);
-        let with_garbage: Vec<i64> = indices
+        let with_garbage: Vec<I> = indices
             .iter()
             .enumerate()
             .map(|(i, &idx)| match i % 6 {
-                0 => i64::MAX,
-                3 => -1,
+                0 => garbage[0],
+                3 => garbage[1],
                 _ => idx,
             })
             .collect();
@@ -188,12 +202,30 @@ mod tests {
         assert_eq!(taken.len(), len);
         for (i, &idx) in with_garbage.iter().enumerate() {
             if validity.value(i) {
-                assert_eq!(
-                    taken.value(i),
-                    bits.value(usize::try_from(idx).unwrap() + 11)
-                );
+                assert_eq!(taken.value(i), bits.value(idx.as_() + 11));
             }
         }
+    }
+
+    #[rstest]
+    #[case(300)]
+    #[case(5000)]
+    fn gathers_i64(#[case] bits_len: usize) {
+        check_gathers::<i64>(bits_len, [i64::MAX, -1]);
+    }
+
+    #[rstest]
+    #[case(300)]
+    #[case(5000)]
+    fn gathers_u16(#[case] bits_len: usize) {
+        check_gathers::<u16>(bits_len, [u16::MAX, u16::MAX - 1]);
+    }
+
+    #[rstest]
+    #[case(300)]
+    #[case(5000)]
+    fn gathers_u32(#[case] bits_len: usize) {
+        check_gathers::<u32>(bits_len, [u32::MAX, u32::MAX - 1]);
     }
 
     #[rstest]
@@ -231,5 +263,18 @@ mod tests {
         let validity = BitBuffer::new_unset(3);
         let taken = take_bits(bits.as_view(), &[7u32, 8, 9], Some(validity.as_view()));
         assert_eq!(taken, BitBuffer::new_unset(3));
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn valid_index_out_of_bounds() {
+        let bits = BitBuffer::collect_bool(10_000, |i| i % 2 == 0);
+        let mut indices: Vec<u32> = random_indices(403, 10_000)
+            .into_iter()
+            .map(|idx| u32::try_from(idx).unwrap())
+            .collect();
+        indices[80] = 1_000_000;
+        let validity = BitBuffer::collect_bool(403, |i| i != 200);
+        let _taken = take_bits(bits.as_view(), &indices, Some(validity.as_view()));
     }
 }
