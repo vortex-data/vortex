@@ -19,7 +19,6 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -131,15 +130,10 @@ impl Scheme for FloatDictScheme {
         let compressed_values =
             compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
-        // Codes = child 1.
-        let narrowed_codes = dict
-            .codes()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
+        // Codes = child 1. `dictionary_encode` already sizes the codes from the dictionary
+        // length, so there is nothing left to narrow here.
         let compressed_codes =
-            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
+            compressor.compress_child(dict.codes(), &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes or values does not alter the invariants.
         unsafe {
@@ -167,14 +161,15 @@ macro_rules! typed_encode {
 
         let values: Buffer<$typ> = distinct.distinct_values().iter().map(|x| x.0).collect();
 
-        let max_code = values.len();
-        let codes = if max_code <= u8::MAX as usize {
+        // The largest code is one less than the dictionary length.
+        let dict_len = values.len();
+        let codes = if dict_len <= u8::MAX as usize + 1 {
             let buf = <DictEncoder as Encode<$typ, u8>>::encode(
                 &values,
                 $source_array.as_slice::<$typ>(),
             );
             PrimitiveArray::new(buf, codes_validity).into_array()
-        } else if max_code <= u16::MAX as usize {
+        } else if dict_len <= u16::MAX as usize + 1 {
             let buf = <DictEncoder as Encode<$typ, u16>>::encode(
                 &values,
                 $source_array.as_slice::<$typ>(),
@@ -254,12 +249,14 @@ impl_encode!(f64, u64);
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -298,6 +295,30 @@ mod tests {
             .execute::<PrimitiveArray>(&mut ctx)?
             .into_array();
         assert_arrays_eq!(undict, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Codes take the narrowest type that can address the dictionary, including when the
+    /// dictionary exactly fills a type's range.
+    #[rstest]
+    #[case::fills_u8(256, PType::U8)]
+    #[case::overflows_u8(257, PType::U16)]
+    fn codes_are_as_narrow_as_the_dictionary_allows(
+        #[case] distinct: u16,
+        #[case] expected: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let array = PrimitiveArray::from_iter((0..distinct).map(|i| i as f32));
+        let stats = FloatStats::generate_opts(
+            &array,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        let dict = dictionary_encode(array.as_view(), &stats)?;
+        assert_eq!(PType::try_from(dict.codes().dtype())?, expected);
         Ok(())
     }
 }
