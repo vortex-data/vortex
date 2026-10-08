@@ -26,6 +26,26 @@ use crate::segments::SegmentSource;
 ///
 /// Caches are optional and operate above a [`SegmentSource`]. They should only store host buffers:
 /// device buffers and other non-host handles should be passed through uncached.
+///
+/// To bring your own cache, implement this trait and give it to the file with
+/// `VortexOpenOptions::with_segment_cache`. A [`SegmentId`] is unique only within one file, so a
+/// cache that many files share must also key its entries by file. Give each file its own
+/// implementation of this trait that holds the [`SegmentSourceId`] of that file and adds it to
+/// the key, as [`MokaSegmentCache::for_file`] does with [`FileSegmentCache`].
+///
+/// The Python bindings accept only a [`MokaSegmentCache`]. A cache written in Python can use the
+/// same design as `PyReadable` in `vortex-python`:
+///
+/// - The Python object has the methods `get(key: str, segment_id: int) -> Buffer | None` and
+///   `put(key: str, segment_id: int, data: Buffer) -> None`. `vortex.open` and
+///   `vortex.open_readable` accept it with the `cache_key` that they accept now, and the stubs
+///   declare it as a `typing.Protocol`. Then users can use `cachetools`, `diskcache`, Redis, or a
+///   cache that many processes share.
+/// - A Rust adapter holds the Python object and the [`SegmentSourceId`] of one file, and
+///   implements this trait. `get` calls Python through `spawn_blocking` and `Python::attach`, as
+///   `PyReadable::read_at` does, and wraps the buffer that Python returns without a copy.
+///   `put` gives Python a read-only object that owns a clone of the [`ByteBuffer`] and exports
+///   it through `__getbuffer__`, as `ReadBuffer` does, so Python can keep it without a copy.
 #[async_trait]
 pub trait SegmentCache: Send + Sync {
     /// Return a cached segment, or `None` on cache miss.
@@ -61,15 +81,47 @@ pub enum SegmentEviction {
     TinyLfu,
 }
 
+/// Identifies the contents of one segment source, usually a file, in a cache that many sources
+/// share.
+///
+/// Sources with the same ID share cached segments, so an ID must identify the contents of the
+/// source, not only its location. A file that has changed must get a new ID.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SegmentSourceId(Arc<str>);
+
+impl SegmentSourceId {
+    /// Construct an ID from a string that identifies the contents of a source.
+    pub fn new(id: impl Into<Arc<str>>) -> Self {
+        Self(id.into())
+    }
+}
+
+impl From<&str> for SegmentSourceId {
+    fn from(id: &str) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<String> for SegmentSourceId {
+    fn from(id: String) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<Arc<str>> for SegmentSourceId {
+    fn from(id: Arc<str>) -> Self {
+        Self(id)
+    }
+}
+
 /// An in-memory Moka cache of segments, capped by total buffer bytes, that any number of files can
 /// share.
 ///
 /// A [`SegmentId`] is unique only within one file, so files use the cache through a
-/// [`FileSegmentCache`] from [`Self::for_file`], which adds a file key. Files opened with the
-/// same key share entries, so a key must identify the file's contents, not only its location.
-/// Opening the same file again with the same key reuses the segments an earlier open read.
+/// [`FileSegmentCache`] from [`Self::for_file`], which adds a [`SegmentSourceId`]. Opening the
+/// same file again with the same ID reuses the segments an earlier open read.
 #[derive(Clone)]
-pub struct MokaSegmentCache(Cache<(Arc<str>, SegmentId), ByteBuffer, FxBuildHasher>);
+pub struct MokaSegmentCache(Cache<(SegmentSourceId, SegmentId), ByteBuffer, FxBuildHasher>);
 
 impl MokaSegmentCache {
     /// Construct a Moka-backed cache capped by total buffer bytes.
@@ -90,11 +142,11 @@ impl MokaSegmentCache {
         )
     }
 
-    /// The view of this cache for the file identified by `key`.
-    pub fn for_file(&self, key: impl Into<Arc<str>>) -> FileSegmentCache {
+    /// The view of this cache for the file identified by `source_id`.
+    pub fn for_file(&self, source_id: impl Into<SegmentSourceId>) -> FileSegmentCache {
         FileSegmentCache {
             cache: self.clone(),
-            key: key.into(),
+            source_id: source_id.into(),
         }
     }
 
@@ -126,19 +178,19 @@ impl MokaSegmentCache {
 #[derive(Clone)]
 pub struct FileSegmentCache {
     cache: MokaSegmentCache,
-    key: Arc<str>,
+    source_id: SegmentSourceId,
 }
 
 #[async_trait]
 impl SegmentCache for FileSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        Ok(self.cache.0.get(&(Arc::clone(&self.key), id)).await)
+        Ok(self.cache.0.get(&(self.source_id.clone(), id)).await)
     }
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
         self.cache
             .0
-            .insert((Arc::clone(&self.key), id), buffer)
+            .insert((self.source_id.clone(), id), buffer)
             .await;
         Ok(())
     }
@@ -251,7 +303,7 @@ mod tests {
         assert_eq!(a.get(id).await?.as_deref(), Some(b"from a".as_slice()));
         assert!(b.get(id).await?.is_none());
 
-        // A later view with the same key sees what the earlier one stored.
+        // A later view with the same source ID sees what the earlier one stored.
         let a_again = shared.for_file("a");
         assert_eq!(
             a_again.get(id).await?.as_deref(),

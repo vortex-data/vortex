@@ -71,9 +71,14 @@ The `SegmentCache` trait provides a key-value interface for caching fetched segm
 - **`NoOpSegmentCache`** -- no caching; used when segments are already in memory.
 - **`MokaSegmentCache`** -- an in-memory cache backed by the Moka library, sized by total byte
   capacity, with LRU or TinyLFU eviction chosen at construction. Files share it through per-file
-  views from `for_file(key)`, which key segments by file as well as segment ID.
+  views from `for_file(source_id)`, which key segments by `SegmentSourceId` as well as segment ID.
 - **`InitialReadSegmentCache`** -- a two-level cache that captures segments read during the
   initial file footer parse and delegates misses to a fallback cache.
+
+To bring your own cache, implement `SegmentCache` and pass it to
+`VortexOpenOptions::with_segment_cache`. A `SegmentId` is unique only within one file, so a cache
+that many files share must also key its entries by file. Give each file its own `SegmentCache`
+that holds the file's `SegmentSourceId` and adds it to the key, as `MokaSegmentCache` does.
 
 A `SharedSegmentSource` deduplicates concurrent requests for the same segment using weak
 shared futures, ensuring that only one underlying I/O request is issued regardless of how many
