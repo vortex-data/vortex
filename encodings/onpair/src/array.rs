@@ -635,7 +635,7 @@ impl VTable for OnPair {
         };
         require_validity!(array, OnPairSlots::VALIDITY);
 
-        canonicalize_onpair(array, ctx).map(ExecutionResult::done)
+        canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
     fn append_to_builder(

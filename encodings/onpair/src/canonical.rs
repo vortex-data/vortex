@@ -30,7 +30,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
-use crate::OnPairArray;
 use crate::OnPairArraySlotsExt;
 use crate::array::dict_view;
 use crate::decode::code_boundary_at;
@@ -40,10 +39,10 @@ use crate::decode::collect_widened_range;
 ///
 /// The uncompressed lengths must already be a primitive array.
 pub(super) fn canonicalize_onpair(
-    array: OnPairArray,
+    array: ArrayView<'_, OnPair>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let plan = OnPairDecodePlan::from_primitive_lengths(array.as_view(), ctx)?;
+    let plan = OnPairDecodePlan::from_primitive_lengths(array, ctx)?;
     let (out_bytes, lengths) = decode_bytes(plan)?;
     let (buffers, views) = match_each_integer_ptype!(lengths.ptype(), |P| {
         build_views(
@@ -53,7 +52,7 @@ pub(super) fn canonicalize_onpair(
             lengths.as_slice::<P>(),
         )
     });
-    let validity = array.validity()?;
+    let validity = array.array().validity()?;
     Ok(unsafe {
         VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
             .into_array()
