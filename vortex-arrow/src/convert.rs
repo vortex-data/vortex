@@ -743,13 +743,7 @@ pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<Arr
     };
     let (entries, offsets) = trim_map_entries(array);
     let entries = from_arrow_struct(&entries, false)?;
-    map_from_arrow_parts(
-        entries,
-        &offsets,
-        array.nulls(),
-        *keys_sorted,
-        nullable,
-    )
+    map_from_arrow_parts(entries, &offsets, array.nulls(), *keys_sorted, nullable)
 }
 
 impl FromArrowArray<&ArrowMapArray> for ArrayRef {

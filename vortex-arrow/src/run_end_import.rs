@@ -207,11 +207,9 @@ mod tests {
         let values = Int32Array::from(vec![Some(10), None, Some(30)]);
         let array = RunArray::<Int32Type>::try_new(&run_ends, &values)?.slice(start, len);
         let imported = decode_run_array(&array, false)?;
-        let expected = Buffer::from_iter(std::iter::repeat_n(
-            if start < 2 { 10i32 } else { 30 },
-            len,
-        ))
-        .into_array();
+        let expected =
+            Buffer::from_iter(std::iter::repeat_n(if start < 2 { 10i32 } else { 30 }, len))
+                .into_array();
         assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
