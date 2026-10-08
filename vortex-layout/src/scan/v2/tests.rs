@@ -836,15 +836,20 @@ async fn reader_cache_retains_dictionary_values_but_not_codes(
         reads: Default::default(),
         registered: Default::default(),
     });
-    let source: Arc<dyn SegmentSource> = recording.clone();
-    let reader = layout.new_reader("".into(), source.clone(), &session, &Default::default())?;
+    let source: Arc<dyn SegmentSource> = Arc::<RecordingSegments>::clone(&recording);
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&source),
+        &session,
+        &Default::default(),
+    )?;
     let mut file = scan_file(&source, &layout)?;
     file.plans = cached.then(|| Arc::new(FilePlans::default()));
     let mut first_reads = BTreeSet::new();
     for iteration in 0..2 {
         recording.reads.lock().clear();
         let arrays = v2::into_stream(
-            ScanBuilder::new(session.clone(), reader.clone()),
+            ScanBuilder::new(session.clone(), Arc::clone(&reader)),
             file.clone(),
         )?
         .try_collect::<Vec<_>>()
@@ -881,7 +886,12 @@ async fn reader_cache_retains_dictionary_values_but_not_codes(
 async fn reader_plan_cache_has_no_ownership_cycle() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write_layout(&session).await?;
-    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
     let mut file = scan_file(&segments, &layout)?;
     let plans = Arc::new(FilePlans::default());
     let weak_plans = Arc::downgrade(&plans);
@@ -904,7 +914,12 @@ async fn reader_plan_cache_has_no_ownership_cycle() -> VortexResult<()> {
 async fn cached_dictionary_accepts_different_queries() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write_dict_layout(&session).await?;
-    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
     let mut file = scan_file(&segments, &layout)?;
     file.plans = Some(Arc::default());
     let dtype = DType::Utf8(NonNullable);
@@ -914,7 +929,7 @@ async fn cached_dictionary_accepts_different_queries() -> VortexResult<()> {
         (root(), eq(root(), lit("banana"))),
     ] {
         let builder = || -> VortexResult<_> {
-            Ok(ScanBuilder::new(session.clone(), reader.clone())
+            Ok(ScanBuilder::new(session.clone(), Arc::clone(&reader))
                 .with_projection(projection.bind(&dtype)?)
                 .with_filter(filter.bind(&dtype)?))
         };

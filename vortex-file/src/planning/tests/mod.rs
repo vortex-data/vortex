@@ -99,7 +99,7 @@ fn v2_reader_cache_is_opt_in_and_cleared_when_source_changes() -> VortexResult<(
         .ok_or_else(|| vortex_err!("missing second cache"))?;
     assert!(Arc::ptr_eq(first_plans, second_plans));
     let source: Arc<dyn SegmentSource> = Arc::new(TestSegments::default());
-    let file = file.with_segment_source(source.clone());
+    let file = file.with_segment_source(Arc::clone(&source));
     let replaced = scan_file(&file);
     let replaced_plans = replaced
         .plans
