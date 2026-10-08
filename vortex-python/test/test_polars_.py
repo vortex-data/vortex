@@ -114,3 +114,18 @@ def test_polars_decimal_literals(tmp_path):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == [1, 3]
+
+
+@pytest.mark.parametrize(
+    "closed, expected",
+    [("both", [0, 1, 2]), ("left", [0, 1]), ("right", [1, 2]), ("none", [1])],
+)
+def test_polars_is_between(tmp_path, closed, expected):
+    frame = pl.DataFrame({"id": list(range(6)), "x": [1, 2, 3, 4, None, 2], "l": [1, 1, 1, 1, 1, None], "u": [3] * 6})
+    expr = pl.col("x").is_between(pl.col("l"), pl.col("u"), closed=closed)
+    path = tmp_path / "between.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == expected
