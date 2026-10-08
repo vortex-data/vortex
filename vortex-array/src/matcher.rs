@@ -39,9 +39,10 @@ impl Matcher for AnyArray {
 
 /// Defines a [`Matcher`] for a fixed set of array vtables and the enum of typed views it returns.
 ///
-/// The concrete vtable's `TypeId` is stored inline in the array, so matching reads it once and
-/// compares it against each member without a virtual call. Each member adds a `TypeId`
-/// comparison; a large set on a hot path may warrant a dedicated classification method on
+/// The array's inline encoding ID is compared against each member's
+/// [`VTable::static_id`](crate::array::VTable::static_id) first, so a non-member is usually rejected
+/// without a virtual call. Otherwise one virtual call reads the concrete vtable's `TypeId`, which
+/// decides the match. A large set on a hot path may warrant a dedicated classification method on
 /// `DynArrayData` instead, as `AnyCanonical` uses.
 macro_rules! vtable_set_matcher {
     (
@@ -59,17 +60,33 @@ macro_rules! vtable_set_matcher {
             $($kind($crate::ArrayView<'a, $vtable>)),+
         }
 
+        impl $matcher {
+            /// Whether the encoding ID alone proves `array` is not a member.
+            #[inline]
+            fn rejects_by_id(array: &$crate::ArrayRef) -> bool {
+                let id = array.encoding_id();
+                $(<$vtable as $crate::array::VTable>::static_id()
+                    .is_some_and(|member| member != id))&&+
+            }
+        }
+
         impl $crate::matcher::Matcher for $matcher {
             type Match<'a> = $view<'a>;
 
             #[inline]
             fn matches(array: &$crate::ArrayRef) -> bool {
+                if Self::rejects_by_id(array) {
+                    return false;
+                }
                 let id = array.vtable_type_id();
                 $(id == ::std::any::TypeId::of::<$vtable>())||+
             }
 
             #[inline]
             fn try_match(array: &$crate::ArrayRef) -> Option<Self::Match<'_>> {
+                if Self::rejects_by_id(array) {
+                    return None;
+                }
                 let id = array.vtable_type_id();
                 $(if id == ::std::any::TypeId::of::<$vtable>() {
                     // SAFETY: the concrete vtable's `TypeId` equals `$vtable`'s.

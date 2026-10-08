@@ -42,9 +42,15 @@ impl VTable for Null {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.null");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(

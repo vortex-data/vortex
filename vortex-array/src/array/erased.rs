@@ -467,9 +467,12 @@ impl ArrayRef {
     }
 
     /// Returns the [`TypeId`] of the concrete vtable behind this array.
+    ///
+    /// This is a virtual call; [`Matcher`] implementations first reject on the inline encoding ID
+    /// where the vtable has a [`VTable::static_id`].
     #[inline]
     pub(crate) fn vtable_type_id(&self) -> TypeId {
-        self.0.vtable_type_id
+        self.0.data.vtable_type_id()
     }
 
     /// Returns a typed view without a runtime type check.
@@ -853,6 +856,13 @@ impl<V: VTable> Matcher for V {
 
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
+        // Encoding IDs are not guaranteed unique per vtable, so an ID match is confirmed by
+        // `TypeId` before the unchecked downcast in `try_match`.
+        if let Some(id) = V::static_id()
+            && array.encoding_id() != id
+        {
+            return false;
+        }
         array.vtable_type_id() == TypeId::of::<V>()
     }
 

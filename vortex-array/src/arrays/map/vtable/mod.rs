@@ -55,9 +55,15 @@ impl VTable for Map {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.map");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(
