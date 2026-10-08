@@ -42,6 +42,7 @@ use super::CORE_2026_08_0;
 use super::CORE_2026_08_1;
 use super::CORE_2026_08_2;
 use super::CORE_2026_08_3;
+use super::CORE_2026_10_0;
 use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
@@ -146,6 +147,31 @@ fn preview_starts_empty() {
         ComponentKind::Aggregate,
     ] {
         assert!(session.components_in(&PREVIEW_2026_08_0, kind).is_empty());
+    }
+}
+
+#[test]
+fn core_2026_10_0_is_a_draft_adding_bounded_extrema() {
+    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
+    assert!(
+        session
+            .find(&CORE_2026_10_0)
+            .unwrap_or_else(|| panic!("{CORE_2026_10_0} is not registered"))
+            .is_draft()
+    );
+    for aggregate in ["vortex.max_bound", "vortex.min_bound"] {
+        assert!(
+            session
+                .components_in(&CORE_2026_10_0, ComponentKind::Aggregate)
+                .iter()
+                .any(|inclusion| inclusion.component_id.as_str() == aggregate)
+        );
+        assert!(
+            session
+                .components_in(&CORE_2026_08_3, ComponentKind::Aggregate)
+                .iter()
+                .all(|inclusion| inclusion.component_id.as_str() != aggregate)
+        );
     }
 }
 
@@ -297,7 +323,7 @@ async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<(
     use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
-    // Strings take the bounded min/max branch of the default aggregates, integers the plain
+    // Strings take the byte-bounded min/max branch of the default aggregates, integers the plain
     // min/max branch, so one file exercises both.
     let strings = || {
         vortex_array::arrays::VarBinViewArray::from_iter_str((0..4096).map(|i| format!("row-{i}")))
@@ -332,7 +358,12 @@ async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<(
         }
         stack.extend(children);
     }
-    for aggregate in ["vortex.min", "vortex.max", "vortex.bounded_min"] {
+    for aggregate in [
+        "vortex.min(",
+        "vortex.max(",
+        "vortex.min_bound(",
+        "vortex.max_bound(",
+    ] {
         assert!(
             zone_stat_names.iter().any(|name| name.contains(aggregate)),
             "no {aggregate} zone stat in {zone_stat_names:?}"
@@ -367,7 +398,9 @@ static WRITER_TEST_DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::aggregate(&"vortex.bounded_max"),
         EditionMember::aggregate(&"vortex.bounded_min"),
         EditionMember::aggregate(&"vortex.max"),
+        EditionMember::aggregate(&"vortex.max_bound"),
         EditionMember::aggregate(&"vortex.min"),
+        EditionMember::aggregate(&"vortex.min_bound"),
         EditionMember::aggregate(&"vortex.nan_count"),
         EditionMember::aggregate(&"vortex.null_count"),
     ],
@@ -455,9 +488,11 @@ fn written_layout_ids(session: &VortexSession, buffer: ByteBufferMut) -> VortexR
 /// default writer records, plus the given members of other kinds.
 fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSession> {
     const EDITION: EditionId = EditionId::new("kind-test", 2026, 8, 0);
-    const AGGREGATES: [&str; 6] = [
+    const AGGREGATES: [&str; 8] = [
         "vortex.bounded_max",
         "vortex.bounded_min",
+        "vortex.max_bound",
+        "vortex.min_bound",
         "vortex.max",
         "vortex.min",
         "vortex.nan_count",

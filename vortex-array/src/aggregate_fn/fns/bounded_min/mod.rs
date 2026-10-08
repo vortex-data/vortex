@@ -24,6 +24,7 @@ use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::min_bound::MinBound;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::dtype::DType;
@@ -46,11 +47,20 @@ impl Display for BoundedMinOptions {
 }
 
 /// Compute a byte-bounded lower bound for the minimum non-null value of a UTF8/Binary array.
+///
+/// Superseded by [`MinBound`], which records whether the value is exact. This aggregate stays
+/// registered to read the zone maps of files that stored it; [`MinBoundPartial::from`] maps its
+/// partials.
+///
+/// [`MinBoundPartial::from`]: crate::aggregate_fn::fns::min_bound::MinBoundPartial
 #[derive(Clone, Debug)]
 pub struct BoundedMin;
 
-enum BoundedMinState {
+/// The accumulated state of [`BoundedMin`].
+pub(crate) enum BoundedMinState {
+    /// No non-null values have been seen.
     Empty,
+    /// A lower bound of the minimum, which may or may not be exact.
     Value(Scalar),
 }
 
@@ -60,6 +70,21 @@ pub struct BoundedMinPartial {
 }
 
 impl BoundedMinPartial {
+    /// Parse a partial scalar, which is the nullable bound itself.
+    pub(crate) fn from_scalar(scalar: &Scalar) -> VortexResult<Self> {
+        // A null partial means the producing accumulator saw nothing valid.
+        let state = if scalar.is_null() {
+            BoundedMinState::Empty
+        } else {
+            BoundedMinState::Value(scalar.clone())
+        };
+        Ok(Self { state })
+    }
+
+    pub(crate) fn into_state(self) -> BoundedMinState {
+        self.state
+    }
+
     fn merge(&mut self, min: Scalar) {
         if min.is_null() {
             return;
@@ -126,10 +151,12 @@ impl AggregateFnVTable for BoundedMin {
             };
         }
 
-        // The stored bound skips NaNs, so it cannot stand in for a NaN-including minimum.
-        if requested
-            .as_opt::<Min>()
-            .is_some_and(|options| options.skip_nans)
+        // The stored bound is a sound lower bound for its successor. It skips NaNs, so it cannot
+        // stand in for a NaN-including minimum.
+        if requested.is::<MinBound>()
+            || requested
+                .as_opt::<Min>()
+                .is_some_and(|options| options.skip_nans)
         {
             AggregateFnSatisfaction::Approximate
         } else {
@@ -155,13 +182,7 @@ impl AggregateFnVTable for BoundedMin {
         _args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
-        // A null partial means the producing accumulator saw nothing valid.
-        let state = if scalar.is_null() {
-            BoundedMinState::Empty
-        } else {
-            BoundedMinState::Value(scalar.clone())
-        };
-        Ok(BoundedMinPartial { state })
+        BoundedMinPartial::from_scalar(scalar)
     }
 
     fn merge_partials(

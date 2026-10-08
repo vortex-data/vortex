@@ -16,8 +16,11 @@ use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::aggregate_fn::fns::bound::BOUND_VALUE;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::max_bound::MaxBound;
+use vortex_array::aggregate_fn::fns::min_bound::MinBound;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -319,8 +322,16 @@ impl ZoneMap {
     }
 }
 
+/// Project a stored aggregate's partial state onto its result.
+///
+/// Bounded extrema store a struct partial whose value field is the bound; every other aggregate
+/// stores its result directly. The requested aggregate is one the stored aggregate can satisfy,
+/// and all of the extremum aggregates return the nullable element dtype, so the projected
+/// value is the requested result either way.
 fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: Expression) -> Expression {
-    if stored.is::<BoundedMax>() {
+    if stored.is::<MaxBound>() || stored.is::<MinBound>() {
+        get_item(BOUND_VALUE, state_expr)
+    } else if stored.is::<BoundedMax>() {
         get_item(BOUNDED_MAX_BOUND, state_expr)
     } else {
         state_expr
@@ -386,6 +397,9 @@ mod tests {
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
     use vortex_array::aggregate_fn::fns::all_null::AllNull;
+    use vortex_array::aggregate_fn::fns::bound::BOUND_IS_EXACT;
+    use vortex_array::aggregate_fn::fns::bound::BOUND_VALUE;
+    use vortex_array::aggregate_fn::fns::bound::BoundOptions;
     use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
     use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_UNKNOWN;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
@@ -393,12 +407,15 @@ mod tests {
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::max_bound::MaxBound;
     use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::min_bound::MinBound;
     use vortex_array::aggregate_fn::fns::nan_count::NanCount;
     use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -570,6 +587,89 @@ mod tests {
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, true, true]),
+            ctx
+        );
+    }
+
+    /// A zone map of `vortex.max_bound`/`vortex.min_bound` partials answers `max`/`min`
+    /// requests through the partials' `value` field, whether or not a zone's value is exact.
+    #[test]
+    fn bound_partials_satisfy_min_max_rewrites() {
+        let options = BoundOptions::new(default_bounded_stat_max_bytes());
+        let max_bound = MaxBound.bind(options);
+        let min_bound = MinBound.bind(options);
+        let utf8 = |values: [&str; 3]| VarBinViewArray::from_iter_str(values).into_array();
+        let zone_map = ZoneMap::try_new(
+            DType::Utf8(Nullability::NonNullable),
+            StructArray::from_fields(&[
+                (
+                    max_bound.to_string(),
+                    StructArray::try_new(
+                        [BOUND_VALUE, BOUND_IS_EXACT].into(),
+                        vec![
+                            VarBinViewArray::from_iter_nullable_str([
+                                Some("abd"),
+                                Some("abc"),
+                                None,
+                            ])
+                            .into_array(),
+                            BoolArray::from_iter([false, true, false]).into_array(),
+                        ],
+                        3,
+                        Validity::AllValid,
+                    )
+                    .unwrap()
+                    .into_array(),
+                ),
+                (
+                    min_bound.to_string(),
+                    StructArray::try_new(
+                        [BOUND_VALUE, BOUND_IS_EXACT].into(),
+                        vec![
+                            utf8(["abc", "abc", "abc"]),
+                            BoolArray::from_iter([true, true, false]).into_array(),
+                        ],
+                        3,
+                        Validity::AllValid,
+                    )
+                    .unwrap()
+                    .into_array(),
+                ),
+            ])
+            .unwrap(),
+            Arc::new([max_bound, min_bound]),
+            3,
+            9,
+        )
+        .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dtype = DType::Utf8(Nullability::NonNullable);
+
+        // A > "abd" => A.max <= "abd". The third zone has no representable upper bound.
+        let pruning_expr = falsify(&gt(root(), lit("abd")), dtype.clone());
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, true, false]),
+            ctx
+        );
+
+        // A < "abc" => A.min >= "abc", which a lower bound answers for every zone.
+        let pruning_expr = falsify(&lt(root(), lit("abc")), dtype.clone());
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, true, true]),
+            ctx
+        );
+
+        // A != "abc" => A.min == "abc" AND A.max == "abc". Only the second zone, whose bounds
+        // coincide, is proven constant; a bound above the minimum leaves the first zone alone.
+        let pruning_expr = falsify(&not_eq(root(), lit("abc")), dtype);
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, false]),
             ctx
         );
     }

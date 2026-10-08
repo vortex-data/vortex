@@ -26,6 +26,7 @@ use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::max_bound::MaxBound;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::builtins::ArrayBuiltins;
@@ -60,12 +61,22 @@ impl Display for BoundedMaxOptions {
 }
 
 /// Compute a byte-bounded upper bound for the maximum non-null value of a UTF8/Binary array.
+///
+/// Superseded by [`MaxBound`], which records whether the value is exact and keeps an empty input
+/// apart from an unrepresentable bound. This aggregate stays registered to read the zone maps of
+/// files that stored it; [`MaxBoundPartial::from`] maps its partials.
+///
+/// [`MaxBoundPartial::from`]: crate::aggregate_fn::fns::max_bound::MaxBoundPartial
 #[derive(Clone, Debug)]
 pub struct BoundedMax;
 
-enum BoundedMaxState {
+/// The accumulated state of [`BoundedMax`].
+pub(crate) enum BoundedMaxState {
+    /// No non-null values have been seen.
     Empty,
+    /// An upper bound of the maximum, which may or may not be exact.
     Value(Scalar),
+    /// A non-null maximum was seen but no upper bound fits in `max_bytes`.
     Unknown,
 }
 
@@ -75,6 +86,43 @@ pub struct BoundedMaxPartial {
 }
 
 impl BoundedMaxPartial {
+    /// Parse a partial scalar of the dtype returned by [`make_bounded_max_partial_dtype`].
+    pub(crate) fn from_scalar(scalar: &Scalar) -> VortexResult<Self> {
+        // A null partial means the producing accumulator saw nothing valid.
+        let state = if scalar.is_null() {
+            BoundedMaxState::Empty
+        } else {
+            let Some(fields) = scalar.as_struct_opt() else {
+                vortex_bail!(
+                    "BoundedMax partial must be a struct, got {}",
+                    scalar.dtype()
+                );
+            };
+            let Some(bound) = fields.field_by_idx(0) else {
+                vortex_bail!("BoundedMax partial is missing its bound field");
+            };
+            let Some(unknown) = fields
+                .field_by_idx(1)
+                .and_then(|unknown| unknown.as_bool().value())
+            else {
+                vortex_bail!("BoundedMax partial is missing its non-null unknown field");
+            };
+
+            if unknown {
+                BoundedMaxState::Unknown
+            } else if bound.is_null() {
+                BoundedMaxState::Empty
+            } else {
+                BoundedMaxState::Value(bound)
+            }
+        };
+        Ok(Self { state })
+    }
+
+    pub(crate) fn into_state(self) -> BoundedMaxState {
+        self.state
+    }
+
     fn merge_bound(&mut self, max: Scalar) {
         if max.is_null() {
             return;
@@ -172,10 +220,12 @@ impl AggregateFnVTable for BoundedMax {
             };
         }
 
-        // The stored bound skips NaNs, so it cannot stand in for a NaN-including maximum.
-        if requested
-            .as_opt::<Max>()
-            .is_some_and(|options| options.skip_nans)
+        // The stored bound is a sound upper bound for its successor. It skips NaNs, so it cannot
+        // stand in for a NaN-including maximum.
+        if requested.is::<MaxBound>()
+            || requested
+                .as_opt::<Max>()
+                .is_some_and(|options| options.skip_nans)
         {
             AggregateFnSatisfaction::Approximate
         } else {
@@ -201,35 +251,7 @@ impl AggregateFnVTable for BoundedMax {
         _args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
-        // A null partial means the producing accumulator saw nothing valid.
-        let state = if scalar.is_null() {
-            BoundedMaxState::Empty
-        } else {
-            let Some(fields) = scalar.as_struct_opt() else {
-                vortex_bail!(
-                    "BoundedMax partial must be a struct, got {}",
-                    scalar.dtype()
-                );
-            };
-            let Some(bound) = fields.field_by_idx(0) else {
-                vortex_bail!("BoundedMax partial is missing its bound field");
-            };
-            let Some(unknown) = fields
-                .field_by_idx(1)
-                .and_then(|unknown| unknown.as_bool().value())
-            else {
-                vortex_bail!("BoundedMax partial is missing its non-null unknown field");
-            };
-
-            if unknown {
-                BoundedMaxState::Unknown
-            } else if bound.is_null() {
-                BoundedMaxState::Empty
-            } else {
-                BoundedMaxState::Value(bound)
-            }
-        };
-        Ok(BoundedMaxPartial { state })
+        BoundedMaxPartial::from_scalar(scalar)
     }
 
     fn merge_partials(

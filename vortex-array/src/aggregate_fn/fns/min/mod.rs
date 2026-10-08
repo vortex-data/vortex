@@ -16,6 +16,7 @@ use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
+use crate::aggregate_fn::fns::min_bound::MinBound;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
@@ -107,7 +108,8 @@ impl AggregateFnVTable for Min {
             .is_some_and(|other| other == options)
         {
             AggregateFnSatisfaction::Exact
-        } else if requested.is::<BoundedMin>() && options.skip_nans {
+        } else if (requested.is::<MinBound>() || requested.is::<BoundedMin>()) && options.skip_nans
+        {
             // A NaN-including minimum may be NaN, which is not a usable lower bound.
             AggregateFnSatisfaction::Approximate
         } else {

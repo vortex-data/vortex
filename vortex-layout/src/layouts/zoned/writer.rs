@@ -12,15 +12,19 @@ use parking_lot::Mutex;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::bound::BoundOptions;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
 use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::max_bound::MaxBound;
 use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_bound::MinBound;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -108,7 +112,7 @@ impl LayoutStrategy for ZonedStrategy {
             .options
             .aggregate_fns
             .clone()
-            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
+            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), &ctx, session));
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -199,16 +203,13 @@ impl LayoutStrategy for ZonedStrategy {
     }
 }
 
-fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
+fn default_zoned_aggregate_fns(
+    dtype: &DType,
+    ctx: &LayoutWriterContext,
+    session: &VortexSession,
+) -> Arc<[AggregateFnRef]> {
     let (max, min) = match dtype {
-        DType::Utf8(_) | DType::Binary(_) => (
-            BoundedMax.bind(BoundedMaxOptions {
-                max_bytes: default_bounded_stat_max_bytes(),
-            }),
-            BoundedMin.bind(BoundedMinOptions {
-                max_bytes: default_bounded_stat_max_bytes(),
-            }),
-        ),
+        DType::Utf8(_) | DType::Binary(_) => byte_bounded_extrema(ctx),
         _ => (
             Max.bind(NumericalAggregateOpts::skip_nans()),
             Min.bind(NumericalAggregateOpts::skip_nans()),
@@ -232,14 +233,36 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     aggregate_fns.into()
 }
 
+/// The byte-bounded extrema recorded for `Utf8`/`Binary` columns.
+///
+/// `vortex.max_bound` and `vortex.min_bound` joined `core` at `core2026.10.0`. A context pinned to
+/// an earlier edition cannot record them, so it keeps writing the superseded `vortex.bounded_max`
+/// and `vortex.bounded_min`, which every reader of that edition understands. A context that
+/// permits neither pair gets the current one, and the write fails naming it.
+fn byte_bounded_extrema(ctx: &LayoutWriterContext) -> (AggregateFnRef, AggregateFnRef) {
+    let max_bytes = default_bounded_stat_max_bytes();
+    if !ctx.allows_aggregate(&MaxBound.id())
+        && !ctx.allows_aggregate(&MinBound.id())
+        && ctx.allows_aggregate(&BoundedMax.id())
+        && ctx.allows_aggregate(&BoundedMin.id())
+    {
+        return (
+            BoundedMax.bind(BoundedMaxOptions { max_bytes }),
+            BoundedMin.bind(BoundedMinOptions { max_bytes }),
+        );
+    }
+    (
+        MaxBound.bind(BoundOptions::new(max_bytes)),
+        MinBound.bind(BoundOptions::new(max_bytes)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::aggregate_fn::AggregateFnVTable;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-    use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
@@ -346,23 +369,58 @@ mod tests {
     fn default_aggregates_bound_variable_length_min_max() {
         let aggregate_fns = default_zoned_aggregate_fns(
             &DType::Utf8(Nullability::NonNullable),
+            &LayoutWriterContext::new(ArrayContext::empty()),
             &vortex_array::array_session(),
         );
 
         assert_eq!(
-            aggregate_fns[0].as_::<BoundedMax>().max_bytes,
+            aggregate_fns[0].as_::<MaxBound>().max_bytes,
             default_bounded_stat_max_bytes()
         );
         assert_eq!(
-            aggregate_fns[1].as_::<BoundedMin>().max_bytes,
+            aggregate_fns[1].as_::<MinBound>().max_bytes,
             default_bounded_stat_max_bytes()
         );
     }
 
+    /// A context pinned to an edition predating `vortex.max_bound` keeps recording the superseded
+    /// bounded extrema rather than failing the write.
+    #[test]
+    fn a_context_without_bound_extrema_falls_back_to_bounded_min_max() {
+        let ctx = LayoutWriterContext::new(ArrayContext::empty()).with_allowed_aggregates(
+            HashSet::from_iter([BoundedMax.id(), BoundedMin.id(), NullCount.id()]),
+        );
+        let aggregate_fns = default_zoned_aggregate_fns(
+            &DType::Utf8(Nullability::NonNullable),
+            &ctx,
+            &vortex_array::array_session(),
+        );
+
+        assert!(aggregate_fns[0].is::<BoundedMax>());
+        assert!(aggregate_fns[1].is::<BoundedMin>());
+
+        let ctx = LayoutWriterContext::new(ArrayContext::empty())
+            .with_allowed_aggregates(HashSet::from_iter([BoundedMax.id(), NullCount.id()]));
+        let aggregate_fns = default_zoned_aggregate_fns(
+            &DType::Utf8(Nullability::NonNullable),
+            &ctx,
+            &vortex_array::array_session(),
+        );
+
+        assert!(
+            aggregate_fns[0].is::<MaxBound>(),
+            "only a full pair falls back"
+        );
+        assert!(aggregate_fns[1].is::<MinBound>());
+    }
+
     #[test]
     fn default_aggregates_keep_fixed_width_min_max_exact() {
-        let aggregate_fns =
-            default_zoned_aggregate_fns(&PType::I32.into(), &vortex_array::array_session());
+        let aggregate_fns = default_zoned_aggregate_fns(
+            &PType::I32.into(),
+            &LayoutWriterContext::new(ArrayContext::empty()),
+            &vortex_array::array_session(),
+        );
 
         assert!(aggregate_fns[0].is::<Max>());
         assert!(aggregate_fns[1].is::<Min>());
@@ -376,7 +434,11 @@ mod tests {
         Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
     ))]
     fn default_aggregates_never_record_sum(#[case] dtype: DType) {
-        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &vortex_array::array_session());
+        let aggregate_fns = default_zoned_aggregate_fns(
+            &dtype,
+            &LayoutWriterContext::new(ArrayContext::empty()),
+            &vortex_array::array_session(),
+        );
 
         assert!(
             aggregate_fns

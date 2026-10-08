@@ -59,6 +59,8 @@ pub fn enable_all_registered_array_encodings(session: &VortexSession) {
     for id in [
         "vortex.bounded_max",
         "vortex.bounded_min",
+        "vortex.max_bound",
+        "vortex.min_bound",
         "vortex.max",
         "vortex.min",
         "vortex.nan_count",

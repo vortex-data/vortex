@@ -67,6 +67,14 @@ or revision requires a new draft edition. Vortex-maintained draft formats are ex
 compatible unless a defect blocks promotion into `core`, while independent plugin projects state
 their own policy.
 
+### `core2026.10.0`
+
+- `aggregate`: `vortex.max_bound`, `vortex.min_bound`
+
+These succeed `vortex.bounded_max` and `vortex.bounded_min` as the zone-map extrema of string and
+binary columns: their partials record whether the stored value is exact or only a bound. The
+superseded aggregates remain members, so files that stored them stay readable.
+
 ### `preview2026.08.0`
 
 This edition currently adds no components.

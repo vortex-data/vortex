@@ -15,8 +15,9 @@
 //! rejects an ID that is not permitted unless the writer explicitly disables edition enforcement.
 //!
 //! The default file writer resolves the session's enabled editions at write time. The facade
-//! enables the newest frozen `core` edition, [`crate::editions::CORE_2026_08_3`]. Other editions
-//! must be enabled explicitly or by initializing their owning plugin.
+//! enables the newest `core` edition, [`crate::editions::CORE_2026_10_0`], which is a draft until
+//! the release that cuts it is known. Other editions must be enabled explicitly or by initializing
+//! their owning plugin.
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +42,7 @@ pub use vortex_edition::declarations::core::CORE_2026_08_0;
 pub use vortex_edition::declarations::core::CORE_2026_08_1;
 pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
+pub use vortex_edition::declarations::core::CORE_2026_10_0;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
@@ -48,7 +50,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 /// The `core` edition enabled for writing by the default Vortex session.
-pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
+pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_10_0;
 
 /// The newest `preview` edition. The default Vortex session registers it but does not enable it.
 pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
@@ -73,8 +75,8 @@ pub fn register_default_editions(session: &VortexSession) {
 
 /// Enable the default Vortex editions for writing.
 ///
-/// This selects the newest frozen `core` edition. All declarations must have been registered
-/// first with [`register_default_editions`].
+/// This selects the newest `core` edition. All declarations must have been registered first with
+/// [`register_default_editions`].
 pub fn enable_default_editions(session: &VortexSession) {
     session
         .enable_edition(DEFAULT_CORE_EDITION)

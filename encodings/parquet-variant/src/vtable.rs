@@ -446,6 +446,8 @@ mod tests {
         for id in [
             "vortex.bounded_max",
             "vortex.bounded_min",
+            "vortex.max_bound",
+            "vortex.min_bound",
             "vortex.max",
             "vortex.min",
             "vortex.nan_count",
