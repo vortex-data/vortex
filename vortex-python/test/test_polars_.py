@@ -182,3 +182,14 @@ def test_polars_binary_literals(tmp_path):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == [0]
+
+
+def test_polars_is_null(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2], "x": [1, None, 3]})
+    expr = pl.col("x").is_null()
+    path = tmp_path / "is_null.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1]
