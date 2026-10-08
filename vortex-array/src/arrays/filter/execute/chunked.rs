@@ -14,9 +14,10 @@
 //! | at most 16 per byte of value width | decode only the selected values                   |
 //! | otherwise                          | decode to scratch, then compact the scratch       |
 //!
-//! The scratch buffer stays in cache. It is compacted by copying the slices, by copying the runs
-//! of set bits when they average at least [`MIN_RUN_BYTES`], and otherwise with the same SIMD,
-//! byte compress and scalar kernels that `filter_buffer` chooses for the chunk's density.
+//! The scratch buffer stays in cache. It is compacted by copying the slices, or with the same
+//! SIMD kernels that `filter_buffer` chooses for the chunk's density. When no SIMD kernel applies,
+//! runs of set bits that average at least [`MIN_RUN_BYTES`] are copied run by run, and shorter
+//! runs use byte compress or the bit walk.
 
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -50,8 +51,8 @@ const SPARSE_VALUES_PER_BYTE: usize = 16;
 /// The largest number of selected values for which a chunk decodes only those values.
 const MAX_SPARSE_VALUES: usize = SPARSE_VALUES_PER_BYTE * 8;
 
-/// Chunks whose runs of selected values average at least this many bytes copy each run. Shorter
-/// runs are faster to compact with the SIMD and byte compress kernels.
+/// Chunks without a SIMD kernel whose runs of selected values average at least this many bytes
+/// copy each run. Shorter runs are faster to compact with byte compress.
 const MIN_RUN_BYTES: usize = 96;
 
 /// Number of mask bytes read to assemble the words of a chunk at an arbitrary bit offset.
@@ -279,8 +280,9 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
 /// Copies the `selected` values of `src` selected by `words` to `dst` and returns the number
 /// copied.
 ///
-/// Runs of set bits that average at least [`MIN_RUN_BYTES`] are copied run by run. Otherwise the kernel is the one that
-/// [`filter_buffer`](super::buffer::filter_buffer) chooses for the density.
+/// The kernel is the SIMD kernel that [`filter_buffer`](super::buffer::filter_buffer) chooses for
+/// the density, if any. Otherwise, runs of set bits that average at least [`MIN_RUN_BYTES`] are
+/// copied run by run, and shorter runs use byte compress or the bit walk.
 ///
 /// # Safety
 ///
@@ -291,25 +293,41 @@ unsafe fn compact_words<T: Copy>(src: &[T], words: &[u64], selected: usize, dst:
         words,
         len: src.len(),
     };
-    // A run that crosses a word boundary counts once in each word, as the run walk copies it.
-    let runs = words
-        .iter()
-        .map(|&word| (word & !(word << 1)).count_ones() as usize)
-        .sum::<usize>();
     let density = selected as f64 / src.len() as f64;
 
     // SAFETY: forwarded from the caller contract.
     unsafe {
-        if selected * size_of::<T>() >= MIN_RUN_BYTES * runs {
-            compact_runs_by_bitmap(src, bits, dst)
-        } else if let Some(written) = simd_compress::compress_bits(src, bits, density, dst) {
+        if let Some(written) = simd_compress::compress_bits(src, bits, density, dst) {
             written
+        } else if has_long_runs::<T>(words, selected) {
+            compact_runs_by_bitmap(src, bits, dst)
         } else if density >= byte_compress_density_threshold::<T>() {
             byte_compress::compress_words(src, words, dst)
         } else {
             compact_by_bitmap(src, bits, dst)
         }
     }
+}
+
+/// Returns whether the runs of the `selected` set bits of `words` average at least
+/// [`MIN_RUN_BYTES`] of `T`.
+// Inlining this check into `compact_words` makes the bit walk up to 1.3x slower on x86-64.
+#[inline(never)]
+fn has_long_runs<T>(words: &[u64], selected: usize) -> bool {
+    // The run walk copies at most one word of values at a time, so narrow values never qualify.
+    if 64 * size_of::<T>() < MIN_RUN_BYTES {
+        return false;
+    }
+
+    // A run that crosses a word boundary counts once in each word, as the run walk copies it. The
+    // count stops at the first word that takes it past `max_runs`, because a popcount is not a
+    // native instruction on baseline x86-64.
+    let max_runs = selected * size_of::<T>() / MIN_RUN_BYTES;
+    let mut runs = 0;
+    words.iter().all(|&word| {
+        runs += (word & !(word << 1)).count_ones() as usize;
+        runs <= max_runs
+    })
 }
 
 /// Loads the `len <= FILTER_CHUNK_LEN` mask bits starting at bit `start` of `bytes` into
