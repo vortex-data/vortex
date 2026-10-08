@@ -14,7 +14,7 @@ import vortex.expr as ve
 def indexed_file(tmp_path: Path) -> tuple[vx.VortexFile, pa.Table]:
     table = pa.table(
         {
-            "id": range(9),
+            "id": list(range(9)),
             "payload": ["first", None, "long string with 数据", "", "four", "five", None, "seven", "last"],
         }
     )
