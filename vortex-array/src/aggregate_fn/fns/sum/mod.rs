@@ -61,14 +61,8 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         array.dtype().clone(),
     )?;
     acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
-
-    // Cache the computed sum as a statistic (only if non-null, i.e. no overflow).
-    if let Some(val) = result.value().cloned() {
-        array.statistics().set(Stat::Sum, Precision::Exact(val));
-    }
-
-    Ok(result)
+    // The accumulator caches the sum on `array` as a statistic.
+    acc.finish()
 }
 
 /// Sum an array, starting from zero.

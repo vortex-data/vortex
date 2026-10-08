@@ -434,16 +434,20 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None, schema = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None, schema = None))]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         limit: Option<u64>,
+        indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
         schema: Option<&Bound<PyAny>>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = &slf.get().vxf;
+        let projection = projection.map(|p| p.0);
+        let expr = expr.map(|e| e.into_inner());
+        let indices = row_indices(slf.py(), indices)?;
         let schema = schema
             .map(|schema| Schema::from_pyarrow(&schema.as_borrowed()))
             .transpose()?
@@ -451,26 +455,7 @@ impl PyVortexFile {
 
         // Building the reader is lazy and cheap, so it runs without releasing the GIL. The scan
         // runs as pyarrow pulls batches, and pyarrow releases the GIL while it does.
-        let filter = expr
-            .map(|e| e.into_inner().bind(vxf.dtype())?.optimize_recursive())
-            .transpose()?;
-        let projection = projection
-            .map(|p| p.0)
-            .unwrap_or_else(root)
-            .bind(vxf.dtype())?
-            .optimize_recursive()?;
-        let mut builder = vxf
-            .scan()?
-            .with_some_filter(filter)
-            .with_projection(projection);
-
-        if let Some(limit) = limit {
-            builder = builder.with_limit(limit);
-        }
-
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-        }
+        let builder = scan_builder(vxf, projection, expr, limit, indices, batch_size)?;
 
         let schema = match schema {
             Some(schema) => schema,

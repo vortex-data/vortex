@@ -304,6 +304,7 @@ class VortexFile:
         *,
         limit: int | None = None,
         expr: Expr | None = None,
+        indices: Array | None = None,
         batch_size: int | None = None,
         schema: pa.Schema | None = None,
     ) -> RecordBatchReader:
@@ -316,6 +317,8 @@ class VortexFile:
             from the file) or an explicit list of desired columns.
         expr : :class:`vortex.Expr` | None
             The predicate used to filter rows. The filter columns need not appear in the projection.
+        indices : :class:`vortex.Array` | None
+            The indices of the rows to read. Must be strictly increasing and non-null.
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
         schema : :class:`pyarrow.Schema` | None
@@ -323,7 +326,9 @@ class VortexFile:
             Use ``pyarrow.binary()`` for ``BinaryArray`` fields.
 
         """
-        return self._file.to_arrow(projection, expr=expr, limit=limit, batch_size=batch_size, schema=schema)
+        return self._file.to_arrow(
+            projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size, schema=schema
+        )
 
     def to_dataset(self) -> VortexDataset:
         """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API."""

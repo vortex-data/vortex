@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
-use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::BitBufferView;
-use vortex_buffer::get_bit;
+use vortex_buffer::take_bits;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -25,7 +23,6 @@ use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
@@ -44,29 +41,39 @@ impl TakeExecute for Bool {
             return Ok(Some(taken));
         }
 
-        let indices_nulls_zeroed = match indices.validity()?.execute_mask(indices.len(), ctx)? {
-            Mask::AllTrue(_) => indices.clone(),
-            Mask::AllFalse(_) => {
+        let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
+        if matches!(mask, Mask::AllFalse(_)) {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                    .into_array(),
+            ));
+        }
+
+        if matches!(mask, Mask::AllTrue(_)) && !array.dtype().is_nullable() {
+            let source = array.bit_buffer_view();
+            let count = source.true_count();
+            if count == 0 || count == source.len() {
                 return Ok(Some(
-                    ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
-                        .into_array(),
+                    ConstantArray::new(
+                        Scalar::bool(count != 0, array.dtype().nullability()),
+                        indices.len(),
+                    )
+                    .into_array(),
                 ));
             }
-            Mask::Values(_) => indices
-                .clone()
-                .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
-        };
-        let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;
-        let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
-            take_valid_indices(
+        }
+
+        let indices_values = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let buffer = match_each_integer_ptype!(indices_values.ptype(), |I| {
+            take_bits(
                 array.bit_buffer_view(),
-                indices_nulls_zeroed.as_slice::<I>(),
+                indices_values.as_slice::<I>(),
+                mask.values().map(|values| values.bit_buffer().as_view()),
             )
         });
 
-        Ok(Some(
-            BoolArray::new(buffer, array.validity()?.take(indices)?).into_array(),
-        ))
+        let validity = array.validity()?.take(indices)?;
+        Ok(Some(BoolArray::new(buffer, validity).into_array()))
     }
 }
 
@@ -111,33 +118,6 @@ fn take_contiguous_ranges(
     Ok(Some(
         BoolArray::new(buffer, array.validity()?.take(indices_ref)?).into_array(),
     ))
-}
-
-fn take_valid_indices<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
-    // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
-    // the overhead to convert to a Vec<bool>.
-    if bools.len() <= 4096 {
-        let bools = bools.iter().collect_vec();
-        take_byte_bool(bools, indices)
-    } else {
-        take_bool_impl(bools, indices)
-    }
-}
-
-fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BitBuffer {
-    BitBuffer::collect_bool(indices.len(), |idx| {
-        bools[unsafe { indices.get_unchecked(idx).as_() }]
-    })
-}
-
-fn take_bool_impl<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
-    // We dereference to underlying buffer to avoid access cost on every index.
-    let buffer = bools.inner();
-    BitBuffer::collect_bool(indices.len(), |idx| {
-        // SAFETY: we can take from the indices unchecked since collect_bool just iterates len.
-        let idx = unsafe { indices.get_unchecked(idx).as_() };
-        get_bit(buffer, bools.offset() + idx)
-    })
 }
 
 fn take_bit_slices_constant_length<S>(

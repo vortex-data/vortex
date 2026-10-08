@@ -8,11 +8,11 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::nan_count::columnar_nan_count;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -126,16 +126,12 @@ impl AggregateFnVTable for AllNan {
     ) -> VortexResult<()> {
         // Normal array dispatch is handled by `try_accumulate`, which always short-circuits.
         // Keep this fallback in sync for direct Columnar accumulation paths.
-        let array = match batch {
-            Columnar::Constant(c) => c.clone().into_array(),
-            Columnar::Canonical(c) => c.clone().into_array(),
-        };
-        if !matches!(array.dtype(), DType::Primitive(ptype, _) if ptype.is_float()) {
+        if !matches!(batch.dtype(), DType::Primitive(ptype, _) if ptype.is_float()) {
             *partial = false;
             return Ok(());
         }
 
-        *partial &= nan_count(&array, ctx)? == array.len();
+        *partial &= columnar_nan_count(batch, ctx)? == batch.len() as u64;
         Ok(())
     }
 
