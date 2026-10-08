@@ -4,6 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Shared;
+use vortex_array::arrays::SharedArray;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -23,6 +25,10 @@ const VALUES: usize = 1;
 /// The codes run over the selection; the values run over their whole domain. The node does not
 /// run until the values have closed, so the first compute joins them once, and every compute
 /// wraps the codes arrays that have arrived as dictionaries over the joined values.
+///
+/// The joined values are kept on the plan, so later executions of it skip the values subtree.
+/// They are kept as a [`SharedArray`], so however many executions use them, including a
+/// predicate the optimizer pushed onto the dictionary, they are canonicalized once.
 pub(crate) struct TakeNode {
     plan: TakePlan,
     selection: Selection,
@@ -54,6 +60,10 @@ impl ExecNode for TakeNode {
             self.selection.rows().clone(),
             self.selection.mask().clone(),
         );
+        if let Some(values) = self.plan.cached_values() {
+            self.values = Some(values);
+            return Ok(NodeState::Wait);
+        }
         let values = self.plan.values()?;
         let len = usize::try_from(values.row_count())?;
         cx.spawn(VALUES, values, 0..len as u64, Mask::new_true(len));
@@ -65,6 +75,12 @@ impl ExecNode for TakeNode {
             Some(values) => values.clone(),
             None => {
                 let values = join(self.plan.values()?.dtype(), cx.input(VALUES).take_all())?;
+                let values = if values.is::<Shared>() {
+                    values
+                } else {
+                    SharedArray::new(values).into_array()
+                };
+                let values = self.plan.cache_values(values);
                 self.values = Some(values.clone());
                 values
             }

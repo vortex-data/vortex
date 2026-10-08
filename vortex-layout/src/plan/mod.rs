@@ -47,6 +47,7 @@ pub use plans::SegmentScan;
 pub use plans::SegmentScanData;
 pub use plans::SegmentScanPlan;
 pub use plans::Take;
+pub use plans::TakeData;
 pub use plans::TakePlan;
 pub use plans::plan_row_idx_expression;
 pub use plans::row_idx_dtype;

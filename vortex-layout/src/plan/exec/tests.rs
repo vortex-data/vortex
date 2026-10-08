@@ -532,11 +532,11 @@ fn bare_scan_is_dense_and_filter_keeps_the_selection(#[case] sel: Sel) -> Vortex
 
 /// A take reads its values over their whole domain and its codes over the selection, including
 /// when a predicate has been pushed onto the values, and emits nothing before the values are
-/// whole.
+/// whole. Later executions of the plan reuse the values and read only the codes.
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]
-fn take_waits_for_whole_values(#[case] predicate: bool) -> VortexResult<()> {
+fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> VortexResult<()> {
     let mut store = Store::default();
     let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
@@ -552,18 +552,24 @@ fn take_waits_for_whole_values(#[case] predicate: bool) -> VortexResult<()> {
     }
     assert!(plan.is::<Take>());
 
-    for rows in [0..10, 10..ROWS] {
-        let mask = Sel::EveryOther.mask(10);
-        // Codes (segment 1) land first; nothing comes out until the values (segment 0) do.
-        let run = run(&store, &plan, rows.clone(), mask.clone(), scripted(&[1, 0]))?;
-        assert_eq!(reads(&run.events), 2);
-        assert_eq!(
-            run.events.iter().position(|e| matches!(e, Event::Piece(_))),
-            Some(3),
-            "the only array must follow both deliveries"
-        );
-        assert_view(&expected, &rows, &mask, run.arrays)?;
-    }
+    let mask = Sel::EveryOther.mask(10);
+    // Codes (segment 1) land first; nothing comes out until the values (segment 0) do.
+    let first = run(&store, &plan, 0..10, mask.clone(), scripted(&[1, 0]))?;
+    assert_eq!(reads(&first.events), 2);
+    assert_eq!(
+        first
+            .events
+            .iter()
+            .position(|e| matches!(e, Event::Piece(_))),
+        Some(3),
+        "the only array must follow both deliveries"
+    );
+    assert_view(&expected, &(0..10), &mask, first.arrays)?;
+
+    // The values are kept on the plan, so the next execution reads only its codes.
+    let second = run(&store, &plan, 10..ROWS, mask.clone(), scripted(&[1]))?;
+    assert_eq!(reads(&second.events), 1);
+    assert_view(&expected, &(10..ROWS), &mask, second.arrays)?;
     Ok(())
 }
 

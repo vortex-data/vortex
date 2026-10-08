@@ -2,12 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
+use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
+use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
@@ -37,6 +43,50 @@ pub struct Take;
 /// A plan that indexes one child by another.
 pub type TakePlan = Plan<Take>;
 
+/// The values of a [`TakePlan`], once any execution of the plan has produced them.
+///
+/// The values run over their whole domain whatever rows the take is executed with, so they
+/// depend only on the plan. Every execution of the plan, across the splits of a scan, shares one
+/// copy: later executions skip reading and decoding them, and see the same array. A plan rebuilt
+/// with new children starts empty.
+#[derive(Clone)]
+pub struct TakeData {
+    values: Arc<OnceLock<ArrayRef>>,
+    /// Whether the values may be kept. Values evaluated with a dynamic comparison change as the
+    /// engine updates it, so each execution evaluates them again.
+    cacheable: bool,
+}
+
+impl Default for TakeData {
+    fn default() -> Self {
+        Self {
+            values: Default::default(),
+            cacheable: true,
+        }
+    }
+}
+
+impl TakeData {
+    fn for_values(values: &PlanRef) -> VortexResult<Self> {
+        let dynamic = match values.as_opt::<Eval>() {
+            Some(eval) => eval.expression().contains::<DynamicComparison>()?,
+            None => false,
+        };
+        Ok(Self {
+            values: Default::default(),
+            cacheable: !dynamic,
+        })
+    }
+}
+
+impl fmt::Debug for TakeData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TakeData")
+            .field("values_cached", &self.values.get().is_some())
+            .finish()
+    }
+}
+
 impl TakePlan {
     /// Creates a take from potentially unresolved children without validation.
     ///
@@ -54,7 +104,7 @@ impl TakePlan {
             dtype,
             row_count,
             children,
-            data: (),
+            data: TakeData::default(),
         }
         .into_typed()
     }
@@ -67,8 +117,29 @@ impl TakePlan {
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let row_count = codes.row_count();
-        // SAFETY: Parent metadata is derived from the ordered children immediately above.
-        unsafe { Self::from_children_unchecked(dtype, row_count, vec![codes, values].into()) }
+        let data = TakeData::for_values(&values).vortex_expect("expression traversal cannot fail");
+        PlanParts {
+            vtable: Take,
+            dtype,
+            row_count,
+            children: vec![codes, values].into(),
+            data,
+        }
+        .into_typed()
+    }
+
+    /// The values an earlier execution of this plan produced, if any.
+    pub(crate) fn cached_values(&self) -> Option<ArrayRef> {
+        self.data().values.get().cloned()
+    }
+
+    /// Records the values for later executions, keeping the first when two race, unless the
+    /// values may not be kept.
+    pub(crate) fn cache_values(&self, values: ArrayRef) -> ArrayRef {
+        if !self.data().cacheable {
+            return values;
+        }
+        self.data().values.get_or_init(|| values).clone()
     }
 
     /// Returns the plan producing indices.
@@ -83,7 +154,7 @@ impl TakePlan {
 }
 
 impl PlanVTable for Take {
-    type PlanData = ();
+    type PlanData = TakeData;
     type Metadata = EmptyMetadata;
 
     fn id(&self) -> PlanId {
@@ -98,7 +169,7 @@ impl PlanVTable for Take {
     fn with_children(
         plan: &Plan<Self>,
         children: &PlanChildren,
-        _data: &mut Self::PlanData,
+        data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("Take", children, 2)?;
         let codes = children
@@ -107,6 +178,8 @@ impl PlanVTable for Take {
         let values = children
             .get(VALUES)?
             .ok_or_else(|| vortex_error::vortex_err!("Take values child is absent"))?;
+        // New children may produce different values.
+        *data = TakeData::for_values(&values)?;
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
