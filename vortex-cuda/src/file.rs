@@ -123,7 +123,7 @@ impl CudaOpenOptions {
 
         let session = control_file.session().clone();
         let cuda_session = session.cuda_session();
-        let stream = cuda_session.stream()?;
+        let stream = cuda_session.copy_stream()?;
         let pool = Arc::clone(cuda_session.pinned_buffer_pool());
         drop(cuda_session);
 

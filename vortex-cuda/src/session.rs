@@ -30,6 +30,10 @@ use crate::stream_pool::VortexCudaStreamPool;
 /// Default maximum number of streams in the pool.
 const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 
+// Separate H2D lanes keep ready decoders out of transfer queues. Readers retain one lane
+// for their allocation and all chunk writes, avoiding cross-stream writes to one allocation.
+const DEFAULT_COPY_STREAM_POOL_CAPACITY: usize = 1;
+
 /// Arrow Device layout used when exporting variable-length UTF-8 and binary arrays.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VarBinExportLayout {
@@ -73,6 +77,7 @@ pub struct CudaSession {
     dictionary_export: DictionaryExport,
     kernel_loader: Arc<KernelLoader>,
     stream_pool: Arc<VortexCudaStreamPool>,
+    copy_stream_pool: Arc<VortexCudaStreamPool>,
     pinned_buffer_pool: Arc<PinnedByteBufferPool>,
 }
 
@@ -91,6 +96,10 @@ impl CudaSession {
             Arc::clone(&context),
             stream_pool_capacity,
         ));
+        let copy_stream_pool = Arc::new(VortexCudaStreamPool::new(
+            Arc::clone(&context),
+            DEFAULT_COPY_STREAM_POOL_CAPACITY,
+        ));
         let pinned_buffer_pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&context)));
         Self {
             context,
@@ -100,6 +109,7 @@ impl CudaSession {
             varbin_export_layout: VarBinExportLayout::default(),
             dictionary_export: DictionaryExport::default(),
             stream_pool,
+            copy_stream_pool,
             pinned_buffer_pool,
         }
     }
@@ -158,11 +168,21 @@ impl CudaSession {
         ))
     }
 
-    /// Returns a CUDA stream from the pool.
+    /// Returns a CUDA execution stream from the pool.
     ///
-    /// The pool reuses existing streams in round-robin fashion.
+    /// The pool reuses existing streams in round-robin fashion. File H2D transfers use a
+    /// separate pool so unrelated transfers cannot queue ahead of ready decoders.
     pub fn stream(&self) -> VortexResult<VortexCudaStream> {
         self.stream_pool.stream()
+    }
+
+    /// Returns an H2D stream from the session's fixed, lazily initialized copy pool.
+    ///
+    /// Hold one stream per reader so allocation and chunk writes stay on the same lane.
+    /// Device-buffer events establish dependencies with consumers on execution streams;
+    /// pinned-buffer completion fences independently protect the host source lifetime.
+    pub fn copy_stream(&self) -> VortexResult<VortexCudaStream> {
+        self.copy_stream_pool.stream()
     }
 
     /// Returns the session-scoped pool used for staging file reads in pinned host memory.
@@ -253,3 +273,65 @@ pub trait CudaSessionExt: SessionExt {
     }
 }
 impl<S: SessionExt> CudaSessionExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[crate::test]
+    fn copy_and_execution_pools_are_disjoint_and_lazy() -> VortexResult<()> {
+        let context = CudaContext::new(0)
+            .map_err(|error| vortex_err!("Failed to create CUDA context: {error}"))?;
+        for capacity in [1, DEFAULT_STREAM_POOL_CAPACITY] {
+            let session = CudaSession::with_stream_pool_capacity(Arc::clone(&context), capacity);
+            assert_eq!(session.stream_pool.live_stream_count(), 0);
+            assert_eq!(session.copy_stream_pool.live_stream_count(), 0);
+            let execution = (0..capacity)
+                .map(|_| session.stream())
+                .collect::<VortexResult<Vec<_>>>()?;
+            assert_eq!(session.copy_stream_pool.live_stream_count(), 0);
+            let copies = (0..DEFAULT_COPY_STREAM_POOL_CAPACITY)
+                .map(|_| session.copy_stream())
+                .collect::<VortexResult<Vec<_>>>()?;
+            let execution_handles = execution
+                .iter()
+                .map(|stream| stream.cu_stream() as usize)
+                .collect::<HashSet<_>>();
+            let copy_handles = copies
+                .iter()
+                .map(|stream| stream.cu_stream() as usize)
+                .collect::<HashSet<_>>();
+            assert_eq!(execution_handles.len(), capacity);
+            assert_eq!(copy_handles.len(), DEFAULT_COPY_STREAM_POOL_CAPACITY);
+            assert!(execution_handles.is_disjoint(&copy_handles));
+            for stream in execution.iter().chain(&copies) {
+                assert_eq!(stream.context(), &context);
+            }
+        }
+        Ok(())
+    }
+
+    #[crate::test]
+    fn session_clones_share_copy_streams_and_pinned_buffers() -> VortexResult<()> {
+        let session = CudaSession::try_default()?;
+        let copies = (0..DEFAULT_COPY_STREAM_POOL_CAPACITY)
+            .map(|_| session.copy_stream())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let cloned = session.clone();
+        assert!(Arc::ptr_eq(
+            session.pinned_buffer_pool(),
+            cloned.pinned_buffer_pool()
+        ));
+        assert!(Arc::ptr_eq(
+            &session.copy_stream_pool,
+            &cloned.copy_stream_pool
+        ));
+        for expected in &copies {
+            let stream = cloned.copy_stream()?;
+            assert_eq!(stream.cu_stream(), expected.cu_stream());
+        }
+        Ok(())
+    }
+}
