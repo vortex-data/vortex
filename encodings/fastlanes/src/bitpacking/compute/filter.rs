@@ -28,33 +28,29 @@ use crate::BitWidthsView;
 const CHUNK_LEN: usize = 1024;
 /// Number of 64-bit mask words that cover a FastLanes chunk.
 const CHUNK_WORDS: usize = CHUNK_LEN / 64;
-/// Chunks with at most this many selected values unpack only those values rather than the whole
-/// chunk.
-const SPARSE_CHUNK_THRESHOLD: usize = 128;
-/// The equivalent of [`SPARSE_CHUNK_THRESHOLD`] when the selection is given as runs, which are
-/// cheaper to copy out of an unpacked chunk than scattered values.
-const SPARSE_RUNS_CHUNK_THRESHOLD: usize = 32;
+/// Chunks with at most this many selected values per byte of value width unpack only those
+/// values rather than the whole chunk. Wider values make a whole chunk more expensive to unpack,
+/// so the threshold grows with the width, see [`sparse_chunk_threshold`].
+const SPARSE_VALUES_PER_BYTE: usize = 16;
+/// The largest [`sparse_chunk_threshold`], for 8-byte values.
+const MAX_SPARSE_CHUNK_THRESHOLD: usize = SPARSE_VALUES_PER_BYTE * 8;
 /// Masks at most this dense are always filtered chunk by chunk, since most chunks are skipped or
 /// only partly unpacked.
-const MAX_SPARSE_DENSITY: f64 = 0.01;
-/// Masks denser than this are only filtered chunk by chunk if their selected values are known
-/// to form long runs. Otherwise the whole array is unpacked and filtered by the canonical filter,
-/// which compacts dense scattered values faster.
-const MAX_SCATTERED_DENSITY: f64 = 0.2;
+const MAX_SPARSE_DENSITY: f64 = 0.02;
 /// Selections whose runs of selected values average at least this length are compacted by
 /// copying each run.
 const MIN_COPIED_RUN_LEN: u32 = 8;
 
 /// Kernel to execute filtering directly on a bit-packed array.
 ///
-/// The selection is applied one FastLanes chunk at a time, from the mask's cached slices if it
-/// has them and otherwise from its bitmap, without materializing selected indices. Chunks
+/// The selection is applied one FastLanes chunk at a time, from the mask's cached slices if they
+/// form long runs and otherwise from its bitmap, without materializing selected indices. Chunks
 /// without selected values are never unpacked, fully selected chunks are unpacked straight into
 /// the output, sparsely selected chunks unpack only their selected values, and the remaining
 /// chunks are unpacked into a cache-resident scratch buffer and then compacted into the output.
 ///
-/// Dense masks with scattered selected values decline the kernel, see
-/// [`prefer_chunked_filter`].
+/// Masks that the canonical filter compacts with SIMD decline the kernel unless they are very
+/// sparse or form long runs, see [`prefer_chunked_filter`].
 impl FilterKernel for BitPacked {
     fn filter(
         array: ArrayView<'_, Self>,
@@ -82,7 +78,7 @@ impl FilterKernel for BitPacked {
 
         let validity = array.validity()?.filter(mask)?;
         let buffer = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
-            match values.cached_slices() {
+            match long_run_slices(values) {
                 Some(slices) => filter_values_by_slices::<U>(
                     array.data(),
                     bit_width,
@@ -112,14 +108,28 @@ impl FilterKernel for BitPacked {
 /// filter the unpacked values with the canonical filter.
 ///
 /// Above the sparsest masks, the canonical filter's SIMD compress, where the target has one for
-/// `T`'s width, is faster than compacting each chunk unless the selected values form long runs.
+/// `T`'s width and the mask's density, is faster than compacting each chunk unless the selected
+/// values form long runs. Without SIMD compress, filtering chunk by chunk is faster, because it
+/// skips unselected chunks and never materializes the whole unpacked array.
 fn prefer_chunked_filter<T>(mask: &MaskValues) -> bool {
-    let density = mask.density();
-    density <= MAX_SPARSE_DENSITY
-        || (density <= MAX_SCATTERED_DENSITY && !uses_simd_compress::<T>(mask))
-        || mask
-            .cached_slices()
-            .is_some_and(|slices| mask.true_count() >= MIN_COPIED_RUN_LEN as usize * slices.len())
+    long_run_slices(mask).is_some()
+        || mask.density() <= MAX_SPARSE_DENSITY
+        || !uses_simd_compress::<T>(mask)
+}
+
+/// Returns the mask's cached slices if its runs of selected values average at least
+/// [`MIN_COPIED_RUN_LEN`] values.
+///
+/// Shorter runs are filtered faster from the bitmap than by walking the slices one by one.
+fn long_run_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
+    mask.cached_slices()
+        .filter(|slices| mask.true_count() >= MIN_COPIED_RUN_LEN as usize * slices.len())
+}
+
+/// Returns the largest number of selected `T` values for which a chunk unpacks only those values
+/// rather than the whole chunk.
+const fn sparse_chunk_threshold<T>() -> usize {
+    SPARSE_VALUES_PER_BYTE * size_of::<T>()
 }
 
 /// Unpacks the values of `array` selected by `mask`, ignoring patches and validity.
@@ -147,7 +157,8 @@ fn filter_values<T: NativePType + BitPacking>(
 
     let mut unpacked = [const { MaybeUninit::<T>::uninit() }; CHUNK_LEN];
     let mut words = [0u64; CHUNK_WORDS];
-    let mut indices = [0usize; SPARSE_CHUNK_THRESHOLD];
+    let mut indices = [0usize; MAX_SPARSE_CHUNK_THRESHOLD];
+    let indices = &mut indices[..sparse_chunk_threshold::<T>()];
 
     for chunk_idx in 0..(offset + len).div_ceil(CHUNK_LEN) {
         // The logical range `start..end` of the array that falls within this chunk, which begins
@@ -174,7 +185,7 @@ fn filter_values<T: NativePType + BitPacking>(
                 BitPacking::unchecked_unpack(bit_width, packed, dst);
             }
             written += CHUNK_LEN;
-        } else if let Some(indices) = sparse_indices(words, chunk_offset, &mut indices) {
+        } else if let Some(indices) = sparse_indices(words, chunk_offset, indices) {
             // SAFETY: every index is below `CHUNK_LEN` and the output has capacity for every
             // selected value.
             unsafe {
@@ -229,7 +240,7 @@ fn filter_values_by_slices<T: NativePType + BitPacking>(
     let mut written = 0;
 
     let mut unpacked = [const { MaybeUninit::<T>::uninit() }; CHUNK_LEN];
-    let mut indices = [0usize; SPARSE_RUNS_CHUNK_THRESHOLD];
+    let mut indices = [0usize; MAX_SPARSE_CHUNK_THRESHOLD];
 
     // Slices are processed one chunk at a time. `slices[next..]` holds the slices that are not yet
     // fully processed, and `resume` is the start of the first chunk not yet processed, from which
@@ -266,7 +277,7 @@ fn filter_values_by_slices<T: NativePType + BitPacking>(
                 let dst = std::slice::from_raw_parts_mut(out.add(written), CHUNK_LEN);
                 BitPacking::unchecked_unpack(bit_width, packed, dst);
             }
-        } else if chunk_true_count <= SPARSE_RUNS_CHUNK_THRESHOLD {
+        } else if chunk_true_count <= sparse_chunk_threshold::<T>() {
             for (index, chunk_index) in indices
                 .iter_mut()
                 .zip(runs.clone().flat_map(|(start, end)| start..end))
@@ -325,12 +336,12 @@ fn filter_values_by_slices<T: NativePType + BitPacking>(
 }
 
 /// Collects the in-chunk indices of the bits set in `words`, whose first bit is chunk index
-/// `chunk_offset`, or returns `None` if more than [`SPARSE_CHUNK_THRESHOLD`] bits are set.
+/// `chunk_offset`, or returns `None` if more bits are set than `indices` can hold.
 #[inline]
 fn sparse_indices<'a>(
     words: &[u64],
     chunk_offset: usize,
-    indices: &'a mut [usize; SPARSE_CHUNK_THRESHOLD],
+    indices: &'a mut [usize],
 ) -> Option<&'a [usize]> {
     let mut n = 0;
     for (word_idx, &word) in words.iter().enumerate() {
@@ -458,6 +469,7 @@ mod tests {
     use std::ops::Range;
     use std::sync::LazyLock;
 
+    use fastlanes::BitPacking;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -469,6 +481,7 @@ mod tests {
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
@@ -764,6 +777,60 @@ mod tests {
         assert_eq!(
             filter_values_by_slices::<u32>(bitpacked.data(), 10, &slices, expected.len())
                 .as_slice(),
+            expected
+        );
+        Ok(())
+    }
+
+    /// Checks both unpacking strategies for every value width, since the number of selected
+    /// values for which a chunk unpacks only those values depends on the width.
+    #[rstest]
+    fn filter_values_matches_expected_for_every_width(
+        #[values(
+            Pattern::Random(0.01),
+            Pattern::Random(0.03),
+            Pattern::Random(0.08),
+            Pattern::Random(0.15),
+            Pattern::Runs,
+            Pattern::Clustered
+        )]
+        pattern: Pattern,
+    ) -> VortexResult<()> {
+        check_filter_values::<u8>(pattern)?;
+        check_filter_values::<u16>(pattern)?;
+        check_filter_values::<u32>(pattern)?;
+        check_filter_values::<u64>(pattern)
+    }
+
+    fn check_filter_values<T: NativePType + BitPacking + From<u8>>(
+        pattern: Pattern,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let range = 3..5000;
+
+        let unpacked = PrimitiveArray::from_iter((0..5000u32).map(|i| T::from((i % 100) as u8)));
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?
+            .into_array()
+            .slice(range.clone())?;
+        let bitpacked = bitpacked.as_::<BitPacked>();
+
+        let bits = selection(pattern, range.len());
+        let expected: Vec<T> = range
+            .zip(bits.iter())
+            .filter_map(|(i, selected)| selected.then_some(T::from((i % 100) as u8)))
+            .collect();
+
+        let Mask::Values(mask) = Mask::from_buffer(bits.clone()) else {
+            unreachable!("patterns select some but not all values")
+        };
+        assert_eq!(
+            filter_values::<T>(bitpacked.data(), 7, &mask).as_slice(),
+            expected
+        );
+
+        let slices: Vec<_> = bits.set_slices().collect();
+        assert_eq!(
+            filter_values_by_slices::<T>(bitpacked.data(), 7, &slices, expected.len()).as_slice(),
             expected
         );
         Ok(())
