@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::Subcommand;
+use vortex_compat::adapter;
 use vortex_compat::check;
 use vortex_compat::generate;
 use vortex_compat::reader_check;
@@ -61,6 +62,11 @@ enum Commands {
         /// Fixture name substrings to exclude (comma-separated, e.g. "clickbench,tpch").
         #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
+
+        /// Edition to write the fixtures with, e.g. `core2025.10.0`. Defaults to the session's
+        /// default edition. Fixtures the edition forbids are skipped.
+        #[arg(long, value_name = "EDITION")]
+        edition: Option<String>,
     },
 
     /// Check .vortex files in a directory against in-memory fixtures.
@@ -111,7 +117,16 @@ fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { output, exclude } => generate::generate(&output, &exclude),
+        Commands::Generate {
+            output,
+            exclude,
+            edition,
+        } => {
+            if let Some(edition) = edition {
+                adapter::set_target_edition(&edition)?;
+            }
+            generate::generate(&output, &exclude)
+        }
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
         Commands::CheckReader { dir, arrow_dir } => reader_check::check_reader(&dir, &arrow_dir),
     }
