@@ -108,10 +108,18 @@ impl ExecNode for SegmentScanNode {
         let segment = cx
             .take_delivery()
             .ok_or_else(|| vortex_err!("SegmentScan ran without its delivery"))?;
-        let array = self.decode(segment)?;
-        self.ctx
-            .decoded()
-            .insert(self.plan.segment_id(), array.clone());
+        // Another graph sharing the cache may have decoded the segment while the read was in
+        // flight; its array serves this node too.
+        let array = match self.ctx.decoded().get(self.plan.segment_id()) {
+            Some(array) => array,
+            None => {
+                let array = self.decode(segment)?;
+                self.ctx
+                    .decoded()
+                    .insert(self.plan.segment_id(), array.clone());
+                array
+            }
+        };
         cx.emit(self.select(array)?);
         Ok(NodeState::Done)
     }

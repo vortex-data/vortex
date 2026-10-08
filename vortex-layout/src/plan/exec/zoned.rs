@@ -47,13 +47,10 @@ impl ZonePruneNode {
         selection: Selection,
         session: VortexSession,
     ) -> VortexResult<Self> {
-        let predicate = plan
-            .pruning_predicate()
-            .ok_or_else(|| vortex_err!("ZonePrune needs a pruning plan"))?;
         let proof = plan
-            .cache()
-            .proof(predicate, &session)
-            .ok_or_else(|| vortex_err!("ZonePrune predicate {predicate} is not provable"))?;
+            .proof()
+            .cloned()
+            .ok_or_else(|| vortex_err!("ZonePrune needs a pruning plan"))?;
         Ok(Self {
             plan,
             selection,

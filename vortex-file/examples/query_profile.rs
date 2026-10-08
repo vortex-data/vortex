@@ -28,8 +28,11 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
+use futures::FutureExt;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 use futures::future::join_all;
+use futures::stream::FuturesUnordered;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -41,6 +44,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
@@ -57,6 +61,7 @@ use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_btrblocks::CompressionSession;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexResult;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
@@ -70,6 +75,7 @@ use vortex_layout::plan::exec::DecodeCache;
 use vortex_layout::plan::exec::ExecGraph;
 use vortex_layout::plan::exec::ExecOutput;
 use vortex_layout::plan::exec::ExecState;
+use vortex_layout::plan::exec::IoRequestId;
 use vortex_layout::plan::lower;
 use vortex_layout::plan::optimize;
 use vortex_layout::scan::filter::FilterExpr;
@@ -79,6 +85,7 @@ use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -224,10 +231,13 @@ struct Variant {
     /// the small-block variants coalesce nothing, so a split is one block of every column.
     row_block: usize,
     coalesce: bool,
+    /// Whether the file is written to disk and read through the file IO path, rather than kept
+    /// in memory and read by slicing a buffer.
+    on_disk: bool,
 }
 
-/// Writes the table through the default strategy, configured by `variant`, into memory and
-/// opens it.
+/// Writes the table through the default strategy, configured by `variant`, into memory or to
+/// a file on disk, and opens it.
 fn write_file(t: &Table, variant: Variant) -> VortexFile {
     let chunks = (0..*ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
     let array = ChunkedArray::from_iter(chunks).into_array();
@@ -250,6 +260,15 @@ fn write_file(t: &Table, variant: Variant) -> VortexFile {
                 .write(&mut buf, array.to_array_stream()),
         )
         .expect("write");
+    if variant.on_disk {
+        // The directory lives as long as the file is benchmarked.
+        let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+        let path = dir.path().join(format!("{}.vortex", variant.name));
+        std::fs::write(&path, buf.as_ref()).expect("write file");
+        return RUNTIME
+            .block_on(SESSION.open_options().open_path(&path))
+            .expect("open path");
+    }
     SESSION.open_options().open_buffer(buf).expect("open")
 }
 
@@ -260,30 +279,50 @@ fn write_file(t: &Table, variant: Variant) -> VortexFile {
 /// evaluate. The `plain-*` variants also shrink the blocks and coalesce nothing, so a split is
 /// a few hundred or a few thousand rows: the work per split becomes small enough that what is
 /// measured is each executor's own cost per split and per node, on the same layouts and plans.
-const VARIANTS: [Variant; 4] = [
+const VARIANTS: [Variant; 6] = [
     Variant {
         name: "zoned",
         zone_maps: true,
         row_block: 8192,
         coalesce: true,
+        on_disk: false,
     },
     Variant {
         name: "plain",
         zone_maps: false,
         row_block: 8192,
         coalesce: true,
+        on_disk: false,
     },
     Variant {
         name: "plain-2k",
         zone_maps: false,
         row_block: 2048,
         coalesce: false,
+        on_disk: false,
     },
     Variant {
         name: "plain-256",
         zone_maps: false,
         row_block: 256,
         coalesce: false,
+        on_disk: false,
+    },
+    // The default layout on disk: every segment is read through the file IO path, so what is
+    // measured includes issuing, awaiting and copying real reads (served from the page cache).
+    Variant {
+        name: "zoned-disk",
+        zone_maps: true,
+        row_block: 8192,
+        coalesce: true,
+        on_disk: true,
+    },
+    Variant {
+        name: "plain-disk",
+        zone_maps: false,
+        row_block: 8192,
+        coalesce: true,
+        on_disk: true,
     },
 ];
 
@@ -575,6 +614,95 @@ fn drive(
     }
 }
 
+/// Splits in flight at once: four per core, as the V1 scan's default concurrency.
+fn in_flight() -> usize {
+    4 * get_available_parallelism().unwrap_or(1)
+}
+
+/// Runs `plan` over `splits` with up to `in_flight` graphs at once, so the reads of later splits
+/// are in flight while earlier ones compute, as the V1 scan buffers its split tasks. Each graph
+/// gets the cache `cache` returns, and advances it a generation when it finishes. Returns the
+/// rows produced.
+fn drive_splits(
+    source: &Arc<dyn SegmentSource>,
+    plan: &PlanRef,
+    splits: &[std::ops::Range<u64>],
+    cache: &dyn Fn() -> DecodeCache,
+    in_flight: usize,
+) -> usize {
+    type Delivery = (usize, IoRequestId, VortexResult<BufferHandle>);
+    RUNTIME.block_on(async {
+        let mut pending: FuturesUnordered<BoxFuture<'static, Delivery>> = FuturesUnordered::new();
+        let mut slots: Vec<Option<(ExecGraph, DecodeCache)>> =
+            (0..in_flight.max(1)).map(|_| None).collect();
+        let mut next = 0;
+        let mut live = 0;
+        let mut rows = 0;
+        loop {
+            for slot in 0..slots.len() {
+                loop {
+                    let Some((graph, decoded)) = slots[slot].as_mut() else {
+                        if next == splits.len() {
+                            break;
+                        }
+                        let split = splits[next].clone();
+                        next += 1;
+                        let len = (split.end - split.start) as usize;
+                        let decoded = cache();
+                        let graph = ExecGraph::try_new(
+                            SESSION.clone(),
+                            plan,
+                            split,
+                            Mask::new_true(len),
+                            0,
+                            decoded.clone(),
+                        )
+                        .expect("graph");
+                        slots[slot] = Some((graph, decoded));
+                        live += 1;
+                        continue;
+                    };
+                    match graph.state() {
+                        ExecState::Done => {
+                            decoded.next_generation();
+                            slots[slot] = None;
+                            live -= 1;
+                        }
+                        ExecState::NeedsCompute => match graph.compute().expect("compute") {
+                            ExecOutput::Piece(array) => rows += array.len(),
+                            ExecOutput::NeedsIO(batch) => {
+                                READS.fetch_add(batch.len(), Ordering::Relaxed);
+                                for request in batch {
+                                    let read = source.request(request.segment_id);
+                                    pending.push(
+                                        async move { (slot, request.id, read.await) }.boxed(),
+                                    );
+                                }
+                            }
+                            ExecOutput::Yield => {}
+                        },
+                        ExecState::Waiting => break,
+                    }
+                }
+            }
+            if live == 0 && next == splits.len() {
+                return rows;
+            }
+            let mut delivery = pending.next().await;
+            // Deliver everything that has completed before computing again.
+            while let Some((slot, id, result)) = delivery {
+                slots[slot]
+                    .as_mut()
+                    .expect("a delivery is for a live graph")
+                    .0
+                    .set_io_result(id, result.expect("read"))
+                    .expect("deliver");
+                delivery = pending.next().now_or_never().flatten();
+            }
+        }
+    })
+}
+
 /// Runs `plan`, a boolean plan, over every row of `rows`, and returns what it produces: one lazy
 /// array per piece, in row order.
 fn predicate(
@@ -666,7 +794,7 @@ fn run(
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> usize {
     let segments = file.segment_source();
-    let shared = DecodeCache::default();
+    let shared = DecodeCache::with_window(in_flight() as u64);
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
@@ -677,20 +805,7 @@ fn run(
     let mut rows = 0;
     if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source);
-        for split in splits {
-            let len = (split.end - split.start) as usize;
-            let cache = cache();
-            drive(
-                &segments,
-                &plan,
-                split,
-                Mask::new_true(len),
-                &cache,
-                |array| rows += array.len(),
-            );
-            cache.next_generation();
-        }
-        return rows;
+        return drive_splits(&segments, &plan, &splits, &cache, in_flight());
     }
     for split in &query.splits {
         let len = (split.end - split.start) as usize;

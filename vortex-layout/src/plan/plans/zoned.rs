@@ -64,8 +64,11 @@ pub type ZonedPlan = Plan<Zoned>;
 enum Kind {
     /// The data, with the predicate over the column it evaluates when it is a conjunct.
     Data { predicate: Option<BoundExpression> },
-    /// Whether each row's zone may hold a row passing the predicate.
-    Prune { predicate: BoundExpression },
+    /// Whether each row's zone may hold a row passing the predicate, by its proof.
+    Prune {
+        predicate: BoundExpression,
+        proof: Arc<Proof>,
+    },
 }
 
 /// Zoned-plan-specific data.
@@ -87,7 +90,7 @@ impl fmt::Debug for ZonedData {
             .field("aggregates", &self.aggregate_fns.len());
         match &self.kind {
             Kind::Data { predicate } => s.field("predicate", predicate),
-            Kind::Prune { predicate } => s.field("prune", predicate),
+            Kind::Prune { predicate, .. } => s.field("prune", predicate),
         };
         s.finish()
     }
@@ -221,11 +224,11 @@ impl ZonedPlan {
         }
     }
 
-    /// The predicate a pruning plan proves zones against.
-    pub(crate) fn pruning_predicate(&self) -> Option<&BoundExpression> {
+    /// The proof a pruning plan prunes zones with.
+    pub(crate) fn proof(&self) -> Option<&Arc<Proof>> {
         match &self.data().kind {
             Kind::Data { .. } => None,
-            Kind::Prune { predicate } => Some(predicate),
+            Kind::Prune { proof, .. } => Some(proof),
         }
     }
 
@@ -254,12 +257,13 @@ impl ZonedPlan {
         let Some(predicate) = self.predicate() else {
             return Ok(None);
         };
-        if self.cache().proof(predicate, session).is_none() {
+        let Some(proof) = self.cache().proof(predicate, session) else {
             return Ok(None);
-        }
+        };
         let mut data = self.data().clone();
         data.kind = Kind::Prune {
             predicate: predicate.clone(),
+            proof,
         };
         Ok(Some(
             PlanParts {
@@ -305,7 +309,7 @@ impl PlanVTable for Zoned {
                 predicate: Some(predicate),
             } => write!(formatter, " predicate={predicate}"),
             Kind::Data { predicate: None } => Ok(()),
-            Kind::Prune { predicate } => write!(formatter, " prune={predicate}"),
+            Kind::Prune { predicate, .. } => write!(formatter, " prune={predicate}"),
         }
     }
 

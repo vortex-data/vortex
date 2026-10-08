@@ -282,20 +282,41 @@ impl ExecContext {
 ///
 /// An owner running graphs over consecutive row ranges can bound the cache by generation: a
 /// segment spanning several ranges stays decoded while the ranges reading it are consecutive,
-/// and one no graph of the last two generations used is dropped.
+/// and one no graph used for a window of generations, one by default, is dropped.
 #[derive(Clone, Default)]
 pub struct DecodeCache {
     inner: Arc<Mutex<DecodeCacheInner>>,
 }
 
-#[derive(Default)]
 struct DecodeCacheInner {
     /// Each decoded segment with the generation that last used it.
     decoded: FxHashMap<SegmentId, (ArrayRef, u64)>,
     generation: u64,
+    /// How many generations back a segment may have been used and still be kept.
+    window: u64,
+}
+
+impl Default for DecodeCacheInner {
+    fn default() -> Self {
+        Self {
+            decoded: FxHashMap::default(),
+            generation: 0,
+            window: 1,
+        }
+    }
 }
 
 impl DecodeCache {
+    /// A cache keeping a segment for `window` generations after the last one that used it.
+    ///
+    /// An owner with several row ranges in flight at once advances a generation as each one
+    /// finishes, so the window should cover the ranges in flight.
+    pub fn with_window(window: u64) -> Self {
+        let cache = Self::default();
+        cache.inner.lock().window = window;
+        cache
+    }
+
     /// The whole decoded array of `id`, if a graph sharing this cache decoded it.
     pub fn get(&self, id: SegmentId) -> Option<ArrayRef> {
         let mut inner = self.inner.lock();
@@ -313,15 +334,18 @@ impl DecodeCache {
         inner.decoded.insert(id, (array, generation));
     }
 
-    /// Starts a new generation, dropping the segments no graph used in the last one or this.
+    /// Starts a new generation, dropping the segments no graph used within the window.
     ///
     /// Called between the row ranges an owner runs in order, it keeps the cache to the segments
-    /// the current and the next range can share.
+    /// the ranges in flight and the next one can share.
     pub fn next_generation(&self) {
         let mut inner = self.inner.lock();
         let generation = inner.generation + 1;
+        let window = inner.window;
         inner.generation = generation;
-        inner.decoded.retain(|_, (_, used)| *used + 1 >= generation);
+        inner
+            .decoded
+            .retain(|_, (_, used)| *used + window >= generation);
     }
 }
 

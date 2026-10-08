@@ -193,10 +193,13 @@ struct Variant {
     /// the small-block variants coalesce nothing, so a split is one block of every column.
     row_block: usize,
     coalesce: bool,
+    /// Whether the file is written to disk and read through the file IO path, rather than kept
+    /// in memory and read by slicing a buffer.
+    on_disk: bool,
 }
 
-/// Writes the table through the default strategy, configured by `variant`, into memory and
-/// opens it.
+/// Writes the table through the default strategy, configured by `variant`, into memory or to
+/// a file on disk, and opens it.
 fn write_file(t: &Table, variant: Variant) -> VortexFile {
     let chunks = (0..ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
     let array = ChunkedArray::from_iter(chunks).into_array();
@@ -219,6 +222,15 @@ fn write_file(t: &Table, variant: Variant) -> VortexFile {
                 .write(&mut buf, array.to_array_stream()),
         )
         .expect("write");
+    if variant.on_disk {
+        // The directory lives as long as the file is benchmarked.
+        let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+        let path = dir.path().join(format!("{}.vortex", variant.name));
+        std::fs::write(&path, buf.as_ref()).expect("write file");
+        return RUNTIME
+            .block_on(SESSION.open_options().open_path(&path))
+            .expect("open path");
+    }
     SESSION.open_options().open_buffer(buf).expect("open")
 }
 
@@ -229,30 +241,50 @@ fn write_file(t: &Table, variant: Variant) -> VortexFile {
 /// evaluate. The `plain-*` variants also shrink the blocks and coalesce nothing, so a split is
 /// a few hundred or a few thousand rows: the work per split becomes small enough that what is
 /// measured is each executor's own cost per split and per node, on the same layouts and plans.
-const VARIANTS: [Variant; 4] = [
+const VARIANTS: [Variant; 6] = [
     Variant {
         name: "zoned",
         zone_maps: true,
         row_block: 8192,
         coalesce: true,
+        on_disk: false,
     },
     Variant {
         name: "plain",
         zone_maps: false,
         row_block: 8192,
         coalesce: true,
+        on_disk: false,
     },
     Variant {
         name: "plain-2k",
         zone_maps: false,
         row_block: 2048,
         coalesce: false,
+        on_disk: false,
     },
     Variant {
         name: "plain-256",
         zone_maps: false,
         row_block: 256,
         coalesce: false,
+        on_disk: false,
+    },
+    // The default layout on disk: every segment is read through the file IO path, so what is
+    // measured includes issuing, awaiting and copying real reads (served from the page cache).
+    Variant {
+        name: "zoned-disk",
+        zone_maps: true,
+        row_block: 8192,
+        coalesce: true,
+        on_disk: true,
+    },
+    Variant {
+        name: "plain-disk",
+        zone_maps: false,
+        row_block: 8192,
+        coalesce: true,
+        on_disk: true,
     },
 ];
 
