@@ -478,6 +478,8 @@ pub fn sweep(
     for seed in first_seed..first_seed + count {
         let bytes = entropy(seed);
         let mut u = Unstructured::new(&bytes);
+        // Every eighth seed is much longer, to cross bit-packing and row-block boundaries.
+        let max_len = if seed % 8 == 0 { max_len * 8 } else { max_len };
 
         let mut jobs: Vec<(&'static str, VortexResult<ArrayRef>, Arc<dyn LayoutStrategy>)> =
             Vec::new();
