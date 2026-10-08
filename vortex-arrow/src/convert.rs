@@ -581,17 +581,10 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
         dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
     };
 
-    let (offsets, referenced) = trim_list_view_offsets(array.offsets(), array.sizes());
-    let elements = from_arrow_dyn(
-        array
-            .values()
-            .slice(referenced.start, referenced.len())
-            .as_ref(),
-        elements_are_nullable,
-    )?;
+    let elements = from_arrow_dyn(array.values().as_ref(), elements_are_nullable)?;
 
     // `offsets` and `sizes` are always non-nullable.
-    let offsets = offsets.into_array();
+    let offsets = array.offsets().clone().into_array();
     let sizes = array.sizes().clone().into_array();
     let nulls = nulls(array.nulls(), nullable)?;
 
@@ -602,42 +595,6 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> 
     fn from_arrow(array: &GenericListViewArray<O>, nullable: bool) -> VortexResult<Self> {
         from_arrow_list_view(array, nullable)
     }
-}
-
-/// Rebase list-view offsets to the bounds of their nonempty child ranges.
-pub(crate) fn trim_list_view_offsets<O: OffsetSizeTrait>(
-    offsets: &ScalarBuffer<O>,
-    sizes: &ScalarBuffer<O>,
-) -> (ScalarBuffer<O>, Range<usize>) {
-    let mut start = usize::MAX;
-    let mut end = 0;
-    for (&offset, &size) in offsets.iter().zip(sizes.iter()) {
-        if size.as_usize() != 0 {
-            start = start.min(offset.as_usize());
-            end = end.max(offset.as_usize() + size.as_usize());
-        }
-    }
-    if end == 0 {
-        start = 0;
-    }
-    if start == 0 && offsets.iter().all(|offset| offset.as_usize() <= end) {
-        return (offsets.clone(), start..end);
-    }
-
-    let first = O::usize_as(start);
-    let offsets = offsets
-        .iter()
-        .zip(sizes.iter())
-        .map(|(&offset, &size)| {
-            if size.as_usize() == 0 {
-                // Empty lists reference no elements, so their offsets can be zero.
-                O::usize_as(0)
-            } else {
-                offset - first
-            }
-        })
-        .collect();
-    (offsets, start..end)
 }
 
 /// Conversion of an Arrow fixed-size list array into a Vortex `FixedSizeList` array.
