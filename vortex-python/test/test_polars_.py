@@ -145,7 +145,7 @@ def test_unsigned_predicate_pushdown(tmp_path, arrow_type, threshold):
     path = tmp_path / "unsigned.vortex"
     vx.io.write(vx.array(table), str(path))
     expr = pl.col("value") >= threshold
-    expected = pl.from_arrow(table).lazy().filter(expr).collect()
+    expected = pl.DataFrame(table).lazy().filter(expr).collect()
     result = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(result, expected)
     assert result["id"].to_list() == [1, 2]
