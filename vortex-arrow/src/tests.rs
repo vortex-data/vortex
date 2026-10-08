@@ -58,11 +58,8 @@ fn test_sliced_map_imports_only_its_entries(
         nullable,
         use_session,
     )?;
-    let fresh = import(
-        Arc::new(maps(start as i32..(start + len) as i32)?),
-        nullable,
-        use_session,
-    )?;
+    let rows = i32::try_from(start)?..i32::try_from(start + len)?;
+    let fresh = import(Arc::new(maps(rows)?), nullable, use_session)?;
     // Empty nullable arrays can use a constant validity marker.
     if len != 0 || !nullable {
         assert_eq!(sliced.nbytes(), fresh.nbytes());
