@@ -6,6 +6,10 @@
 
 use std::ops::Range;
 
+use futures::FutureExt;
+use futures::TryStreamExt;
+use futures::executor::block_on;
+use futures::future;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -46,6 +50,8 @@ use crate::plan::Take;
 use crate::plan::exec::selection::join;
 use crate::plan::lower;
 use crate::plan::optimize;
+use crate::segments::SegmentFuture;
+use crate::segments::SegmentSource;
 use crate::test::SESSION;
 
 const ROWS: u64 = 20;
@@ -708,4 +714,71 @@ fn nested_list_views(
     let mask = Mask::new_true(2);
     let output = run(&store, &plan, rows.clone(), mask.clone(), delivery(order))?;
     assert_view(&expected, &rows, &mask, output.arrays)
+}
+
+/// The segments of a [`Store`], served asynchronously.
+struct StoreSource(Vec<BufferHandle>);
+
+impl SegmentSource for StoreSource {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let segment = self
+            .0
+            .get(*id as usize)
+            .cloned()
+            .ok_or_else(|| vortex_err!("Segment {id} not found"));
+        future::ready(segment).boxed()
+    }
+}
+
+fn segment_source(store: &Store) -> Arc<dyn SegmentSource> {
+    Arc::new(StoreSource(store.segments.clone()))
+}
+
+/// [`execute`] yields the selected rows in row order, as non-empty arrays with the plan's dtype.
+#[rstest]
+#[case::full(0..20, Sel::All)]
+#[case::every_other(3..17, Sel::EveryOther)]
+#[case::nothing_selected(0..20, Sel::None)]
+#[case::empty_range(5..5, Sel::All)]
+fn execute_streams_arrays_in_row_order(
+    #[case] rows: Range<u64>,
+    #[case] sel: Sel,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, expected) = fixture(&mut store)?;
+    let mask = sel.mask((rows.end - rows.start) as usize);
+
+    let arrays: Vec<ArrayRef> = block_on(
+        execute(
+            SESSION.clone(),
+            &plan,
+            rows.clone(),
+            mask.clone(),
+            segment_source(&store),
+        )?
+        .try_collect(),
+    )?;
+    assert!(arrays.iter().all(|array| !array.is_empty()));
+    assert!(arrays.iter().all(|array| array.dtype() == plan.dtype()));
+    assert_view(&expected, &rows, &mask, arrays)
+}
+
+#[test]
+fn execute_fails_when_a_segment_is_missing() -> VortexResult<()> {
+    let mut store = Store::default();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.flat(&a)?)?;
+
+    let result: VortexResult<Vec<ArrayRef>> = block_on(
+        execute(
+            SESSION.clone(),
+            &plan,
+            0..ROWS,
+            Mask::new_true(ROWS as usize),
+            Arc::new(StoreSource(Vec::new())),
+        )?
+        .try_collect(),
+    );
+    assert!(result.is_err());
+    Ok(())
 }

@@ -7,7 +7,8 @@
 //! flat arena of [`ExecNode`]s wired child-to-parent through [`Input`] ports. A node's output is
 //! an ordered sequence of arrays: each node emits its rows in row order, and its parent reads
 //! them from the port the child feeds. The root's arrays are handed to the owner one per
-//! [`ExecGraph::compute`], in row order.
+//! [`ExecGraph::compute`], in row order. [`execute`] drives a graph over a [`SegmentSource`]
+//! and yields them as a stream.
 //!
 //! IO may complete in any order. A node whose children are backed by independent reads, such as
 //! a concatenation of chunks, holds the early ones in their ports and emits only the ordered
@@ -35,6 +36,8 @@
 //! its bottom can be pushed through every node in the chain in turn. Nodes with several ports
 //! merge pipelines, and nodes that wait for a port to close, [`Ready::Closed`] and
 //! [`Ready::AllClosed`], are barriers between them, as a join build is in a query engine.
+//!
+//! [`SegmentSource`]: crate::segments::SegmentSource
 
 mod concat;
 mod eval;
@@ -44,6 +47,7 @@ mod pack;
 mod row_idx;
 mod segment_scan;
 mod selection;
+mod stream;
 pub mod synthetic;
 mod take;
 
@@ -685,6 +689,8 @@ pub(crate) use pack::PackNode;
 pub(crate) use row_idx::RowIdxNode;
 pub(crate) use segment_scan::SegmentScanNode;
 pub(crate) use selection::Selection;
+pub use stream::ExecStream;
+pub use stream::execute;
 pub(crate) use take::TakeNode;
 
 #[cfg(test)]
