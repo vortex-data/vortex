@@ -132,11 +132,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        let counters = self
-            .metrics
-            .as_ref()
-            .map(|_| Arc::new(ScanCounters::default()));
-        self.execute_with_some_counters(row_range, counters)
+        self.execute_inner(row_range, None)
     }
 
     /// Creates split tasks and returns fresh counters for this execution.
@@ -148,11 +144,12 @@ impl<A: 'static + Send> RepeatedScan<A> {
         Arc<ScanCounters>,
     )> {
         let counters = Arc::new(ScanCounters::default());
-        let tasks = self.execute_with_some_counters(row_range, Some(Arc::clone(&counters)))?;
+        let tasks = self.execute_inner(row_range, Some(Arc::clone(&counters)))?;
         Ok((tasks, counters))
     }
 
-    pub(super) fn execute_with_some_counters(
+    /// Without `counters`, uses fresh counters only when a metrics registry needs them.
+    pub(super) fn execute_inner(
         &self,
         row_range: Option<Range<u64>>,
         counters: Option<Arc<ScanCounters>>,
@@ -160,6 +157,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         if self.limit == Some(0) {
             return Ok(Vec::new());
         }
+        let counters = counters.or_else(|| self.metrics.is_some().then(Arc::default));
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -219,28 +217,21 @@ impl<A: 'static + Send> RepeatedScan<A> {
             metrics: self.metrics.clone(),
         });
 
-        let mut file_stats_checked = false;
-        for range in ranges {
-            let row_mask = self.selection.row_mask(&range);
-            if row_mask.mask().all_false() {
-                continue;
-            }
+        let mut row_masks = ranges
+            .map(|range| self.selection.row_mask(&range))
+            .filter(|row_mask| !row_mask.mask().all_false())
+            .peekable();
 
-            if !file_stats_checked {
-                file_stats_checked = true;
-                if let Some(filter) = &ctx.filter {
-                    for idx in 0..filter.conjuncts().len() {
-                        let version = filter.dynamic_updates(idx).map(|updates| updates.version());
-                        if filter.can_prune_file(idx, version, ctx.reader.as_ref())? {
-                            if let Some(counters) = &ctx.counters {
-                                counters.prune_file();
-                            }
-                            return Ok(Vec::new());
-                        }
-                    }
-                }
-            }
+        // Whole-file statistics apply only when the selection reaches at least one split.
+        if row_masks.peek().is_some()
+            && let Some(filter) = &ctx.filter
+            && filter.can_prune_file_any(ctx.reader.as_ref())?
+        {
+            ctx.count::<true>(ScanCounters::prune_file);
+            return Ok(Vec::new());
+        }
 
+        for row_mask in row_masks {
             tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
             if limit.is_some_and(|l| l == 0) {
                 break;

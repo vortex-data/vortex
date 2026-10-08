@@ -374,12 +374,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        if self.limit == Some(0) {
-            let _metrics = self.metrics_registry.as_deref().map(ScanMetrics::new);
-            return Ok(Vec::new());
-        }
-
-        self.prepare()?.execute(None)
+        self.build_inner(None)
     }
 
     /// Creates split tasks and returns fresh counters for this execution.
@@ -389,18 +384,28 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
         Arc<ScanCounters>,
     )> {
+        let counters = Arc::new(ScanCounters::default());
+        let tasks = self.build_inner(Some(Arc::clone(&counters)))?;
+        Ok((tasks, counters))
+    }
+
+    fn build_inner(
+        self,
+        counters: Option<Arc<ScanCounters>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        // A zero limit still registers the counter names.
         if self.limit == Some(0) {
             let _metrics = self.metrics_registry.as_deref().map(ScanMetrics::new);
-            return Ok((Vec::new(), Arc::new(ScanCounters::default())));
+            return Ok(Vec::new());
         }
-        self.prepare()?.execute_with_counters(None)
+        self.prepare()?.execute_inner(None, counters)
     }
 
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        Ok(LazyScanStream::new(self))
+        Ok(LazyScanStream::new(self, None))
     }
 
     /// Returns a lazy stream and fresh counters for this execution.
@@ -411,8 +416,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Arc<ScanCounters>,
     )> {
         let counters = Arc::new(ScanCounters::default());
-        let mut stream = LazyScanStream::new(self);
-        stream.counters = Some(Arc::clone(&counters));
+        let stream = LazyScanStream::new(self, Some(Arc::clone(&counters)));
         Ok((stream, counters))
     }
 
@@ -448,10 +452,10 @@ struct LazyScanStream<A: 'static + Send> {
 }
 
 impl<A: 'static + Send> LazyScanStream<A> {
-    fn new(builder: ScanBuilder<A>) -> Self {
+    fn new(builder: ScanBuilder<A>, counters: Option<Arc<ScanCounters>>) -> Self {
         Self {
             state: LazyScanState::Builder(Some(Box::new(builder))),
-            counters: None,
+            counters,
         }
     }
 }
@@ -471,13 +475,8 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
                     let counters = self.counters.take();
-                    let task = handle.spawn_cpu(move || {
-                        let scan = builder.prepare()?;
-                        match counters {
-                            Some(counters) => scan.execute_with_some_counters(None, Some(counters)),
-                            None => scan.execute(None),
-                        }
-                    });
+                    let task =
+                        handle.spawn_cpu(move || builder.prepare()?.execute_inner(None, counters));
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,

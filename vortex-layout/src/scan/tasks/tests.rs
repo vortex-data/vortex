@@ -119,14 +119,11 @@ impl LayoutReader for DeferredReader {
     }
 }
 
-#[rstest::rstest]
-#[case::dynamic_update(false, 1, 2)]
-#[case::cancellation(true, 0, 1)]
-fn scan_counters_after_deferred_pruning(
-    #[case] pending: bool,
-    #[case] pruned: u64,
-    #[case] pruning_calls: usize,
-) -> VortexResult<()> {
+/// Returns `value > bound`, where `bound` starts at 50, and a reader that shares `bound`.
+fn dynamic_fixture(
+    pending: bool,
+    file_pruning_update: Option<i32>,
+) -> VortexResult<(BoundExpression, DeferredReader)> {
     let bound = Arc::new(AtomicI32::new(50));
     let value = bound.clone();
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
@@ -138,20 +135,33 @@ fn scan_counters_after_deferred_pruning(
         root(),
     )
     .bind(&dtype)?;
-    let reader = Arc::new(DeferredReader {
+    let reader = DeferredReader {
         name: Arc::from("deferred"),
-        dtype: dtype.clone(),
+        dtype,
         bound,
         pruning_calls: AtomicUsize::new(0),
         file_pruning_calls: AtomicUsize::new(0),
-        file_pruning_update: None,
+        file_pruning_update,
         pending,
-    });
+    };
+    Ok((predicate, reader))
+}
+
+#[rstest::rstest]
+#[case::dynamic_update(false, 1, 2)]
+#[case::cancellation(true, 0, 1)]
+fn scan_counters_after_deferred_pruning(
+    #[case] pending: bool,
+    #[case] pruned: u64,
+    #[case] pruning_calls: usize,
+) -> VortexResult<()> {
+    let (predicate, reader) = dynamic_fixture(pending, None)?;
+    let reader = Arc::new(reader);
     let counters = Arc::new(ScanCounters::default());
     let ctx = Arc::new(TaskContext {
         filter: Some(Arc::new(FilterExpr::new(predicate))),
         reader: reader.clone(),
-        projection: BoundExpression::new_root(dtype),
+        projection: BoundExpression::new_root(reader.dtype.clone()),
         mapper: Arc::new(Ok::<ArrayRef, _>),
         counters: Some(counters.clone()),
         metrics: None,
@@ -167,33 +177,18 @@ fn scan_counters_after_deferred_pruning(
     assert_eq!(counters.snapshot().splits_pruned, pruned);
     assert_eq!(counters.snapshot().splits_filtered, 0);
     assert_eq!(reader.pruning_calls.load(Ordering::Relaxed), pruning_calls);
-    assert_eq!(reader.file_pruning_calls.load(Ordering::Relaxed), pruning_calls);
+    assert_eq!(
+        reader.file_pruning_calls.load(Ordering::Relaxed),
+        pruning_calls
+    );
     Ok(())
 }
 
 #[test]
 fn unchanged_dynamic_predicates_reuse_file_statistics() -> VortexResult<()> {
-    let bound = Arc::new(AtomicI32::new(50));
-    let value = bound.clone();
-    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    let predicate = dynamic(
-        CompareOperator::Gt,
-        move || Some(value.load(Ordering::Relaxed).into()),
-        dtype.clone(),
-        true,
-        root(),
-    )
-    .bind(&dtype)?;
+    let (predicate, reader) = dynamic_fixture(false, None)?;
+    let bound = reader.bound.clone();
     let filter = FilterExpr::new(predicate.clone());
-    let reader = DeferredReader {
-        name: Arc::from("cached"),
-        dtype,
-        bound: bound.clone(),
-        pruning_calls: AtomicUsize::new(0),
-        file_pruning_calls: AtomicUsize::new(0),
-        file_pruning_update: None,
-        pending: false,
-    };
     for expected_calls in 1..=2 {
         std::thread::scope(|scope| {
             let mut threads = Vec::new();
@@ -213,7 +208,10 @@ fn unchanged_dynamic_predicates_reuse_file_statistics() -> VortexResult<()> {
             }
             Ok::<_, vortex_error::VortexError>(())
         })?;
-        assert_eq!(reader.file_pruning_calls.load(Ordering::Relaxed), expected_calls);
+        assert_eq!(
+            reader.file_pruning_calls.load(Ordering::Relaxed),
+            expected_calls
+        );
         bound.store(200, Ordering::Relaxed);
     }
 
@@ -226,27 +224,8 @@ fn unchanged_dynamic_predicates_reuse_file_statistics() -> VortexResult<()> {
 
 #[test]
 fn updates_during_file_statistics_evaluation_discard_the_result() -> VortexResult<()> {
-    let bound = Arc::new(AtomicI32::new(50));
-    let value = bound.clone();
-    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    let predicate = dynamic(
-        CompareOperator::Gt,
-        move || Some(value.load(Ordering::Relaxed).into()),
-        dtype.clone(),
-        true,
-        root(),
-    )
-    .bind(&dtype)?;
+    let (predicate, reader) = dynamic_fixture(false, Some(200))?;
     let filter = FilterExpr::new(predicate);
-    let reader = DeferredReader {
-        name: Arc::from("update"),
-        dtype,
-        bound,
-        pruning_calls: AtomicUsize::new(0),
-        file_pruning_calls: AtomicUsize::new(0),
-        file_pruning_update: Some(200),
-        pending: false,
-    };
     let version = filter.dynamic_updates(0).unwrap().version();
     assert!(!filter.can_prune_file(0, Some(version), &reader)?);
     let version = filter.dynamic_updates(0).unwrap().version();

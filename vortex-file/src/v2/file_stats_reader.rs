@@ -103,17 +103,15 @@ impl LayoutReader for FileStatsLayoutReader {
     }
 
     fn can_prune_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
-        // Dynamic expression identity does not include its current value.
-        if expr.contains::<DynamicComparison>()? {
-            return self.evaluate_file_stats(expr);
-        }
-
         let key = ExactBoundExpr(expr.clone());
         if let Some(pruned) = self.prune_cache.get(&key) {
             return Ok(*pruned);
         }
         let pruned = self.evaluate_file_stats(expr)?;
-        self.prune_cache.insert(key, pruned);
+        // Dynamic expression identity does not include its current value, so it is never cached.
+        if !expr.contains::<DynamicComparison>()? {
+            self.prune_cache.insert(key, pruned);
+        }
         Ok(pruned)
     }
 

@@ -45,11 +45,8 @@ async fn scan_file(values: [[i32; 2]; 4]) -> VortexResult<VortexFile> {
         .map(|[a, b]| StructArray::from_fields(&[("value", buffer![a, b].into_array())]))
         .collect::<VortexResult<Vec<_>>>()?;
     let dtype = chunks[0].dtype().clone();
-    let array = ChunkedArray::try_new(
-        chunks.into_iter().map(IntoArray::into_array),
-        dtype,
-    )?
-    .into_array();
+    let array =
+        ChunkedArray::try_new(chunks.into_iter().map(IntoArray::into_array), dtype)?.into_array();
     let strategy = TableStrategy::new(
         Arc::new(FlatLayoutStrategy::default()),
         Arc::new(ZonedStrategy::new(
@@ -118,7 +115,10 @@ async fn test_scan_rejection_counters(
     let file = scan_file(values).await?;
     let predicate = and(
         gt_eq(col("value"), lit(0i32)),
-        and(eq(col("value"), lit(50i32)), lt_eq(col("value"), lit(101i32))),
+        and(
+            eq(col("value"), lit(50i32)),
+            lt_eq(col("value"), lit(101i32)),
+        ),
     );
     assert!(!file.can_prune(&predicate)?);
     let registry = Arc::new(DefaultMetricsRegistry::default());

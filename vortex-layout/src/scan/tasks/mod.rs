@@ -4,6 +4,7 @@
 //! Split scanning task implementation.
 
 use std::ops::BitAnd;
+use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
@@ -91,32 +92,16 @@ fn split_exec_inner<A: 'static + Send, const TRACK_COUNTERS: bool>(
                 let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
                 // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-                for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
+                for (idx, version) in dynamic_versions.iter_mut().enumerate() {
                     // Store the latest version of the dynamic expression prior to pruning.
                     // We will re-run the pruning later if the version has changed in the meantime.
-                    dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+                    *version = filter.dynamic_updates(idx).map(|du| du.version());
 
-                    if dynamic_versions[idx].is_some()
-                        && filter.can_prune_file(idx, dynamic_versions[idx], reader.as_ref())?
-                    {
-                        if TRACK_COUNTERS
-                            && let Some(counters) = &ctx.counters
-                        {
-                            counters.prune_file();
-                        }
-                        return Ok(Mask::new_false(mask.len()));
-                    }
-
-                    let conjunct_mask = reader
-                        .split_pruning_evaluation(&row_range, conjunct, mask.clone())?
-                        .await?;
-                    mask = mask.bitand(&conjunct_mask);
+                    mask = prune_conjunct::<A, TRACK_COUNTERS>(
+                        &ctx, filter, idx, *version, &row_range, mask,
+                    )
+                    .await?;
                     if mask.all_false() {
-                        if TRACK_COUNTERS
-                            && let Some(counters) = &ctx.counters
-                        {
-                            counters.prune_split();
-                        }
                         return Ok(mask);
                     }
                 }
@@ -135,26 +120,18 @@ fn split_exec_inner<A: 'static + Send, const TRACK_COUNTERS: bool>(
                     {
                         // The dynamic expression has been updated, re-run the pruning.
                         dynamic_versions[idx] = Some(dv);
-                        if filter.can_prune_file(idx, Some(dv), reader.as_ref())? {
-                            if TRACK_COUNTERS
-                                && let Some(counters) = &ctx.counters
-                            {
-                                counters.prune_file();
-                            }
-                            return Ok(Mask::new_false(mask.len()));
+                        mask = prune_conjunct::<A, TRACK_COUNTERS>(
+                            &ctx,
+                            filter,
+                            idx,
+                            Some(dv),
+                            &row_range,
+                            mask,
+                        )
+                        .await?;
+                        if mask.all_false() {
+                            return Ok(mask);
                         }
-                        let conjunct_mask = reader
-                            .split_pruning_evaluation(&row_range, conjunct, mask.clone())?
-                            .await?;
-                        mask = mask.bitand(&conjunct_mask);
-                    }
-                    if mask.all_false() {
-                        if TRACK_COUNTERS
-                            && let Some(counters) = &ctx.counters
-                        {
-                            counters.prune_split();
-                        }
-                        return Ok(mask);
                     }
 
                     let input_true_count = mask.true_count();
@@ -169,11 +146,7 @@ fn split_exec_inner<A: 'static + Send, const TRACK_COUNTERS: bool>(
                     // Filter evaluations return a mask already intersected with the input mask.
                     mask = conjunct_mask;
                     if mask.all_false() {
-                        if TRACK_COUNTERS
-                            && let Some(counters) = &ctx.counters
-                        {
-                            counters.filter_split();
-                        }
+                        ctx.count::<TRACK_COUNTERS>(ScanCounters::filter_split);
                         return Ok(mask);
                     }
                 }
@@ -189,11 +162,7 @@ fn split_exec_inner<A: 'static + Send, const TRACK_COUNTERS: bool>(
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
 
     let array_fut = async move {
-        if TRACK_COUNTERS
-            && let Some(counters) = &ctx.counters
-        {
-            counters.consider_split();
-        }
+        ctx.count::<TRACK_COUNTERS>(ScanCounters::consider_split);
         let mask = filter_mask.await?;
         if mask.all_false() {
             return Ok(None);
@@ -204,6 +173,34 @@ fn split_exec_inner<A: 'static + Send, const TRACK_COUNTERS: bool>(
     };
 
     Ok(array_fut.boxed())
+}
+
+/// Applies whole-file statistics for a dynamic conjunct, then split statistics.
+async fn prune_conjunct<A, const TRACK_COUNTERS: bool>(
+    ctx: &TaskContext<A>,
+    filter: &FilterExpr,
+    idx: usize,
+    dynamic_version: Option<u64>,
+    row_range: &Range<u64>,
+    mask: Mask,
+) -> VortexResult<Mask> {
+    // Static conjuncts are checked against whole-file statistics once per execution.
+    if dynamic_version.is_some()
+        && filter.can_prune_file(idx, dynamic_version, ctx.reader.as_ref())?
+    {
+        ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_file);
+        return Ok(Mask::new_false(mask.len()));
+    }
+
+    let conjunct_mask = ctx
+        .reader
+        .split_pruning_evaluation(row_range, &filter.conjuncts()[idx], mask.clone())?
+        .await?;
+    let mask = mask.bitand(&conjunct_mask);
+    if mask.all_false() {
+        ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_split);
+    }
+    Ok(mask)
 }
 
 fn conditional_selectivity(input_true_count: usize, output_true_count: usize) -> f64 {
@@ -228,6 +225,15 @@ pub struct TaskContext<A> {
     pub(super) counters: Option<Arc<ScanCounters>>,
     /// Registry totals that receive one update after this execution stops.
     pub(super) metrics: Option<ScanMetrics>,
+}
+
+impl<A> TaskContext<A> {
+    #[inline]
+    pub(super) fn count<const TRACK_COUNTERS: bool>(&self, update: impl FnOnce(&ScanCounters)) {
+        if TRACK_COUNTERS && let Some(counters) = &self.counters {
+            update(counters);
+        }
+    }
 }
 
 impl<A> Drop for TaskContext<A> {
