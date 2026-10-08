@@ -102,11 +102,14 @@ impl<T> PackedChunks<'_, T> {
 // SAFETY: the FastLanes unpack kernels initialize every value of `dst`.
 unsafe impl<T: BitPacking> ChunkDecoder<T> for PackedChunks<'_, T> {
     fn decode_chunk(&self, chunk_idx: usize, dst: &mut [MaybeUninit<T>; FILTER_CHUNK_LEN]) {
-        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, the unpack only writes to `dst`,
-        // and the packed chunk holds `FILTER_CHUNK_LEN` values of `bit_width` bits.
+        // SAFETY: the unpack only writes to `dst`, and the packed chunk holds `FILTER_CHUNK_LEN`
+        // values of `bit_width` bits.
         unsafe {
-            let dst = &mut *(dst as *mut [MaybeUninit<T>] as *mut [T]);
-            BitPacking::unchecked_unpack(self.bit_width, self.chunk(chunk_idx), dst);
+            BitPacking::unchecked_unpack(
+                self.bit_width,
+                self.chunk(chunk_idx),
+                dst.assume_init_mut(),
+            );
         }
     }
 

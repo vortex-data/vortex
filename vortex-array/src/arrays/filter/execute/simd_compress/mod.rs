@@ -24,6 +24,7 @@
 //! On x86, the widest available kernel is considered first for each width. When no entry matches,
 //! control returns to [`buffer`](super::buffer) for scalar selection.
 
+use std::mem::MaybeUninit;
 use std::ptr;
 
 use vortex_buffer::Buffer;
@@ -107,19 +108,19 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
 ///
 /// # Safety
 ///
-/// `bits` must select only elements of `src`, and `dst` must be valid for writes of every
-/// selected element plus [`SLACK_BYTES`] and must not overlap `src`.
+/// `bits` must select only elements of `src`, and `dst` must hold every selected element plus
+/// [`SLACK_BYTES`].
 #[inline]
 pub(super) unsafe fn compress_bits<T: Copy>(
     src: &[T],
     bits: MaskBits<'_>,
     density: f64,
-    dst: *mut T,
+    dst: &mut [MaybeUninit<T>],
 ) -> Option<usize> {
     let kernel = select_kernel::<T, false>(src.len(), density)?;
     // SAFETY: `select_kernel` probed the kernel's target features, and the caller upholds the
     // out-of-place pointer contract of `filter_slice_by_bitmap`.
-    Some(unsafe { kernel(src.as_ptr().cast(), dst.cast(), bits) })
+    Some(unsafe { kernel(src.as_ptr().cast(), dst.as_mut_ptr().cast(), bits) })
 }
 
 /// Choose the widest profitable kernel available for `T` to filter `len` elements at `density`.

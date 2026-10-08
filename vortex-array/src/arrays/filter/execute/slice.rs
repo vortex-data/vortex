@@ -6,7 +6,7 @@
 //! Provides both immutable and mutable (in-place) filtering of typed slices by cached mask
 //! representations or directly from the mask bitmap.
 
-use std::ptr;
+use std::mem::MaybeUninit;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -91,13 +91,8 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
     let mut out = BufferMut::<T>::with_capacity_in(output_len, allocator.clone());
     // SAFETY: the mask selects only elements of `slice`, and the output was allocated for exactly
     // `mask.true_count()` values.
-    let written = unsafe {
-        compact_by_bitmap(
-            slice,
-            MaskBits::Mask(mask),
-            out.spare_capacity_mut().as_mut_ptr().cast(),
-        )
-    };
+    let written =
+        unsafe { compact_by_bitmap(slice, MaskBits::Mask(mask), out.spare_capacity_mut()) };
 
     debug_assert_eq!(written, output_len);
     // SAFETY: every output slot was initialized exactly once above.
@@ -109,25 +104,21 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
 ///
 /// # Safety
 ///
-/// `bits` must select only elements of `src`, and `dst` must be valid for writes of every
+/// `bits` must select only elements of `src`, and `dst` must hold at least one value for each
 /// selected element.
 #[inline]
 pub(super) unsafe fn compact_by_bitmap<T: Copy>(
     src: &[T],
     bits: MaskBits<'_>,
-    dst: *mut T,
+    dst: &mut [MaybeUninit<T>],
 ) -> usize {
-    let src_ptr = src.as_ptr();
     let mut write_pos = 0;
 
     for_each_mask_word(bits, |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {
-            // SAFETY: the word covers `word_len` elements of `src`, and `dst` has room for them.
-            unsafe {
-                ptr::copy_nonoverlapping(src_ptr.add(word_start), dst.add(write_pos), word_len)
-            };
+            dst[write_pos..][..word_len].write_copy_of_slice(&src[word_start..][..word_len]);
             write_pos += word_len;
         } else {
             let mut selected = word;
@@ -135,7 +126,10 @@ pub(super) unsafe fn compact_by_bitmap<T: Copy>(
                 let index = word_start + selected.trailing_zeros() as usize;
                 // SAFETY: set bits index into `src`, and `dst` has room for every selected
                 // element.
-                unsafe { dst.add(write_pos).write(*src_ptr.add(index)) };
+                unsafe {
+                    dst.get_unchecked_mut(write_pos)
+                        .write(*src.get_unchecked(index))
+                };
                 write_pos += 1;
                 selected &= selected - 1;
             }
@@ -149,34 +143,21 @@ pub(super) unsafe fn compact_by_bitmap<T: Copy>(
 /// return the number copied.
 ///
 /// This is faster than [`compact_by_bitmap`] when the selected elements form long runs.
-///
-/// # Safety
-///
-/// `bits` must select only elements of `src`, and `dst` must be valid for writes of every
-/// selected element.
 // Inlining this walk next to `compact_by_bitmap` makes the bit walk 1.5x slower on Apple M4.
 #[inline(never)]
-pub(super) unsafe fn compact_runs_by_bitmap<T: Copy>(
+pub(super) fn compact_runs_by_bitmap<T: Copy>(
     src: &[T],
     bits: MaskBits<'_>,
-    dst: *mut T,
+    dst: &mut [MaybeUninit<T>],
 ) -> usize {
-    let src_ptr = src.as_ptr();
     let mut write_pos = 0;
 
     for_each_mask_word(bits, |mut word, word_start, _| {
         while word != 0 {
             let run_start = word.trailing_zeros() as usize;
             let run_len = (!(word >> run_start)).trailing_zeros() as usize;
-            // SAFETY: the run lies within the selected elements of `src`, and `dst` has room for
-            // every selected element.
-            unsafe {
-                ptr::copy_nonoverlapping(
-                    src_ptr.add(word_start + run_start),
-                    dst.add(write_pos),
-                    run_len,
-                )
-            };
+            dst[write_pos..][..run_len]
+                .write_copy_of_slice(&src[word_start + run_start..][..run_len]);
             write_pos += run_len;
 
             // Adding the lowest bit of the run carries through the run and clears it.
@@ -194,13 +175,10 @@ pub(super) fn filter_slice_by_indices<T: Copy>(
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     let mut out = BufferMut::<T>::with_capacity_in(indices.len(), allocator.clone());
-    let src_ptr = slice.as_ptr();
-    let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
 
-    for (write_pos, &index) in indices.iter().enumerate() {
-        // SAFETY: mask indices are validated when the mask is constructed and the output has one
-        // slot allocated for every index.
-        unsafe { out_ptr.add(write_pos).write(*src_ptr.add(index)) };
+    for (dst, &index) in out.spare_capacity_mut().iter_mut().zip(indices) {
+        // SAFETY: mask indices are validated when the mask is constructed.
+        dst.write(unsafe { *slice.get_unchecked(index) });
     }
 
     // SAFETY: the loop initialized every output slot.
@@ -231,7 +209,6 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
         "Mask length must equal the slice length"
     );
 
-    let ptr = slice.as_mut_ptr();
     let mut write_pos = 0;
 
     for_each_mask_word(MaskBits::Mask(mask), |word, word_start, word_len| {
@@ -239,20 +216,16 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
         debug_assert_eq!(word & !all_selected, 0);
         if word == all_selected {
             if write_pos != word_start {
-                // SAFETY: source and destination are in bounds and may overlap while compacting
-                // toward the start of the same allocation.
-                unsafe { ptr::copy(ptr.add(word_start), ptr.add(write_pos), word_len) };
+                slice.copy_within(word_start..word_start + word_len, write_pos);
             }
             write_pos += word_len;
         } else {
             let mut selected = word;
             while selected != 0 {
                 let index = word_start + selected.trailing_zeros() as usize;
-                if write_pos != index {
-                    // SAFETY: set bits are limited to `word_len` and stable compaction guarantees
-                    // `write_pos <= index`.
-                    unsafe { ptr::copy(ptr.add(index), ptr.add(write_pos), 1) };
-                }
+                // SAFETY: set bits are limited to `word_len` and stable compaction guarantees
+                // `write_pos <= index`.
+                unsafe { *slice.get_unchecked_mut(write_pos) = *slice.get_unchecked(index) };
                 write_pos += 1;
                 selected &= selected - 1;
             }
@@ -265,13 +238,10 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
 
 /// Filter a mutable slice in-place by strictly increasing indices.
 pub(super) fn filter_slice_mut_by_indices<T: Copy>(slice: &mut [T], indices: &[usize]) -> usize {
-    let ptr = slice.as_mut_ptr();
     for (write_pos, &index) in indices.iter().enumerate() {
-        if write_pos != index {
-            // SAFETY: mask indices are in bounds and stable compaction guarantees
-            // `write_pos <= index`.
-            unsafe { ptr::copy(ptr.add(index), ptr.add(write_pos), 1) };
-        }
+        // SAFETY: mask indices are in bounds and stable compaction guarantees
+        // `write_pos <= index`.
+        unsafe { *slice.get_unchecked_mut(write_pos) = *slice.get_unchecked(index) };
     }
     indices.len()
 }
@@ -287,15 +257,7 @@ pub(super) fn filter_slice_mut_by_slices<T: Copy>(
         let len = end - start;
 
         if write_pos != start {
-            // SAFETY: mask slices are in bounds and source and destination may overlap while
-            // compacting toward the start of the same allocation.
-            unsafe {
-                ptr::copy(
-                    slice.as_ptr().add(start),
-                    slice.as_mut_ptr().add(write_pos),
-                    len,
-                )
-            };
+            slice.copy_within(start..end, write_pos);
         }
 
         write_pos += len;

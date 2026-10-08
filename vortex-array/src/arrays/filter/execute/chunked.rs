@@ -20,7 +20,6 @@
 //! runs use byte compress or the bit walk.
 
 use std::mem::MaybeUninit;
-use std::ptr;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -97,6 +96,15 @@ pub fn filter_chunked<T: NativePType>(
 #[repr(align(64))]
 struct Scratch<T>([MaybeUninit<T>; FILTER_CHUNK_LEN]);
 
+impl<T> Scratch<T> {
+    /// Decodes chunk `chunk_idx` of `decoder` and returns its values.
+    fn decode(&mut self, decoder: &impl ChunkDecoder<T>, chunk_idx: usize) -> &[T] {
+        decoder.decode_chunk(chunk_idx, &mut self.0);
+        // SAFETY: the decoder initialized every value.
+        unsafe { self.0.assume_init_ref() }
+    }
+}
+
 /// The output and scratch buffers of [`filter_chunked`].
 struct ChunkedFilter<'a, T, D> {
     decoder: &'a D,
@@ -122,40 +130,21 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
         }
     }
 
-    /// Returns the output position of the next value, with room for every value not yet written
-    /// plus [`SLACK_BYTES`].
-    fn dst(&mut self) -> *mut MaybeUninit<T> {
-        // SAFETY: the output has capacity for every selected value plus the slack.
-        unsafe {
-            self.values
-                .spare_capacity_mut()
-                .as_mut_ptr()
-                .add(self.written)
-        }
-    }
-
     /// Decodes chunk `chunk_idx` straight to the output.
     fn push_full_chunk(&mut self, chunk_idx: usize) {
-        // SAFETY: a fully selected chunk has `FILTER_CHUNK_LEN` values of output capacity.
-        let dst = unsafe { &mut *self.dst().cast() };
+        let dst = self.values.spare_capacity_mut()[self.written..]
+            .first_chunk_mut::<FILTER_CHUNK_LEN>()
+            .unwrap_or_else(|| unreachable!("a fully selected chunk has output capacity"));
         self.decoder.decode_chunk(chunk_idx, dst);
         self.written += FILTER_CHUNK_LEN;
     }
 
     /// Decodes the values at the first `len` of `self.indices` in chunk `chunk_idx` to the output.
     fn push_indices(&mut self, chunk_idx: usize, len: usize) {
-        // SAFETY: the output has capacity for the `len` selected values.
-        let dst = unsafe { std::slice::from_raw_parts_mut(self.dst(), len) };
+        let dst = &mut self.values.spare_capacity_mut()[self.written..][..len];
         self.decoder
             .decode_indices(chunk_idx, &self.indices[..len], dst);
         self.written += len;
-    }
-
-    /// Decodes chunk `chunk_idx` to the scratch buffer and returns its values.
-    fn decode_scratch(&mut self, chunk_idx: usize) -> &[T] {
-        self.decoder.decode_chunk(chunk_idx, &mut self.scratch.0);
-        // SAFETY: the decoder initialized every value of the scratch buffer.
-        unsafe { std::slice::from_raw_parts(self.scratch.0.as_ptr().cast(), FILTER_CHUNK_LEN) }
     }
 
     /// Filters chunk by chunk from the bitmap of `mask`.
@@ -197,8 +186,9 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
                 }
                 self.push_indices(chunk_idx, selected);
             } else {
-                let dst = self.dst().cast::<T>();
-                let src = &self.decode_scratch(chunk_idx)[chunk_offset..][..chunk_len];
+                let src =
+                    &self.scratch.decode(self.decoder, chunk_idx)[chunk_offset..][..chunk_len];
+                let dst = &mut self.values.spare_capacity_mut()[self.written..];
                 // SAFETY: the words select only values of `src` and clear any bits past
                 // `chunk_len`, and the output has room for every selected value plus the slack.
                 let written = unsafe { compact_words(src, words, selected, dst) };
@@ -245,15 +235,11 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
                 }
                 self.push_indices(chunk_idx, selected);
             } else {
-                let dst = self.dst().cast::<T>();
-                let src = self.decode_scratch(chunk_idx).as_ptr();
+                let src = self.scratch.decode(self.decoder, chunk_idx);
+                let dst = &mut self.values.spare_capacity_mut()[self.written..];
                 let mut written = 0;
                 for (start, end) in runs {
-                    // SAFETY: each run lies within the chunk, and the output has room for every
-                    // selected value.
-                    unsafe {
-                        ptr::copy_nonoverlapping(src.add(start), dst.add(written), end - start)
-                    };
+                    dst[written..][..end - start].write_copy_of_slice(&src[start..end]);
                     written += end - start;
                 }
                 self.written += written;
@@ -286,9 +272,14 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
 ///
 /// # Safety
 ///
-/// `words` must hold `src.len()` bits with any bits past `src.len()` cleared, and `dst` must be
-/// valid for writes of every selected value plus [`SLACK_BYTES`].
-unsafe fn compact_words<T: Copy>(src: &[T], words: &[u64], selected: usize, dst: *mut T) -> usize {
+/// `words` must hold `src.len()` bits with any bits past `src.len()` cleared, and `dst` must hold
+/// every selected value plus [`SLACK_BYTES`].
+unsafe fn compact_words<T: Copy>(
+    src: &[T],
+    words: &[u64],
+    selected: usize,
+    dst: &mut [MaybeUninit<T>],
+) -> usize {
     let bits = MaskBits::Words {
         words,
         len: src.len(),
