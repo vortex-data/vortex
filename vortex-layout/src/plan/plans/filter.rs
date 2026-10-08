@@ -25,7 +25,7 @@ const MASK: usize = 1;
 /// Keeps the rows of `child` where `mask` is true, with children ordered as `[child, mask]`.
 ///
 /// Both children share one row domain, which is also the filter's. `mask` is a non-nullable
-/// boolean plan: a predicate evaluated over the same rows, or a [`Selection`](crate::plan::Selection)
+/// boolean plan: a predicate evaluated over the same rows, or a [`Selection`]
 /// bound to the rows the plan is executed with. Values of `child` outside the mask are
 /// unspecified. The filter's dtype is its child's.
 #[derive(Clone, Debug)]
