@@ -570,11 +570,7 @@ pub fn execute_into_builder(
     Ok(builder)
 }
 
-/// Returns whether `array` matches the root target `M` and whether it is canonical.
-///
-/// `execute::<Canonical>` targets [`AnyCanonical`], the same predicate as the universal stop
-/// condition, so a single scan answers both. The `TypeId` comparison folds to a constant per
-/// monomorphization.
+/// Returns `(matches M, is canonical)`, scanning once when `M` is [`AnyCanonical`].
 #[inline]
 fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
     if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
