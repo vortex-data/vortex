@@ -40,10 +40,6 @@ use crate::segments::SegmentSource;
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-/// Segments smaller than this fraction of a page are read whole rather than lazily. The lazy
-/// path reads buffers up to the same size eagerly, so smaller segments would gain nothing.
-const LAZY_MIN_SEGMENT_FRACTION: u64 = 4;
-
 #[derive(Clone)]
 pub struct FlatReader {
     layout: FlatLayout,
@@ -108,11 +104,11 @@ impl FlatReader {
         let Some(page) = self.segment_source.preferred_read_size() else {
             return false;
         };
-        // Lazily decoding, slicing and rebuilding an array costs more than reading a tiny
-        // segment whole.
+        // Segments smaller than a page are read whole: those reads coalesce with their
+        // neighbours, while lazy reads cost a request each, which object stores charge in latency.
         self.segment_source
             .segment_len(self.layout.segment_id())
-            .is_some_and(|len| len >= page / LAZY_MIN_SEGMENT_FRACTION)
+            .is_some_and(|len| len >= page)
             && !self.lazy_state.is_disabled()
             && self.partial_plan().is_none()
             && self.lazy_template().is_some()
