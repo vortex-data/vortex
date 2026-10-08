@@ -3,9 +3,8 @@
 
 import math
 import os
-from datetime import time
+from datetime import date, time
 from decimal import Decimal
-from datetime import date
 
 import polars as pl
 import pyarrow as pa
@@ -163,12 +162,8 @@ def test_is_not_null_predicate_pushdown(tmp_path):
     assert result["id"].to_list() == [0, 2]
 
 
-def test_polars_date_literals():
-    frame = pl.DataFrame({"x": [date(2024, 1, 1), None, date(2024, 1, 3)]})
 def test_polars_date_literals(tmp_path):
-    frame = pl.DataFrame(
-        {"id": [0, 1, 2, 3], "x": [date(2024, 1, 1), date(2024, 1, 2), None, date(2024, 1, 3)]}
-    )
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [date(2024, 1, 1), date(2024, 1, 2), None, date(2024, 1, 3)]})
     expr = pl.col("x") >= date(2024, 1, 2)
     path = tmp_path / "date_literals.vortex"
     vx.io.write(vx.array(frame.to_arrow()), str(path))
