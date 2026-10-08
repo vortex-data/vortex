@@ -41,6 +41,7 @@ use vortex_array::expr::lt;
 use vortex_array::expr::lt_eq;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_btrblocks::CompressionSession;
 use vortex_buffer::ByteBufferMut;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
@@ -72,6 +73,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
+        .with::<CompressionSession>()
         .with_tokio();
     vortex_file::register_default_encodings(&session);
     session
