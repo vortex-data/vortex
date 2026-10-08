@@ -95,6 +95,10 @@ harness = false
 name = "exec_graph"
 harness = false
 
+[[bench]]
+name = "scan_v1"
+harness = false
+
 [lints]
 workspace = true
 

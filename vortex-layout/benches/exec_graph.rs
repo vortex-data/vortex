@@ -24,11 +24,23 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::and;
+use vortex_array::expr::get_item;
+use vortex_array::expr::gt;
+use vortex_array::expr::lit;
+use vortex_array::expr::lt;
+use vortex_array::expr::root;
+use vortex_array::expr::select;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
@@ -38,6 +50,7 @@ use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::plan::ConcatPlan;
+use vortex_layout::plan::EvalPlan;
 use vortex_layout::plan::PackPlan;
 use vortex_layout::plan::PlanRef;
 use vortex_layout::plan::exec::DecodeCache;
@@ -48,6 +61,7 @@ use vortex_layout::plan::exec::synthetic::RowSource;
 use vortex_layout::plan::exec::synthetic::empty_segment;
 use vortex_layout::plan::exec::synthetic::row_dtype;
 use vortex_layout::plan::lower;
+use vortex_layout::plan::optimize;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::session::LayoutSession;
 use vortex_mask::Mask;
@@ -288,4 +302,135 @@ fn scheduling<const IO: bool>(bencher: Bencher, shape: (usize, usize)) {
             }
             assert_eq!(produced, rows);
         });
+}
+
+/// Column `column`'s value at `row` in the query fixture, as `scan_v1.rs` defines it.
+fn value(column: usize, row: usize) -> i64 {
+    let x = (row as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (column as u64 + 1).wrapping_mul(0xD1B5_4A32_D192_ED03);
+    ((x >> 32) % 1000) as i64
+}
+
+/// Rows, chunks, and columns of the query fixture, as `scan_v1.rs` defines them.
+const QUERY_ROWS: usize = 1 << 20;
+const QUERY_CHUNKS: usize = 16;
+const QUERY_COLUMNS: usize = 8;
+
+/// The query fixture: the same struct of chunked columns `scan_v1.rs` builds, lowered to a
+/// filter plan over the two filter columns and a projection plan over the three projected
+/// columns, with the rows the filter keeps.
+fn query_fixture() -> (Arc<Store>, PlanRef, PlanRef, usize) {
+    let mut store = Store::default();
+    let mut layouts = Vec::with_capacity(QUERY_COLUMNS);
+    for column in 0..QUERY_COLUMNS {
+        let values =
+            PrimitiveArray::from_iter((0..QUERY_ROWS).map(|row| value(column, row))).into_array();
+        layouts.push(store.chunked(&values, QUERY_CHUNKS));
+    }
+    let dtype = DType::Struct(
+        StructFields::from_iter((0..QUERY_COLUMNS).map(|i| {
+            (
+                format!("c{i}"),
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+            )
+        })),
+        Nullability::NonNullable,
+    );
+    let layout = StructLayout::new(QUERY_ROWS as u64, dtype.clone(), layouts).into_layout();
+    let plan = lower(&layout).expect("lower");
+    let filter = and(
+        lt(get_item("c0", root()), lit(200_i64)),
+        gt(get_item("c1", root()), lit(499_i64)),
+    )
+    .bind(&dtype)
+    .expect("bind filter");
+    let projection = select(FieldNames::from(["c2", "c3", "c4"]), root())
+        .bind(&dtype)
+        .expect("bind projection");
+    let filter_plan = optimize(
+        EvalPlan::try_new(filter, plan.clone())
+            .expect("filter")
+            .into_plan(),
+    )
+    .expect("optimize filter");
+    let projection_plan = optimize(
+        EvalPlan::try_new(projection, plan)
+            .expect("projection")
+            .into_plan(),
+    )
+    .expect("optimize projection");
+    let expected = (0..QUERY_ROWS)
+        .filter(|&row| value(0, row) < 200 && value(1, row) > 499)
+        .count();
+    (Arc::new(store), filter_plan, projection_plan, expected)
+}
+
+/// Drives one graph over `rows` of `plan` to completion, answering reads from `store` at once,
+/// and hands each root array to `sink`.
+fn drive_split(
+    store: &Store,
+    plan: &PlanRef,
+    rows: std::ops::Range<u64>,
+    mask: Mask,
+    mut sink: impl FnMut(ArrayRef),
+) {
+    let mut graph =
+        ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0, DecodeCache::default())
+            .expect("graph");
+    loop {
+        match graph.state() {
+            ExecState::Done => return,
+            ExecState::NeedsCompute => match graph.compute().expect("compute") {
+                ExecOutput::Piece(array) => sink(array),
+                ExecOutput::NeedsIO(batch) => {
+                    for request in batch {
+                        graph
+                            .set_io_result(
+                                request.id,
+                                store.segments[*request.segment_id as usize].clone(),
+                            )
+                            .expect("deliver");
+                    }
+                }
+                ExecOutput::Yield => {}
+            },
+            ExecState::Waiting => unreachable!("every read is answered as it is published"),
+        }
+    }
+}
+
+/// The filter-and-project query of `scan_v1.rs` on the exec graph: one split per chunk, each
+/// running the filter plan over every row to a mask, then the projection plan over the rows
+/// the mask keeps, as the V1 scan does.
+#[divan::bench]
+fn query(bencher: Bencher) {
+    let (store, filter_plan, projection_plan, expected) = query_fixture();
+    let split_rows = (QUERY_ROWS / QUERY_CHUNKS) as u64;
+    let mut ctx = SESSION.create_execution_ctx();
+    bencher.counter(ItemsCount::new(expected)).bench_local(|| {
+        let mut rows = 0;
+        for split in 0..QUERY_CHUNKS as u64 {
+            let range = split * split_rows..(split + 1) * split_rows;
+            let mut predicate = Vec::new();
+            drive_split(
+                &store,
+                &filter_plan,
+                range.clone(),
+                Mask::new_true(split_rows as usize),
+                |array| predicate.push(array),
+            );
+            let mask = ChunkedArray::try_new(predicate, filter_plan.dtype().clone())
+                .expect("predicate")
+                .into_array()
+                .execute::<Mask>(&mut ctx)
+                .expect("mask");
+            if mask.all_false() {
+                continue;
+            }
+            drive_split(&store, &projection_plan, range, mask, |array| {
+                rows += array.len()
+            });
+        }
+        assert_eq!(rows, expected);
+    });
 }
