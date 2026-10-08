@@ -4,6 +4,7 @@
 import math
 import os
 from datetime import time
+from decimal import Decimal
 
 import polars as pl
 import pyarrow as pa
@@ -102,3 +103,14 @@ def test_polars_conditional(tmp_path):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == [1, 2]
+
+
+def test_polars_decimal_literals(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [Decimal("1.24"), Decimal("1.25"), None, Decimal("1.26")]})
+    expr = pl.col("x") >= Decimal("1.25")
+    path = tmp_path / "decimal_literals.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1, 3]
