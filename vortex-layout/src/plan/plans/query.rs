@@ -51,6 +51,8 @@ pub struct Query;
 #[derive(Clone)]
 pub struct QueryData {
     scheduler: Option<Arc<FilterExpr>>,
+    /// The selected fraction at or above which a conjunct runs over whole chunks.
+    dense_threshold: f64,
     /// Per conjunct, the plan pruning zones for it, once an execution asked.
     pruning: Arc<[OnceLock<Option<PlanRef>>]>,
 }
@@ -71,6 +73,14 @@ pub type QueryPlan = Plan<Query>;
 
 /// The projection's slot in the children. Conjunct `i` is in slot `i + 1`.
 const PROJECTION: usize = 0;
+
+/// The selected fraction of a split at or above which a conjunct runs over every row of the
+/// chunks holding a selected row and its result is intersected with the mask, rather than
+/// running over the selected rows only. The default scan's flat reader uses the same value.
+///
+/// Filtering an encoded column to a few rows before comparing is cheaper than comparing every
+/// row, but the filter has a cost of its own, so a nearly full mask is not worth applying.
+pub const DEFAULT_DENSE_THRESHOLD: f64 = 0.2;
 
 impl QueryPlan {
     /// Plans `filter`, if any, and `projection` over `source`.
@@ -110,6 +120,7 @@ impl QueryPlan {
             data: QueryData {
                 pruning: (1..children_len).map(|_| OnceLock::new()).collect(),
                 scheduler: scheduler.map(Arc::new),
+                dense_threshold: DEFAULT_DENSE_THRESHOLD,
             },
         }
         .into_typed())
@@ -133,6 +144,27 @@ impl QueryPlan {
     /// The shared scheduler of the conjuncts, if there is a filter.
     pub(crate) fn scheduler(&self) -> Option<&Arc<FilterExpr>> {
         self.data().scheduler.as_ref()
+    }
+
+    /// The selected fraction at or above which a conjunct runs over whole chunks. See
+    /// [`DEFAULT_DENSE_THRESHOLD`].
+    pub fn dense_threshold(&self) -> f64 {
+        self.data().dense_threshold
+    }
+
+    /// This plan with a different [`dense_threshold`](Self::dense_threshold): `0.0` runs every
+    /// conjunct over whole chunks, above `1.0` every conjunct over the selected rows only.
+    pub fn with_dense_threshold(&self, dense_threshold: f64) -> Self {
+        let mut data = self.data().clone();
+        data.dense_threshold = dense_threshold;
+        PlanParts {
+            vtable: Query,
+            dtype: self.dtype().clone(),
+            row_count: self.row_count(),
+            children: self.children().clone(),
+            data,
+        }
+        .into_typed()
     }
 
     /// The plan telling which rows' zones may hold a row passing conjunct `index`, when the

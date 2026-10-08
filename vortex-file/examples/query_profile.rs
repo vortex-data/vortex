@@ -550,8 +550,15 @@ impl Planned {
             self.projection_expr.clone(),
             source.clone(),
         )
-        .expect("query plan")
-        .into_plan();
+        .expect("query plan");
+        // `THRESHOLD` overrides the selected fraction at which a conjunct runs over whole chunks.
+        let query = match std::env::var("THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+        {
+            Some(threshold) => query.with_dense_threshold(threshold).into_plan(),
+            None => query.into_plan(),
+        };
         (
             query,
             layout_splits(file, &self.projection_expr, self.filter.as_ref()),
@@ -1009,14 +1016,26 @@ fn main() {
             println!("{}", built.display_tree());
         }
     }
-    for _ in 0..2 {
+    // Alternate the executors so drift affects both alike, and report medians.
+    let iters = std::env::var("ITERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(2);
+    let mut exec_times = Vec::with_capacity(iters);
+    let mut v1_times = Vec::with_capacity(iters);
+    for i in 0..iters {
+        let verbose = i < 2;
         if only != "v1" {
             ALLOCS.store(0, Ordering::Relaxed);
             ALLOC_BYTES.store(0, Ordering::Relaxed);
             SEGMENT_READS.store(0, Ordering::Relaxed);
             let start = std::time::Instant::now();
             let rows = run_exec(file, query, algorithm, source, *variant);
-            report("exec", rows, start.elapsed());
+            let elapsed = start.elapsed();
+            exec_times.push(elapsed);
+            if verbose {
+                report("exec", rows, elapsed);
+            }
         }
         if only != "exec" {
             ALLOCS.store(0, Ordering::Relaxed);
@@ -1024,7 +1043,24 @@ fn main() {
             SEGMENT_READS.store(0, Ordering::Relaxed);
             let start = std::time::Instant::now();
             let rows = run_v1(file, query);
-            report("v1", rows, start.elapsed());
+            let elapsed = start.elapsed();
+            v1_times.push(elapsed);
+            if verbose {
+                report("v1", rows, elapsed);
+            }
         }
+    }
+    let median = |times: &mut Vec<std::time::Duration>| {
+        times.sort();
+        times
+            .get(times.len() / 2)
+            .map_or(0.0, |d| d.as_secs_f64() * 1e3)
+    };
+    let (exec_median, v1_median) = (median(&mut exec_times), median(&mut v1_times));
+    if exec_median > 0.0 && v1_median > 0.0 {
+        println!(
+            "median exec={exec_median:.3}ms v1={v1_median:.3}ms v1/exec={:.2}x over {iters} alternating runs",
+            v1_median / exec_median
+        );
     }
 }

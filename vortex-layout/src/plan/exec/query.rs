@@ -31,14 +31,6 @@ use crate::plan::exec::selection::Selection;
 /// The port the projection feeds. Conjunct `i` feeds port `i + 1`.
 const PROJECTION: usize = 0;
 
-/// The selected fraction of a split at or above which a conjunct runs over every row of the
-/// chunks holding a selected row and its result is intersected with the mask, rather than
-/// running over the selected rows only.
-///
-/// Filtering an encoded column to a few rows before comparing is cheaper than comparing every
-/// row, but the filter has a cost of its own, so a nearly full mask is not worth applying.
-const EXPR_EVAL_THRESHOLD: f64 = 0.2;
-
 /// Prunes a query's rows with the zone statistics of each conjunct's column, evaluates the
 /// conjuncts one at a time, each under the rows the earlier ones kept, then streams its
 /// projection under the rows that passed them all.
@@ -168,7 +160,7 @@ impl QueryNode {
             Some(index) => {
                 self.remaining.set(index, false);
                 let conjunct = self.plan.conjunct(index)?;
-                let (spawned, mask) = if self.mask.density() < EXPR_EVAL_THRESHOLD {
+                let (spawned, mask) = if self.mask.density() < self.plan.dense_threshold() {
                     (Spawned::Selected, self.mask.clone())
                 } else {
                     let chunks = chunks_with_selected_rows(&conjunct, &rows, &self.mask)?;

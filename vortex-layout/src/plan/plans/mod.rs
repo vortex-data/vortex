@@ -30,6 +30,7 @@ pub(crate) use pack::ExpressionPackRule;
 pub use pack::Pack;
 pub use pack::PackData;
 pub use pack::PackPlan;
+pub use query::DEFAULT_DENSE_THRESHOLD;
 pub use query::Query;
 pub use query::QueryData;
 pub use query::QueryPlan;

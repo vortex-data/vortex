@@ -28,6 +28,7 @@ pub use optimize::optimize;
 pub use plans::Concat;
 pub use plans::ConcatData;
 pub use plans::ConcatPlan;
+pub use plans::DEFAULT_DENSE_THRESHOLD;
 pub use plans::Eval;
 pub use plans::EvalData;
 pub use plans::EvalPlan;
