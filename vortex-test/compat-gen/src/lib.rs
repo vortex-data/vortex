@@ -3,6 +3,7 @@
 
 pub mod adapter;
 pub mod check;
+pub mod describe;
 pub mod fixtures;
 pub mod generate;
 pub mod manifest;

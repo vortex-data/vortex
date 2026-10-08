@@ -7,6 +7,7 @@ use clap::Parser;
 use clap::Subcommand;
 use vortex_compat::adapter;
 use vortex_compat::check;
+use vortex_compat::describe;
 use vortex_compat::generate;
 use vortex_compat::reader_check;
 use vortex_compat::sweep;
@@ -124,6 +125,17 @@ enum Commands {
         edition: Option<String>,
     },
 
+    /// Print the dtype, layout IDs and array encoding IDs of each .vortex file in a directory.
+    Describe {
+        /// Directory containing .vortex files.
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+
+        /// Only describe files whose name contains this substring.
+        #[arg(long)]
+        filter: Option<String>,
+    },
+
     /// Check that an old reader decoded the fixtures in a directory to the same values as the
     /// current reader.
     ///
@@ -167,6 +179,7 @@ fn main() -> VortexResult<()> {
             }
             sweep::sweep(&output, first_seed, seeds, max_len)
         }
+        Commands::Describe { dir, filter } => describe::describe(&dir, filter.as_deref()),
         Commands::CheckReader { dir, arrow_dir } => reader_check::check_reader(&dir, &arrow_dir),
     }
 }
