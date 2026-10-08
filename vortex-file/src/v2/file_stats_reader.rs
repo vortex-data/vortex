@@ -16,6 +16,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -101,6 +102,30 @@ impl LayoutReader for FileStatsLayoutReader {
         self.child.row_count()
     }
 
+    fn can_prune_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        // Dynamic expression identity does not include its current value.
+        if expr.contains::<DynamicComparison>()? {
+            return self.evaluate_file_stats(expr);
+        }
+
+        let key = ExactBoundExpr(expr.clone());
+        if let Some(pruned) = self.prune_cache.get(&key) {
+            return Ok(*pruned);
+        }
+        let pruned = self.evaluate_file_stats(expr)?;
+        self.prune_cache.insert(key, pruned);
+        Ok(pruned)
+    }
+
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.child.split_pruning_evaluation(row_range, expr, mask)
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
@@ -116,21 +141,7 @@ impl LayoutReader for FileStatsLayoutReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        let key = ExactBoundExpr(expr.clone());
-
-        // Check cache first with read-only lock.
-        if let Some(pruned) = self.prune_cache.get(&key) {
-            if *pruned {
-                return Ok(MaskFuture::ready(Mask::new_false(mask.len())));
-            }
-            return self.child.pruning_evaluation(row_range, expr, mask);
-        }
-
-        // Evaluate and cache.
-        let pruned = self.evaluate_file_stats(expr)?;
-        self.prune_cache.insert(key, pruned);
-
-        if pruned {
+        if self.can_prune_file(expr)? {
             Ok(MaskFuture::ready(Mask::new_false(mask.len())))
         } else {
             self.child.pruning_evaluation(row_range, expr, mask)

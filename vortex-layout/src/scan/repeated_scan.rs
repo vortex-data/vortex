@@ -21,12 +21,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
+use crate::scan::metrics::ScanCounters;
+use crate::scan::metrics::ScanMetrics;
 use crate::scan::splits::Splits;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
@@ -51,6 +54,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
     /// The dtype of the projected arrays.
@@ -100,6 +104,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         splits: Splits,
         concurrency: usize,
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+        metrics_registry: Option<Arc<dyn MetricsRegistry>>,
         limit: Option<u64>,
         dtype: DType,
     ) -> Self {
@@ -114,15 +119,47 @@ impl<A: 'static + Send> RepeatedScan<A> {
             splits,
             concurrency,
             map_fn,
+            metrics: metrics_registry.as_deref().map(ScanMetrics::new),
             limit,
             dtype,
         }
     }
 
+    /// Creates split tasks with fresh counters for this execution.
+    ///
+    /// Counter names and cancellation behavior follow [`ScanBuilder::with_metrics_registry`](crate::scan::scan_builder::ScanBuilder::with_metrics_registry).
     pub fn execute(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        let counters = self
+            .metrics
+            .as_ref()
+            .map(|_| Arc::new(ScanCounters::default()));
+        self.execute_with_some_counters(row_range, counters)
+    }
+
+    /// Creates split tasks and returns fresh counters for this execution.
+    pub fn execute_with_counters(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<(
+        Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
+        Arc<ScanCounters>,
+    )> {
+        let counters = Arc::new(ScanCounters::default());
+        let tasks = self.execute_with_some_counters(row_range, Some(Arc::clone(&counters)))?;
+        Ok((tasks, counters))
+    }
+
+    pub(super) fn execute_with_some_counters(
+        &self,
+        row_range: Option<Range<u64>>,
+        counters: Option<Arc<ScanCounters>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        if self.limit == Some(0) {
+            return Ok(Vec::new());
+        }
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -178,12 +215,30 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),
+            counters,
+            metrics: self.metrics.clone(),
         });
 
+        let mut file_stats_checked = false;
         for range in ranges {
             let row_mask = self.selection.row_mask(&range);
             if row_mask.mask().all_false() {
                 continue;
+            }
+
+            if !file_stats_checked {
+                file_stats_checked = true;
+                if let Some(filter) = &ctx.filter {
+                    for idx in 0..filter.conjuncts().len() {
+                        let version = filter.dynamic_updates(idx).map(|updates| updates.version());
+                        if filter.can_prune_file(idx, version, ctx.reader.as_ref())? {
+                            if let Some(counters) = &ctx.counters {
+                                counters.prune_file();
+                            }
+                            return Ok(Vec::new());
+                        }
+                    }
+                }
             }
 
             tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
@@ -199,13 +254,31 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+        Ok(self.stream_from_tasks(self.execute(row_range)?))
+    }
+
+    /// Returns a stream and fresh counters for this execution.
+    pub fn execute_stream_with_counters(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<(
+        impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>,
+        Arc<ScanCounters>,
+    )> {
+        let (tasks, counters) = self.execute_with_counters(row_range)?;
+        Ok((self.stream_from_tasks(tasks), counters))
+    }
+
+    fn stream_from_tasks(
+        &self,
+        tasks: Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
+    ) -> impl Stream<Item = VortexResult<A>> + Send + 'static + use<A> {
         use futures::StreamExt;
         let num_workers = get_available_parallelism().unwrap_or(1);
         let concurrency = self.concurrency * num_workers;
         let handle = self.session.handle();
 
-        let stream =
-            futures::stream::iter(self.execute(row_range)?).map(move |task| handle.spawn(task));
+        let stream = futures::stream::iter(tasks).map(move |task| handle.spawn(task));
 
         let stream = if self.ordered {
             stream.buffered(concurrency).boxed()
@@ -213,7 +286,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             stream.buffer_unordered(concurrency).boxed()
         };
 
-        Ok(stream.filter_map(|chunk| async move { chunk.transpose() }))
+        stream.filter_map(|chunk| async move { chunk.transpose() })
     }
 }
 

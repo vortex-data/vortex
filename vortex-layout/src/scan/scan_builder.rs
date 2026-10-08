@@ -20,7 +20,6 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
-use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
@@ -40,6 +39,8 @@ use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::scan::metrics::ScanCounters;
+use crate::scan::metrics::ScanMetrics;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -77,8 +78,6 @@ pub struct ScanBuilder<A> {
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
-    /// Should we try to prune the file (using stats) on open.
-    file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -105,7 +104,6 @@ impl ScanBuilder<ArrayRef> {
             concurrency: 4,
             map_fn: Arc::new(Ok),
             metrics_registry: None,
-            file_stats: None,
             limit: None,
             row_offset: 0,
         }
@@ -244,7 +242,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Set the metrics registry used by scan execution.
+    /// The metrics registry stores totals for this prepared scan.
+    ///
+    /// Each prepared scan registers four counters with these names:
+    ///
+    /// - `scan.splits.considered`: selected split tasks that start execution.
+    /// - `scan.splits.pruned`: splits that split statistics fully reject.
+    /// - `scan.splits.filtered`: splits that predicate evaluation fully rejects.
+    /// - `scan.files.pruned`: whole-file statistics rejections.
+    ///
+    /// Each execution uses fresh local counters and adds its counts to these totals after its tasks stop.
+    /// [`build_with_counters`](Self::build_with_counters) and [`into_stream_with_counters`](Self::into_stream_with_counters) return live counters for one execution.
+    /// [`ScanCounters`] defines cancellation behavior.
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics);
         self
@@ -290,7 +299,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             natural_splits: self.natural_splits,
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
-            file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -358,6 +366,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             splits,
             self.concurrency,
             self.map_fn,
+            self.metrics_registry,
             self.limit,
             dtype,
         ))
@@ -365,12 +374,26 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        // The ultimate short circuit
-        if self.limit.is_some_and(|l| l == 0) {
-            return Ok(vec![]);
+        if self.limit == Some(0) {
+            let _metrics = self.metrics_registry.as_deref().map(ScanMetrics::new);
+            return Ok(Vec::new());
         }
 
         self.prepare()?.execute(None)
+    }
+
+    /// Creates split tasks and returns fresh counters for this execution.
+    pub fn build_with_counters(
+        self,
+    ) -> VortexResult<(
+        Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
+        Arc<ScanCounters>,
+    )> {
+        if self.limit == Some(0) {
+            let _metrics = self.metrics_registry.as_deref().map(ScanMetrics::new);
+            return Ok((Vec::new(), Arc::new(ScanCounters::default())));
+        }
+        self.prepare()?.execute_with_counters(None)
     }
 
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
@@ -378,6 +401,19 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         Ok(LazyScanStream::new(self))
+    }
+
+    /// Returns a lazy stream and fresh counters for this execution.
+    pub fn into_stream_with_counters(
+        self,
+    ) -> VortexResult<(
+        impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>,
+        Arc<ScanCounters>,
+    )> {
+        let counters = Arc::new(ScanCounters::default());
+        let mut stream = LazyScanStream::new(self);
+        stream.counters = Some(Arc::clone(&counters));
+        Ok((stream, counters))
     }
 
     /// Returns an [`Iterator`] using the session's runtime.
@@ -408,12 +444,14 @@ struct PreparingScan<A: 'static + Send> {
 
 struct LazyScanStream<A: 'static + Send> {
     state: LazyScanState<A>,
+    counters: Option<Arc<ScanCounters>>,
 }
 
 impl<A: 'static + Send> LazyScanStream<A> {
     fn new(builder: ScanBuilder<A>) -> Self {
         Self {
             state: LazyScanState::Builder(Some(Box::new(builder))),
+            counters: None,
         }
     }
 }
@@ -432,8 +470,14 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle
-                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
+                    let counters = self.counters.take();
+                    let task = handle.spawn_cpu(move || {
+                        let scan = builder.prepare()?;
+                        match counters {
+                            Some(counters) => scan.execute_with_some_counters(None, Some(counters)),
+                            None => scan.execute(None),
+                        }
+                    });
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,

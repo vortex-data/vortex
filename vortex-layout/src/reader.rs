@@ -205,6 +205,25 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the number of rows in the layout.
     fn row_count(&self) -> u64;
 
+    /// Returns whether whole-file statistics reject the expression.
+    ///
+    /// Scan execution uses this result separately from split statistics.
+    fn can_prune_file(&self, _expr: &BoundExpression) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    /// Returns a statistics mask for a split, without whole-file statistics.
+    ///
+    /// Readers with whole-file statistics must override this method to evaluate only split statistics.
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.pruning_evaluation(row_range, expr, mask)
+    }
+
     /// Register natural split boundaries for this reader.
     ///
     /// `field_mask` contains the projected and filtered field paths needed by the scan.
