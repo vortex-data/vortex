@@ -24,21 +24,26 @@ pub(super) enum MaskBits<'a> {
 
 /// Invoke `f` with each `(word, word_start, word_len)` of `bits`, where `word` holds the mask
 /// bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
-#[allow(clippy::inline_always)]
-#[inline(always)]
-pub(super) fn for_each_mask_word(bits: MaskBits<'_>, mut f: impl FnMut(u64, usize, usize)) {
-    let mask = match bits {
-        MaskBits::Mask(mask) => mask,
-        MaskBits::Words { words, len } => {
-            debug_assert!(words.len() * 64 >= len);
-            for (word_idx, &word) in words.iter().enumerate() {
-                let word_start = word_idx * 64;
-                f(word, word_start, (len - word_start).min(64));
-            }
-            return;
-        }
-    };
+#[inline]
+pub(super) fn for_each_mask_word(bits: MaskBits<'_>, f: impl FnMut(u64, usize, usize)) {
+    match bits {
+        MaskBits::Mask(mask) => for_each_bitmap_word(mask, f),
+        MaskBits::Words { words, len } => for_each_slice_word(words, len, f),
+    }
+}
 
+#[inline]
+fn for_each_slice_word(words: &[u64], len: usize, mut f: impl FnMut(u64, usize, usize)) {
+    debug_assert_eq!(words.len(), len.div_ceil(64));
+
+    for (word_idx, &word) in words.iter().enumerate() {
+        let word_start = word_idx * 64;
+        f(word, word_start, (len - word_start).min(64));
+    }
+}
+
+#[inline]
+fn for_each_bitmap_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
     let bits = mask.bit_buffer();
     let unaligned = bits.unaligned_chunks();
     let lead = unaligned.lead_padding();
