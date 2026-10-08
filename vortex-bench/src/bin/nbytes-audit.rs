@@ -64,6 +64,11 @@ struct Args {
     /// JSONL file to append one summary line per written file to.
     #[arg(long)]
     summary: PathBuf,
+
+    /// Stream a synthetic dataset from Parquet instead of loading it whole, for datasets too
+    /// large to hold in memory.
+    #[arg(long)]
+    streaming: bool,
 }
 
 #[tokio::main]
@@ -88,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!("pass --benchmark or --dataset");
     };
 
-    let in_memory = args.dataset.is_some();
+    let in_memory = args.dataset.is_some() && !args.streaming;
     for parquet in tables {
         let stem = parquet
             .file_stem()
