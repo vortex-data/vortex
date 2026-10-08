@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -74,7 +76,11 @@ impl AnnouncePlanner {
         }
     }
 
-    fn announce(&self, selected: &SelectedRows) -> VortexResult<IoBatch> {
+    fn announce(
+        &self,
+        selected: &SelectedRows,
+        project_before_filter: bool,
+    ) -> VortexResult<IoBatch> {
         let plans = self
             .plans
             .as_ref()
@@ -95,15 +101,17 @@ impl AnnouncePlanner {
         }
         // V1 constructs projection futures before filtering, so a shared segment read remains
         // live for each pending projection. Keep one registration per potential consumer.
-        for rows in projection_splits(&plans.projection_starts, rows.clone()) {
-            // The input selection is already known, even before predicates run. Empty chunks
-            // cannot produce a projection consumer and must not keep read registrations alive.
-            let start = usize::try_from(rows.start - selected.scope.rows.start)?;
-            let end = usize::try_from(rows.end - selected.scope.rows.start)?;
-            if selected.mask.slice(start..end).all_false() {
-                continue;
+        if self.filter.is_none() || project_before_filter {
+            for rows in projection_splits(&plans.projection_starts, rows.clone()) {
+                // The input selection is already known, even before predicates run. Empty chunks
+                // cannot produce a projection consumer and must not keep read registrations alive.
+                let start = usize::try_from(rows.start - selected.scope.rows.start)?;
+                let end = usize::try_from(rows.end - selected.scope.rows.start)?;
+                if selected.mask.slice(start..end).all_false() {
+                    continue;
+                }
+                announce(&plans.projection, rows)?;
             }
-            announce(&plans.projection, rows)?;
         }
         ids.into_iter()
             .enumerate()
@@ -136,10 +144,13 @@ impl Planner for AnnouncePlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        static PROJECT_BEFORE_FILTER: LazyLock<bool> = LazyLock::new(|| {
+            !std::env::var("VORTEX_SCAN_PROJECT_ANNOUNCE").is_ok_and(|value| value == "0")
+        });
         if !self.announced {
             self.announced = true;
             let batch = match &self.selected {
-                Some(selected) => self.announce(selected)?,
+                Some(selected) => self.announce(selected, *PROJECT_BEFORE_FILTER)?,
                 None => Vec::new(),
             };
             if !batch.is_empty() {
@@ -169,6 +180,7 @@ impl Planner for AnnouncePlanner {
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
@@ -241,6 +253,74 @@ mod tests {
         );
         let targets: Vec<_> = requests.iter().map(|request| request.target).collect();
         assert_eq!(targets, vec![locations[0].target(), locations[2].target()]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::early_projection(true, true, &[0, 0, 1])]
+    #[case::deferred_projection(true, false, &[0])]
+    #[case::unfiltered(false, false, &[0, 1])]
+    fn announcements_keep_filter_segments_and_unfiltered_projection(
+        #[case] filtered: bool,
+        #[case] early_projection: bool,
+        #[case] expected: &[usize],
+    ) -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+        let chunks: Vec<_> = (0..2)
+            .map(|segment| {
+                FilterPlan::new(
+                    SegmentScanPlan::new(
+                        dtype.clone(),
+                        1000,
+                        SegmentId::from(segment),
+                        ReadContext::new([]),
+                        None,
+                    )
+                    .into_plan(),
+                )
+                .into_plan()
+            })
+            .collect();
+        let filter = filtered.then(|| FilterPlans::single(chunks[0].clone()));
+        let locations: Arc<[_]> = (0..2)
+            .map(|offset| SegmentLocation {
+                offset,
+                length: 1,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let selected = SelectedRows {
+            scope: WorkScope {
+                file_ordinal: 0,
+                rows: 0..2000,
+            },
+            mask: Mask::new_true(2000),
+        };
+        let planner = AnnouncePlanner::for_split(
+            ScanPlans {
+                session: new_session(),
+                locations: Arc::clone(&locations),
+                projection: ConcatPlan::try_new(dtype, chunks)?.into_plan(),
+                projection_starts: Arc::from([0, 1000]),
+                row_offset: 0,
+                decoded: DecodeCache::disabled(),
+            },
+            None,
+            filter,
+            selected,
+        );
+        let batch = planner.announce(planner.selected.as_ref().unwrap(), early_projection)?;
+        let actual: Vec<_> = batch.iter().map(|request| request.target).collect();
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|&index| locations[index].target())
+            .collect();
+        assert_eq!(actual, expected);
+        assert!(
+            batch
+                .iter()
+                .all(|request| request.intent == IoIntent::Announce)
+        );
         Ok(())
     }
 }

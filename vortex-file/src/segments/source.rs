@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
@@ -34,6 +35,8 @@ use vortex_error::vortex_panic;
 use vortex_io::ReadAtRequest;
 use vortex_io::ReadAtStream;
 use vortex_io::VortexReadAt;
+use vortex_io::request::trace::next_id as next_trace_id;
+use vortex_io::request::trace::timestamp_ns;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::JoinOutcome;
 use vortex_layout::segments::SegmentFuture;
@@ -113,7 +116,7 @@ fn validate_read_result(
     })
 }
 
-type IoBatchStream = Fuse<BoxStream<'static, Vec<IoRequest>>>;
+type IoBatchStream = Fuse<IoRequestStream<BoxStream<'static, ReadEvent>>>;
 
 enum ReadRangeResultsState {
     Reading(ReadAtStream),
@@ -178,6 +181,7 @@ impl Stream for ReadRangeResults {
 
 /// Drives request batches while keeping the reader's concurrency slots occupied.
 struct ReadDriver<R> {
+    trace_source: u64,
     reader: Arc<R>,
     batches: IoBatchStream,
     pending: VecDeque<IoRequest>,
@@ -185,17 +189,20 @@ struct ReadDriver<R> {
     num_active: usize,
     batches_done: bool,
     concurrency: usize,
+    lookahead: bool,
     metrics: RequestMetrics,
 }
 
 impl<R: VortexReadAt> ReadDriver<R> {
     fn new(
         reader: R,
-        batches: BoxStream<'static, Vec<IoRequest>>,
+        batches: IoRequestStream<BoxStream<'static, ReadEvent>>,
         concurrency: usize,
         metrics: RequestMetrics,
+        trace_source: u64,
     ) -> Self {
         Self {
+            trace_source,
             reader: Arc::new(reader),
             batches: batches.fuse(),
             pending: VecDeque::new(),
@@ -203,6 +210,7 @@ impl<R: VortexReadAt> ReadDriver<R> {
             num_active: 0,
             batches_done: false,
             concurrency,
+            lookahead: std::env::var("VORTEX_SCAN_IO_LOOKAHEAD").is_ok_and(|value| value == "1"),
             metrics,
         }
     }
@@ -211,6 +219,23 @@ impl<R: VortexReadAt> ReadDriver<R> {
         while self.num_active < self.concurrency && !self.pending.is_empty() {
             let batch_len = (self.concurrency - self.num_active).min(self.pending.len());
             let reqs = self.pending.drain(..batch_len).collect::<Vec<_>>();
+            if tracing::enabled!(target: "vortex_scan::driver", tracing::Level::DEBUG) {
+                for req in &reqs {
+                    let physical = req.requests()[0].id;
+                    tracing::debug!(target: "vortex_scan::driver",
+                        ts_ns = timestamp_ns(), event = "read_start",
+                        source = self.trace_source, physical, offset = req.offset(),
+                        queued = self.pending.len(),
+                        length = req.len(), uri = self.reader.uri().map(|uri| uri.as_ref()).unwrap_or(""),
+                        "scan IO");
+                    for member in req.requests() {
+                        tracing::debug!(target: "vortex_scan::driver",
+                            ts_ns = timestamp_ns(), event = "read_member",
+                            source = self.trace_source, physical, read = member.id,
+                            offset = member.offset, length = member.length, "scan IO");
+                    }
+                }
+            }
             self.num_active += batch_len;
 
             self.metrics.read_ranges_calls.add(1);
@@ -242,11 +267,28 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.as_mut().get_mut();
 
-        // Observe every batch already available so submission can fill all free slots at once.
+        // Choose physical ranges only for free slots. Later registrations and cancellations must
+        // stay visible to the coalescer until their reads can actually start.
         if !this.batches_done {
-            loop {
+            let available = this.concurrency - this.num_active;
+            while this.lookahead || this.pending.len() < available {
+                this.batches.get_mut().set_batch_size(if this.lookahead {
+                    this.concurrency
+                } else {
+                    available - this.pending.len()
+                });
                 match this.batches.poll_next_unpin(cx) {
-                    Poll::Ready(Some(batch)) => this.pending.extend(batch),
+                    Poll::Ready(Some(batch)) => {
+                        if tracing::enabled!(target: "vortex_scan::driver", tracing::Level::DEBUG) {
+                            for req in &batch {
+                                tracing::debug!(target: "vortex_scan::driver",
+                                    ts_ns = timestamp_ns(), event = "read_queued",
+                                    source = this.trace_source, physical = req.requests()[0].id,
+                                    queued = this.pending.len() + batch.len(), "scan IO");
+                            }
+                        }
+                        this.pending.extend(batch);
+                    }
                     Poll::Ready(None) => {
                         this.batches_done = true;
                         break;
@@ -264,6 +306,12 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
 
         match this.reads.poll_next_unpin(cx) {
             Poll::Ready(Some((req, result))) => {
+                if tracing::enabled!(target: "vortex_scan::driver", tracing::Level::DEBUG) {
+                    tracing::debug!(target: "vortex_scan::driver",
+                        ts_ns = timestamp_ns(), event = "read_end",
+                        source = this.trace_source, physical = req.requests()[0].id,
+                        success = result.is_ok(), "scan IO");
+                }
                 this.num_active -= 1;
                 let result = validate_read_result(&req, result);
                 req.resolve(result);
@@ -279,6 +327,8 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
 }
 
 pub struct FileSegmentSource {
+    trace_source: u64,
+    uri: Option<Arc<str>>,
     segments: Arc<[SegmentSpec]>,
     /// A queue for sending read request events to the I/O stream.
     events: mpsc::UnboundedSender<ReadEvent>,
@@ -309,6 +359,23 @@ impl FileSegmentSource {
             .max()
             .unwrap_or_else(Alignment::none);
         let coalesce_config = reader.coalesce_config().map(|mut config| {
+            static MAX_SIZE: LazyLock<Option<u64>> = LazyLock::new(|| {
+                std::env::var("VORTEX_SCAN_IO_COALESCE_MAX_BYTES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .filter(|&value| value > 0)
+            });
+            static DISTANCE: LazyLock<Option<u64>> = LazyLock::new(|| {
+                std::env::var("VORTEX_SCAN_IO_COALESCE_DISTANCE_BYTES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+            });
+            if let Some(max_size) = *MAX_SIZE {
+                config.max_size = max_size;
+            }
+            if let Some(distance) = *DISTANCE {
+                config.distance = distance;
+            }
             // Aligning the coalesced start down can add up to (alignment - 1) bytes.
             // Increase max_size to keep the effective payload window consistent.
             let extra = (max_alignment.as_usize() as u64).saturating_sub(1);
@@ -322,6 +389,13 @@ impl FileSegmentSource {
                 reader.uri()
             );
         }
+        static READ_CONCURRENCY: LazyLock<Option<usize>> = LazyLock::new(|| {
+            std::env::var("VORTEX_SCAN_IO_READ_CONCURRENCY")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .filter(|&value| value > 0)
+        });
+        let concurrency = READ_CONCURRENCY.map_or(concurrency, |limit| concurrency.min(limit));
 
         let stream = IoRequestStream::new(
             StreamExt::boxed(recv),
@@ -329,11 +403,13 @@ impl FileSegmentSource {
             max_alignment,
             concurrency,
             metrics.clone(),
-        )
-        .boxed();
+        );
 
+        let uri = reader.uri().cloned();
+        let next_id = Arc::new(AtomicUsize::new(0));
+        let trace_source = next_trace_id();
         let span = tracing::debug_span!(target: "vortex_file::read_lifecycle", "file_reads", uri = ?reader.uri());
-        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics)
+        let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics, trace_source)
             .collect::<()>()
             .instrument(span);
 
@@ -357,11 +433,13 @@ impl FileSegmentSource {
         };
 
         Self {
+            uri,
+            trace_source,
             segments,
             events: send,
             driver,
             driver_panic,
-            next_id: Arc::new(AtomicUsize::new(0)),
+            next_id,
         }
     }
 }
@@ -421,6 +499,8 @@ impl FileSegmentSource {
             self.events.clone(),
             self.driver.clone(),
             Arc::clone(&self.next_id),
+            self.uri.clone(),
+            self.trace_source,
         )
     }
 }
@@ -580,6 +660,7 @@ impl SegmentSource for BufferSegmentSource {
 #[cfg(test)]
 mod tests {
     use std::panic::AssertUnwindSafe;
+    use std::task::Waker;
 
     use futures::future::BoxFuture;
     use vortex_error::vortex_bail;
@@ -925,6 +1006,78 @@ mod tests {
             assert_eq!(result?.len(), 4);
         }
         assert_eq!(max_active.load(Ordering::SeqCst), 4);
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case(false, 2, 1)]
+    #[case(true, 3, 0)]
+    fn read_driver_coalesces_neighbors_registered_while_slots_are_full(
+        #[case] lookahead: bool,
+        #[case] expected_reads: usize,
+        #[case] expected_coalesced: u64,
+    ) -> VortexResult<()> {
+        let (send, recv) = mpsc::unbounded();
+        let mut receivers = Vec::new();
+        let register = |id, offset| -> VortexResult<_> {
+            let (callback, receiver) = oneshot::channel();
+            send.unbounded_send(ReadEvent::Request(ReadRequest {
+                id,
+                offset,
+                length: 4,
+                alignment: Alignment::none(),
+                callback,
+            }))
+            .map_err(|err| vortex_err!("{err}"))?;
+            send.unbounded_send(ReadEvent::Polled(id))
+                .map_err(|err| vortex_err!("{err}"))?;
+            Ok(receiver)
+        };
+        receivers.push(register(0, 0)?);
+        receivers.push(register(1, 64)?);
+        let registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&registry, vec![]);
+        let batches = IoRequestStream::new(
+            recv.boxed(),
+            Some(vortex_io::CoalesceConfig::new(4, 16)),
+            Alignment::none(),
+            1,
+            metrics.clone(),
+        );
+        let batch_sizes = Arc::new(Mutex::new(Vec::new()));
+        let permits = Arc::new(tokio::sync::Semaphore::new(0));
+        let reader = ControlledReadRanges {
+            active: Arc::default(),
+            max_active: Arc::default(),
+            batch_sizes: Arc::clone(&batch_sizes),
+            permits: Arc::clone(&permits),
+        };
+        let mut driver = ReadDriver::new(reader, batches, 1, metrics.clone(), 0);
+        driver.lookahead = lookahead;
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(Pin::new(&mut driver).poll_next(&mut cx).is_pending());
+
+        // The neighbor arrives after the first read occupies the only slot. The next physical
+        // range must be chosen after that slot is freed, so it includes both neighboring reads.
+        receivers.push(register(2, 68)?);
+        drop(send);
+        permits.add_permits(3);
+        while matches!(
+            Pin::new(&mut driver).poll_next(&mut cx),
+            Poll::Ready(Some(()))
+        ) {}
+        assert_eq!(batch_sizes.lock().len(), expected_reads);
+        assert_eq!(metrics.coalesced_requests.value(), expected_coalesced);
+        for mut receiver in receivers {
+            assert_eq!(
+                receiver
+                    .try_recv()
+                    .map_err(|err| vortex_err!("{err}"))?
+                    .vortex_expect("read completed")?
+                    .len(),
+                4
+            );
+        }
         Ok(())
     }
 

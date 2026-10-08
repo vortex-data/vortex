@@ -9,10 +9,14 @@
 //! and the service keeps the bytes. A fetch does the same, or marks an earlier announcement or
 //! prefetch of the same range wanted, and consumes one registered consumer. Pending consumers
 //! share the read, as V1's eagerly constructed projection futures do. Once consumed, later fetches
-//! register new reads. Dropping a split's source withdraws an unfinished read only
-//! after its last interested split releases it.
+//! register new reads. Forgetting a range releases its unused consumers; pending fetches and
+//! other splits retain their own references until they finish.
 
+use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::OnceLock;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
@@ -20,6 +24,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Wake;
 use std::task::Waker;
 use std::time::Instant;
 
@@ -34,6 +39,7 @@ use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -41,11 +47,15 @@ use vortex_io::request::Completion;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
+use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::request::trace::next_id as next_trace_id;
+use vortex_io::request::trace::timestamp_ns;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::read::ReadRequest;
@@ -54,8 +64,29 @@ use crate::segments::ReadEvent;
 use crate::segments::source::SharedDriver;
 
 /// A read's bytes, shared by every fetch of its range.
-type SharedRead = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
+type SharedRead = Shared<ReadBytes>;
 type ReadKey = (u64, usize, Alignment);
+
+/// Stored directly in the shared future's allocation.
+struct ReadBytes {
+    receiver: oneshot::Receiver<VortexResult<BufferHandle>>,
+}
+
+impl Future for ReadBytes {
+    type Output = Result<BufferHandle, Arc<VortexError>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_mut()
+            .receiver
+            .poll_unpin(cx)
+            .map(|result| match result {
+                Ok(result) => result.map_err(Arc::new),
+                Err(_) => Err(Arc::new(vortex_err!(
+                    "the file's read driver dropped the read"
+                ))),
+            })
+    }
+}
 
 /// Serves a scan's splits from a file's coalescing read driver, one IO session per split.
 ///
@@ -63,6 +94,8 @@ type ReadKey = (u64, usize, Alignment);
 /// other as the default scan's do.
 #[derive(Clone)]
 pub struct FileScanIo {
+    trace_source: u64,
+    uri: Option<Arc<str>>,
     events: mpsc::UnboundedSender<ReadEvent>,
     /// The read driver's task, which runs while any handle to it is held: the file's segment
     /// source may be dropped while the scan's splits still read.
@@ -79,8 +112,12 @@ impl FileScanIo {
         events: mpsc::UnboundedSender<ReadEvent>,
         driver: SharedDriver,
         next_id: Arc<AtomicUsize>,
+        uri: Option<Arc<str>>,
+        trace_source: u64,
     ) -> Self {
         Self {
+            uri,
+            trace_source,
             events,
             _driver: driver,
             next_id,
@@ -91,34 +128,146 @@ impl FileScanIo {
 
 impl IoService for FileScanIo {
     fn session(&self) -> Arc<dyn IoSource> {
-        Arc::new(FileSplitIo {
-            io: self.clone(),
-            state: Mutex::default(),
-        })
+        static INLINE_FETCH: LazyLock<bool> = LazyLock::new(|| {
+            !std::env::var("VORTEX_SCAN_IO_INLINE_FETCH").is_ok_and(|value| value == "0")
+        });
+        if *INLINE_FETCH {
+            Arc::new(FileSplitIo::<InlineFetch>::new(self.clone()))
+        } else {
+            Arc::new(FileSplitIo::<BoxFuture<'static, Completion>>::new(
+                self.clone(),
+            ))
+        }
+    }
+}
+
+trait FetchFuture: Future<Output = Completion> + Unpin + Send + 'static {
+    const INLINE: bool;
+
+    fn new(read: Arc<Read>, owner: IoOwnerId, request: IoRequestId) -> Self;
+}
+
+impl FetchFuture for BoxFuture<'static, Completion> {
+    const INLINE: bool = false;
+
+    fn new(read: Arc<Read>, owner: IoOwnerId, request: IoRequestId) -> Self {
+        async move {
+            let bytes = read.bytes.clone().await;
+            drop(read);
+            fetch_completion(owner, request, bytes)
+        }
+        .boxed()
+    }
+}
+
+/// Lives inside `FuturesUnordered`'s task allocation, avoiding a second allocation per Fetch.
+struct InlineFetch {
+    bytes: SharedRead,
+    _read: Arc<Read>,
+    owner: IoOwnerId,
+    request: IoRequestId,
+}
+
+impl FetchFuture for InlineFetch {
+    const INLINE: bool = true;
+
+    fn new(read: Arc<Read>, owner: IoOwnerId, request: IoRequestId) -> Self {
+        Self {
+            bytes: read.bytes.clone(),
+            _read: read,
+            owner,
+            request,
+        }
+    }
+}
+
+impl Future for InlineFetch {
+    type Output = Completion;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        let owner = this.owner;
+        let request = this.request;
+        this.bytes
+            .poll_unpin(cx)
+            .map(|bytes| fetch_completion(owner, request, bytes))
+    }
+}
+
+fn fetch_completion(
+    owner: IoOwnerId,
+    request: IoRequestId,
+    bytes: Result<BufferHandle, Arc<VortexError>>,
+) -> Completion {
+    Completion {
+        owner,
+        request,
+        result: bytes
+            .map(IoResult::Bytes)
+            .map_err(|err| vortex_err!("{err}")),
     }
 }
 
 /// One split's reads through a [`FileScanIo`].
-struct FileSplitIo {
+struct FileSplitIo<F: FetchFuture> {
+    trace_session: u64,
+    ready_fetch: bool,
     io: FileScanIo,
-    state: Mutex<SplitState>,
+    state: Mutex<SplitState<F>>,
+}
+
+struct SplitState<F: FetchFuture> {
+    /// Registered consumers not yet consumed by a fetch, by byte range.
+    reads: HashMap<ReadKey, Interest>,
+    /// Fetches waiting for their read, in the order they complete.
+    fetches: Option<FuturesUnordered<F>>,
+    ready: VecDeque<Completion>,
+    // Register under the queue lock; submission takes the waker and wakes after unlocking.
+    ready_waker: Option<Waker>,
+    stats: ScopeStats,
+}
+
+impl<F: FetchFuture> Default for SplitState<F> {
+    fn default() -> Self {
+        Self {
+            reads: HashMap::default(),
+            fetches: None,
+            ready: VecDeque::new(),
+            ready_waker: None,
+            stats: ScopeStats::default(),
+        }
+    }
+}
+
+struct Interest {
+    read: Arc<Read>,
+    fetched: bool,
+    consumers: usize,
 }
 
 #[derive(Default)]
-struct SplitState {
-    /// Registered consumers not yet consumed by a fetch, by byte range.
-    reads: HashMap<ReadKey, RegisteredRead>,
-    /// Fetches waiting for their read, in the order they complete.
-    fetches: FuturesUnordered<BoxFuture<'static, Completion>>,
-}
-
-struct RegisteredRead {
-    read: Arc<Read>,
-    consumers: usize,
+struct ScopeStats {
+    announcements: usize,
+    prefetches: usize,
+    fetches: usize,
+    inline_fetches: usize,
+    ready_fetches: usize,
+    future_queues: usize,
+    new_registrations: usize,
+    reused_registrations: usize,
+    peak_interests: usize,
+    polls: usize,
+    completion_polls: usize,
+    completions: usize,
+    forgets: usize,
+    forgotten: usize,
+    forgotten_bytes: u64,
+    forget_fetch_pins: usize,
 }
 
 struct Read {
     id: RequestId,
+    trace_source: u64,
     /// Whether the driver was told the read is wanted.
     wanted: AtomicBool,
     bytes: SharedRead,
@@ -127,6 +276,11 @@ struct Read {
 
 impl Drop for Read {
     fn drop(&mut self) {
+        if tracing::enabled!(target: "vortex_file::scan_lifetime", tracing::Level::DEBUG) {
+            tracing::debug!(target: "vortex_file::scan_lifetime",
+                ts_ns = timestamp_ns(), event = "registration_drop", source = self.trace_source,
+                read = self.id, result_observed = self.bytes.peek().is_some(), "scan IO");
+        }
         if self.bytes.peek().is_none() {
             // Only the last split can cancel a shared registration.
             drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
@@ -134,9 +288,26 @@ impl Drop for Read {
     }
 }
 
-impl FileSplitIo {
+impl<F: FetchFuture> FileSplitIo<F> {
+    fn new(io: FileScanIo) -> Self {
+        static READY_FETCH: LazyLock<bool> = LazyLock::new(|| {
+            std::env::var("VORTEX_SCAN_IO_READY_FETCH").is_ok_and(|value| value == "1")
+        });
+        Self {
+            trace_session: next_trace_id(),
+            ready_fetch: *READY_FETCH,
+            io,
+            state: Mutex::default(),
+        }
+    }
+
     /// Registers a read of `offset..offset + len`, aligned to `alignment`, with the driver.
-    fn register(&self, offset: u64, len: usize, alignment: Alignment) -> VortexResult<Arc<Read>> {
+    fn register(
+        &self,
+        offset: u64,
+        len: usize,
+        alignment: Alignment,
+    ) -> VortexResult<(Arc<Read>, bool)> {
         let key = (offset, len, alignment);
         // Keep this range locked until Request is queued, so another split cannot send Polled
         // before its registration. Other ranges can register through different shards.
@@ -147,7 +318,7 @@ impl FileSplitIo {
             .entry(key)
             .or_default();
         if let Some(read) = entry.upgrade() {
-            return Ok(read);
+            return Ok((read, false));
         }
         let id = self.io.next_id.fetch_add(1, Ordering::Relaxed);
         let (callback, receiver) = oneshot::channel();
@@ -161,27 +332,23 @@ impl FileSplitIo {
                 callback,
             }))
             .map_err(|err| vortex_err!("the file's read driver has stopped: {err}"))?;
-        let bytes = receiver
-            .map(|result| match result {
-                Ok(result) => result.map_err(Arc::new),
-                Err(_) => Err(Arc::new(vortex_err!(
-                    "the file's read driver dropped the read"
-                ))),
-            })
-            .boxed()
-            .shared();
+        let bytes = ReadBytes { receiver }.shared();
         let read = Arc::new(Read {
             id,
+            trace_source: self.io.trace_source,
             wanted: AtomicBool::new(false),
             bytes,
             events: self.io.events.clone(),
         });
         *entry = Arc::downgrade(&read);
-        Ok(read)
+        Ok((read, true))
     }
 
     /// Tells the driver `read` is wanted, so it starts the read if nothing has yet.
     fn want(&self, read: &Read) -> VortexResult<bool> {
+        if read.wanted.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
         let wanted = !read.wanted.swap(true, Ordering::Relaxed);
         if wanted {
             self.io
@@ -191,15 +358,86 @@ impl FileSplitIo {
         }
         Ok(wanted)
     }
+
+    fn clear_scope(&self, reason: &str) {
+        let mut state = self.state.lock();
+        if !state.reads.is_empty()
+            && tracing::enabled!(target: "vortex_file::scan_lifetime", tracing::Level::DEBUG)
+        {
+            let unfetched = state.reads.values().filter(|i| !i.fetched).count();
+            let unfetched_bytes: usize = state
+                .reads
+                .iter()
+                .filter(|(_, i)| !i.fetched)
+                .map(|(key, _)| key.1)
+                .sum();
+            tracing::debug!(target: "vortex_file::scan_lifetime",
+                ts_ns = timestamp_ns(), event = "scope_clear", session = self.trace_session,
+                source = self.io.trace_source, reason,
+                interests = state.reads.len(), unfetched, unfetched_bytes,
+                announcements = state.stats.announcements, prefetches = state.stats.prefetches,
+                fetches = state.stats.fetches, new_registrations = state.stats.new_registrations,
+                inline_fetches = state.stats.inline_fetches,
+                ready_fetches = state.stats.ready_fetches,
+                future_queues = state.stats.future_queues,
+                reused_registrations = state.stats.reused_registrations,
+                peak_interests = state.stats.peak_interests, polls = state.stats.polls,
+                completion_polls = state.stats.completion_polls, completions = state.stats.completions,
+                forgets = state.stats.forgets, forgotten = state.stats.forgotten,
+                forgotten_bytes = state.stats.forgotten_bytes,
+                forget_fetch_pins = state.stats.forget_fetch_pins,
+                "scan IO");
+        }
+        state.fetches = None;
+        state.ready.clear();
+        state.ready_waker = None;
+        state.reads.clear();
+        state.stats = ScopeStats::default();
+    }
 }
 
-impl IoSource for FileSplitIo {
+impl<F: FetchFuture> Drop for FileSplitIo<F> {
+    fn drop(&mut self) {
+        self.clear_scope("drop");
+    }
+}
+
+struct TraceWake {
+    session: u64,
+    waker: Waker,
+}
+
+impl Wake for TraceWake {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        tracing::debug!(target: "vortex_file::scan_lifetime",
+            ts_ns = timestamp_ns(), event = "session_wake", session = self.session, "scan IO");
+        self.waker.wake_by_ref();
+    }
+}
+
+impl<F: FetchFuture> IoSource for FileSplitIo<F> {
+    fn trace_id(&self) -> Option<u64> {
+        Some(self.trace_session)
+    }
+
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
         let timing = tracing::enabled!(target: "vortex_file::io_submit", tracing::Level::DEBUG)
             .then(Instant::now);
         let requests = batch.len();
         let mut state = self.state.lock();
         let mut registered = 0usize;
+        let mut made_ready = false;
+        let SplitState {
+            reads,
+            fetches,
+            ready,
+            stats,
+            ..
+        } = &mut *state;
         let mut wanted = 0usize;
         for request in batch {
             let IoTarget::Range {
@@ -211,56 +449,99 @@ impl IoSource for FileSplitIo {
                 vortex_bail!("a split's IO serves byte ranges, not {:?}", request.target);
             };
             let key = (offset, len, alignment);
-            let RegisteredRead {
-                read,
-                mut consumers,
-            } = match state.reads.remove(&key) {
-                Some(read) => read,
-                None => {
-                    registered += 1;
-                    RegisteredRead {
-                        read: self.register(offset, len, alignment)?,
-                        consumers: 0,
+            if request.intent == IoIntent::Forget {
+                stats.forgets += 1;
+                if let Some(interest) = reads.remove(&key) {
+                    stats.forget_fetch_pins +=
+                        usize::from(interest.fetched && interest.read.bytes.peek().is_none());
+                    stats.forgotten += 1;
+                    stats.forgotten_bytes += len as u64;
+                    if tracing::enabled!(target: "vortex_file::scan_lifetime", tracing::Level::DEBUG)
+                    {
+                        tracing::debug!(target: "vortex_file::scan_lifetime",
+                            ts_ns = timestamp_ns(), event = "scope_forget", session = self.trace_session,
+                            source = self.io.trace_source, read = interest.read.id,
+                            offset, length = len, references = Arc::strong_count(&interest.read),
+                            wanted = interest.read.wanted.load(Ordering::Relaxed),
+                            result_observed = interest.read.bytes.peek().is_some(), "scan IO");
                     }
+                    // Pending fetches and other splits retain their own Arcs; withdrawal only
+                    // removes consumers which have not yet fetched this scope's registration.
+                    drop(interest);
+                }
+                continue;
+            }
+            let interest = match reads.entry(key) {
+                Entry::Occupied(entry) => {
+                    stats.reused_registrations += 1;
+                    entry.into_mut()
+                }
+                Entry::Vacant(entry) => {
+                    registered += 1;
+                    let (read, fresh) = self.register(offset, len, alignment)?;
+                    stats.new_registrations += usize::from(fresh);
+                    stats.reused_registrations += usize::from(!fresh);
+                    entry.insert(Interest {
+                        read,
+                        fetched: false,
+                        consumers: 0,
+                    })
                 }
             };
-            if request.intent == IoIntent::Announce {
-                consumers += 1;
-            } else if request.intent == IoIntent::Prefetch {
-                consumers = consumers.max(1);
+            match request.intent {
+                IoIntent::Announce => interest.consumers += 1,
+                IoIntent::Prefetch => interest.consumers = interest.consumers.max(1),
+                IoIntent::Fetch => {}
+                IoIntent::Forget => unreachable!("handled before registration"),
+            }
+            let read = &interest.read;
+            if tracing::enabled!(target: "vortex_scan::driver", tracing::Level::DEBUG) {
+                tracing::debug!(target: "vortex_scan::driver",
+                    ts_ns = timestamp_ns(), event = "binding",
+                    session = self.trace_session, owner = owner.0,
+                    request = request.request.0, intent = ?request.intent,
+                    source = self.io.trace_source, read = read.id,
+                    uri = self.io.uri.as_deref().unwrap_or(""), offset, length = len,
+                    "scan IO");
             }
             if request.intent != IoIntent::Announce {
-                wanted += usize::from(self.want(&read)?);
+                wanted += usize::from(self.want(read)?);
+            }
+            match request.intent {
+                IoIntent::Announce => stats.announcements += 1,
+                IoIntent::Prefetch => stats.prefetches += 1,
+                IoIntent::Fetch => stats.fetches += 1,
+                IoIntent::Forget => unreachable!("handled before registration"),
             }
             if request.intent == IoIntent::Fetch {
-                consumers = consumers.saturating_sub(1);
-                let read = if consumers == 0 {
-                    read
+                interest.fetched = true;
+                interest.consumers = interest.consumers.saturating_sub(1);
+                let read = if interest.consumers == 0 {
+                    reads.remove(&key).vortex_expect("registered interest").read
                 } else {
-                    let fetch = Arc::clone(&read);
-                    state.reads.insert(key, RegisteredRead { read, consumers });
-                    fetch
+                    Arc::clone(&interest.read)
                 };
-                let id = request.request;
-                state.fetches.push(
-                    async move {
-                        let bytes = read.bytes.clone().await;
-                        drop(read);
-                        Completion {
-                            owner,
-                            request: id,
-                            result: bytes
-                                .map(IoResult::Bytes)
-                                .map_err(|err| vortex_err!("{err}")),
-                        }
-                    }
-                    .boxed(),
-                );
-            } else {
-                state.reads.insert(key, RegisteredRead { read, consumers });
+                if self.ready_fetch
+                    && let Some(bytes) = read.bytes.peek()
+                {
+                    ready.push_back(fetch_completion(owner, request.request, bytes.clone()));
+                    stats.ready_fetches += 1;
+                    made_ready = true;
+                } else {
+                    stats.inline_fetches += usize::from(F::INLINE);
+                    stats.future_queues += usize::from(fetches.is_none());
+                    fetches
+                        .get_or_insert_with(FuturesUnordered::new)
+                        .push(F::new(read, owner, request.request));
+                }
             }
         }
+        state.stats.peak_interests = state.stats.peak_interests.max(state.reads.len());
+        let ready_waker = made_ready.then(|| state.ready_waker.take()).flatten();
         drop(state);
+        if let Some(waker) = ready_waker {
+            waker.wake();
+        }
         if let Some(start) = timing {
             tracing::debug!(
                 target: "vortex_file::io_submit",
@@ -278,20 +559,103 @@ impl IoSource for FileSplitIo {
         // The split polls again with its own waker before it waits, so a fetch that finishes
         // after this check is not missed.
         let mut cx = Context::from_waker(Waker::noop());
-        match self.state.lock().fetches.poll_next_unpin(&mut cx) {
-            Poll::Ready(completion) => Ok(completion),
-            Poll::Pending => Ok(None),
+        let tracing =
+            tracing::enabled!(target: "vortex_file::scan_lifetime", tracing::Level::DEBUG);
+        if tracing {
+            tracing::debug!(target: "vortex_file::scan_lifetime",
+                ts_ns = timestamp_ns(), event = "session_poll_begin", session = self.trace_session,
+                method = "sweep", "scan IO");
         }
+        let mut state = self.state.lock();
+        state.stats.polls += 1;
+        let next = state.ready.pop_front().map_or_else(
+            || {
+                state.fetches.as_mut().map_or(Poll::Ready(None), |fetches| {
+                    fetches.poll_next_unpin(&mut cx)
+                })
+            },
+            |completion| Poll::Ready(Some(completion)),
+        );
+        let result = match next {
+            Poll::Ready(completion) => {
+                state.stats.completions += usize::from(completion.is_some());
+                state.ready_waker = None;
+                Ok(completion)
+            }
+            Poll::Pending => Ok(None),
+        };
+        if tracing {
+            tracing::debug!(target: "vortex_file::scan_lifetime",
+                ts_ns = timestamp_ns(), event = "session_poll", session = self.trace_session,
+                method = "sweep", outcome = if result.as_ref().is_ok_and(|r| r.is_some()) { "ready" } else { "pending" },
+                "scan IO");
+        }
+        result
     }
 
     fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
-        match self.state.lock().fetches.poll_next_unpin(cx) {
-            Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
+        let tracing =
+            tracing::enabled!(target: "vortex_file::scan_lifetime", tracing::Level::DEBUG);
+        if tracing {
+            tracing::debug!(target: "vortex_file::scan_lifetime",
+                ts_ns = timestamp_ns(), event = "session_poll_begin", session = self.trace_session,
+                method = "completion", "scan IO");
+        }
+        let waker = tracing.then(|| {
+            Waker::from(Arc::new(TraceWake {
+                session: self.trace_session,
+                waker: cx.waker().clone(),
+            }))
+        });
+        let mut state = self.state.lock();
+        state.stats.completion_polls += 1;
+        let next = if let Some(completion) = state.ready.pop_front() {
+            Poll::Ready(Some(completion))
+        } else {
+            state.fetches.as_mut().map_or(Poll::Ready(None), |fetches| {
+                if let Some(waker) = waker.as_ref() {
+                    fetches.poll_next_unpin(&mut Context::from_waker(waker))
+                } else {
+                    fetches.poll_next_unpin(cx)
+                }
+            })
+        };
+        let result = match next {
+            Poll::Ready(Some(completion)) => {
+                state.stats.completions += 1;
+                Poll::Ready(Ok(completion))
+            }
             Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
                 "the split's driver is waiting with no fetch in flight"
             ))),
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                if self.ready_fetch {
+                    let ready_waker = waker.as_ref().unwrap_or_else(|| cx.waker());
+                    if !state
+                        .ready_waker
+                        .as_ref()
+                        .is_some_and(|stored| stored.will_wake(ready_waker))
+                    {
+                        state.ready_waker = Some(ready_waker.clone());
+                    }
+                }
+                Poll::Pending
+            }
+        };
+        if result.is_ready() {
+            state.ready_waker = None;
         }
+        if tracing {
+            let outcome = match &result {
+                Poll::Ready(Ok(_)) => "ready",
+                Poll::Ready(Err(_)) => "error",
+                Poll::Pending => "pending",
+            };
+            tracing::debug!(target: "vortex_file::scan_lifetime",
+                ts_ns = timestamp_ns(), event = "session_poll", session = self.trace_session,
+                method = "completion", outcome, "scan IO");
+        }
+        result
     }
 
     fn wait(&self) -> VortexResult<Completion> {
@@ -301,9 +665,7 @@ impl IoSource for FileSplitIo {
     fn release(&self, _owner: IoOwnerId) {}
 
     fn clear(&self) {
-        let mut state = self.state.lock();
-        state.fetches = FuturesUnordered::new();
-        state.reads.clear();
+        self.clear_scope("clear");
     }
 }
 
@@ -311,10 +673,20 @@ impl IoSource for FileSplitIo {
 mod tests {
     use std::future::poll_fn;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::task::Wake;
+    use std::task::Waker;
 
+    use futures::FutureExt;
+    use futures::StreamExt;
     use futures::TryStreamExt;
+    use futures::channel::mpsc;
+    use futures::channel::oneshot;
+    use futures::future;
     use futures::future::BoxFuture;
     use rstest::rstest;
     use vortex_array::ArrayRef;
@@ -336,20 +708,233 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::VortexReadAt;
+    use vortex_io::request::Completion;
     use vortex_io::request::IoIntent;
     use vortex_io::request::IoOwnerId;
     use vortex_io::request::IoRequest;
     use vortex_io::request::IoRequestId;
+    use vortex_io::request::IoSource;
     use vortex_io::request::IoTarget;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::scan::v2;
     use vortex_layout::session::LayoutSession;
+    use vortex_metrics::DefaultMetricsRegistry;
     use vortex_session::VortexSession;
 
+    use super::FetchFuture;
+    use super::FileScanIo;
+    use super::FileSplitIo;
+    use super::InlineFetch;
+    use super::Interest;
+    use super::Read;
+    use super::ReadBytes;
+    use super::SharedRead;
     use crate::OpenOptionsSessionExt;
     use crate::WriteOptionsSessionExt;
     use crate::planning::scan_file;
+    use crate::read::IoRequestStream;
+    use crate::segments::RequestMetrics;
+
+    fn ready_source(failed: bool) -> FileSplitIo<InlineFetch> {
+        let (events, _) = mpsc::unbounded();
+        let io = FileScanIo::new(
+            events,
+            future::pending().boxed().shared(),
+            Arc::new(AtomicUsize::new(0)),
+            None,
+            0,
+        );
+        let mut source = FileSplitIo::new(io);
+        source.ready_fetch = true;
+        let result = if failed {
+            Err(vortex_err!("read failed"))
+        } else {
+            Ok(BufferHandle::new_host(ByteBuffer::from_iter([
+                1u8, 2, 3, 4,
+            ])))
+        };
+        let (callback, receiver) = oneshot::channel();
+        assert!(callback.send(result).is_ok());
+        let bytes = ReadBytes { receiver }.shared();
+        drop(futures::executor::block_on(bytes.clone()));
+        source.state.lock().reads.insert(
+            (0, 4, Alignment::none()),
+            Interest {
+                read: Arc::new(Read {
+                    id: 0,
+                    trace_source: 0,
+                    wanted: AtomicBool::new(true),
+                    bytes,
+                    events: source.io.events.clone(),
+                }),
+                fetched: false,
+                consumers: 2,
+            },
+        );
+        source
+    }
+
+    #[rstest]
+    #[case::bytes(false)]
+    #[case::error(true)]
+    fn ready_fetch_delivers_without_a_future_and_clear_discards_the_queue(
+        #[case] failed: bool,
+    ) -> VortexResult<()> {
+        let source = ready_source(failed);
+        source.submit(
+            IoOwnerId(5),
+            (10..12)
+                .map(|id| IoRequest {
+                    intent: IoIntent::Fetch,
+                    request: IoRequestId(id),
+                    target: IoTarget::range(0, 4),
+                })
+                .collect(),
+        )?;
+        {
+            let state = source.state.lock();
+            assert!(state.fetches.is_none());
+            assert_eq!(state.ready.len(), 2);
+            assert_eq!(state.stats.ready_fetches, 2);
+            assert_eq!(state.stats.future_queues, 0);
+        }
+        let completion = source
+            .poll()?
+            .ok_or_else(|| vortex_err!("missing ready fetch"))?;
+        assert_eq!(completion.owner, IoOwnerId(5));
+        assert_eq!(completion.request, IoRequestId(10));
+        assert_eq!(completion.result.is_err(), failed);
+        if let Err(error) = completion.result {
+            assert!(error.to_string().contains("read failed"));
+        }
+        source.clear();
+        assert!(source.poll()?.is_none());
+        assert!(source.state.lock().reads.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn ready_fetch_wakes_a_consumer_waiting_for_another_read() -> VortexResult<()> {
+        let source = ready_source(false);
+        let (_callback, receiver) = oneshot::channel();
+        source.state.lock().reads.insert(
+            (4, 4, Alignment::none()),
+            Interest {
+                read: Arc::new(Read {
+                    id: 1,
+                    trace_source: 0,
+                    wanted: AtomicBool::new(true),
+                    bytes: ReadBytes { receiver }.shared(),
+                    events: source.io.events.clone(),
+                }),
+                fetched: false,
+                consumers: 1,
+            },
+        );
+        let request = |offset| IoRequest {
+            intent: IoIntent::Fetch,
+            request: IoRequestId(0),
+            target: IoTarget::range(offset, 4),
+        };
+        source.submit(IoOwnerId(1), vec![request(4)])?;
+        let count = Arc::new(CountingWake(AtomicUsize::new(0)));
+        let waker = Waker::from(Arc::clone(&count));
+        let mut cx = Context::from_waker(&waker);
+        assert!(source.poll_completion(&mut cx).is_pending());
+        assert_eq!(source.state.lock().stats.future_queues, 1);
+        let before = count.0.load(Ordering::Relaxed);
+        source.submit(IoOwnerId(2), vec![request(0)])?;
+        assert!(count.0.load(Ordering::Relaxed) > before);
+        let Poll::Ready(completion) = source.poll_completion(&mut cx) else {
+            return Err(vortex_err!("ready fetch did not become ready"));
+        };
+        assert_eq!(completion?.owner, IoOwnerId(2));
+        assert!(source.poll_completion(&mut cx).is_pending());
+        source.clear();
+        assert!(source.state.lock().fetches.is_none());
+        Ok(())
+    }
+
+    struct CountingWake(AtomicUsize);
+
+    impl Wake for CountingWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn traced_wake_forwards_each_notification() {
+        let count = Arc::new(CountingWake(AtomicUsize::new(0)));
+        let traced = Waker::from(Arc::new(super::TraceWake {
+            session: 0,
+            waker: Waker::from(Arc::clone(&count)),
+        }));
+        traced.wake_by_ref();
+        traced.wake();
+        assert_eq!(count.0.load(Ordering::Relaxed), 2);
+    }
+
+    fn fetch_wakes_and_forwards_errors<F: FetchFuture>(cancelled: bool) -> VortexResult<()> {
+        let (send, receiver) = oneshot::channel();
+        let bytes: SharedRead = ReadBytes { receiver }.shared();
+        let (events, _) = mpsc::unbounded();
+        let read = Arc::new(Read {
+            id: 0,
+            trace_source: 0,
+            wanted: AtomicBool::new(true),
+            bytes,
+            events,
+        });
+        let mut fetch = F::new(read, IoOwnerId(3), IoRequestId(7));
+        let count = Arc::new(CountingWake(AtomicUsize::new(0)));
+        let waker = Waker::from(Arc::clone(&count));
+        let mut cx = Context::from_waker(&waker);
+        assert!(fetch.poll_unpin(&mut cx).is_pending());
+        if cancelled {
+            drop(send);
+        } else {
+            send.send(Err(vortex_err!("read failed")))
+                .map_err(|_| vortex_err!("fetch receiver was dropped"))?;
+        }
+        assert!(count.0.load(Ordering::Relaxed) > 0);
+        let Poll::Ready(completion) = fetch.poll_unpin(&mut cx) else {
+            return Err(vortex_err!("fetch did not become ready"));
+        };
+        assert_eq!(completion.owner, IoOwnerId(3));
+        assert_eq!(completion.request, IoRequestId(7));
+        let error = completion
+            .result
+            .err()
+            .ok_or_else(|| vortex_err!("fetch did not forward the read error"))?;
+        assert!(error.to_string().contains(if cancelled {
+            "the file's read driver dropped the read"
+        } else {
+            "read failed"
+        }));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::boxed_error(false, false)]
+    #[case::inline_error(true, false)]
+    #[case::boxed_cancelled(false, true)]
+    #[case::inline_cancelled(true, true)]
+    fn fetch_future_preserves_notifications_and_errors(
+        #[case] inline: bool,
+        #[case] cancelled: bool,
+    ) -> VortexResult<()> {
+        if inline {
+            fetch_wakes_and_forwards_errors::<InlineFetch>(cancelled)
+        } else {
+            fetch_wakes_and_forwards_errors::<BoxFuture<'static, Completion>>(cancelled)
+        }
+    }
 
     fn session() -> VortexSession {
         let session = vortex_array::array_session()
@@ -444,7 +1029,8 @@ mod tests {
         announced.submit(IoOwnerId(0), vec![request(IoIntent::Announce, 0)])?;
         fetched.submit(IoOwnerId(1), vec![request(IoIntent::Fetch, 1)])?;
         concurrent.submit(IoOwnerId(4), vec![request(IoIntent::Fetch, 4)])?;
-        announced.clear();
+        announced.submit(IoOwnerId(0), vec![request(IoIntent::Forget, 5)])?;
+        fetched.submit(IoOwnerId(1), vec![request(IoIntent::Forget, 6)])?;
         poll_fn(|cx| fetched.poll_completion(cx)).await?.result?;
         poll_fn(|cx| concurrent.poll_completion(cx)).await?.result?;
         assert_eq!(reads.load(Ordering::Relaxed), 1);
@@ -501,6 +1087,54 @@ mod tests {
             poll_fn(|cx| io.poll_completion(cx)).await?.result?;
             assert_eq!(reads.load(Ordering::Relaxed), if id < 4 { 1 } else { 2 });
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn forgotten_interest_is_absent_from_later_coalescing() -> VortexResult<()> {
+        let (events, receiver) = mpsc::unbounded();
+        let io = FileScanIo::new(
+            events,
+            future::pending().boxed().shared(),
+            Arc::default(),
+            None,
+            0,
+        );
+        let source = FileSplitIo::<InlineFetch>::new(io);
+        let request = |intent, id, offset| IoRequest {
+            intent,
+            request: IoRequestId(id),
+            target: IoTarget::range(offset, 4),
+        };
+        source.submit(IoOwnerId(0), vec![request(IoIntent::Announce, 0, 0)])?;
+        source.submit(IoOwnerId(1), vec![request(IoIntent::Forget, 0, 0)])?;
+        source.submit(IoOwnerId(2), vec![request(IoIntent::Fetch, 0, 8)])?;
+        let registry = DefaultMetricsRegistry::default();
+        let mut reads = IoRequestStream::new(
+            receiver.boxed(),
+            Some(vortex_io::CoalesceConfig::new(16, 32)),
+            Alignment::none(),
+            1,
+            RequestMetrics::new(&registry, vec![]),
+        );
+        let mut batch = reads
+            .next()
+            .await
+            .ok_or_else(|| vortex_err!("missing read"))?;
+        assert_eq!(batch.len(), 1);
+        let physical = batch.pop().ok_or_else(|| vortex_err!("missing read"))?;
+        assert_eq!(physical.offset(), 8);
+        assert_eq!(physical.len(), 4);
+        assert_eq!(physical.requests().len(), 1);
+        physical.resolve(Ok(BufferHandle::new_host(ByteBuffer::copy_from(b"data"))));
+        let completion = poll_fn(|cx| source.poll_completion(cx)).await?;
+        assert_eq!(completion.owner, IoOwnerId(2));
+        let vortex_io::request::IoResult::Bytes(bytes) = completion.result? else {
+            return Err(vortex_err!("expected bytes"));
+        };
+        assert_eq!(bytes.to_host().await.as_slice(), b"data");
+        assert_eq!(source.state.lock().stats.forgotten, 1);
+        assert_eq!(source.state.lock().stats.forgotten_bytes, 4);
         Ok(())
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -32,6 +33,7 @@ use parking_lot::Mutex;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::request::trace::timestamp_ns;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
@@ -230,7 +232,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 Box::pin(
                     async move {
                         if io_diagnostics {
-                            eprintln!("IO_ITERATION_BEGIN query={query_idx}");
+                            eprintln!("IO_ITERATION_BEGIN query={query_idx} ts_ns={}", timestamp_ns());
                         }
                         let override_query = std::env::var("VORTEX_BENCH_QUERY_OVERRIDE_DIR")
                             .ok()
@@ -263,19 +265,21 @@ async fn run(args: Args) -> anyhow::Result<()> {
                         }
 
                         if io_diagnostics {
+                            let end_ns = timestamp_ns();
+                            let rows = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
                             for (scan, metrics) in VortexMetricsFinder::find_all(plan.as_ref())
                                 .iter()
                                 .enumerate()
                             {
-                                for metric in metrics.aggregate().iter() {
+                                for (name, value) in diagnostic_values(metrics.iter().map(|metric| {
+                                    (metric.value().name(), metric.value().as_usize())
+                                })) {
                                     eprintln!(
-                                        "IO_METRIC scan={scan} name={} value={}",
-                                        metric.value().name(),
-                                        metric.value().as_usize(),
+                                        "IO_METRIC scan={scan} name={name} value={value}",
                                     );
                                 }
                             }
-                            eprintln!("IO_ITERATION_END query={query_idx}");
+                            eprintln!("IO_ITERATION_END query={query_idx} ts_ns={end_ns} query_ns={} rows={rows}", time.as_nanos());
                         }
 
                         // Keep the last iteration so warmed-cache diagnostics describe the
@@ -444,6 +448,32 @@ pub async fn execute_query(
     Ok((result, plan))
 }
 
+fn diagnostic_values<'a>(
+    values: impl IntoIterator<Item = (&'a str, usize)>,
+) -> BTreeMap<&'a str, usize> {
+    let mut aggregated = BTreeMap::new();
+    for (name, value) in values {
+        // DataFusion sums file-level histogram extrema and quantiles. Extrema can be combined;
+        // query quantiles require the original samples, which the native read trace supplies.
+        if name.ends_with("_p95") || name.ends_with("_p99") {
+            continue;
+        }
+        aggregated
+            .entry(name)
+            .and_modify(|current: &mut usize| {
+                *current = if name.ends_with("_max") {
+                    (*current).max(value)
+                } else if name.ends_with("_min") {
+                    (*current).min(value)
+                } else {
+                    *current + value
+                };
+            })
+            .or_insert(value);
+    }
+    aggregated
+}
+
 /// Print Vortex metrics from execution plans.
 fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
     for (query_idx, format, plan) in plans {
@@ -459,5 +489,28 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
                 eprintln!("\t\t{metric}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diagnostic_values;
+
+    #[test]
+    fn diagnostic_extrema_across_files_are_not_summed() {
+        let values = diagnostic_values([
+            ("vortex.io.read.duration_count", 10),
+            ("vortex.io.read.duration_count", 20),
+            ("vortex.io.read.duration_max", 100),
+            ("vortex.io.read.duration_max", 200),
+            ("vortex.io.read.duration_min", 5),
+            ("vortex.io.read.duration_min", 3),
+            ("vortex.io.read.duration_p95", 90),
+            ("vortex.io.read.duration_p95", 190),
+        ]);
+        assert_eq!(values["vortex.io.read.duration_count"], 30);
+        assert_eq!(values["vortex.io.read.duration_max"], 200);
+        assert_eq!(values["vortex.io.read.duration_min"], 3);
+        assert!(!values.contains_key("vortex.io.read.duration_p95"));
     }
 }

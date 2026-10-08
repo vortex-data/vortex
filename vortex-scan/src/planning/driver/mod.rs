@@ -38,6 +38,7 @@ use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::request::trace::timestamp_ns;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -47,6 +48,8 @@ use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
 use crate::planning::planner::WorkScope;
+
+mod trace;
 
 /// Identifies one root admitted to a [`Run`]. Unique within the run, in admission order.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -189,6 +192,7 @@ struct Root {
 /// Dropping a run clears the IO session of every root still live, even when it ends in an error.
 #[derive(Default)]
 pub struct Run {
+    trace: Option<trace::Trace>,
     roots: HashMap<RootId, Root>,
     next_root: u64,
     next_owner: u64,
@@ -204,6 +208,9 @@ pub struct Run {
 
 impl Drop for Run {
     fn drop(&mut self) {
+        if let Some(trace) = &self.trace {
+            trace.event("end", self.queue.work.len(), self.parked.len());
+        }
         for root in self.roots.values() {
             root.io.clear();
         }
@@ -213,7 +220,11 @@ impl Drop for Run {
 impl Run {
     /// Creates a run with nothing admitted.
     pub fn new() -> Self {
-        Self::default()
+        let mut run = Self::default();
+        if let Some(trace) = trace::Trace::new() {
+            run.trace = Some(trace);
+        }
+        run
     }
 
     /// Fails with an error naming the limit if more than `steps` visits are needed. Tests use it
@@ -236,6 +247,12 @@ impl Run {
         let id = RootId(self.next_root);
         self.next_root += 1;
         self.roots.insert(id, Root { io, live: 0 });
+        if let Some(trace) = &self.trace {
+            tracing::debug!(target: "vortex_scan::driver", run = trace.id,
+                ts_ns = timestamp_ns(), event = "admit", root = id.0,
+                file = scope.file_ordinal, row_start = scope.rows.start, row_end = scope.rows.end,
+                session = self.roots[&id].io.trace_id().unwrap_or(u64::MAX), "scan driver");
+        }
         self.spawn(id, scope, Item::Planner(root), vec![id.0]);
         id
     }
@@ -246,6 +263,10 @@ impl Run {
         let Some(cancelled) = self.roots.remove(&root) else {
             return;
         };
+        if let Some(trace) = &self.trace {
+            tracing::debug!(target: "vortex_scan::driver", run = trace.id,
+                ts_ns = timestamp_ns(), event = "cancel", root = root.0, "scan driver");
+        }
         self.queue.cancel(root);
         self.parked.retain(|_, work| work.root != root);
         cancelled.io.clear();
@@ -259,6 +280,24 @@ impl Run {
     /// Runs ready work, taking completions the sources already have, until there is something to
     /// hand back or everything left waits for IO. Never blocks.
     pub fn advance(&mut self) -> VortexResult<Progress> {
+        if let Some(trace) = &self.trace {
+            trace.event("advance_begin", self.queue.work.len(), self.parked.len());
+        }
+        let progress = self.advance_inner();
+        if let Some(trace) = &self.trace {
+            let event = match &progress {
+                Ok(Progress::Batch(_)) => "batch",
+                Ok(Progress::RootDone(_)) => "root_done",
+                Ok(Progress::Waiting) => "waiting",
+                Ok(Progress::Idle) => "idle",
+                Err(_) => "error",
+            };
+            trace.event(event, self.queue.work.len(), self.parked.len());
+        }
+        progress
+    }
+
+    fn advance_inner(&mut self) -> VortexResult<Progress> {
         loop {
             if let Some(event) = self.events.pop_front() {
                 return Ok(event);
@@ -296,12 +335,20 @@ impl Run {
             result,
         } = completion;
         let result = result?;
+        if let Some(trace) = &self.trace {
+            tracing::debug!(target: "vortex_scan::driver", run = trace.id,
+                ts_ns = timestamp_ns(), event = "completion", owner = owner.0,
+                request = request.0, "scan driver");
+        }
         if let Entry::Occupied(mut parked) = self.parked.entry(owner) {
             let work = parked.get_mut();
             work.deliver(request, result)?;
             // An item that still waits for other requests stays parked.
             if work.state() != State::Waiting {
                 let work = parked.remove();
+                if let Some(trace) = &self.trace {
+                    trace.work("unpark", &work);
+                }
                 self.queue.insert(work);
             } else if work.outstanding.is_empty() {
                 vortex_bail!(
@@ -384,7 +431,7 @@ impl Run {
         if let Some(root) = self.roots.get_mut(&root) {
             root.live += 1;
         }
-        self.queue.insert(Box::new(Work {
+        let work = Box::new(Work {
             id,
             root,
             scope,
@@ -392,11 +439,18 @@ impl Run {
             path,
             next_child: 0,
             outstanding: HashMap::default(),
-        }));
+        });
+        if let Some(trace) = &self.trace {
+            trace.work("spawn", &work);
+        }
+        self.queue.insert(work);
     }
 
     /// Retires a finished item, and its root once nothing descended from it is live.
     fn retire(&mut self, work: &Work) {
+        if let Some(trace) = &self.trace {
+            trace.work("retire", work);
+        }
         let Entry::Occupied(mut root) = self.roots.entry(work.root) else {
             return;
         };
@@ -415,6 +469,9 @@ impl Run {
                 "work for scope {:?} waits with no outstanding fetch",
                 work.scope
             );
+        }
+        if let Some(trace) = &self.trace {
+            trace.work("park", &work);
         }
         self.parked.insert(work.id, work);
         Ok(())
@@ -435,6 +492,11 @@ impl Run {
         let started =
             tracing::enabled!(target: "vortex_scan::compute_timing", tracing::Level::DEBUG)
                 .then(Instant::now);
+        let selection = self.trace.as_ref().and_then(|_| match &work.item {
+            Item::Planner(planner) => planner.trace_selection(),
+            Item::Morsel(_) => None,
+        });
+        let start = self.trace.as_ref().map(|_| timestamp_ns());
         let output = match &mut work.item {
             Item::Planner(planner) => match planner.state() {
                 State::NeedsCompute => Output::Planner(planner.compute()?),
@@ -455,6 +517,18 @@ impl Run {
                 compute_ns,
                 "scan compute step"
             );
+        }
+        if let Some(trace) = &self.trace {
+            trace.compute(&work, start.unwrap_or_default(), &output);
+            if let (Some((revision, before_rows)), Item::Planner(planner)) = (selection, &work.item)
+                && let Some((after_revision, selected_rows)) = planner.trace_selection()
+                && revision != after_revision
+            {
+                tracing::debug!(target: "vortex_scan::driver", run = trace.id,
+                    ts_ns = timestamp_ns(), event = "selection", owner = work.id.0,
+                    root = work.root.0, revision = after_revision, before_rows, selected_rows,
+                    stage = planner.trace_name(), "scan driver");
+            }
         }
         match output {
             Output::Planner(PlannerOutput::Done) | Output::Morsel(MorselOutput::Done) => {
@@ -499,6 +573,9 @@ impl Run {
             vortex_bail!("compute() published an empty batch");
         }
         for request in &batch {
+            if let Some(trace) = &self.trace {
+                trace.request(work, request);
+            }
             if request.intent == IoIntent::Fetch
                 && work
                     .outstanding

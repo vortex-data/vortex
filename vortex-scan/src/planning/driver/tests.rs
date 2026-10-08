@@ -402,6 +402,7 @@ fn step_limit_is_enforced() -> VortexResult<()> {
 #[rstest]
 #[case(IoIntent::Announce)]
 #[case(IoIntent::Prefetch)]
+#[case(IoIntent::Forget)]
 fn optional_publication_does_not_park_or_receive_bytes(
     #[case] intent: IoIntent,
 ) -> VortexResult<()> {

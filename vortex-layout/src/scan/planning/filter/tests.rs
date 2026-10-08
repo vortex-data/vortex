@@ -181,6 +181,7 @@ fn predicate_selection(
         if planner.remaining.iter().all(|pending| !pending) {
             let actual: Vec<_> = (0..8).filter(|&row| planner.mask.value(row)).collect();
             assert_eq!(actual, expected);
+            assert_eq!(planner.trace_selection(), Some((1, expected.len())));
             return Ok(());
         }
         assert_eq!(planner.state(), State::NeedsCompute);

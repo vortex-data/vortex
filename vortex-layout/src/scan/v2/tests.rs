@@ -33,6 +33,7 @@ use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::byte_length;
@@ -67,6 +68,7 @@ use crate::layouts::dict::writer::DictLayoutOptions;
 use crate::layouts::dict::writer::DictStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::row_idx::row_idx;
+use crate::layouts::struct_::StructLayout;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::plan::PlanRef;
@@ -836,15 +838,20 @@ async fn reader_cache_retains_dictionary_values_but_not_codes(
         reads: Default::default(),
         registered: Default::default(),
     });
-    let source: Arc<dyn SegmentSource> = recording.clone();
-    let reader = layout.new_reader("".into(), source.clone(), &session, &Default::default())?;
+    let source: Arc<dyn SegmentSource> = Arc::<RecordingSegments>::clone(&recording);
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&source),
+        &session,
+        &Default::default(),
+    )?;
     let mut file = scan_file(&source, &layout)?;
     file.plans = cached.then(|| Arc::new(FilePlans::default()));
     let mut first_reads = BTreeSet::new();
     for iteration in 0..2 {
         recording.reads.lock().clear();
         let arrays = v2::into_stream(
-            ScanBuilder::new(session.clone(), reader.clone()),
+            ScanBuilder::new(session.clone(), Arc::clone(&reader)),
             file.clone(),
         )?
         .try_collect::<Vec<_>>()
@@ -881,7 +888,12 @@ async fn reader_cache_retains_dictionary_values_but_not_codes(
 async fn reader_plan_cache_has_no_ownership_cycle() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write_layout(&session).await?;
-    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
     let mut file = scan_file(&segments, &layout)?;
     let plans = Arc::new(FilePlans::default());
     let weak_plans = Arc::downgrade(&plans);
@@ -904,7 +916,12 @@ async fn reader_plan_cache_has_no_ownership_cycle() -> VortexResult<()> {
 async fn cached_dictionary_accepts_different_queries() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write_dict_layout(&session).await?;
-    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
     let mut file = scan_file(&segments, &layout)?;
     file.plans = Some(Arc::default());
     let dtype = DType::Utf8(NonNullable);
@@ -914,7 +931,7 @@ async fn cached_dictionary_accepts_different_queries() -> VortexResult<()> {
         (root(), eq(root(), lit("banana"))),
     ] {
         let builder = || -> VortexResult<_> {
-            Ok(ScanBuilder::new(session.clone(), reader.clone())
+            Ok(ScanBuilder::new(session.clone(), Arc::clone(&reader))
                 .with_projection(projection.bind(&dtype)?)
                 .with_filter(filter.bind(&dtype)?))
         };
@@ -1035,6 +1052,7 @@ async fn zone_pruning_follows_dynamic_comparisons() -> VortexResult<()> {
 /// Four 1000-row chunks of a struct `{a, b}` with `a` over `0..4000` and `b = 2a`.
 async fn write_struct_layout(
     session: &VortexSession,
+    field_count: usize,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
@@ -1043,7 +1061,21 @@ async fn write_struct_layout(
             let a = Buffer::from_iter(chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS);
             let b =
                 Buffer::from_iter((chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS).map(|a| 2 * a));
-            let array = StructArray::from_fields(&[("a", a.into_array()), ("b", b.into_array())])?;
+            let mut fields = vec![
+                ("a".to_owned(), a.into_array()),
+                ("b".to_owned(), b.into_array()),
+            ];
+            for field in 2..field_count {
+                let increment = i32::try_from(field)?;
+                fields.push((
+                    format!("f{field}"),
+                    Buffer::from_iter(
+                        (chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS).map(|a| a + increment),
+                    )
+                    .into_array(),
+                ));
+            }
+            let array = StructArray::from_fields(&fields)?;
             Ok((sequence_id.advance(), array.into_array()))
         })
         .collect::<VortexResult<Vec<_>>>()?;
@@ -1061,13 +1093,15 @@ async fn write_struct_layout(
     Ok((segments, layout))
 }
 
-/// A filter split spanning several chunks returns one batch per projection split; `execute`
-/// joins them into one struct whose fields are chunked over the batches, and both it and the
-/// stream return what the default path returns.
+/// Narrow and wide projections retain one batch per selected cut. Both the joined result and
+/// the stream preserve the reference executor's values while unused IO interests are withdrawn.
+#[rstest::rstest]
+#[case(2)]
+#[case(8)]
 #[tokio::test(flavor = "multi_thread")]
-async fn struct_projection_splits_match_default() -> VortexResult<()> {
+async fn struct_projection_splits_match_default(#[case] field_count: usize) -> VortexResult<()> {
     let session = new_session().with_tokio();
-    let (segments, layout) = write_struct_layout(&session).await?;
+    let (segments, layout) = write_struct_layout(&session, field_count).await?;
     let builder = || -> VortexResult<ScanBuilder<ArrayRef>> {
         let reader = layout.new_reader(
             "".into(),
@@ -1097,6 +1131,78 @@ async fn struct_projection_splits_match_default() -> VortexResult<()> {
     );
     assert_arrays_eq!(
         ChunkedArray::try_new(streamed, dtype)?,
+        expected,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wide_projection_with_mismatched_chunks_and_mask_holes_matches_default() -> VortexResult<()>
+{
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let mut children = Vec::new();
+    for field in 0..8_i32 {
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let chunk_rows = 700 + field * 91;
+        let chunks = (0..4000)
+            .step_by(usize::try_from(chunk_rows)?)
+            .map(|start| {
+                let rows = start..(start + chunk_rows).min(4000);
+                let values = Buffer::from_iter(rows.map(|row| row + field * 10_000));
+                Ok((sequence_id.advance(), values.into_array()))
+            })
+            .collect::<Vec<_>>();
+        children.push(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    SequentialStreamAdapter::new(DTYPE, stream::iter(chunks)).sendable(),
+                    eof,
+                    &session,
+                )
+                .await?,
+        );
+    }
+    let fields = StructFields::from_iter((0..8).map(|field| {
+        (
+            if field == 0 {
+                "a".to_owned()
+            } else {
+                format!("f{field}")
+            },
+            DTYPE,
+        )
+    }));
+    let dtype = DType::Struct(fields, NonNullable);
+    let layout = StructLayout::new(4000, dtype.clone(), children).into_layout();
+    let segments = segments as Arc<dyn SegmentSource>;
+    let a = || get_item("a", root());
+    let filter = or(
+        lt(a(), lit(10_i32)),
+        or(
+            and(gt(a(), lit(1499_i32)), lt(a(), lit(1510_i32))),
+            gt(a(), lit(3500_i32)),
+        ),
+    )
+    .bind(&dtype)?;
+    let builder = || -> VortexResult<ScanBuilder<ArrayRef>> {
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&segments),
+            &session,
+            &Default::default(),
+        )?;
+        Ok(ScanBuilder::new(session.clone(), reader).with_filter(filter.clone()))
+    };
+    let expected = await_tasks(dtype.clone(), builder()?.prepare()?.execute(None)?).await?;
+    let actual = v2::into_stream(builder()?, scan_file(&segments, &layout)?)?
+        .try_collect::<Vec<_>>()
+        .await?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(actual, dtype)?,
         expected,
         &mut session.create_execution_ctx()
     );

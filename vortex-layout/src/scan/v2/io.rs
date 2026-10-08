@@ -108,6 +108,9 @@ impl IoSource for SegmentIoSource {
         let reads = self.reads.lock();
         let mut prefetched = self.prefetched.lock();
         for request in batch {
+            if request.intent == IoIntent::Forget {
+                continue;
+            }
             let IoTarget::Range { offset, len, .. } = request.target else {
                 vortex_bail!(
                     "SegmentIoSource only serves byte ranges, not {:?}",

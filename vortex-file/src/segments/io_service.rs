@@ -603,6 +603,9 @@ impl IoSource for FileIoSession {
                 ..
             } = &mut *table;
             for request in batch {
+                if request.intent == IoIntent::Forget {
+                    continue;
+                }
                 let IoTarget::Range {
                     offset,
                     len,

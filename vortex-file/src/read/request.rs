@@ -21,6 +21,13 @@ use vortex_error::vortex_ensure;
 pub(crate) struct IoRequest(IoRequestInner);
 
 impl IoRequest {
+    pub(crate) fn requests(&self) -> &[ReadRequest] {
+        match &self.0 {
+            IoRequestInner::Single(request) => std::slice::from_ref(request),
+            IoRequestInner::Coalesced(request) => request.requests(),
+        }
+    }
+
     pub(crate) fn new_single(request: ReadRequest) -> Self {
         IoRequest(IoRequestInner::Single(request))
     }

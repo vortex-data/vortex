@@ -3,6 +3,7 @@
 
 //! The morsel side of the protocol: array-producing work and its outputs.
 
+use std::any::type_name;
 use std::fmt;
 
 use vortex_array::ArrayRef;
@@ -35,6 +36,11 @@ pub enum MorselOutput {
 /// `NeedsCompute`. Batches preserve selected input-row order within and across calls. A morsel
 /// moves between threads with the run that owns it.
 pub trait Morsel: IoConsumer + Send {
+    /// Identifies the stage in diagnostic traces without inspecting its inputs.
+    fn trace_name(&self) -> &'static str {
+        type_name::<Self>()
+    }
+
     /// Reports what the morsel needs next without doing work.
     fn state(&self) -> State;
 

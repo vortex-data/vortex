@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::type_name;
 use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -262,6 +263,7 @@ pub struct FilterPlanner {
     evaluate_all: bool,
     /// Rows excluded before this filter must remain excluded from its segment reads.
     initial_mask: Mask,
+    selection_revision: usize,
 }
 
 impl FilterPlanner {
@@ -320,6 +322,7 @@ impl FilterPlanner {
             done: false,
             evaluate_all: false,
             initial_mask,
+            selection_revision: 0,
         }
     }
 
@@ -493,6 +496,17 @@ impl IoConsumer for FilterPlanner {
 }
 
 impl Planner for FilterPlanner {
+    fn trace_name(&self) -> &'static str {
+        match self.keep {
+            Keep::True => type_name::<Self>(),
+            Keep::False => "vortex_layout::scan::planning::filter::PruningPlanner",
+        }
+    }
+
+    fn trace_selection(&self) -> Option<(usize, usize)> {
+        Some((self.selection_revision, self.mask.true_count()))
+    }
+
     fn state(&self) -> State {
         match &self.running {
             _ if self.done => State::Done,
@@ -517,6 +531,7 @@ impl Planner for FilterPlanner {
             self.running = None;
             self.narrow(index)?;
             self.remaining.set(index, false);
+            self.selection_revision += 1;
             self.filters.report(index, input, self.mask.true_count());
             return Ok(PlannerOutput::Continue);
         }

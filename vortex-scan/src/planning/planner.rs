@@ -3,6 +3,7 @@
 
 //! The planner side of the protocol: work scopes, object state, and planner outputs.
 
+use std::any::type_name;
 use std::fmt;
 use std::ops::Range;
 
@@ -61,6 +62,17 @@ pub enum PlannerOutput {
 /// when `state()` reports `NeedsCompute` and may produce one child, one IO batch, a checkpoint,
 /// or finish. A planner moves between threads with the run that owns it.
 pub trait Planner: IoConsumer + Send {
+    /// Identifies the stage in diagnostic traces without inspecting its inputs.
+    fn trace_name(&self) -> &'static str {
+        type_name::<Self>()
+    }
+
+    /// Optional selection revision and surviving row count for diagnostic traces.
+    /// The revision changes whenever a filtering or pruning decision completes.
+    fn trace_selection(&self) -> Option<(usize, usize)> {
+        None
+    }
+
     /// Reports what the planner needs next without doing work.
     fn state(&self) -> State;
 
