@@ -111,14 +111,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 stream.map(move |chunk| {
                     let (sequence_id, chunk) = chunk?;
                     let mut ctx = canonicalize_session.create_execution_ctx();
-                    // Compact before measuring: a view array imported from Arrow (or sliced
-                    // upstream) can pin data buffers far larger than the rows it holds, which
-                    // would inflate `nbytes()` and stop small blocks from coalescing. The
-                    // compressor compacts every chunk anyway, so this moves that work earlier.
-                    let canonical = chunk
-                        .execute::<Canonical>(&mut ctx)?
-                        .compact(&mut ctx)?
-                        .into_array();
+                    let canonical = chunk.execute::<Canonical>(&mut ctx)?.into_array();
                     VortexResult::Ok((sequence_id, canonical))
                 }),
             )
@@ -146,13 +139,11 @@ impl LayoutStrategy for RepartitionStrategy {
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
-                let chunk_nbytes = chunk.nbytes();
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + block_len).min(chunk.len());
                     let sliced = chunk.slice(offset..end)?;
-                    let sliced_nbytes = prorate_nbytes(chunk_nbytes, end - offset, chunk.len());
-                    chunks.push_back(sliced, sliced_nbytes);
+                    chunks.push_back(sliced);
                     offset = end;
 
                     if chunks.have_enough() {
@@ -197,17 +188,6 @@ impl LayoutStrategy for RepartitionStrategy {
     }
 }
 
-/// The share of `nbytes` attributed to `part` of `whole` rows.
-///
-/// Slices of one array share its buffers, so `nbytes()` of every slice reports the whole parent
-/// for view and variable-length types. Prorating keeps the slices of a chunk summing to the chunk.
-fn prorate_nbytes(nbytes: u64, part: usize, whole: usize) -> u64 {
-    if whole == 0 {
-        return 0;
-    }
-    u64::try_from(u128::from(nbytes) * part as u128 / whole as u128).unwrap_or(u64::MAX)
-}
-
 struct ChunksBuffer {
     /// Each entry stores the chunk and the `nbytes()` snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
@@ -239,7 +219,7 @@ impl ChunksBuffer {
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, nbytes) = self
+            let (chunk, _) = self
                 .pop_front()
                 .vortex_expect("must have at least one chunk");
             let len = chunk.len();
@@ -247,8 +227,7 @@ impl ChunksBuffer {
             if len > remaining {
                 let left = chunk.slice(0..remaining)?;
                 let right = chunk.slice(remaining..len)?;
-                let right_nbytes = nbytes - prorate_nbytes(nbytes, remaining, len);
-                self.push_front(right, right_nbytes);
+                self.push_front(right);
                 res.push(left);
                 remaining = 0;
             } else {
@@ -259,13 +238,15 @@ impl ChunksBuffer {
         Ok(res)
     }
 
-    fn push_back(&mut self, chunk: ArrayRef, nb: u64) {
+    fn push_back(&mut self, chunk: ArrayRef) {
+        let nb = chunk.nbytes();
         self.row_count += chunk.len();
         self.nbytes += nb;
         self.data.push_back((chunk, nb));
     }
 
-    fn push_front(&mut self, chunk: ArrayRef, nb: u64) {
+    fn push_front(&mut self, chunk: ArrayRef) {
+        let nb = chunk.nbytes();
         self.row_count += chunk.len();
         self.nbytes += nb;
         self.data.push_front((chunk, nb));
@@ -293,14 +274,10 @@ mod tests {
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SharedArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::varbinview::BinaryView;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_buffer::BufferMut;
-    use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -532,10 +509,8 @@ mod tests {
         let s2 = arr.slice(block_len..n)?;
 
         let mut buf = ChunksBuffer::new(0, block_len);
-        let s1_nbytes = s1.nbytes();
-        buf.push_back(s1, s1_nbytes);
-        let s2_nbytes = s2.nbytes();
-        buf.push_back(s2, s2_nbytes);
+        buf.push_back(s1);
+        buf.push_back(s2);
 
         let _output = buf.pop_front().unwrap();
 
@@ -548,91 +523,6 @@ mod tests {
         let _s2 = buf.pop_front().unwrap();
         assert_eq!(buf.nbytes, 0);
         assert_eq!(buf.row_count, 0);
-
-        Ok(())
-    }
-
-    /// A string-view chunk whose views reference a small part of a much larger data buffer, the
-    /// way Arrow's Parquet reader points `Utf8View` rows into a whole decompressed page.
-    fn sparse_view_chunk(rows: usize, buffer_len: usize) -> VortexResult<ArrayRef> {
-        let value = b"a twenty-seven byte comment";
-        let mut data = ByteBufferMut::with_capacity(buffer_len);
-        data.extend_from_slice(&vec![0u8; buffer_len - rows * value.len()]);
-        let mut views = BufferMut::<BinaryView>::with_capacity(rows);
-        for _ in 0..rows {
-            let offset = u32::try_from(data.len()).vortex_expect("test buffer fits in u32");
-            views.push(BinaryView::make_view(value, 0, offset));
-            data.extend_from_slice(value);
-        }
-        let mut ctx = array_session().create_execution_ctx();
-        Ok(VarBinViewArray::try_new(
-            views.freeze(),
-            Arc::from([data.freeze()]),
-            DType::Utf8(NonNullable),
-            Validity::NonNullable,
-            &mut ctx,
-        )?
-        .into_array())
-    }
-
-    /// Regression test: TPC-H `l_comment` arrived as 8,192-row view chunks each pinning a
-    /// page-sized buffer, so every chunk reported more than the 1 MiB minimum and none coalesced.
-    #[test]
-    fn repartition_coalesces_views_by_referenced_bytes() -> VortexResult<()> {
-        let rows_per_chunk = 8192;
-        let nchunks = 8;
-        let chunks = (0..nchunks)
-            .map(|_| sparse_view_chunk(rows_per_chunk, 2 << 20))
-            .collect::<VortexResult<Vec<_>>>()?;
-        let array = ChunkedArray::try_new(chunks, DType::Utf8(NonNullable))?.into_array();
-
-        let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
-        let (ptr, eof) = SequenceId::root().split();
-        let strategy = RepartitionStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            RepartitionWriterOptions {
-                block_size_minimum: ONE_MEG,
-                block_len_multiple: rows_per_chunk,
-                block_size_target: Some(ONE_MEG),
-                canonicalize: true,
-            },
-        );
-
-        let stream = array.to_array_stream().sequenced(ptr);
-        let layout = block_on(|handle| async move {
-            let session = new_session().with_handle(handle);
-            strategy
-                .write_stream(
-                    ctx.into(),
-                    Arc::<TestSegments>::clone(&segments),
-                    stream,
-                    eof,
-                    &session,
-                )
-                .await
-        })?;
-
-        // Each chunk references 8192 * (16 + 27) bytes, about 344 KiB, so three chunks are needed
-        // to reach 1 MiB. Measured by the buffers they pin, each chunk alone would exceed it.
-        assert_eq!(layout.row_count(), (rows_per_chunk * nchunks) as u64);
-        let first = layout.slot(0)?.vortex_expect("chunk slot present");
-        assert_eq!(first.row_count(), 3 * rows_per_chunk as u64);
-
-        Ok(())
-    }
-
-    #[test]
-    fn slices_of_one_chunk_split_its_nbytes() -> VortexResult<()> {
-        let chunk = sparse_view_chunk(4 * 8192, 1 << 20)?;
-        let chunk_nbytes = chunk.nbytes();
-
-        let mut buf = ChunksBuffer::new(u64::MAX, 8192);
-        for i in 0..4 {
-            let slice = chunk.slice(i * 8192..(i + 1) * 8192)?;
-            buf.push_back(slice, prorate_nbytes(chunk_nbytes, 8192, chunk.len()));
-        }
-        assert_eq!(buf.nbytes, chunk_nbytes);
 
         Ok(())
     }
