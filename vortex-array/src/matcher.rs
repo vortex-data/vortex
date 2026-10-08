@@ -8,29 +8,42 @@ use crate::array::ArrayId;
 use crate::array::ParentRef;
 use crate::array::ParentView;
 use crate::array::VTable;
-use crate::canonical::CanonicalKind;
+use crate::canonical::CanonicalView;
 use crate::dtype::DType;
 
-mod private {
-    use crate::canonical::CanonicalKind;
+pub(crate) mod private {
+    use crate::canonical::CanonicalView;
 
     pub trait Sealed {
-        /// Classifies the parent's concrete vtable as a canonical encoding.
-        fn canonical_kind(&self) -> Option<CanonicalKind>;
+        /// Returns `true` if the parent's concrete vtable is a canonical encoding.
+        fn has_canonical_kind(&self) -> bool;
+
+        /// Returns the canonical view of the parent, classifying its concrete vtable once.
+        fn canonical_view(&self) -> Option<CanonicalView<'_>>;
     }
 }
 
 impl private::Sealed for ArrayRef {
     #[inline]
-    fn canonical_kind(&self) -> Option<CanonicalKind> {
-        self.dyn_array().canonical_kind()
+    fn has_canonical_kind(&self) -> bool {
+        self.dyn_array().canonical_kind().is_some()
+    }
+
+    #[inline]
+    fn canonical_view(&self) -> Option<CanonicalView<'_>> {
+        Some(self.dyn_array().canonical_kind()?.view(self))
     }
 }
 
 impl private::Sealed for ParentRef<'_> {
     #[inline]
-    fn canonical_kind(&self) -> Option<CanonicalKind> {
-        self.canonical_kind()
+    fn has_canonical_kind(&self) -> bool {
+        self.canonical_kind().is_some()
+    }
+
+    #[inline]
+    fn canonical_view(&self) -> Option<CanonicalView<'_>> {
+        Some(self.canonical_kind()?.view(self))
     }
 }
 

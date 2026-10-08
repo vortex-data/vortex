@@ -466,9 +466,7 @@ fn materialize_parts<V: VTable>(
         .downcast_ref::<V::TypedArrayData>()
         .vortex_expect("ParentRef materialize: data type mismatch");
     let slots: ArraySlots = slots.iter().cloned().collect();
-    ArrayParts::new(vtable.clone(), dtype.clone(), len, data.clone())
-        .with_slots(slots)
-        .into_array()
+    ArrayParts::new(vtable.clone(), dtype.clone(), len, data.clone(), slots).into_array()
 }
 
 /// Runs encoding `V`'s self-reduce rules against a (possibly stack-borrowed) parent.

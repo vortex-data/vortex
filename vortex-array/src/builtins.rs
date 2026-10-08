@@ -237,7 +237,11 @@ impl ArrayBuiltins for ArrayRef {
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
         let parts =
-            ListContains.try_new_array_parts(self.len(), EmptyOptions, [self.clone(), value])?;
+            ListContains.try_new_array_parts(
+            self.len(),
+            ListContainsOptions::default(),
+            [self.clone(), value],
+        )?;
         parts.optimize()
     }
 

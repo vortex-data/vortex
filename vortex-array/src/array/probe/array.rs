@@ -387,7 +387,7 @@ mod tests {
         let mut ctx = crate::array_session().create_execution_ctx();
         let array = nullable_ints();
         let typed = array
-            .as_opt::<Primitive>()
+            .as_typed::<Primitive>()
             .ok_or_else(|| vortex_err!("expected a primitive"))?;
 
         let mut once = ProbeState::once(typed);
@@ -401,7 +401,7 @@ mod tests {
 
         let all_valid = PrimitiveArray::from_option_iter([Some(1i32)]).into_array();
         let typed = all_valid
-            .as_opt::<Primitive>()
+            .as_typed::<Primitive>()
             .ok_or_else(|| vortex_err!("expected a primitive"))?;
         assert!(ProbeState::once(typed).is_valid(0, &mut ctx)?);
         Ok(())

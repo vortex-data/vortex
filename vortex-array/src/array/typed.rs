@@ -87,7 +87,6 @@ impl<V: VTable> ArrayParts<V> {
             slots,
         }
     }
-}
 
     /// Materialize already-valid parts into an [`ArrayRef`] without attempting reduction.
     ///

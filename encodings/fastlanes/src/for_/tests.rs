@@ -118,7 +118,7 @@ fn slice_keeps_chunk_alignment(#[case] start: usize, #[case] end: usize) -> Vort
     let sliced = array.into_array().slice(start..end)?;
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
 
-    if let Some(sliced) = sliced.as_opt::<FoR>() {
+    if let Some(sliced) = sliced.as_typed::<FoR>() {
         assert_eq!(usize::from(sliced.offset()), start % FL_CHUNK_SIZE);
         // Slicing a slice composes offsets.
         let len = end - start;

@@ -33,11 +33,6 @@ impl Display for ScalarFnData {
 }
 
 impl ScalarFnData {
-    /// Create a new ScalarFnArray from a scalar function and its children.
-    fn build(scalar_fn: ScalarFnRef) -> Self {
-        Self { scalar_fn }
-    }
-
     /// Get the scalar function bound to this array.
     #[allow(clippy::inline_always)]
     #[inline(always)]

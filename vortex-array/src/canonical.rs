@@ -1264,7 +1264,7 @@ macro_rules! canonical_kinds {
 
             /// Build the view of `parent`, whose concrete vtable `self` classifies.
             #[inline]
-            fn view<P: AsParent>(self, parent: &P) -> CanonicalView<'_> {
+            pub(crate) fn view<P: AsParent>(self, parent: &P) -> CanonicalView<'_> {
                 match self {
                     $(Self::$kind => CanonicalView::$kind(
                         parent
@@ -1301,12 +1301,12 @@ impl Matcher for AnyCanonical {
     /// [`ArrayRef::is_canonical`](crate::ArrayRef::is_canonical).
     #[inline]
     fn matches<P: AsParent>(parent: &P) -> bool {
-        parent.canonical_kind().is_some()
+        parent.has_canonical_kind()
     }
 
     #[inline]
     fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
-        Some(parent.canonical_kind()?.view(parent))
+        parent.canonical_view()
     }
 }
 

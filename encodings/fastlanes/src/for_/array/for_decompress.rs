@@ -56,7 +56,7 @@ fn decompress_one_ref(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     // Try to do fused unpack.
-    if let Some(bp) = array.encoded().as_opt::<BitPacked>() {
+    if let Some(bp) = array.encoded().as_typed::<BitPacked>() {
         return fused_decompress(array, bp, ctx);
     }
 
@@ -154,7 +154,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 /// Decompress an array whose chunks have different references.
 fn decompress_many_refs(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     // Try to do fused unpack. BitPacked chunks line up with FoR chunks when the offsets match.
-    if let Some(bp) = array.encoded().as_opt::<BitPacked>()
+    if let Some(bp) = array.encoded().as_typed::<BitPacked>()
         && bp.offset() == array.offset()
     {
         return fused_decompress_many_refs(array, bp, ctx);
