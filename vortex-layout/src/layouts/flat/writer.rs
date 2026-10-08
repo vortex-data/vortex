@@ -208,8 +208,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
                     logical.extend_from_slice(buffer);
                 }
                 let mut physical =
-                    ByteBufferMut::with_capacity_aligned(logical.len(), buffers[0].alignment());
-                stripes.map().stripe(&logical, &mut physical);
+                    ByteBufferMut::zeroed_aligned(logical.len(), buffers[0].alignment());
+                stripes.map().stripe(&logical, physical.as_mut_slice());
                 vec![physical.freeze()]
             }
             None => buffers,

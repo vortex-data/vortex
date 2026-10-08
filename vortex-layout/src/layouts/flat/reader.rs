@@ -170,6 +170,7 @@ impl FlatReader {
             usize::try_from(self.layout.row_count()).ok()?,
             row_range,
             mask,
+            self.layout.stripes().is_some(),
         )
     }
 

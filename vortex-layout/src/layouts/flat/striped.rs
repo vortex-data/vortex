@@ -55,6 +55,7 @@ struct Extent {
 pub(super) struct StripeMap {
     /// Extents sorted by logical offset, covering the whole segment.
     extents: Vec<Extent>,
+    len: u64,
 }
 
 impl StripeMap {
@@ -114,7 +115,15 @@ impl StripeMap {
             logical = buffer.1;
         }
         extents.sort_unstable_by_key(|extent| extent.logical);
-        Ok(Self { extents })
+        Ok(Self {
+            extents,
+            len: segment_len,
+        })
+    }
+
+    /// The length of the segment.
+    pub(super) fn len(&self) -> u64 {
+        self.len
     }
 
     /// The physical ranges holding the logical `range`, in logical order, with physically
@@ -141,10 +150,7 @@ impl StripeMap {
     }
 
     /// Reorder an unstriped segment into its striped form.
-    pub(super) fn stripe(&self, logical: &[u8], into: &mut ByteBufferMut) {
-        let start = into.len();
-        into.extend_from_slice(logical);
-        let physical = &mut into.as_mut_slice()[start..];
+    pub(super) fn stripe(&self, logical: &[u8], physical: &mut [u8]) {
         for extent in &self.extents {
             let (from, to) = Self::usize_ranges(extent);
             physical[to].copy_from_slice(&logical[from]);
@@ -152,10 +158,7 @@ impl StripeMap {
     }
 
     /// Reorder a striped segment back into its unstriped form.
-    pub(super) fn unstripe(&self, physical: &[u8], into: &mut ByteBufferMut) {
-        let start = into.len();
-        into.extend_from_slice(physical);
-        let logical = &mut into.as_mut_slice()[start..];
+    pub(super) fn unstripe(&self, physical: &[u8], logical: &mut [u8]) {
         for extent in &self.extents {
             let (to, from) = Self::usize_ranges(extent);
             logical[to].copy_from_slice(&physical[from]);
@@ -215,8 +218,8 @@ impl SegmentSource for StripedSegmentSource {
             let segment = segment.await?;
             let alignment = segment.alignment();
             let physical = segment.try_into_host_sync()?;
-            let mut logical = ByteBufferMut::with_capacity_aligned(physical.len(), alignment);
-            map.unstripe(&physical, &mut logical);
+            let mut logical = ByteBufferMut::zeroed_aligned(physical.len(), alignment);
+            map.unstripe(&physical, logical.as_mut_slice());
             Ok(BufferHandle::new_host(logical.freeze()))
         }
         .boxed()
@@ -236,10 +239,39 @@ impl SegmentSource for StripedSegmentSource {
             .iter()
             .map(|range| self.map.physical_ranges(range.clone()))
             .collect::<Vec<_>>();
-        let mut reads = self
+        // Round reads out to I/O blocks in physical offsets, where the bytes of a stripe are
+        // adjacent, then slice each back to the bytes it holds.
+        let block = self
             .inner
-            .request_ranges(id, pieces.iter().flatten().cloned().collect())
-            .into_iter();
+            .preferred_read_size()
+            .map_or(1, |size| (size / 16).max(1));
+        let segment_len = self.map.len();
+        let blocks = pieces
+            .iter()
+            .flatten()
+            .map(|piece| {
+                let start = piece.start / block * block;
+                let end = piece
+                    .end
+                    .div_ceil(block)
+                    .saturating_mul(block)
+                    .clamp(piece.end, segment_len.max(piece.end));
+                start..end
+            })
+            .collect::<Vec<_>>();
+        let reads = self.inner.request_ranges(id, blocks.clone());
+        let mut reads = reads
+            .into_iter()
+            .zip(blocks)
+            .zip(pieces.iter().flatten().cloned())
+            .map(|((read, block), piece)| -> SegmentFuture {
+                async move {
+                    let start = usize::try_from(piece.start - block.start)?;
+                    let end = usize::try_from(piece.end - block.start)?;
+                    Ok(read.await?.slice(start..end))
+                }
+                .boxed()
+            });
         pieces
             .iter()
             .map(|pieces| {
@@ -290,8 +322,8 @@ mod tests {
     fn stripe_round_trips() -> VortexResult<()> {
         let logical = (0u8..32).collect::<Vec<_>>();
         let map = StripeMap::try_new(32, &buffers())?;
-        let mut physical = ByteBufferMut::empty();
-        map.stripe(&logical, &mut physical);
+        let mut physical = ByteBufferMut::zeroed(32);
+        map.stripe(&logical, physical.as_mut_slice());
         assert_eq!(
             physical.as_slice(),
             &[
@@ -301,8 +333,8 @@ mod tests {
                 0, 1, 2, 3, 14, 15, 16, 17, 18, 19, 26, 27, 28, 29, 30, 31,
             ]
         );
-        let mut round_trip = ByteBufferMut::empty();
-        map.unstripe(&physical, &mut round_trip);
+        let mut round_trip = ByteBufferMut::zeroed(32);
+        map.unstripe(&physical, round_trip.as_mut_slice());
         assert_eq!(round_trip.as_slice(), logical.as_slice());
         Ok(())
     }

@@ -247,6 +247,7 @@ impl PartialReadPlan {
         layout_len: usize,
         row_range: &Range<usize>,
         mask: &Mask,
+        striped: bool,
     ) -> Option<RegisteredPartialRead> {
         if !Self::supports_mask(mask) {
             return None;
@@ -256,6 +257,8 @@ impl PartialReadPlan {
         // Reads are rounded to I/O blocks per buffer rather than to row pages spanning every
         // buffer, so a single row costs a block or two of each buffer, not a page of each.
         let block = (preferred_read_size / 16).max(1);
+        // Striped sources round to blocks themselves, in physical offsets.
+        let request_block = if striped { 1 } else { block };
         // Runs of selected rows closer than a block of bytes are read and decoded together.
         let merge_gap_rows = block / self.bytes_per_row;
         let pages = selected_runs(
@@ -343,7 +346,7 @@ impl PartialReadPlan {
                 let requests = request_block_aligned(
                     source,
                     segment_id,
-                    block,
+                    request_block,
                     segment_len,
                     page_specs
                         .iter()
@@ -386,7 +389,7 @@ impl PartialReadPlan {
                     .chain(patch_specs.iter().map(|(range, _)| range.clone()))
                     .collect();
                 let mut requests =
-                    request_block_aligned(source, segment_id, block, segment_len, ranges)
+                    request_block_aligned(source, segment_id, request_block, segment_len, ranges)
                         .into_iter();
                 let pages = page_specs
                     .into_iter()
