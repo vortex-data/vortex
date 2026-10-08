@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod latency_store;
 pub mod metrics;
 pub mod tracer;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::file_format::csv::CsvFormat;
@@ -26,6 +28,8 @@ use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+
+use crate::latency_store::LatencyStore;
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -90,12 +94,24 @@ pub fn make_object_store(
             Ok(gcs)
         }
         _ => {
-            let fs = Arc::new(LocalFileSystem::default());
-            session
-                .register_object_store(&Url::parse("file:/")?, Arc::<LocalFileSystem>::clone(&fs));
+            let fs: Arc<dyn ObjectStore> = match local_get_latency()? {
+                // Emulate a remote store's per-request latency over local files, so IO
+                // scheduling can be compared where requests are expensive.
+                Some(latency) => Arc::new(LatencyStore::new(LocalFileSystem::default(), latency)),
+                None => Arc::new(LocalFileSystem::default()),
+            };
+            session.register_object_store(&Url::parse("file:/")?, Arc::clone(&fs));
             Ok(fs)
         }
     }
+}
+
+/// The latency `VORTEX_BENCH_GET_LATENCY_MS` adds to every local object store GET, if set.
+fn local_get_latency() -> anyhow::Result<Option<Duration>> {
+    std::env::var("VORTEX_BENCH_GET_LATENCY_MS")
+        .ok()
+        .map(|ms| Ok(Duration::from_secs_f64(ms.parse::<f64>()? / 1000.0)))
+        .transpose()
 }
 
 pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
