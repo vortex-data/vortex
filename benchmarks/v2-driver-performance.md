@@ -7,6 +7,11 @@ Investigation date: 2026-10-06. Baseline: PR
 [#10339](https://github.com/vortex-data/vortex/pull/10339), revision
 `afeb2d1a4879ffae48802fe03939ce3ec7a1e0fa`.
 
+The [2026-10-08 DataFusion integration report](datafusion-v2-integration-performance.md)
+validates the later V2 feature head with the standalone BETWEEN PR kept separate. It
+records 462 targeted Rust tests, the native bitmap kernel gain, the full five-round
+non-compact SQL comparison, and default/optional IO overlap measurements.
+
 
 The current candidate preserves pruning masks during dense predicate evaluation,
 reduces scheduler and preparation work, accelerates portable dense-mask rank
