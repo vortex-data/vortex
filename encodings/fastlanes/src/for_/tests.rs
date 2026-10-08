@@ -13,8 +13,10 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
+use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
@@ -366,5 +368,47 @@ where
         expected.into_array().slice(start..end)?,
         &mut ctx
     );
+    Ok(())
+}
+
+#[rstest]
+#[case::unsigned(unsigned())]
+#[case::signed_wrapping(signed_wrapping())]
+#[case::nullable(nullable())]
+#[case::bitpacked(fused(3, false))]
+#[case::bitpacked_patches(fused(2, false))]
+#[case::bitpacked_signed(fused(3, true))]
+fn take_per_chunk(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, expected) = arrays?;
+    test_take_conformance(&array.clone().into_array(), &mut ctx);
+
+    let indices = PrimitiveArray::from_option_iter([
+        Some(2090u32),
+        None,
+        Some(0),
+        Some(1500),
+        Some(1023),
+        Some(1024),
+        None,
+        Some(7),
+    ])
+    .into_array();
+    let result = <FoR as TakeExecute>::take(array.as_view(), &indices, &mut ctx)?
+        .expect("per-chunk take kernel");
+    assert_arrays_eq!(result, expected.into_array().take(indices)?, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn take_per_chunk_sliced() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, expected) = unsigned()?;
+    let sliced = array.into_array().slice(1000..2500)?;
+    let indices = PrimitiveArray::from_iter([0u16, 23, 24, 1047, 1048, 1499]).into_array();
+    let result = <FoR as TakeExecute>::take(sliced.as_::<FoR>(), &indices, &mut ctx)?
+        .expect("per-chunk take kernel");
+    let expected = expected.into_array().slice(1000..2500)?.take(indices)?;
+    assert_arrays_eq!(result, expected, &mut ctx);
     Ok(())
 }
