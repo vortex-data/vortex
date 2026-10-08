@@ -66,6 +66,8 @@ use arrow_buffer::Buffer as ArrowBuffer;
 use arrow_buffer::ScalarBuffer;
 use arrow_buffer::buffer::NullBuffer;
 use arrow_buffer::buffer::OffsetBuffer;
+use arrow_data::ByteView;
+use arrow_data::MAX_INLINE_VIEW_LEN;
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use vortex_array::ArrayRef;
@@ -403,7 +405,142 @@ where
     }
 }
 
-/// Zero-copy conversion of an Arrow string/binary view array into a Vortex `VarBinView` array.
+/// What a trimmed view import does with one Arrow data buffer.
+#[derive(Clone, Copy)]
+enum ViewBufferPlan {
+    /// No valid view references the buffer.
+    Drop,
+    /// Keep `start..end` without copying; views move to `index` and shift down by `start`.
+    Slice { index: u32, start: u32, end: u32 },
+    /// Copy only the referenced values into a new buffer at `index`.
+    Copy { index: u32 },
+}
+
+/// Rebase Arrow string/binary views onto only the data their valid rows reference.
+///
+/// Arrow's Parquet reader points each batch's views into a whole decompressed page, so a
+/// zero-copy import would keep, and report the size of, every page a batch touches. Unreferenced
+/// buffers are dropped, buffers whose used range is at least half used are sliced to that range
+/// without copying, and sparsely used buffers are copied. Views of null rows become empty.
+///
+/// Returns `None` when every buffer is already fully used, so the caller can import zero-copy.
+pub(crate) fn trim_view_buffers(
+    views: &ScalarBuffer<u128>,
+    buffers: &[ArrowBuffer],
+    nulls: Option<&NullBuffer>,
+) -> VortexResult<Option<(ScalarBuffer<u128>, Vec<ArrowBuffer>)>> {
+    if buffers.is_empty() {
+        return Ok(None);
+    }
+    let is_valid = |row: usize| nulls.is_none_or(|nulls| nulls.is_valid(row));
+
+    // Per buffer: (bytes used, first referenced offset, end of last referenced value).
+    let mut uses: Vec<Option<(u64, u32, u32)>> = vec![None; buffers.len()];
+    for (row, &raw) in views.iter().enumerate() {
+        let view = ByteView::from(raw);
+        if view.length <= MAX_INLINE_VIEW_LEN || !is_valid(row) {
+            continue;
+        }
+        let end = view.offset + view.length;
+        let entry = uses[view.buffer_index as usize].get_or_insert((0, view.offset, end));
+        entry.0 += u64::from(view.length);
+        entry.1 = entry.1.min(view.offset);
+        entry.2 = entry.2.max(end);
+    }
+
+    let mut next_index = 0u32;
+    let mut unchanged = true;
+    let mut plans = Vec::with_capacity(buffers.len());
+    for (buffer, used) in buffers.iter().zip(&uses) {
+        let plan = match *used {
+            None => ViewBufferPlan::Drop,
+            Some((used, start, end)) if used * 2 >= u64::from(end - start) => {
+                ViewBufferPlan::Slice {
+                    index: next_index,
+                    start,
+                    end,
+                }
+            }
+            Some(_) => ViewBufferPlan::Copy { index: next_index },
+        };
+        unchanged &= match plan {
+            ViewBufferPlan::Slice { start, end, .. } => start == 0 && end as usize == buffer.len(),
+            ViewBufferPlan::Drop | ViewBufferPlan::Copy { .. } => false,
+        };
+        if !matches!(plan, ViewBufferPlan::Drop) {
+            next_index += 1;
+        }
+        plans.push(plan);
+    }
+    if unchanged {
+        return Ok(None);
+    }
+
+    let mut copies: Vec<Option<Vec<u8>>> = plans
+        .iter()
+        .zip(&uses)
+        .filter(|(plan, _)| !matches!(plan, ViewBufferPlan::Drop))
+        .map(|(plan, used)| match (plan, used) {
+            (ViewBufferPlan::Copy { .. }, Some((used, ..))) => usize::try_from(*used)
+                .map(|capacity| Some(Vec::with_capacity(capacity)))
+                .map_err(|e| vortex_err!("view buffer size does not fit in usize: {e}")),
+            _ => Ok(None),
+        })
+        .collect::<VortexResult<_>>()?;
+
+    let mut trimmed = Vec::with_capacity(views.len());
+    for (row, &raw) in views.iter().enumerate() {
+        let view = ByteView::from(raw);
+        if !is_valid(row) {
+            trimmed.push(0u128);
+            continue;
+        }
+        if view.length <= MAX_INLINE_VIEW_LEN {
+            trimmed.push(raw);
+            continue;
+        }
+        let rebased = match plans[view.buffer_index as usize] {
+            ViewBufferPlan::Slice { index, start, .. } => view
+                .with_buffer_index(index)
+                .with_offset(view.offset - start),
+            ViewBufferPlan::Copy { index } => {
+                let copy = copies[index as usize]
+                    .as_mut()
+                    .ok_or_else(|| vortex_err!("copied view buffer {index} missing"))?;
+                let offset = u32::try_from(copy.len())
+                    .map_err(|e| vortex_err!("copied view buffer exceeds u32: {e}"))?;
+                let source = view.offset as usize..(view.offset + view.length) as usize;
+                copy.extend_from_slice(&buffers[view.buffer_index as usize][source]);
+                view.with_buffer_index(index).with_offset(offset)
+            }
+            ViewBufferPlan::Drop => {
+                vortex_bail!("valid view references dropped buffer {}", view.buffer_index)
+            }
+        };
+        trimmed.push(rebased.as_u128());
+    }
+
+    let kept = buffers
+        .iter()
+        .zip(plans)
+        .filter_map(|(buffer, plan)| match plan {
+            ViewBufferPlan::Drop => None,
+            ViewBufferPlan::Slice { start, end, .. } => {
+                Some(buffer.slice_with_length(start as usize, (end - start) as usize))
+            }
+            ViewBufferPlan::Copy { index } => {
+                copies[index as usize].take().map(ArrowBuffer::from_vec)
+            }
+        })
+        .collect();
+
+    Ok(Some((ScalarBuffer::from(trimmed), kept)))
+}
+
+/// Conversion of an Arrow string/binary view array into a Vortex `VarBinView` array.
+///
+/// Buffers are shared when every byte is referenced; otherwise they are trimmed by
+/// [`trim_view_buffers`] so the array only keeps the data its rows use.
 pub fn from_arrow_byte_view<T: ByteViewType>(
     value: &GenericByteViewArray<T>,
     nullable: bool,
@@ -414,20 +551,24 @@ pub fn from_arrow_byte_view<T: ByteViewType>(
         dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
     };
 
-    let views_buffer = Buffer::from_byte_buffer(
-        Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
-    );
+    let (views, data_buffers) =
+        match trim_view_buffers(value.views(), value.data_buffers(), value.nulls())? {
+            Some((views, buffers)) => (views, buffers),
+            None => (value.views().clone(), value.data_buffers().to_vec()),
+        };
 
-    // SAFETY: arrow-rs ByteViewArray already checks the same invariants, we inherit those
-    //  guarantees by zero-copy constructing from one.
+    let views_buffer =
+        Buffer::from_byte_buffer(Buffer::from_arrow_scalar_buffer(views).into_byte_buffer());
+
+    // SAFETY: arrow-rs ByteViewArray already checks the same invariants. Trimming only drops
+    //  unreferenced bytes and rebases each valid view onto the same value bytes.
     Ok(unsafe {
         VarBinViewArray::new_unchecked(
             views_buffer,
             Arc::from(
-                value
-                    .data_buffers()
-                    .iter()
-                    .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
+                data_buffers
+                    .into_iter()
+                    .map(|b| ByteBuffer::from_arrow_buffer(b, Alignment::of::<u8>()))
                     .collect::<Vec<_>>(),
             ),
             dtype,
@@ -930,6 +1071,7 @@ mod tests {
     use arrow_array::NullArray;
     use arrow_array::RecordBatch;
     use arrow_array::StringArray;
+    use arrow_array::StringViewArray;
     use arrow_array::StructArray;
     use arrow_array::Time32MillisecondArray;
     use arrow_array::Time32SecondArray;
@@ -960,6 +1102,7 @@ mod tests {
     use arrow_buffer::Buffer as ArrowBuffer;
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
+    use arrow_data::ByteView;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Fields;
@@ -1495,6 +1638,96 @@ mod tests {
         let fresh = ArrayRef::from_arrow(&lists(500..502), false)?;
         assert_eq!(sliced.nbytes(), fresh.nbytes());
         assert_arrays_eq!(sliced, fresh, &mut ctx);
+        Ok(())
+    }
+
+    /// 27 bytes, too long to inline in a view.
+    fn page_value(row: u32) -> String {
+        format!("comment-{row:019}")
+    }
+
+    /// One page holding `page_rows` values, like a decompressed Parquet page.
+    fn page(page_rows: u32) -> ArrowBuffer {
+        ArrowBuffer::from_vec(
+            (0..page_rows)
+                .flat_map(|row| page_value(row).into_bytes())
+                .collect(),
+        )
+    }
+
+    /// A view of page row `row` in data buffer `buffer_index`.
+    fn page_view(row: u32, buffer_index: u32) -> u128 {
+        let value = page_value(row);
+        let len = u32::try_from(value.len()).unwrap();
+        ByteView::new(len, &value.as_bytes()[..4])
+            .with_buffer_index(buffer_index)
+            .with_offset(row * len)
+            .as_u128()
+    }
+
+    /// Views into one shared page, the way Arrow's Parquet reader builds each batch.
+    fn page_batch(rows: impl Iterator<Item = u32>, page_rows: u32) -> StringViewArray {
+        let views = rows
+            .map(|row| page_view(row, 0))
+            .collect::<ScalarBuffer<u128>>();
+        StringViewArray::try_new(views, vec![page(page_rows)], None).unwrap()
+    }
+
+    #[rstest]
+    #[case::contiguous_rows_slice_the_page((1000..2024).collect())]
+    #[case::sparse_rows_copy_their_values((0..20_000).step_by(100).collect())]
+    fn test_view_import_keeps_only_referenced_bytes(#[case] rows: Vec<u32>) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let batch = page_batch(rows.iter().copied(), 20_000);
+        let imported = ArrayRef::from_arrow(&batch, false)?;
+
+        let expected = StringViewArray::from_iter_values(rows.iter().map(|&row| page_value(row)));
+        let expected = ArrayRef::from_arrow(&expected, false)?;
+        assert_arrays_eq!(imported, expected, &mut ctx);
+        // 16-byte views plus 27 referenced bytes per row, not the 540,000-byte page.
+        assert_eq!(imported.nbytes(), rows.len() as u64 * (16 + 27));
+        Ok(())
+    }
+
+    #[test]
+    fn test_view_import_slices_contiguous_page_without_copying() -> VortexResult<()> {
+        let batch = page_batch(1000..2024, 20_000);
+        let imported = ArrayRef::from_arrow(&batch, false)?;
+
+        let page_start = batch.data_buffers()[0].as_ptr();
+        let imported = imported.as_::<VarBinView>();
+        assert_eq!(imported.data_buffers().len(), 1);
+        assert_eq!(
+            imported.data_buffers()[0].as_host().as_ptr(),
+            page_start.wrapping_add(1000 * 27)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_view_import_drops_buffers_only_null_rows_reference() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let views = ScalarBuffer::from(vec![page_view(0, 0), page_view(1, 1)]);
+        let nulls = arrow_buffer::NullBuffer::from(vec![true, false]);
+        let batch = StringViewArray::try_new(views, vec![page(1), page(1000)], Some(nulls))?;
+        let imported = ArrayRef::from_arrow(&batch, true)?;
+
+        let expected = StringViewArray::from(vec![Some(page_value(0)), None]);
+        assert_arrays_eq!(imported, ArrayRef::from_arrow(&expected, true)?, &mut ctx);
+        assert_eq!(imported.as_::<VarBinView>().data_buffers().len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_view_import_shares_fully_used_buffers() -> VortexResult<()> {
+        let batch = page_batch(0..100, 100);
+        let imported = ArrayRef::from_arrow(&batch, false)?;
+
+        let imported = imported.as_::<VarBinView>();
+        assert_eq!(
+            imported.data_buffers()[0].as_host().as_ptr(),
+            batch.data_buffers()[0].as_ptr()
+        );
         Ok(())
     }
 
