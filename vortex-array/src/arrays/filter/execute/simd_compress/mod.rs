@@ -98,6 +98,11 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
     Some(written)
 }
 
+/// Returns whether [`filter_slice_by_bitmap`] would compact `T` values by `mask`.
+pub(super) fn applies<T>(mask: &MaskValues) -> bool {
+    select_kernel::<T, false>(mask).is_some()
+}
+
 /// Choose the widest profitable kernel available for `T`.
 fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
     if mask.len() < MIN_LEN {

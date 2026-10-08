@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::arrays::filter::uses_simd_compress;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
@@ -33,15 +34,16 @@ const SPARSE_CHUNK_THRESHOLD: usize = 128;
 /// The equivalent of [`SPARSE_CHUNK_THRESHOLD`] when the selection is given as runs, which are
 /// cheaper to copy out of an unpacked chunk than scattered values.
 const SPARSE_RUNS_CHUNK_THRESHOLD: usize = 32;
+/// Masks at most this dense are always filtered chunk by chunk, since most chunks are skipped or
+/// only partly unpacked.
+const MAX_SPARSE_DENSITY: f64 = 0.01;
 /// Masks denser than this are only filtered chunk by chunk if their selected values are known
-/// to form long runs. Otherwise the whole array is unpacked and filtered by the vectorized
-/// canonical filter, which compacts scattered values faster.
+/// to form long runs. Otherwise the whole array is unpacked and filtered by the canonical filter,
+/// which compacts dense scattered values faster.
 const MAX_SCATTERED_DENSITY: f64 = 0.2;
 /// Selections whose runs of selected values average at least this length are compacted by
 /// copying each run.
 const MIN_COPIED_RUN_LEN: u32 = 8;
-/// Mask words with at least this many scattered selected values are compacted branch-free.
-const MIN_BRANCHLESS_SELECTED: u32 = 16;
 
 /// Kernel to execute filtering directly on a bit-packed array.
 ///
@@ -69,20 +71,24 @@ impl FilterKernel for BitPacked {
             Mask::Values(values) => values,
         };
 
-        if !prefer_chunked_filter(values) {
+        // FastLanes only unpacks unsigned types, so filter as unsigned and reinterpret the
+        // resulting buffer with the array's (possibly signed) ptype.
+        let ptype = array.dtype().as_ptype();
+        if !match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
+            prefer_chunked_filter::<U>(values)
+        }) {
             return Ok(None);
         }
 
         let validity = array.validity()?.filter(mask)?;
-
-        // FastLanes only unpacks unsigned types, so filter as unsigned and reinterpret the
-        // resulting buffer with the array's (possibly signed) ptype.
-        let ptype = array.dtype().as_ptype();
         let buffer = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
             match values.cached_slices() {
-                Some(slices) => {
-                    filter_values_by_slices::<U>(array.data(), bit_width, slices, values.true_count())
-                }
+                Some(slices) => filter_values_by_slices::<U>(
+                    array.data(),
+                    bit_width,
+                    slices,
+                    values.true_count(),
+                ),
                 None => filter_values::<U>(array.data(), bit_width, values),
             }
             .into_byte_buffer()
@@ -102,10 +108,15 @@ impl FilterKernel for BitPacked {
     }
 }
 
-/// Returns whether to filter chunk by chunk rather than unpack the whole array and filter the
-/// unpacked values with the canonical filter.
-fn prefer_chunked_filter(mask: &MaskValues) -> bool {
-    mask.density() <= MAX_SCATTERED_DENSITY
+/// Returns whether to filter `T` values chunk by chunk rather than unpack the whole array and
+/// filter the unpacked values with the canonical filter.
+///
+/// Above the sparsest masks, the canonical filter's SIMD compress, where the target has one for
+/// `T`'s width, is faster than compacting each chunk unless the selected values form long runs.
+fn prefer_chunked_filter<T>(mask: &MaskValues) -> bool {
+    let density = mask.density();
+    density <= MAX_SPARSE_DENSITY
+        || (density <= MAX_SCATTERED_DENSITY && !uses_simd_compress::<T>(mask))
         || mask
             .cached_slices()
             .is_some_and(|slices| mask.true_count() >= MIN_COPIED_RUN_LEN as usize * slices.len())
@@ -427,17 +438,6 @@ unsafe fn compact_word<T: Copy>(word: u64, src: &[T], dst: *mut T) -> usize {
             // Adding the run's lowest bit carries through the run, clearing it.
             word &= word.wrapping_add(1 << run_start);
         }
-    } else if selected >= MIN_BRANCHLESS_SELECTED {
-        // Store every value up to the last selected one unconditionally and only advance past
-        // selected ones, which avoids a branch per selected value. Each unselected value is
-        // overwritten by the next selected value.
-        let bits = (u64::BITS - word.leading_zeros()) as usize;
-        for (i, &value) in src[..bits].iter().enumerate() {
-            // SAFETY: the loop ends at the last selected value, so `written` stays below
-            // `selected`.
-            unsafe { dst.add(written).write(value) };
-            written += ((word >> i) & 1) as usize;
-        }
     } else {
         while word != 0 {
             // SAFETY: set bits index into `src` and `dst` has room for every selected value.
@@ -651,8 +651,8 @@ mod tests {
         Random(f64),
         /// Runs of 12 values every 64 values, which are compacted by copying runs.
         Runs,
-        /// Half of the values in the first 400 of every 1024 positions, which are dense enough
-        /// within a mask word to be compacted branch-free.
+        /// Half of the values in the first 400 of every 1024 positions, which are too dense
+        /// within a chunk to unpack individually but sparse enough overall to filter by chunk.
         Clustered,
         /// Everything except a single value, so most chunks are fully selected.
         AllButOne,
@@ -762,7 +762,8 @@ mod tests {
 
         let slices: Vec<_> = bits.set_slices().collect();
         assert_eq!(
-            filter_values_by_slices::<u32>(bitpacked.data(), 10, &slices, expected.len()).as_slice(),
+            filter_values_by_slices::<u32>(bitpacked.data(), 10, &slices, expected.len())
+                .as_slice(),
             expected
         );
         Ok(())

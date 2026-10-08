@@ -83,6 +83,15 @@ fn filter_slice<T: Copy>(
     }
 }
 
+/// Returns whether filtering a buffer of `T` by the bitmap of `mask` compacts it with a SIMD
+/// kernel, which the target supports for some widths above a density that depends on the width.
+///
+/// Encodings that can filter without decompressing may prefer to decompress and filter when this
+/// holds.
+pub fn uses_simd_compress<T>(mask: &MaskValues) -> bool {
+    simd_compress::applies::<T>(mask)
+}
+
 fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize {
     if let Some(slices) = useful_cached_slices(mask) {
         return slice::filter_slice_mut_by_slices(values, slices);
