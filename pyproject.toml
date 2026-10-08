@@ -74,7 +74,6 @@ suppress-none-returning = true
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "vortex.scan",
     "vortex.file",
     "vortex.expr",
     "vortex.ray",

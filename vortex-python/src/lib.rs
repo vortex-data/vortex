@@ -41,7 +41,6 @@ mod readable;
 mod registry;
 mod runtime;
 pub mod scalar;
-mod scan;
 mod serde;
 mod session;
 mod store;
@@ -209,7 +208,6 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;
-    scan::init(py, m)?;
 
     Ok(())
 }

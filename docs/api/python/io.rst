@@ -14,7 +14,6 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
    ~vortex.SegmentCache
    ~vortex.VortexFile
    ~vortex.file.Footer
-   ~vortex.RepeatedScan
    ~vortex.io.read_url
    ~vortex.io.write
 
@@ -39,9 +38,6 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
    :members:
 
 .. autoclass:: vortex.file.Footer
-   :members:
-
-.. autoclass:: vortex.RepeatedScan
    :members:
 
 .. automodule:: vortex.io

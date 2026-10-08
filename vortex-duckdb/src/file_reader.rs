@@ -174,12 +174,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // lock and not in reader_try_initialize_scan under global lock.
     let reader = Arc::clone(&file.reader);
     let filter = &global.filter;
-    let builder = ScanBuilder::new(SESSION.clone(), reader)
+    let mut builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
-    let scan = builder.prepare()?;
-    let mut splits = scan.execute(filter.row_range.clone())?;
+    if let Some(row_range) = filter.row_range.clone() {
+        builder = builder.with_row_range(row_range);
+    }
+    let mut splits = builder.build()?;
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();

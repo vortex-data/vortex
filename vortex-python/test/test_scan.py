@@ -9,7 +9,6 @@ import pytest
 
 import vortex as vx
 import vortex.expr as ve
-from vortex.scan import RepeatedScan
 
 
 def record(x: int, columns: list[str] | set[str] | None = None) -> dict[str, int | str | float]:
@@ -18,11 +17,6 @@ def record(x: int, columns: list[str] | set[str] | None = None) -> dict[str, int
         for k, v in {"index": x, "string": str(x), "bool": x % 2 == 0, "float": math.sqrt(x)}.items()
         if columns is None or k in columns
     }
-
-
-@pytest.fixture(scope="session")
-def vxscan(vxfile: vx.VortexFile) -> vx.RepeatedScan:
-    return vxfile.to_repeated_scan()
 
 
 @pytest.fixture(scope="session")
@@ -36,26 +30,22 @@ def vxfile(tmpdir_factory) -> vx.VortexFile:
     return vx.open(str(fname))
 
 
-def test_execute(vxscan: RepeatedScan) -> None:
-    for _ in vxscan.execute():
-        pass
-
-
-def test_execute_row_range(vxscan: RepeatedScan) -> None:
+def test_scan_row_indices(vxfile: vx.VortexFile) -> None:
     total_rows = 0
-    for rb in vxscan.execute(row_range=(10, 20)):
+    for rb in vxfile.scan(indices=vx.array(list(range(10, 20)))):
         total_rows += len(rb)
     assert total_rows == 10
 
 
-def test_scalar_at(vxscan: RepeatedScan) -> None:
-    scalar = vxscan.scalar_at(10)
-    assert scalar.as_py() == {
-        "index": 10,
-        "string": "10",
-        "bool": True,
-        "float": math.sqrt(10),
-    }
+def test_scan_single_row(vxfile: vx.VortexFile) -> None:
+    assert vxfile.scan(indices=vx.array([10])).read_all().to_arrow_array().to_pylist() == [
+        {
+            "index": 10,
+            "string": "10",
+            "bool": True,
+            "float": math.sqrt(10),
+        }
+    ]
 
 
 def test_scan_with_cast(vxfile: vx.VortexFile) -> None:

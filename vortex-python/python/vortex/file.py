@@ -16,7 +16,6 @@ from ._lib.file import Footer, SegmentCache
 from ._lib.iter import ArrayIterator
 from .dataset import VortexDataset
 from .io import ReadAt, ReadBytesAt
-from .scan import RepeatedScan
 from .store import (
     AzureStore,
     CosStore,
@@ -271,32 +270,6 @@ class VortexFile:
           ]
         """
         return self._file.scan(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
-
-    def to_repeated_scan(
-        self,
-        projection: IntoProjection = None,
-        *,
-        expr: Expr | None = None,
-        limit: int | None = None,
-        indices: Array | None = None,
-        batch_size: int | None = None,
-    ) -> RepeatedScan:
-        """Prepare a scan of the Vortex file for repeated reads, returning a :class:`vortex.RepeatedScan`.
-
-        Parameters
-        ----------
-        projection : :class:`vortex.Expr` | list[str] | None
-            The projection expression to read, or else read all columns.
-        expr : :class:`vortex.Expr` | None
-            The predicate used to filter rows. The filter columns do not need to be in the projection.
-        indices : :class:`vortex.Array` | None
-            The indices of the rows to read. Must be sorted and non-null.
-        batch_size : :class:`int` | None
-            The number of rows to read per chunk.
-        """
-        return RepeatedScan(
-            self._file.prepare(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
-        )
 
     def to_arrow(
         self,

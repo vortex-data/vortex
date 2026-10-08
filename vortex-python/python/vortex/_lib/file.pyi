@@ -16,7 +16,6 @@ from .dataset import VortexDataset
 from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
-from .scan import RepeatedScan
 from .store import ObjectStore
 
 @final
@@ -44,15 +43,6 @@ class VortexFile:
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> ArrayIterator: ...
-    def prepare(
-        self,
-        projection: IntoProjection = None,
-        *,
-        expr: Expr | None = None,
-        limit: int | None = None,
-        indices: Array | None = None,
-        batch_size: int | None = None,
-    ) -> RepeatedScan: ...
     def to_arrow(
         self,
         projection: IntoProjection = None,

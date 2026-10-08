@@ -15,12 +15,6 @@ def test_scan(benchmark: BenchmarkFixture, vxf: vx.VortexFile) -> None:
 
 
 @pytest.mark.benchmark(group="scan", disable_gc=True)
-def test_repeated_scan(benchmark: BenchmarkFixture, vxf: vx.VortexFile) -> None:
-    rscan = vxf.to_repeated_scan()
-    benchmark(lambda: pa.concat_tables(x.to_arrow_table() for x in rscan.execute()))
-
-
-@pytest.mark.benchmark(group="scan", disable_gc=True)
 def test_polars(benchmark: BenchmarkFixture, vxf: vx.VortexFile) -> None:
     lf = vxf.to_polars()
     benchmark(lambda: lf.collect().to_arrow())

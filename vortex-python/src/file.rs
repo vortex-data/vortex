@@ -50,7 +50,6 @@ use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
 use crate::readable::PyReadable;
-use crate::scan::PyRepeatedScan;
 use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -410,28 +409,6 @@ impl PyVortexFile {
         Ok(PyArrayIterator::new(Box::new(
             builder.into_array_iter(&current_runtime())?,
         )))
-    }
-
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
-    fn prepare(
-        slf: Bound<Self>,
-        projection: Option<PyIntoProjection>,
-        expr: Option<PyExpr>,
-        limit: Option<u64>,
-        indices: Option<PyArrayRef>,
-        batch_size: Option<usize>,
-    ) -> PyVortexResult<PyRepeatedScan> {
-        let vxf = &slf.get().vxf;
-        let projection = projection.map(|p| p.0);
-        let expr = expr.map(|e| e.into_inner());
-        let indices = row_indices(slf.py(), indices)?;
-
-        let scan = scan_builder(vxf, projection, expr, limit, indices, batch_size)?.prepare()?;
-
-        Ok(PyRepeatedScan {
-            scan: Arc::new(scan),
-            row_count: slf.get().vxf.row_count(),
-        })
     }
 
     #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None, schema = None))]
