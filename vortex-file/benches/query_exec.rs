@@ -61,6 +61,7 @@ use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::plan::EvalPlan;
 use vortex_layout::plan::PlanRef;
+use vortex_layout::plan::QueryPlan;
 use vortex_layout::plan::exec::DecodeCache;
 use vortex_layout::plan::exec::ExecGraph;
 use vortex_layout::plan::exec::ExecOutput;
@@ -392,6 +393,8 @@ struct Planned {
     conjuncts: Vec<PlanRef>,
     whole_filter: Option<PlanRef>,
     projection: PlanRef,
+    /// The filter and projection as one [`QueryPlan`], run as one graph per split.
+    query: PlanRef,
     expected: usize,
     splits: Vec<std::ops::Range<u64>>,
 }
@@ -424,6 +427,9 @@ fn plan(file: &VortexFile, query: &Query) -> Planned {
         conjuncts,
         whole_filter: query.filter.clone().map(|f| optimized(f, &plan)),
         projection: optimized(query.projection.clone(), &plan),
+        query: QueryPlan::try_new(query.filter.clone(), query.projection.clone(), plan)
+            .expect("query plan")
+            .into_plan(),
         expected: query.expected,
         splits: splits(file, query),
     }
@@ -590,12 +596,17 @@ enum Algorithm {
     /// `Conjuncts`, with segments decoded once per graph, as the V1 reader decodes them once
     /// per split and per expression that reads them.
     ConjunctsRedecode,
+    /// `Conjuncts` inside the graph: one `Query` plan per split evaluates the conjuncts and the
+    /// projection as one graph, so the segments it reads are decoded once per split without a
+    /// cache, as the V1 reader runs one split at a time.
+    Query,
 }
 
-const ALGORITHMS: [Algorithm; 3] = [
+const ALGORITHMS: [Algorithm; 4] = [
     Algorithm::Whole,
     Algorithm::Conjuncts,
     Algorithm::ConjunctsRedecode,
+    Algorithm::Query,
 ];
 
 fn run(
@@ -608,7 +619,7 @@ fn run(
     let shared = DecodeCache::default();
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
-        Algorithm::ConjunctsRedecode => DecodeCache::default(),
+        Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
     };
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
@@ -617,6 +628,17 @@ fn run(
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
+            Algorithm::Query => {
+                drive(
+                    &source,
+                    &query.query,
+                    split.clone(),
+                    mask,
+                    &cache(),
+                    |array| rows += array.len(),
+                );
+                continue;
+            }
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
                     let pieces = predicate(&source, filter, split.clone(), &cache());
@@ -665,7 +687,7 @@ fn run(
 }
 
 /// One exec graph run of the query over the file's natural splits, under each filter algorithm.
-#[divan::bench(args = cases(), consts = [0, 1, 2])]
+#[divan::bench(args = cases(), consts = [0, 1, 2, 3])]
 fn exec<const ALGORITHM: usize>(bencher: Bencher, case: &str) {
     let (file, query) = lookup(case);
     let algorithm = ALGORITHMS[ALGORITHM];

@@ -22,10 +22,16 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::FieldNames;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::and;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
 use vortex_array::expr::root;
+use vortex_array::expr::select;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
@@ -45,6 +51,7 @@ use crate::layouts::list::ListLayout;
 use crate::layouts::struct_::StructLayout;
 use crate::plan::EvalPlan;
 use crate::plan::Filter;
+use crate::plan::QueryPlan;
 use crate::plan::SegmentScan;
 use crate::plan::Take;
 use crate::plan::exec::selection::join;
@@ -786,5 +793,123 @@ fn execute_fails_when_a_segment_is_missing() -> VortexResult<()> {
         .try_collect(),
     );
     assert!(result.is_err());
+    Ok(())
+}
+
+/// A query over `plan` selecting `c` and `e`, and a check of its output over one view.
+fn query_over(
+    plan: &PlanRef,
+    filter: Option<vortex_array::expr::Expression>,
+) -> VortexResult<(PlanRef, QueryCheck)> {
+    let projection = select(FieldNames::from(["c", "e"]), root()).bind(plan.dtype())?;
+    let filter = filter.map(|f| f.bind(plan.dtype())).transpose()?;
+    let plan = QueryPlan::try_new(filter.clone(), projection.clone(), plan.clone())?.into_plan();
+    Ok((plan, QueryCheck { filter, projection }))
+}
+
+struct QueryCheck {
+    filter: Option<BoundExpression>,
+    projection: BoundExpression,
+}
+
+impl QueryCheck {
+    /// Checks that `arrays` are the view's selected rows that pass the filter, projected.
+    fn assert_view(
+        &self,
+        source: &ArrayRef,
+        rows: &Range<u64>,
+        mask: &Mask,
+        arrays: Vec<ArrayRef>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut expected = source
+            .slice(rows.start as usize..rows.end as usize)?
+            .filter(mask.clone())?;
+        if let Some(filter) = &self.filter {
+            let kept = expected
+                .clone()
+                .apply_bound(filter)?
+                .fill_null(false)?
+                .execute::<Mask>(&mut ctx)?;
+            expected = expected.filter(kept)?;
+        }
+        let expected = expected.apply_bound(&self.projection)?;
+        let actual = join(expected.dtype(), arrays)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+}
+
+/// A query evaluates its conjuncts one at a time and projects the rows that pass them all,
+/// whichever path the mask's density sends each conjunct down.
+#[rstest]
+// Both conjuncts keep most rows: each runs over every row and is intersected.
+#[case::dense(and(gt(get_item("a", root()), lit(1_i32)), lt(get_item("b", root()), lit(150_i64))), 2..18)]
+// The first conjunct keeps two rows: the second runs under that sparse mask.
+#[case::sparse(and(lt(get_item("a", root()), lit(2_i32)), lt(get_item("b", root()), lit(150_i64))), 0..20)]
+// A conjunct that keeps nothing: the rest, and the projection, are never run.
+#[case::empty(and(gt(get_item("a", root()), lit(100_i32)), lt(get_item("b", root()), lit(150_i64))), 0..20)]
+// A nullable conjunct: nulls are kept out.
+#[case::nullable(gt(get_item("d", root()), lit(10_i32)), 0..20)]
+fn query_filters_then_projects(
+    #[case] filter: vortex_array::expr::Expression,
+    #[case] rows: Range<u64>,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (source, expected) = fixture(&mut store)?;
+    let (plan, check) = query_over(&source, Some(filter))?;
+    let mask = Sel::EveryOther.mask((rows.end - rows.start) as usize);
+
+    let run = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Lifo),
+    )?;
+    check.assert_view(&expected, &rows, &mask, run.arrays)
+}
+
+/// Without a filter a query is its projection.
+#[test]
+fn query_without_filter_is_the_projection() -> VortexResult<()> {
+    let mut store = Store::default();
+    let (source, expected) = fixture(&mut store)?;
+    let (plan, check) = query_over(&source, None)?;
+    let rows = 0..ROWS;
+    let mask = Mask::new_true(ROWS as usize);
+
+    let run = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    check.assert_view(&expected, &rows, &mask, run.arrays)
+}
+
+/// A conjunct that keeps no rows stops the query: later conjuncts and the projection read
+/// nothing.
+#[test]
+fn query_stops_reading_once_nothing_is_selected() -> VortexResult<()> {
+    let mut store = Store::default();
+    let (source, _) = fixture(&mut store)?;
+    let filter = and(
+        gt(get_item("a", root()), lit(100_i32)),
+        lt(get_item("b", root()), lit(150_i64)),
+    );
+    let (plan, _) = query_over(&source, Some(filter))?;
+
+    let run = run(
+        &store,
+        &plan,
+        0..ROWS,
+        Mask::new_true(ROWS as usize),
+        delivery(Delivery::Fifo),
+    )?;
+    // Only the three chunks of `a`, the first conjunct's column, are read.
+    assert_eq!(reads(&run.events), 3);
+    assert!(pieces(&run.events).is_empty());
     Ok(())
 }

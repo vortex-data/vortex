@@ -62,6 +62,7 @@ use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::plan::EvalPlan;
 use vortex_layout::plan::PlanRef;
+use vortex_layout::plan::QueryPlan;
 use vortex_layout::plan::exec::DecodeCache;
 use vortex_layout::plan::exec::ExecGraph;
 use vortex_layout::plan::exec::ExecOutput;
@@ -78,7 +79,6 @@ use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
-
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_current_thread()
@@ -390,6 +390,7 @@ struct Planned {
     whole_filter: Option<PlanRef>,
     projection: PlanRef,
     projection_expr: BoundExpression,
+    query: PlanRef,
     expected: usize,
     splits: Vec<std::ops::Range<u64>>,
 }
@@ -423,6 +424,9 @@ fn plan(file: &VortexFile, query: &Query) -> Planned {
         whole_filter: query.filter.clone().map(|f| optimized(f, &plan)),
         projection: optimized(query.projection.clone(), &plan),
         projection_expr: query.projection.clone(),
+        query: QueryPlan::try_new(query.filter.clone(), query.projection.clone(), plan)
+            .expect("query plan")
+            .into_plan(),
         expected: query.expected,
         splits: splits(file, query),
     }
@@ -591,13 +595,9 @@ enum Algorithm {
     /// `Conjuncts`, with segments decoded once per graph, as the V1 reader decodes them once
     /// per split and per expression that reads them.
     ConjunctsRedecode,
+    /// One `Query` plan per split: conjuncts and projection as one graph.
+    Query,
 }
-
-const ALGORITHMS: [Algorithm; 3] = [
-    Algorithm::Whole,
-    Algorithm::Conjuncts,
-    Algorithm::ConjunctsRedecode,
-];
 
 fn run(
     file: &VortexFile,
@@ -609,7 +609,7 @@ fn run(
     let shared = DecodeCache::default();
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
-        Algorithm::ConjunctsRedecode => DecodeCache::default(),
+        Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
     };
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
@@ -618,6 +618,17 @@ fn run(
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
+            Algorithm::Query => {
+                drive(
+                    &source,
+                    &query.query,
+                    split.clone(),
+                    mask,
+                    &cache(),
+                    |array| rows += array.len(),
+                );
+                continue;
+            }
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
                     let pieces = predicate(&source, filter, split.clone(), &cache());
@@ -665,7 +676,7 @@ fn run(
     rows
 }
 
-
+#[inline(never)]
 fn run_v1(file: &VortexFile, query: &Planned) -> usize {
     RUNTIME.block_on(async {
         let mut stream = file
@@ -684,6 +695,7 @@ fn run_v1(file: &VortexFile, query: &Planned) -> usize {
     })
 }
 
+#[inline(never)]
 fn run_exec(file: &VortexFile, query: &Planned, algorithm: Algorithm) -> usize {
     let mut ctx = SESSION.create_execution_ctx();
     run(file, query, algorithm, &mut ctx)
@@ -695,21 +707,40 @@ fn main() {
     let algorithm = match std::env::var("ALGO").as_deref() {
         Ok("whole") => Algorithm::Whole,
         Ok("redecode") => Algorithm::ConjunctsRedecode,
+        Ok("query") => Algorithm::Query,
         _ => Algorithm::Conjuncts,
     };
     let (variant, file, planned) = &FILES[0];
     let query = planned.iter().find(|q| q.name == wanted).expect("query");
     println!("{variant} {wanted} splits={}", query.splits.len());
+    if std::env::var("PLAN").is_ok() {
+        println!("{}", query.query.display_tree());
+    }
+    {
+        let unplanned = Query {
+            name: query.name,
+            filter: query.filter.clone(),
+            projection: query.projection_expr.clone(),
+            expected: query.expected,
+        };
+        let start = std::time::Instant::now();
+        let built = plan(file, &unplanned);
+        println!(
+            "plan build (lower+optimize+splits) {}ms, {} splits",
+            start.elapsed().as_secs_f64() * 1e3,
+            built.splits.len()
+        );
+    }
     for _ in 0..2 {
         if only != "v1" {
             let start = std::time::Instant::now();
             let rows = run_exec(file, query, algorithm);
-            println!("exec rows={rows} {:?}", start.elapsed());
+            println!("exec rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
         }
         if only != "exec" {
             let start = std::time::Instant::now();
             let rows = run_v1(file, query);
-            println!("v1   rows={rows} {:?}", start.elapsed());
+            println!("v1   rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
         }
     }
 }
