@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bit_vec::BitVec;
 use vortex_array::ArrayRef;
@@ -171,6 +173,13 @@ fn is_numeric_predicate(expression: &BoundExpression) -> bool {
     simple && expression.children().iter().all(is_numeric_predicate)
 }
 
+fn prefetch_projection() -> bool {
+    static ENABLED: LazyLock<bool> = LazyLock::new(|| {
+        env::var("VORTEX_SCAN_PREFETCH_PROJECTION").is_ok_and(|value| value == "1")
+    });
+    *ENABLED
+}
+
 /// Evaluates a split's filter to a selection, then hands the selection to `next`.
 ///
 /// The filter is split into conjuncts, and each runs as its own plan over the rows the previous
@@ -266,13 +275,21 @@ impl FilterPlanner {
     /// Prefetches of every segment the plans not yet evaluated, other than `running`, read over
     /// the rows selected now. Their ids count down from the top, clear of the ids the plans'
     /// graphs count up from.
+    ///
+    /// With `VORTEX_SCAN_PREFETCH_PROJECTION=1`, a filter also prefetches the projection over the
+    /// same rows, saving the projection a round trip at the cost of reading the chunks of rows the
+    /// filter goes on to drop.
     fn prefetch_others(&self, running: usize) -> VortexResult<IoBatch> {
+        let projection = matches!(self.keep, Keep::True) && prefetch_projection();
         let mut ids = Vec::new();
         for range in selected_ranges(&self.scope.rows, &self.mask) {
             for (index, plan) in self.filters.plans.iter().enumerate() {
                 if index != running && self.remaining[index] {
                     plan_segments(plan, range.clone(), &mut ids)?;
                 }
+            }
+            if projection {
+                plan_segments(&self.plans.projection, range, &mut ids)?;
             }
         }
         ids.sort_unstable();
