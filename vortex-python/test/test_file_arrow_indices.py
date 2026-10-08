@@ -11,7 +11,7 @@ import vortex.expr as ve
 
 
 @pytest.fixture
-def indexed_file(tmp_path: Path):
+def indexed_file(tmp_path: Path) -> tuple[vx.VortexFile, pa.Table]:
     table = pa.table(
         {
             "id": range(9),
