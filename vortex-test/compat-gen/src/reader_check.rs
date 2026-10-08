@@ -188,7 +188,18 @@ pub fn check_reader(dir: &Path, arrow_dir: &Path) -> VortexResult<()> {
             if !arrow_path.exists() {
                 vortex_bail!("old reader produced no output for this fixture");
             }
-            let current = read_to_batch(&dir.join(&name))?;
+            // A panic in the current reader is a finding too, so record it instead of ending the run.
+            let current = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                read_to_batch(&dir.join(&name))
+            }))
+            .unwrap_or_else(|panic| {
+                let msg = panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "unknown panic".to_string());
+                Err(vortex_err!("current reader panicked: {msg}"))
+            })?;
             let old = read_ipc(&arrow_path)?;
             compare(&current, &old)
         })();
