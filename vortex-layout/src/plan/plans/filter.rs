@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -15,7 +17,13 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::SegmentScan;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::FilterNode;
+use crate::plan::exec::SegmentScanNode;
+use crate::plan::exec::Selection;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -85,5 +93,30 @@ impl PlanVTable for Filter {
         } else {
             Cow::Owned(format!("child[{index}]"))
         }
+    }
+
+    /// Runs fused with a segment-scan child, as one node that keeps the selected rows itself;
+    /// over any other child, as a filter node that filters the child's whole pieces.
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        let child = plan.child_plan()?;
+        let Some(scan) = child.as_opt::<SegmentScan>() else {
+            return Ok(Box::new(FilterNode::new(
+                plan.clone(),
+                Selection::try_new(rows, mask)?,
+                ctx.session().clone(),
+            )));
+        };
+        let filter = Some(mask.clone());
+        Ok(Box::new(SegmentScanNode::try_new(
+            scan.clone(),
+            Selection::try_new(rows, mask)?,
+            filter,
+            ctx.clone(),
+        )?))
     }
 }

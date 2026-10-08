@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
@@ -14,6 +17,10 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::SegmentScanNode;
+use crate::plan::exec::Selection;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -91,5 +98,20 @@ impl PlanVTable for SegmentScan {
     ) -> VortexResult<()> {
         check_child_count("SegmentScan", children, 0)?;
         Ok(())
+    }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        // A bare scan returns every row; a Filter over it runs the same node with a filter.
+        Ok(Box::new(SegmentScanNode::try_new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+            None,
+            ctx.clone(),
+        )?))
     }
 }

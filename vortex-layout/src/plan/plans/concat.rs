@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -18,6 +20,10 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::exec::ConcatNode;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanParentReduceRule;
 
 /// Concatenates its children row-wise.
@@ -141,6 +147,18 @@ impl PlanVTable for Concat {
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         Cow::Owned(format!("chunks[{index}]"))
+    }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        _ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(ConcatNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+        )))
     }
 }
 

@@ -128,7 +128,7 @@ pub fn row_dtype() -> DType {
 ///
 /// A selected source emits only the rows its mask selects, as every operator does. A dense
 /// source ignores its mask and emits every row of its range, as a bare segment scan does, so
-/// a filter plan can sit over it. The indices are the plan's own rows, so
+/// a [`Filter`](crate::plan::Filter) can sit over it. The indices are the plan's own rows, so
 /// a parent that reorders or filters can be checked against a sequence. Piece lengths count
 /// emitted rows; the last piece takes whatever remains.
 pub struct RowSource {

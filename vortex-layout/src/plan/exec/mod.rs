@@ -36,6 +36,11 @@
 //! merge pipelines, and nodes that wait for a port to close, [`Ready::Closed`] and
 //! [`Ready::AllClosed`], are barriers between them, as a join build is in a query engine.
 
+mod concat;
+mod filter;
+mod pack;
+mod segment_scan;
+mod selection;
 pub mod synthetic;
 
 use std::collections::VecDeque;
@@ -668,5 +673,13 @@ impl From<StepCx<'_>> for Effects {
     }
 }
 
+pub(crate) use concat::ConcatNode;
+pub(crate) use filter::FilterNode;
+pub(crate) use pack::PackNode;
+pub(crate) use segment_scan::SegmentScanNode;
+pub(crate) use selection::Selection;
+
 #[cfg(test)]
 mod scheduling_tests;
+#[cfg(test)]
+mod tests;
