@@ -53,7 +53,7 @@ fn main() {
 fn case_when_decimal_product(bencher: Bencher, run_length: usize) {
     let len = 512;
     let lhs = DecimalArray::new(
-        Buffer::from_iter((0..len).map(|i| (i % 10_000) as i64)),
+        Buffer::from_iter((0..len).map(|i| i as i64)),
         DecimalDType::new(15, 2),
         Validity::NonNullable,
     )
