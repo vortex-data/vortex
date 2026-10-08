@@ -129,6 +129,13 @@ impl Input {
         self.pieces.drain(..).collect()
     }
 
+    /// Takes the next available array, if any.
+    pub fn pop(&mut self) -> Option<ArrayRef> {
+        let array = self.pieces.pop_front()?;
+        self.available -= array.len();
+        Some(array)
+    }
+
     /// Takes the next `n` rows, in row order, as the arrays that hold them. The array that
     /// spans the boundary is sliced, and its remainder stays available.
     ///
@@ -441,8 +448,10 @@ impl ExecGraph {
     ) -> VortexResult<Self> {
         let mut graph = Self {
             ctx: ExecContext::new(session, row_offset, decoded),
-            nodes: Vec::new(),
-            ready: Vec::new(),
+            // A split of a few columns runs about this many nodes; a split of one column
+            // inside one chunk runs two.
+            nodes: Vec::with_capacity(8),
+            ready: Vec::with_capacity(4),
             io_routes: SmallVec::new(),
             new_io: Vec::new(),
             outputs: VecDeque::new(),

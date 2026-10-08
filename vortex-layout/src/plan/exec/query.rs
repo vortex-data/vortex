@@ -135,7 +135,7 @@ impl ExecNode for QueryNode {
 
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         if self.projecting {
-            for array in cx.input(PROJECTION).take_all() {
+            while let Some(array) = cx.input(PROJECTION).pop() {
                 cx.emit(array);
             }
             if cx.input(PROJECTION).finished() {

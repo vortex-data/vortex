@@ -409,6 +409,10 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         };
         let residual = rewrite_partition_root(residual, rewritten.dtype().clone(), &collapsed)?;
 
+        // A residual that only re-packs the rewritten fields in order is the rewritten Pack.
+        if is_identity_expression(&residual, rewritten.dtype())? {
+            return Ok(Some(rewritten));
+        }
         if !fields_changed && residual == *expression {
             return Ok(None);
         }

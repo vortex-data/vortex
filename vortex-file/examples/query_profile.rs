@@ -390,7 +390,6 @@ struct Planned {
     whole_filter: Option<PlanRef>,
     projection: PlanRef,
     projection_expr: BoundExpression,
-    query: PlanRef,
     expected: usize,
     splits: Vec<std::ops::Range<u64>>,
 }
@@ -424,19 +423,42 @@ fn plan(file: &VortexFile, query: &Query) -> Planned {
         whole_filter: query.filter.clone().map(|f| optimized(f, &plan)),
         projection: optimized(query.projection.clone(), &plan),
         projection_expr: query.projection.clone(),
-        query: QueryPlan::try_new(query.filter.clone(), query.projection.clone(), plan)
-            .expect("query plan")
-            .into_plan(),
         expected: query.expected,
         splits: splits(file, query),
+    }
+}
+
+impl Planned {
+    /// Plans the query as one [`QueryPlan`] over `source`, the file's lowered layout, with the
+    /// splits to run it over, as a V1 scan prepares on every scan over its shared reader tree.
+    fn build(&self, file: &VortexFile, source: &PlanRef) -> (PlanRef, Vec<std::ops::Range<u64>>) {
+        let query = QueryPlan::try_new(
+            self.filter.clone(),
+            self.projection_expr.clone(),
+            source.clone(),
+        )
+        .expect("query plan")
+        .into_plan();
+        (
+            query,
+            layout_splits(file, &self.projection_expr, self.filter.as_ref()),
+        )
     }
 }
 
 /// The natural splits of a query: the chunk boundaries of the columns it reads, as the V1 scan
 /// computes them for the same filter and projection.
 fn splits(file: &VortexFile, query: &Query) -> Vec<std::ops::Range<u64>> {
+    layout_splits(file, &query.projection, query.filter.as_ref())
+}
+
+fn layout_splits(
+    file: &VortexFile,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+) -> Vec<std::ops::Range<u64>> {
     let reader = file.layout_reader().expect("reader");
-    let masks = referenced_field_masks(&query.projection, query.filter.as_ref()).expect("masks");
+    let masks = referenced_field_masks(projection, filter).expect("masks");
     SplitBy::Layout
         .splits(reader.as_ref(), &(0..file.row_count()), &masks)
         .expect("splits")
@@ -445,7 +467,15 @@ fn splits(file: &VortexFile, query: &Query) -> Vec<std::ops::Range<u64>> {
         .collect()
 }
 
-static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock::new(|| {
+/// A file variant, its layout lowered to a plan once, and its planned queries.
+struct Fixture {
+    name: &'static str,
+    file: VortexFile,
+    source: PlanRef,
+    planned: Vec<Planned>,
+}
+
+static FILES: LazyLock<Vec<Fixture>> = LazyLock::new(|| {
     let t = table();
     let wanted = std::env::var("VARIANT").unwrap_or_else(|_| "plain-256".to_string());
     VARIANTS
@@ -457,7 +487,13 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock
                 .iter()
                 .map(|query| plan(&file, query))
                 .collect();
-            (variant.name, file, planned)
+            let source = lower(file.footer().layout()).expect("lower");
+            Fixture {
+                name: variant.name,
+                file,
+                source,
+                planned,
+            }
         })
         .collect()
 });
@@ -466,20 +502,25 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock
 fn cases() -> Vec<&'static str> {
     FILES
         .iter()
-        .flat_map(|(variant, _, planned)| {
-            planned
+        .flat_map(|fixture| {
+            fixture
+                .planned
                 .iter()
-                .map(move |q| &*Box::leak(format!("{}@{variant}", q.name).into_boxed_str()))
+                .map(move |q| &*Box::leak(format!("{}@{}", q.name, fixture.name).into_boxed_str()))
         })
         .collect()
 }
 
-fn lookup(case: &str) -> (&'static VortexFile, &'static Planned) {
+fn lookup(case: &str) -> (&'static Fixture, &'static Planned) {
     let (name, variant) = case.split_once('@').expect("case");
-    let (_, file, planned) = FILES.iter().find(|(v, ..)| *v == variant).expect("variant");
+    let fixture = FILES.iter().find(|f| f.name == variant).expect("variant");
     (
-        file,
-        planned.iter().find(|q| q.name == name).expect("query"),
+        fixture,
+        fixture
+            .planned
+            .iter()
+            .find(|q| q.name == name)
+            .expect("query"),
     )
 }
 
@@ -603,9 +644,10 @@ fn run(
     file: &VortexFile,
     query: &Planned,
     algorithm: Algorithm,
+    source: &PlanRef,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> usize {
-    let source = file.segment_source();
+    let segments = file.segment_source();
     let shared = DecodeCache::default();
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
@@ -614,24 +656,29 @@ fn run(
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
     let mut rows = 0;
+    if matches!(algorithm, Algorithm::Query) {
+        let (plan, splits) = query.build(file, source);
+        for split in splits {
+            let len = (split.end - split.start) as usize;
+            drive(
+                &segments,
+                &plan,
+                split,
+                Mask::new_true(len),
+                &cache(),
+                |array| rows += array.len(),
+            );
+        }
+        return rows;
+    }
     for split in &query.splits {
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
-            Algorithm::Query => {
-                drive(
-                    &source,
-                    &query.query,
-                    split.clone(),
-                    mask,
-                    &cache(),
-                    |array| rows += array.len(),
-                );
-                continue;
-            }
+            Algorithm::Query => unreachable!("handled above"),
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
-                    let pieces = predicate(&source, filter, split.clone(), &cache());
+                    let pieces = predicate(&segments, filter, split.clone(), &cache());
                     mask = ChunkedArray::try_new(pieces, filter.dtype().clone())
                         .expect("predicate")
                         .into_array()
@@ -649,7 +696,7 @@ fn run(
                         }
                         let input = mask.true_count();
                         mask = evaluate_conjunct(
-                            &source,
+                            &segments,
                             &query.conjuncts[idx],
                             split.clone(),
                             &mask,
@@ -665,7 +712,7 @@ fn run(
             continue;
         }
         drive(
-            &source,
+            &segments,
             &query.projection,
             split.clone(),
             mask,
@@ -696,9 +743,9 @@ fn run_v1(file: &VortexFile, query: &Planned) -> usize {
 }
 
 #[inline(never)]
-fn run_exec(file: &VortexFile, query: &Planned, algorithm: Algorithm) -> usize {
+fn run_exec(file: &VortexFile, query: &Planned, algorithm: Algorithm, source: &PlanRef) -> usize {
     let mut ctx = SESSION.create_execution_ctx();
-    run(file, query, algorithm, &mut ctx)
+    run(file, query, algorithm, source, &mut ctx)
 }
 
 fn main() {
@@ -710,31 +757,30 @@ fn main() {
         Ok("query") => Algorithm::Query,
         _ => Algorithm::Conjuncts,
     };
-    let (variant, file, planned) = &FILES[0];
+    let Fixture {
+        name: variant,
+        file,
+        source,
+        planned,
+    } = &FILES[0];
     let query = planned.iter().find(|q| q.name == wanted).expect("query");
     println!("{variant} {wanted} splits={}", query.splits.len());
-    if std::env::var("PLAN").is_ok() {
-        println!("{}", query.query.display_tree());
-    }
     {
-        let unplanned = Query {
-            name: query.name,
-            filter: query.filter.clone(),
-            projection: query.projection_expr.clone(),
-            expected: query.expected,
-        };
         let start = std::time::Instant::now();
-        let built = plan(file, &unplanned);
+        let (built, splits) = query.build(file, source);
         println!(
             "plan build (lower+optimize+splits) {}ms, {} splits",
             start.elapsed().as_secs_f64() * 1e3,
-            built.splits.len()
+            splits.len()
         );
+        if std::env::var("PLAN").is_ok() {
+            println!("{built}");
+        }
     }
     for _ in 0..2 {
         if only != "v1" {
             let start = std::time::Instant::now();
-            let rows = run_exec(file, query, algorithm);
+            let rows = run_exec(file, query, algorithm, source);
             println!("exec rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
         }
         if only != "exec" {

@@ -81,13 +81,10 @@ impl ExecNode for ConcatNode {
 
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         while self.current < self.ports {
-            let input = cx.input(self.current);
-            let arrays = input.take_all();
-            let finished = input.finished();
-            for array in arrays {
+            while let Some(array) = cx.input(self.current).pop() {
                 cx.emit(array);
             }
-            if !finished {
+            if !cx.input(self.current).finished() {
                 return Ok(NodeState::Wait);
             }
             self.current += 1;

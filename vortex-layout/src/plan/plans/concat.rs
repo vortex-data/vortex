@@ -14,12 +14,14 @@ use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
 use crate::plan::EvalPlan;
+use crate::plan::Filter;
 use crate::plan::Plan;
 use crate::plan::PlanChildren;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::SegmentScan;
 use crate::plan::exec::ConcatNode;
 use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
@@ -162,7 +164,12 @@ impl PlanVTable for Concat {
     }
 }
 
-/// Pushes an expression into every chunk of a [`Concat`].
+/// Pushes an expression into every chunk of a [`Concat`] whose chunks it may push further
+/// into, such as the packs of a chunked struct.
+///
+/// Chunks that are scans, or filters over scans, are left alone: the expression over the
+/// concatenation is applied to each chunk's rows as they arrive anyway, so pushing it down
+/// would only multiply the plan nodes by the chunk count.
 #[derive(Debug)]
 pub(crate) struct ExpressionConcatRule;
 
@@ -176,13 +183,33 @@ impl PlanParentReduceRule<Concat> for ExpressionConcatRule {
         _child_idx: usize,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression();
-        let chunks = child
-            .children()
-            .iter()
-            .map(|chunk| Ok(EvalPlan::try_new(expression.clone(), chunk?)?.into_plan()))
+        let mut chunks = Vec::with_capacity(child.children().len());
+        let mut pushable = false;
+        for chunk in child.children().iter() {
+            let chunk = chunk?;
+            pushable |= !is_scan(&chunk)?;
+            chunks.push(chunk);
+        }
+        if !pushable {
+            return Ok(None);
+        }
+        let chunks = chunks
+            .into_iter()
+            .map(|chunk| Ok(EvalPlan::try_new(expression.clone(), chunk)?.into_plan()))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(Some(
             ConcatPlan::try_new(expression.dtype().clone(), chunks)?.into_plan(),
         ))
+    }
+}
+
+/// Whether `plan` is a scan of one segment, possibly filtered: a leaf no expression pushes into.
+fn is_scan(plan: &PlanRef) -> VortexResult<bool> {
+    if plan.is::<SegmentScan>() {
+        return Ok(true);
+    }
+    match plan.as_opt::<Filter>() {
+        Some(filter) => Ok(filter.child_plan()?.is::<SegmentScan>()),
+        None => Ok(false),
     }
 }

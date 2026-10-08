@@ -82,7 +82,7 @@ impl ExecNode for FilterNode {
 
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         let predicate = self.plan.dtype().is_boolean();
-        for array in cx.input(CHILD).take_all() {
+        while let Some(array) = cx.input(CHILD).pop() {
             let mask = self
                 .selection
                 .mask()

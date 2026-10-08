@@ -38,7 +38,7 @@ impl ExecNode for EvalNode {
     }
 
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
-        for array in cx.input(CHILD).take_all() {
+        while let Some(array) = cx.input(CHILD).pop() {
             cx.emit(array.apply_bound(self.plan.expression())?);
         }
         if cx.input(CHILD).finished() {

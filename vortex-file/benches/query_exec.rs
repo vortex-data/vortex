@@ -393,8 +393,7 @@ struct Planned {
     conjuncts: Vec<PlanRef>,
     whole_filter: Option<PlanRef>,
     projection: PlanRef,
-    /// The filter and projection as one [`QueryPlan`], run as one graph per split.
-    query: PlanRef,
+    projection_expr: BoundExpression,
     expected: usize,
     splits: Vec<std::ops::Range<u64>>,
 }
@@ -427,19 +426,45 @@ fn plan(file: &VortexFile, query: &Query) -> Planned {
         conjuncts,
         whole_filter: query.filter.clone().map(|f| optimized(f, &plan)),
         projection: optimized(query.projection.clone(), &plan),
-        query: QueryPlan::try_new(query.filter.clone(), query.projection.clone(), plan)
-            .expect("query plan")
-            .into_plan(),
+        projection_expr: query.projection.clone(),
         expected: query.expected,
         splits: splits(file, query),
+    }
+}
+
+impl Planned {
+    /// Plans the query as one [`QueryPlan`] over `source`, the file's lowered layout, with the
+    /// splits to run it over: everything a scan of the file does before its first read, so a
+    /// run that starts here is timed like a V1 scan, which prepares its splits on every scan.
+    /// The lowered layout is shared across runs, as the V1 scan shares the file's reader tree.
+    fn build(&self, file: &VortexFile, source: &PlanRef) -> (PlanRef, Vec<std::ops::Range<u64>>) {
+        let query = QueryPlan::try_new(
+            self.filter.clone(),
+            self.projection_expr.clone(),
+            source.clone(),
+        )
+        .expect("query plan")
+        .into_plan();
+        (
+            query,
+            layout_splits(file, &self.projection_expr, self.filter.as_ref()),
+        )
     }
 }
 
 /// The natural splits of a query: the chunk boundaries of the columns it reads, as the V1 scan
 /// computes them for the same filter and projection.
 fn splits(file: &VortexFile, query: &Query) -> Vec<std::ops::Range<u64>> {
+    layout_splits(file, &query.projection, query.filter.as_ref())
+}
+
+fn layout_splits(
+    file: &VortexFile,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+) -> Vec<std::ops::Range<u64>> {
     let reader = file.layout_reader().expect("reader");
-    let masks = referenced_field_masks(&query.projection, query.filter.as_ref()).expect("masks");
+    let masks = referenced_field_masks(projection, filter).expect("masks");
     SplitBy::Layout
         .splits(reader.as_ref(), &(0..file.row_count()), &masks)
         .expect("splits")
@@ -448,7 +473,15 @@ fn splits(file: &VortexFile, query: &Query) -> Vec<std::ops::Range<u64>> {
         .collect()
 }
 
-static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock::new(|| {
+/// A file variant, its layout lowered to a plan once, and its planned queries.
+struct Fixture {
+    name: &'static str,
+    file: VortexFile,
+    source: PlanRef,
+    planned: Vec<Planned>,
+}
+
+static FILES: LazyLock<Vec<Fixture>> = LazyLock::new(|| {
     let t = table();
     VARIANTS
         .iter()
@@ -458,7 +491,13 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock
                 .iter()
                 .map(|query| plan(&file, query))
                 .collect();
-            (variant.name, file, planned)
+            let source = lower(file.footer().layout()).expect("lower");
+            Fixture {
+                name: variant.name,
+                file,
+                source,
+                planned,
+            }
         })
         .collect()
 });
@@ -467,20 +506,25 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock
 fn cases() -> Vec<&'static str> {
     FILES
         .iter()
-        .flat_map(|(variant, _, planned)| {
-            planned
+        .flat_map(|fixture| {
+            fixture
+                .planned
                 .iter()
-                .map(move |q| &*Box::leak(format!("{}@{variant}", q.name).into_boxed_str()))
+                .map(move |q| &*Box::leak(format!("{}@{}", q.name, fixture.name).into_boxed_str()))
         })
         .collect()
 }
 
-fn lookup(case: &str) -> (&'static VortexFile, &'static Planned) {
+fn lookup(case: &str) -> (&'static Fixture, &'static Planned) {
     let (name, variant) = case.split_once('@').expect("case");
-    let (_, file, planned) = FILES.iter().find(|(v, ..)| *v == variant).expect("variant");
+    let fixture = FILES.iter().find(|f| f.name == variant).expect("variant");
     (
-        file,
-        planned.iter().find(|q| q.name == name).expect("query"),
+        fixture,
+        fixture
+            .planned
+            .iter()
+            .find(|q| q.name == name)
+            .expect("query"),
     )
 }
 
@@ -598,7 +642,9 @@ enum Algorithm {
     ConjunctsRedecode,
     /// `Conjuncts` inside the graph: one `Query` plan per split evaluates the conjuncts and the
     /// projection as one graph, so the segments it reads are decoded once per split without a
-    /// cache, as the V1 reader runs one split at a time.
+    /// cache, as the V1 reader runs one split at a time. The plan is lowered and optimized and
+    /// the splits are computed inside the run, as a V1 scan prepares on every scan; the other
+    /// algorithms use plans built once, so they isolate the executor from planning.
     Query,
 }
 
@@ -613,9 +659,10 @@ fn run(
     file: &VortexFile,
     query: &Planned,
     algorithm: Algorithm,
+    source: &PlanRef,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> usize {
-    let source = file.segment_source();
+    let segments = file.segment_source();
     let shared = DecodeCache::default();
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
@@ -624,24 +671,29 @@ fn run(
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
     let mut rows = 0;
+    if matches!(algorithm, Algorithm::Query) {
+        let (plan, splits) = query.build(file, source);
+        for split in splits {
+            let len = (split.end - split.start) as usize;
+            drive(
+                &segments,
+                &plan,
+                split,
+                Mask::new_true(len),
+                &cache(),
+                |array| rows += array.len(),
+            );
+        }
+        return rows;
+    }
     for split in &query.splits {
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
-            Algorithm::Query => {
-                drive(
-                    &source,
-                    &query.query,
-                    split.clone(),
-                    mask,
-                    &cache(),
-                    |array| rows += array.len(),
-                );
-                continue;
-            }
+            Algorithm::Query => unreachable!("handled above"),
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
-                    let pieces = predicate(&source, filter, split.clone(), &cache());
+                    let pieces = predicate(&segments, filter, split.clone(), &cache());
                     mask = ChunkedArray::try_new(pieces, filter.dtype().clone())
                         .expect("predicate")
                         .into_array()
@@ -659,7 +711,7 @@ fn run(
                         }
                         let input = mask.true_count();
                         mask = evaluate_conjunct(
-                            &source,
+                            &segments,
                             &query.conjuncts[idx],
                             split.clone(),
                             &mask,
@@ -675,7 +727,7 @@ fn run(
             continue;
         }
         drive(
-            &source,
+            &segments,
             &query.projection,
             split.clone(),
             mask,
@@ -689,13 +741,13 @@ fn run(
 /// One exec graph run of the query over the file's natural splits, under each filter algorithm.
 #[divan::bench(args = cases(), consts = [0, 1, 2, 3])]
 fn exec<const ALGORITHM: usize>(bencher: Bencher, case: &str) {
-    let (file, query) = lookup(case);
+    let (fixture, query) = lookup(case);
     let algorithm = ALGORITHMS[ALGORITHM];
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(query.expected))
         .bench_local(|| {
-            let rows = run(file, query, algorithm, &mut ctx);
+            let rows = run(&fixture.file, query, algorithm, &fixture.source, &mut ctx);
             assert_eq!(rows, query.expected);
         });
 }

@@ -609,7 +609,7 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
 }
 
 #[test]
-fn row_idx_and_data_expression_pushes_data_into_chunks() -> VortexResult<()> {
+fn row_idx_and_data_expression_stays_over_scan_chunks() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let layout = ChunkedLayout::new(
         3,
@@ -626,12 +626,11 @@ fn row_idx_and_data_expression_pushes_data_into_chunks() -> VortexResult<()> {
       child: vortex.plan.pack({row_idx=bool, child=bool}, rows=3)
         row_idx: vortex.plan.eval(bool, rows=3) expr=($ > 10u64)
           child: vortex.plan.row_idx(u64, rows=3)
-        child: vortex.plan.concat(bool, rows=3)
-          chunks[0]: vortex.plan.eval(bool, rows=1) expr=($ > 5i32)
-            child: vortex.plan.filter(i32, rows=1)
+        child: vortex.plan.eval(bool, rows=3) expr=($ > 5i32)
+          child: vortex.plan.concat(i32, rows=3)
+            chunks[0]: vortex.plan.filter(i32, rows=1)
               child: vortex.plan.segment_scan(i32, rows=1)
-          chunks[1]: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
-            child: vortex.plan.filter(i32, rows=2)
+            chunks[1]: vortex.plan.filter(i32, rows=2)
               child: vortex.plan.segment_scan(i32, rows=2)
     ");
     Ok(())

@@ -59,6 +59,12 @@ impl PlanRef {
         Arc::ptr_eq(&lhs.0, &rhs.0)
     }
 
+    /// The address of the shared plan, as a key that identifies it while a reference to it is
+    /// held.
+    pub(crate) fn as_ptr_key(&self) -> usize {
+        Arc::as_ptr(&self.0) as *const () as usize
+    }
+
     /// Returns the operator ID.
     pub fn id(&self) -> PlanId {
         self.0.id
