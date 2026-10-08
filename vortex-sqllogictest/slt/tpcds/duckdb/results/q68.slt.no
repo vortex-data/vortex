@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTIRRR
+SELECT c_last_name,
+       c_first_name,
+       ca_city,
+       bought_city,
+       ss_ticket_number,
+       extended_price,
+       extended_tax,
+       list_price
+FROM
+  (SELECT ss_ticket_number,
+          ss_customer_sk,
+          ca_city bought_city,
+          sum(ss_ext_sales_price) extended_price,
+          sum(ss_ext_list_price) list_price,
+          sum(ss_ext_tax) extended_tax
+   FROM store_sales,
+        date_dim,
+        store,
+        household_demographics,
+        customer_address
+   WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
+     AND store_sales.ss_store_sk = store.s_store_sk
+     AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND store_sales.ss_addr_sk = customer_address.ca_address_sk
+     AND date_dim.d_dom BETWEEN 1 AND 2
+     AND (household_demographics.hd_dep_count = 4
+          OR household_demographics.hd_vehicle_count= 3)
+     AND date_dim.d_year IN (1999,
+                             1999+1,
+                             1999+2)
+     AND store.s_city IN ('Fairview',
+                          'Midway')
+   GROUP BY ss_ticket_number,
+            ss_customer_sk,
+            ss_addr_sk,
+            ca_city) dn,
+     customer,
+     customer_address current_addr
+WHERE ss_customer_sk = c_customer_sk
+  AND customer.c_current_addr_sk = current_addr.ca_address_sk
+  AND current_addr.ca_city <> bought_city
+ORDER BY c_last_name NULLS FIRST,
+         ss_ticket_number NULLS FIRST
+LIMIT 100;
+----
+NULL NULL Concord Fox 70 15617.02 1059.2 35200.1
+NULL Barbara Lakewood Crossroads 1605 39675.78 1585.03 67339.13
+NULL Kathleen Hardy Oak Hill 4883 24648.88 593.86 51214.77
+NULL Steven Millwood Willow 7453 18758.18 633.79 45256.55
+NULL NULL Springdale Harmony 8257 39278.49 1894.21 67320.03
+NULL NULL Riverview Centerville 14846 16708.43 1059.51 26169.35
+NULL John Enterprise Pleasant Grove 23464 13000.02 223.41 34977.93
+Adams Bryan Waterloo Newtown 20839 25454.42 780.04 52866.38
+Adcock Dawn Clifton Marion 19523 37144.42 2143.71 61434.97
+Adkins Melissa Deerfield Lakewood 18097 6090.83 204.04 11238.81
+Allen Lori Five Points Springfield 11041 9179.25 320.48 25672.49
+Amos Ima Franklin Springfield 21981 21459 755.93 54158.21
+Angel Flora Newport Oakdale 8451 30029.63 789.73 75153.35
+Arrington Victor Elm Grove Bridgeport 8622 8688.08 479.4 35842.3
+Ashe Sara Riverdale Royal 1192 17307.9 459.09 29839.33
+Ashe Barbara Spring Hill Mount Vernon 17181 30636.04 1477.92 58401.82
+Atkinson Kelli Oakwood Lincoln 1463 19994.85 1284.27 44678.83
+Bailey Charlotte Providence Hamilton 12226 12660.12 467.44 22492.11
+Baker Amy Newtown Pine Grove 5701 35178.08 1086.67 46445.74
+Baldwin Laura Red Hill Sulphur Springs 16488 22043.81 560.9 62207.68
+Ball John Lincoln Liberty 11987 14756.56 509.06 26184.34
+Battle John Fairview Clinton 794 20178.98 900.99 43712.68
+Bell Walter Langdon Liberty 16574 31106.41 1024.04 56086
+Blanchard Phillip Pine Grove Centerville 3681 22226.45 674.64 44938.66
+Bliss Heidi Pleasant Grove Allison 2013 5856.19 93.67 16524.8
+Breeden April Oak Hill Greenfield 1574 35813.69 1219.84 52494.3
+Britt Inez Oakwood Hillcrest 61 8996.92 385.04 13384.62
+Bryant Bernard Philadelphia Spring Hill 22333 20421.22 1085.05 37683.65
+Buck Amanda Stringtown Bayside 22536 24107.1 757.16 36157.62
+Burnette Louis Union Hill Jamestown 6096 10951.73 289.59 30688.82
+Calloway Maxine Brownsville Woodbury 15897 36156.1 1603.21 63194.69
+Carr Kathleen Bethel Shady Grove 17770 13137.92 721.71 40092.97
+Castillo Roxane Stringtown Riverdale 435 8721.49 171.82 30368.34
+Chamberlin Michael Greenwood Mechanicsburg 18086 21483.02 1063.94 38890.2
+Chaney Donna Lincoln Johnsonville 19617 26743.33 1590.02 56877.18
+Chang Deanna Lincoln Highland Park 8798 16650.29 460.69 28191.19
+Chavez Tanya Lincoln Hamilton 4969 25218.54 1254.61 44064.58
+Chen Neva Oak Grove Friendship 16314 21344.97 359.85 31476.95
+Cole Ruby Arlington Mount Olive 10552 21056.35 761.5 34509.38
+Cole Matthew Hopewell Fox 11664 15195.02 759.39 34199.01
+Concepcion Robert Woodlawn Farmington 2858 25416.85 720.89 39207.16
+Connolly Pamela Webb Allison 8899 34547.25 1429.55 42666.61
+Contreras Joni Friendship Wilson 19528 9611.24 472.22 39766.16
+Cook Darrin Florence Lee 9063 19439.35 415.56 31816.75
+Cooper Susan Enterprise Five Points 14345 18007.52 461.89 44270.22
+Cooper Eric Hopewell Springfield 19422 11602.09 220.32 24358.55
+Corrigan Christy Clifton Bunker Hill 11524 12411.12 511 17954.39
+Corrigan Christy Clifton Newtown 17823 20144.88 732.13 30205
+Coughlin Sonja Stewart Summit 22147 23533.01 1088.39 50291.83
+Cox Shaun Hopewell Lakewood 15214 17902.55 673.09 44334.26
+Crum Henry Unionville Mount Olive 20855 24612.62 739.59 54435.89
+Davidson Darrell Green Acres Union City 4114 24112 1150.55 54824.29
+Davis Donald Clifton Sulphur Springs 8102 17552.12 354.99 29643.59
+Davis Leroy Red Hill Bunker Hill 21158 10195.51 528.82 37308.96
+Decker Timothy White Oak Enterprise 6664 14887.04 577.92 40015.91
+Dyer Patrick Plainview Highland Park 11389 9129.27 183.23 25810.79
+Ellison Anne Stratford Union Hill 17581 22250.6 887.25 38906.25
+Evans Ladonna New Hope Harmony 4613 23953.22 527.69 41640.77
+Fleming NULL Unionville Wilton 16959 10740.57 553.42 20441.22
+Fortune Lois Bethel Florence 15040 27074.44 1811.52 42103.06
+Foster NULL Union Wildwood 1167 9921.97 440.34 22954.42
+Freeman Marcus Crossroads Red Hill 20496 30719.75 1206.25 53820.87
+Garcia Yolanda Edgewood Woodville 16156 21765.73 903.11 51976.3
+Gibbs Cheryl Oakwood Oakland 14045 28114.73 1224.92 45980.16
+Gibson Walter Mount Olive Macedonia 20024 15595.45 820.75 42519.71
+Goldstein Alexander Greenwood Glenwood 5802 20313.44 550.48 32864.59
+Grant Maryanne Shiloh Lincoln 10097 24335.25 1091.55 59382.63
+Gregory Leola Woodville Springdale 5405 17671.23 472 36908.87
+Grissom Cecelia Woodlawn Centerville 12822 22306.1 724.92 43619.95
+Hackett Marsha Highland Park Waterloo 4003 26750.03 1230.77 45351.12
+Hagen Catherine Indian Village Mountain View 18488 36233.51 1082.57 71603.51
+Hampton Sadie Red Hill Edgewood 13726 38082.01 1211.61 63105.35
+Harrison Holly Forest Hills Oakwood 10214 15816.26 694.39 53257.14
+Hawley Lucille Kingston Lincoln 23825 31826.38 1614.37 63152.44
+Healy William Georgetown Bunker Hill 15164 15234.39 723.77 23344.65
+Henry Delores Mount Olive Deerfield 10445 27392.16 1670.48 57869.67
+Herring Michael Concord Enterprise 20089 19308.17 676.23 36135.22
+Hightower John Mount Pleasant Green Acres 13639 15527.44 842 41596.48
+Holmes Suzanne Wyoming Frogtown 15229 21344.8 1105.63 51707.33
+Hooper Gloria Mount Zion Lakewood 4342 20373.55 354.29 36173.32
+Hopkins Erica Union Hill Mount Zion 20888 26792.75 964.56 65569.23
+Howard Judith Pleasant Hill Valley View 7406 31828.08 1482.09 45803.05
+Hubbard Chad Jamestown Pleasant Valley 22508 25125.05 1120.25 58067.2
+Hughes James Pine Grove Springdale 15340 8993.84 340.37 22594.65
+Hull Steven Kingston Fairview 17039 20950.63 411.47 37221.89
+Ingle Edward Spring Valley Cedar Grove 20385 22235.18 909.9 58582.09
+Jackson Marie The Meadows Spring Hill 3317 16181.19 655.54 48276.14
+Jackson Barbara Bethel Greenfield 18152 8358.07 136.19 25457.22
+Johnson Trina Oak Ridge Midway 5177 43275.74 1836.89 93396.45
+Johnson Beverly Oakdale Enterprise 7637 45541 1549.33 67878.3
+Johnson Kerrie Jamestown Sumner 7859 25314.9 652.7 43507.1
+Johnson Phil Shiloh Lakeview 7931 23532.56 999.61 64079.67
+Johnson David Lakewood Hillcrest 11067 26568.84 878.62 54491.91
+Jones Jeremy Red Hill Woodland 3664 15705.27 634.76 41605.59
+Jones Sandra Clifton Pleasant Hill 6429 21785.67 1439.29 46543.07
+Jones Faye Woodland Ashland 12403 23085.58 1255.95 44658.36
+Jones Rodney Crossroads Hopewell 12770 18657.31 626.15 30319.14
+Jones John Spring Grove Hardy 14194 21472.19 824.92 37021.54
+Khan Lou Antioch Foster 3754 38265.07 1328.12 53159.75
+King Brent White Oak Spring Hill 23833 31437 1598.67 52167.65

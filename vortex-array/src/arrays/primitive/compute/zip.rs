@@ -15,6 +15,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::zip::ZipKernel;
@@ -46,7 +47,7 @@ impl ZipKernel for Primitive {
         }
 
         // Null mask entries select `if_false`, matching `Zip`'s SQL ELSE semantics.
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         match &mask {
             // Defer trivial masks to the generic zip, which just casts the surviving side.
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),

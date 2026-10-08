@@ -89,7 +89,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         Ok(())
     }
 
-    fn fold_partial_scalar(&mut self, scalar: Scalar) -> VortexResult<()> {
+    fn fold_partial_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         let other = self
             .vtable
             .partial_from_scalar(self.dtypes.args(&self.options), scalar)?;
@@ -113,7 +113,7 @@ pub trait DynAccumulator: 'static + Send {
     ///
     /// The scalar must have the dtype reported by the vtable's `partial_dtype`, and represents
     /// input following the input already accumulated.
-    fn combine_partials(&mut self, partial: Scalar) -> VortexResult<()>;
+    fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()>;
 
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
@@ -178,7 +178,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 );
                 partial.cast(&self.dtypes.partial_dtype)?
             };
-            self.fold_partial_scalar(partial)?;
+            self.fold_partial_scalar(&partial)?;
             return Ok(());
         }
 
@@ -201,7 +201,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                     &self.dtypes.partial_dtype,
                     "Aggregate kernel returned the wrong partial dtype",
                 );
-                self.fold_partial_scalar(result)?;
+                self.fold_partial_scalar(&result)?;
                 return Ok(());
             }
         }
@@ -237,7 +237,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                     &self.dtypes.partial_dtype,
                     "Aggregate kernel returned the wrong partial dtype",
                 );
-                self.fold_partial_scalar(result)?;
+                self.fold_partial_scalar(&result)?;
                 return Ok(());
             }
 
@@ -271,7 +271,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         }
     }
 
-    fn combine_partials(&mut self, partial: Scalar) -> VortexResult<()> {
+    fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()> {
         vortex_ensure_eq!(
             partial.dtype(),
             &self.dtypes.partial_dtype,

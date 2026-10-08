@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, final
+from typing import IO, TYPE_CHECKING, final
 
 import pyarrow as pa
 
@@ -12,8 +12,10 @@ from ._lib import file as _file
 from ._lib.arrays import Array
 from ._lib.dtype import DType
 from ._lib.expr import Expr
+from ._lib.file import Footer, SegmentCache
 from ._lib.iter import ArrayIterator
 from .dataset import VortexDataset
+from .io import ReadAt, ReadBytesAt
 from .scan import RepeatedScan
 from .store import (
     AzureStore,
@@ -35,7 +37,10 @@ def open(
     path: str,
     *,
     store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+    footer: Footer | None = None,
     without_segment_cache: bool = False,
+    segment_cache: SegmentCache | None = None,
+    cache_key: str | None = None,
 ) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
@@ -47,8 +52,18 @@ def open(
     store :
         An object store created from the `vortex.store` package. By default
         the store is inferred based on the path
+    footer : :class:`vortex.file.Footer` | None
+        The :attr:`VortexFile.footer` of an earlier open of the same file. Opening then does not
+        read the footer. Vortex cannot check that it belongs to this file, so the file must be the
+        same one and must not have changed since.
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
+    segment_cache : :class:`vortex.SegmentCache` | None
+        A cache shared with other files, used in place of this file's own segment cache.
+        Requires ``cache_key``.
+    cache_key : :class:`str` | None
+        Identifies this file's contents within ``segment_cache``. Files opened with the same key
+        share cached segments, so the key must change whenever the file does.
 
     Examples
     --------
@@ -58,10 +73,86 @@ def open(
     >>> vxf = vx.open("data.vortex") # doctest: +SKIP
     >>> array_iterator = vxf.scan() # doctest: +SKIP
 
-    See also: :class:`vortex.dataset.VortexDataset`
+    See also: :func:`vortex.open_readable`, :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache))
+    return VortexFile(
+        _file.open(
+            path,
+            store=store,
+            footer=footer,
+            without_segment_cache=without_segment_cache,
+            segment_cache=segment_cache,
+            cache_key=cache_key,
+        )
+    )
+
+
+def open_readable(
+    reader: ReadBytesAt | ReadAt | IO[bytes],
+    *,
+    footer: Footer | None = None,
+    concurrency: int | None = None,
+    without_segment_cache: bool = False,
+    segment_cache: SegmentCache | None = None,
+    cache_key: str | None = None,
+) -> VortexFile:
+    """
+    Lazily open a Vortex file through a Python object that performs the IO itself.
+
+    Use this for storage only reachable from Python. Storage with a native object store should be
+    opened with :func:`vortex.open` instead, which does its IO without taking the GIL.
+
+    Parameters
+    ----------
+    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | binary file object
+        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, or a
+        binary file object with ``seek`` and ``readinto`` (or ``read``), such as
+        ``open(path, "rb")``, :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep
+        it open for as long as the returned file, or anything scanned from it, is in use.
+    footer : :class:`vortex.file.Footer` | None
+        The :attr:`VortexFile.footer` of an earlier open of the same file. Opening then does no IO,
+        which saves the footer read when a file is opened again and again. Vortex checks only that
+        the footer fits within the size of ``reader``, so the file must not have changed since.
+    concurrency : :class:`int` | None
+        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt` or
+        :class:`vortex.io.ReadAt`, 192 by default. Not accepted for a file object, whose reads are
+        serialized because each one has to ``seek`` first.
+    without_segment_cache : :class:`bool`
+        If true, disable the segment cache for this file, useful when memory is constrained.
+    segment_cache : :class:`vortex.SegmentCache` | None
+        A cache shared with other files, used in place of this file's own segment cache.
+        Requires ``cache_key``.
+    cache_key : :class:`str` | None
+        Identifies this file's contents within ``segment_cache``. Files opened with the same key
+        share cached segments, so the key must change whenever the file does.
+
+    Examples
+    --------
+    Open a Vortex file through an fsspec file object:
+
+    >>> import fsspec # doctest: +SKIP
+    >>> import vortex as vx
+    >>> with fsspec.open("memory://data.vortex", "rb") as f: # doctest: +SKIP
+    ...     table = vx.open_readable(f).to_arrow().read_all()
+
+    Open the same file again without reading its footer:
+
+    >>> with fsspec.open("memory://data.vortex", "rb") as f: # doctest: +SKIP
+    ...     footer = vx.open_readable(f).footer
+    ...     vxf = vx.open_readable(f, footer=footer)
+    """
+
+    return VortexFile(
+        _file.open_readable(
+            reader,
+            footer=footer,
+            concurrency=concurrency,
+            without_segment_cache=without_segment_cache,
+            segment_cache=segment_cache,
+            cache_key=cache_key,
+        )
+    )
 
 
 @final
@@ -81,6 +172,11 @@ class VortexFile:
     def path(self) -> str:
         """The path or URL this file was opened from."""
         return self._file.path
+
+    @property
+    def footer(self) -> Footer:
+        """The parsed footer, to pass to :func:`vortex.open` or :func:`vortex.open_readable` to open this file again."""
+        return self._file.footer
 
     def splits(self) -> list[tuple[int, int]]:
         return self._file.splits()

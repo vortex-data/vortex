@@ -10,7 +10,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::Nullability;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
@@ -59,9 +58,10 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the array into the desired ByteView type.
     // We do this in case the vortex array is Utf8, and we want Binary or vice versa. By casting
-    // first, we may push this down through the Vortex array tree. We choose nullable to be most
-    // flexible since there's no prescribed nullability in Arrow types.
-    let array = array.cast(from_arrow_data_type(&T::DATA_TYPE, Nullability::Nullable)?)?;
+    // first, we may push this down through the Vortex array tree. Preserve source nullability
+    // because Arrow exports validity separately.
+    let dtype = from_arrow_data_type(&T::DATA_TYPE, array.dtype().nullability())?;
+    let array = array.cast(dtype)?;
 
     let array = array.execute::<ArrayRef>(ctx)?;
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;

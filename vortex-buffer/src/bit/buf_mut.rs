@@ -270,11 +270,11 @@ impl BitBufferMut {
         fill: impl FnOnce(&mut [u64]),
     ) -> Self {
         let num_words = len.div_ceil(64);
-        let mut buffer = BufferMut::<u64>::with_capacity_in(num_words, allocator);
-        // SAFETY: `fill` (a `collect_bool_words` variant) writes every word in `0..num_words`
-        // below before any read; `u64` has no invalid bit patterns and the assignments inside
-        // `collect_bool_words` are pure writes.
-        unsafe { buffer.set_len(num_words) };
+        // Allocate the words already initialised. Calling `set_len` on a `with_capacity`
+        // allocation and then passing `as_mut_slice()` to `fill` would materialise a `&mut [u64]`
+        // over uninitialised memory, which is Undefined Behaviour regardless of `u64` having no
+        // invalid bit patterns. `fill` overwrites every word, so the zeroing costs one memset.
+        let mut buffer = BufferMut::<u64>::zeroed_in(num_words, allocator);
         fill(buffer.as_mut_slice());
 
         let mut bytes = buffer.into_byte_buffer();

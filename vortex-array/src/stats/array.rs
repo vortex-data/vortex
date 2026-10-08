@@ -312,23 +312,45 @@ impl StatsSetRef<'_> {
     }
 
     pub fn compute_is_sorted(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
-        self.compute_as(Stat::IsSorted, ctx)
+        self.compute_bool(Stat::IsSorted, ctx)
     }
 
     pub fn compute_is_strict_sorted(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
-        self.compute_as(Stat::IsStrictSorted, ctx)
+        self.compute_bool(Stat::IsStrictSorted, ctx)
     }
 
     pub fn compute_is_constant(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
-        self.compute_as(Stat::IsConstant, ctx)
+        self.compute_bool(Stat::IsConstant, ctx)
     }
 
     pub fn compute_null_count(&self, ctx: &mut ExecutionCtx) -> Option<usize> {
-        self.compute_as(Stat::NullCount, ctx)
+        self.compute_usize(Stat::NullCount, ctx)
     }
 
     pub fn compute_uncompressed_size_in_bytes(&self, ctx: &mut ExecutionCtx) -> Option<usize> {
-        self.compute_as(Stat::UncompressedSizeInBytes, ctx)
+        self.compute_usize(Stat::UncompressedSizeInBytes, ctx)
+    }
+
+    /// Like [`Self::compute_as`], but reads a cached exact value without building a [`Scalar`].
+    fn compute_bool(&self, stat: Stat, ctx: &mut ExecutionCtx) -> Option<bool> {
+        // Bind the cached value first, so the read lock is released before any computation.
+        let cached = self.array_stats.read(|stats| stats.get_bool(stat));
+        if let Precision::Exact(value) = cached {
+            return Some(value);
+        }
+
+        self.compute_as(stat, ctx)
+    }
+
+    /// Like [`Self::compute_as`], but reads a cached exact value without building a [`Scalar`].
+    fn compute_usize(&self, stat: Stat, ctx: &mut ExecutionCtx) -> Option<usize> {
+        // Bind the cached value first, so the read lock is released before any computation.
+        let cached = self.array_stats.read(|stats| stats.get_usize(stat));
+        if let Precision::Exact(value) = cached {
+            return Some(value);
+        }
+
+        self.compute_as(stat, ctx)
     }
 }
 

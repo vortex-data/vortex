@@ -16,7 +16,6 @@ use vortex::dtype::NativeDecimalType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::mask::Mask;
 
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
@@ -51,7 +50,6 @@ pub(crate) fn new_exporter(
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let exporter = if values_type == dest_values_type {
         match_each_decimal_value_type!(values_type, |D| {
@@ -71,8 +69,7 @@ pub(crate) fn new_exporter(
             })
         })
     };
-
-    Ok(validity::new_exporter(validity, exporter))
+    validity::new_exporter(validity, len, exporter, ctx)
 }
 
 impl<D: NativeDecimalType, N: NativeDecimalType> ColumnExporter for DecimalExporter<D, N>
@@ -135,7 +132,6 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 #[cfg(test)]
 mod tests {
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
@@ -148,22 +144,21 @@ mod tests {
     pub(crate) fn new_zero_copy_exporter(
         array: &DecimalArray,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
-        let validity = array.as_ref().validity()?.execute_mask(
-            array.as_ref().len(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let mut ctx = SESSION.create_execution_ctx();
         let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
         assert_eq!(array.values_type(), dest_values_type);
         match_each_decimal_value_type!(array.values_type(), |D| {
             let buffer = array.buffer::<D>();
-            Ok(validity::new_exporter(
-                validity,
+            validity::new_exporter(
+                array.as_ref().validity()?,
+                array.len(),
                 Box::new(DecimalZeroCopyExporter {
                     values: buffer.clone(),
                     shared_buffer: VectorBuffer::new(buffer),
                 }),
-            ))
+                &mut ctx,
+            )
         })
     }
 

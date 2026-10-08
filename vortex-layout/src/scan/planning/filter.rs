@@ -12,6 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::Between;
@@ -469,7 +470,7 @@ impl FilterPlanner {
             ChunkedArray::try_new(values, dtype)?.into_array()
         };
         let mut ctx = self.plans.session.create_execution_ctx();
-        let values: Mask = values.null_as_false().execute(&mut ctx)?;
+        let values: Mask = values.fill_null(false)?.execute(&mut ctx)?;
         let keep = match self.keep {
             Keep::True => values,
             Keep::False => !values,

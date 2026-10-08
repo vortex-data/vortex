@@ -195,16 +195,22 @@ pub struct GroupedAccumulator<V: AggregateFnVTable> {
 
 impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     pub fn try_new(vtable: V, options: V::Options, dtype: DType) -> VortexResult<Self> {
-        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
         let dtypes = AggregateDTypes::try_new(&vtable, &options, dtype)?;
 
-        Ok(Self {
+        Ok(Self::from_dtypes(vtable, options, dtypes))
+    }
+
+    /// Build a grouped accumulator over dtypes that are already resolved.
+    pub(super) fn from_dtypes(vtable: V, options: V::Options, dtypes: AggregateDTypes) -> Self {
+        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
+
+        Self {
             vtable,
             options,
             aggregate_fn,
             dtypes,
             partials: vec![],
-        })
+        }
     }
 }
 

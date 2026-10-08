@@ -19,6 +19,7 @@ use vortex::io::VortexReadAt;
 use vortex::layout::segments::MokaSegmentCache;
 use vortex::layout::segments::NoOpSegmentCache;
 use vortex::layout::segments::SegmentCache;
+use vortex::layout::segments::SegmentEviction;
 use vortex::layout::segments::SegmentId;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -109,7 +110,9 @@ pub(super) fn benchmark_segment_cache(
         CACHES
             .entry(key)
             .or_insert_with(|| BenchmarkCache {
-                segments: Arc::new(MokaSegmentCache::new(bytes)),
+                segments: Arc::new(
+                    MokaSegmentCache::new(bytes, SegmentEviction::TinyLfu).for_file(""),
+                ),
                 preloaded: Arc::default(),
                 capacity: bytes,
             })

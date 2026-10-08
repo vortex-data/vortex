@@ -309,6 +309,16 @@ impl VortexOpenOptions {
             self.read_footer(&reader).await?
         };
 
+        // With a segment cache, also store the segments that the footer read covered, so that a
+        // later open given this footer finds them there, instead of reading them again. Keep them
+        // in the initial map too: the cache can evict them, or not admit them at all, and the
+        // buffers are shared, not copied.
+        if self.segment_cache.is_some() {
+            for (id, buffer) in &initial_segments {
+                segment_cache.put(*id, buffer.clone()).await?;
+            }
+        }
+
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
                 initial: initial_segments,
@@ -550,6 +560,7 @@ mod tests {
     use vortex_io::session::RuntimeSession;
     use vortex_layout::scan::v2;
     use vortex_layout::segments::MokaSegmentCache;
+    use vortex_layout::segments::SegmentEviction;
     use vortex_layout::session::LayoutSession;
     use vortex_session::registry::Id;
     use vortex_session::registry::ReadContext;
@@ -581,7 +592,10 @@ mod tests {
             first_read_len: Arc::default(),
             reads: Arc::default(),
         };
-        let cache: Arc<dyn SegmentCache> = Arc::new(MokaSegmentCache::new(bytes.len() as u64));
+        let cache: Arc<dyn SegmentCache> = Arc::new(
+            MokaSegmentCache::new(bytes.len() as u64, SegmentEviction::TinyLfu)
+                .for_file("test-file"),
+        );
         let mut after_warmup = 0;
         for iteration in 0..2 {
             let file = session

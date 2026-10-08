@@ -12,7 +12,6 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use super::ConversionCache;
 use super::all_invalid;
@@ -46,17 +45,13 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter());
     }
 
-    let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
-
-    Ok(validity::new_exporter(
-        mask,
-        Box::new(FixedSizeListExporter {
-            elements_exporter,
-            list_size,
-            len,
-        }),
-    ))
+    let exporter = Box::new(FixedSizeListExporter {
+        elements_exporter,
+        list_size,
+        len,
+    });
+    validity::new_exporter(validity, len, exporter, ctx)
 }
 
 impl ColumnExporter for FixedSizeListExporter {

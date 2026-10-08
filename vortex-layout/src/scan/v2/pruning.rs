@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
@@ -171,7 +172,7 @@ impl Planner for FilePruningPlanner {
         let starts = &self.boundaries[..self.boundaries.len() - 1];
         let values = compact_proof(&self.proof, starts, &self.plans)?;
         let pruned: Mask = values
-            .null_as_false()
+            .fill_null(false)?
             .execute(&mut self.plans.session.create_execution_ctx())?;
         let mut ranges: Vec<Range<u64>> = Vec::new();
         for (index, pair) in self.boundaries.windows(2).enumerate() {

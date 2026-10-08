@@ -113,8 +113,11 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?
         .execute::<Canonical>(ctx)?
         .into_primitive()
-        .to_buffer::<O>()
-        .into_arrow_offset_buffer();
+        .to_buffer::<O>();
+
+    // SAFETY: `ListArray` guarantees its offsets are non-empty, non-negative and sorted. The
+    // checked cast keeps every value, so the order stays the same.
+    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
     let elements =
         exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
@@ -201,9 +204,14 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
     let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
 
+    // SAFETY: zero-copy-to-list offsets are non-negative and sorted, and the final offset we
+    // pushed is the last offset plus a non-negative size. The array is not empty, so the buffer
+    // is not empty.
+    let offsets = unsafe { offsets.freeze().into_arrow_offset_buffer_unchecked() };
+
     Ok(Arc::new(GenericListArray::<O>::new(
         Arc::clone(elements_field),
-        offsets.freeze().into_arrow_offset_buffer(),
+        offsets,
         elements,
         null_buffer,
     )))

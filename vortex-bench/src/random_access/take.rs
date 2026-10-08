@@ -40,6 +40,7 @@ use vortex::file::VortexOpenOptions;
 use vortex::file::planning;
 use vortex::layout::scan::v2;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex::layout::segments::SegmentEviction;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -152,7 +153,9 @@ impl VortexRandomAccessor {
                 .parse::<u64>()?
                 .checked_mul(1024 * 1024)
                 .context("segment cache capacity overflow")?;
-            options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(bytes)));
+            options = options.with_segment_cache(Arc::new(
+                MokaSegmentCache::new(bytes, SegmentEviction::TinyLfu).for_file(""),
+            ));
         }
         Ok(options)
     }
