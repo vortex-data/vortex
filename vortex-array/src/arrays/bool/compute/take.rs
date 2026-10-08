@@ -48,6 +48,21 @@ impl TakeExecute for Bool {
                     .into_array(),
             ));
         }
+
+        if matches!(mask, Mask::AllTrue(_)) && !array.dtype().is_nullable() {
+            let source = array.bit_buffer_view();
+            let count = source.true_count();
+            if count == 0 || count == source.len() {
+                return Ok(Some(
+                    ConstantArray::new(
+                        Scalar::bool(count != 0, array.dtype().nullability()),
+                        indices.len(),
+                    )
+                    .into_array(),
+                ));
+            }
+        }
+
         let indices_values = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let buffer = match_each_integer_ptype!(indices_values.ptype(), |I| {
             take_bits(
@@ -57,9 +72,8 @@ impl TakeExecute for Bool {
             )
         });
 
-        Ok(Some(
-            BoolArray::new(buffer, array.validity()?.take(indices)?).into_array(),
-        ))
+        let validity = array.validity()?.take(indices)?;
+        Ok(Some(BoolArray::new(buffer, validity).into_array()))
     }
 }
 

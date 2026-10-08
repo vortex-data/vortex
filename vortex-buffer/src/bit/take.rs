@@ -2,66 +2,100 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
+use num_traits::Zero;
 use vortex_error::VortexExpect;
 
 use crate::BitBuffer;
 use crate::BitBufferView;
+use crate::bit::get_bit;
 use crate::bit::get_bit_unchecked;
 
 // If you have less than a Linux memory page of bits, it pays to convert to a
 // Vec
 const COLLECT_TO_VEC: usize = 4096;
 
-/// Select bits at indices into a new BitBuffer. If validity for bits is
-/// provided, null bits are not selected.
-///
-/// Caller must guarantee validity, if provided, has same length as bits and
-/// indices are valid offsets in bits.
+/// Select bits at indices into a new BitBuffer
 pub fn take_bits<I>(
     bits: BitBufferView<'_>,
     indices: &[I],
     validity: Option<BitBufferView<'_>>,
 ) -> BitBuffer
 where
-    I: AsPrimitive<usize>,
+    I: AsPrimitive<usize> + Ord + Zero,
 {
+    if let Some(validity) = validity {
+        assert_eq!(validity.len(), indices.len());
+    }
+
     if indices.is_empty() || bits.is_empty() {
         return BitBuffer::new_unset(indices.len());
     }
 
-    // If we have a lot of indices, it doesn't make sense to do a separate
-    // iteration over bits to check if it's mostly full or empty
-    if bits.len() / 64 <= indices.len() {
+    // If we don't have a lot of indices, mostly full/empty case is very fast.
+    // This is, for example, the case of comparing a dict to a constant.
+    if bits.len() <= indices.len() * 64 {
         match bits.true_count() {
             0 => return BitBuffer::new_unset(indices.len()),
             count if count == bits.len() => return BitBuffer::new_set(indices.len()),
             1 => {
                 let target = bits.select(0).vortex_expect("one set bit");
                 return BitBuffer::collect_bool_multiversioned(indices.len(), |i| {
-                    index_at(indices, i) == target
+                    unsafe { indices.get_unchecked(i) }.as_() == target
                 });
             }
             count if count == bits.len() - 1 => {
                 let target = first_unset(bits).vortex_expect("one unset bit");
                 return BitBuffer::collect_bool_multiversioned(indices.len(), |i| {
-                    index_at(indices, i) != target
+                    unsafe { indices.get_unchecked(i) }.as_() != target
                 });
             }
             _ => {}
         }
     }
 
+    let Some(validity) = validity else {
+        // iterating over indices here for a bounds check is faster than a
+        // per-element branch in [] operator.
+        let first = indices[0];
+        let (min, max) = indices
+            .iter()
+            .fold((first, first), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+        assert!(
+            min >= I::zero() && max.as_() < bits.len(),
+            "take index out of bounds"
+        );
+
+        return if bits.len() <= COLLECT_TO_VEC {
+            let bools: Vec<bool> = bits.iter().collect();
+            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
+                *bools.get_unchecked(indices.get_unchecked(i).as_())
+            })
+        } else {
+            let ptr = bits.inner().as_ptr();
+            let offset = bits.offset();
+            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
+                get_bit_unchecked(ptr, offset + indices.get_unchecked(i).as_())
+            })
+        };
+    };
+
+    let ptr = validity.inner().as_ptr();
     if bits.len() <= COLLECT_TO_VEC {
+        let offset = validity.offset();
         let bools: Vec<bool> = bits.iter().collect();
-        return gather(indices, validity, |idx| unsafe {
-            *bools.get_unchecked(idx)
+        return BitBuffer::collect_bool(indices.len(), |i| {
+            let idx = unsafe { indices.get_unchecked(i).as_() };
+            let mask_idx: usize = unsafe { get_bit_unchecked(ptr, offset + i) }.as_();
+            bools[idx & mask_idx.wrapping_neg()]
         });
     }
 
-    let ptr = bits.inner().as_ptr();
+    let buf = bits.inner();
     let offset = bits.offset();
-    gather(indices, validity, |idx| unsafe {
-        get_bit_unchecked(ptr, offset + idx)
+    BitBuffer::collect_bool(indices.len(), |i| {
+        let idx = unsafe { indices.get_unchecked(i).as_() };
+        let mask_idx: usize = unsafe { get_bit_unchecked(ptr, offset + i) }.as_();
+        get_bit(buf, offset + idx & mask_idx.wrapping_neg())
     })
 }
 
@@ -76,34 +110,6 @@ fn first_unset(bits: BitBufferView<'_>) -> Option<usize> {
     let remainder_start = bits.len() / 64 * 64;
     let target = remainder_start + (!chunks.remainder_bits()).trailing_zeros() as usize;
     (target < bits.len()).then_some(target)
-}
-
-fn gather<I, G>(indices: &[I], validity: Option<BitBufferView<'_>>, get: G) -> BitBuffer
-where
-    I: AsPrimitive<usize>,
-    G: Fn(usize) -> bool,
-{
-    let Some(validity) = validity else {
-        return BitBuffer::collect_bool(indices.len(), |i| get(index_at(indices, i)));
-    };
-
-    let ptr = validity.inner().as_ptr();
-    let offset = validity.offset();
-    BitBuffer::collect_bool(indices.len(), |i| {
-        get(index_at(indices, i) & keep_mask(ptr, offset, i))
-    })
-}
-
-fn index_at<I>(indices: &[I], i: usize) -> usize
-where
-    I: AsPrimitive<usize>,
-{
-    debug_assert!(i < indices.len());
-    unsafe { indices.get_unchecked(i) }.as_()
-}
-
-fn keep_mask(validity: *const u8, offset: usize, i: usize) -> usize {
-    (unsafe { get_bit_unchecked(validity, offset + i) } as usize).wrapping_neg()
 }
 
 #[cfg(test)]
