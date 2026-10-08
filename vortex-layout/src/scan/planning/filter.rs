@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::env;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use bit_vec::BitVec;
 use vortex_array::ArrayRef;
@@ -173,13 +171,6 @@ fn is_numeric_predicate(expression: &BoundExpression) -> bool {
     simple && expression.children().iter().all(is_numeric_predicate)
 }
 
-fn prefetch_projection() -> bool {
-    static ENABLED: LazyLock<bool> = LazyLock::new(|| {
-        env::var("VORTEX_SCAN_PREFETCH_PROJECTION").is_ok_and(|value| value == "1")
-    });
-    *ENABLED
-}
-
 /// Evaluates a split's filter to a selection, then hands the selection to `next`.
 ///
 /// The filter is split into conjuncts, and each runs as its own plan over the rows the previous
@@ -208,6 +199,8 @@ pub struct FilterPlanner {
     pieces: Vec<Piece>,
     /// The protocol id the next plan's first request gets; ids never repeat within the planner.
     next_io_id: u32,
+    /// Plans of later stages to prefetch with the first fetch, over the rows selected then.
+    speculative: Arc<[PlanRef]>,
     /// Whether the conjuncts after the first have been prefetched.
     prefetched: bool,
     done: bool,
@@ -246,6 +239,15 @@ impl FilterPlanner {
         )
     }
 
+    /// Also prefetches the segments `plans` read over the selected rows with the first fetch.
+    ///
+    /// A later stage's reads then overlap this one's, saving it a round trip at the cost of reading
+    /// the chunks of rows this stage goes on to drop.
+    pub fn with_speculative(mut self, plans: Arc<[PlanRef]>) -> Self {
+        self.speculative = plans;
+        self
+    }
+
     fn with_keep(
         plans: ScanPlans,
         filters: FilterPlans,
@@ -266,21 +268,17 @@ impl FilterPlanner {
             running: None,
             pieces: Vec::new(),
             next_io_id: 0,
+            speculative: Arc::from([]),
             prefetched: false,
             done: false,
             evaluate_all: false,
         }
     }
 
-    /// Prefetches of every segment the plans not yet evaluated, other than `running`, read over
-    /// the rows selected now. Their ids count down from the top, clear of the ids the plans'
-    /// graphs count up from.
-    ///
-    /// With `VORTEX_SCAN_PREFETCH_PROJECTION=1`, a filter also prefetches the projection over the
-    /// same rows, saving the projection a round trip at the cost of reading the chunks of rows the
-    /// filter goes on to drop.
+    /// Prefetches of every segment the plans not yet evaluated, other than `running`, and the
+    /// speculative plans read over the rows selected now. Their ids count down from the top, clear
+    /// of the ids the plans' graphs count up from.
     fn prefetch_others(&self, running: usize) -> VortexResult<IoBatch> {
-        let projection = matches!(self.keep, Keep::True) && prefetch_projection();
         let mut ids = Vec::new();
         for range in selected_ranges(&self.scope.rows, &self.mask) {
             for (index, plan) in self.filters.plans.iter().enumerate() {
@@ -288,8 +286,8 @@ impl FilterPlanner {
                     plan_segments(plan, range.clone(), &mut ids)?;
                 }
             }
-            if projection {
-                plan_segments(&self.plans.projection, range, &mut ids)?;
+            for plan in self.speculative.iter() {
+                plan_segments(plan, range.clone(), &mut ids)?;
             }
         }
         ids.sort_unstable();

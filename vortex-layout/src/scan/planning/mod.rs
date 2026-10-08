@@ -18,7 +18,9 @@ mod filter;
 pub(crate) mod graph;
 mod projection;
 
+use std::env;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 pub use announce::AnnouncePlanner;
 pub use filter::FilterPlanner;
@@ -124,18 +126,27 @@ fn plan_selected(
         let plans = plans.clone();
         next_fn(move |selected| Ok(ProjectionPlanner::new(plans.clone(), selected)))
     };
+    let projection: Arc<[PlanRef]> = if prefetch_projection() {
+        Arc::from([plans.projection.clone()])
+    } else {
+        Arc::from([])
+    };
     let Some(pruning) = pruning else {
         return Ok(match filter {
-            Some(filter) => Box::new(FilterPlanner::new(
-                plans,
-                filter,
-                selected.scope,
-                selected.mask,
-                project,
-            )),
+            Some(filter) => Box::new(
+                FilterPlanner::new(plans, filter, selected.scope, selected.mask, project)
+                    .with_speculative(projection),
+            ),
             None => Box::new(ProjectionPlanner::new(plans, selected)),
         });
     };
+    let mut after_pruning = Vec::new();
+    if prefetch_filter()
+        && let Some(filter) = &filter
+    {
+        after_pruning.extend(filter.plans().iter().cloned());
+    }
+    after_pruning.extend(projection.iter().cloned());
     let next = match filter {
         None => project,
         Some(filter) => {
@@ -147,15 +158,30 @@ fn plan_selected(
                     selected.scope,
                     selected.mask,
                     Arc::clone(&project),
-                ))
+                )
+                .with_speculative(Arc::clone(&projection)))
             })
         }
     };
-    Ok(Box::new(FilterPlanner::pruning(
-        plans,
-        pruning,
-        selected.scope,
-        selected.mask,
-        next,
-    )))
+    Ok(Box::new(
+        FilterPlanner::pruning(plans, pruning, selected.scope, selected.mask, next)
+            .with_speculative(after_pruning.into()),
+    ))
+}
+
+/// Whether `VORTEX_SCAN_PREFETCH_PROJECTION=1` asks filters to prefetch the projection over the
+/// rows they start from.
+fn prefetch_projection() -> bool {
+    static ENABLED: LazyLock<bool> = LazyLock::new(|| {
+        env::var("VORTEX_SCAN_PREFETCH_PROJECTION").is_ok_and(|value| value == "1")
+    });
+    *ENABLED
+}
+
+/// Whether `VORTEX_SCAN_PREFETCH_FILTER=1` asks zone pruning to prefetch the filter's conjuncts
+/// over the rows it starts from.
+fn prefetch_filter() -> bool {
+    static ENABLED: LazyLock<bool> =
+        LazyLock::new(|| env::var("VORTEX_SCAN_PREFETCH_FILTER").is_ok_and(|value| value == "1"));
+    *ENABLED
 }
