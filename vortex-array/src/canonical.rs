@@ -12,17 +12,19 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CANONICAL_ARRAY_IDS;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayId;
 use crate::array::ArrayView;
-use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Extension;
@@ -1235,28 +1237,41 @@ impl CanonicalView<'_> {
 // Keep classification and checked conversion together so they use the same concrete types.
 macro_rules! canonical_kinds {
     ($($kind:ident => $vtable:ty),+ $(,)?) => {
-        /// Canonical encoding classification derived from the concrete array vtable.
+        /// Canonical encoding classification, in the order of [`CANONICAL_ARRAY_IDS`].
         #[derive(Clone, Copy)]
         pub(crate) enum CanonicalKind {
             $($kind),+
         }
 
+        const _: () = assert!([$(CanonicalKind::$kind),+].len() == CANONICAL_ARRAY_IDS.len());
+
+        /// Each canonical vtable paired with the kind its reserved ID must encode.
+        #[cfg(test)]
+        fn canonical_vtable_ids() -> Vec<(CanonicalKind, Option<ArrayId>)> {
+            vec![$((CanonicalKind::$kind, <$vtable as crate::array::VTable>::static_id())),+]
+        }
+
         impl CanonicalKind {
-            /// Classify a concrete vtable; monomorphization folds these type comparisons.
+            /// Classify an array by its encoding ID.
             #[inline]
-            pub(crate) fn of<V: VTable>() -> Option<Self> {
-                $(if TypeId::of::<V>() == TypeId::of::<$vtable>() {
-                    return Some(Self::$kind);
-                })+
-                None
+            pub(crate) fn of_id(id: ArrayId) -> Option<Self> {
+                [$(Self::$kind),+].get(id.canonical_index()?).copied()
+            }
+
+            /// Returns the `TypeId` of the vtable this kind's ID is reserved for.
+            fn vtable_type_id(self) -> TypeId {
+                match self {
+                    $(Self::$kind => TypeId::of::<$vtable>()),+
+                }
             }
 
             /// # Safety
-            /// `self` must be the kind returned by `of::<V>()` for the concrete vtable of `array`.
+            /// `self` must be the kind returned by `of_id` for the encoding ID of `array`.
             #[inline]
             unsafe fn view(self, array: &ArrayRef) -> CanonicalView<'_> {
                 match self {
-                    // SAFETY: the caller guarantees `of::<V>()` matched `$vtable` by `TypeId`.
+                    // SAFETY: construction rejects reserved IDs from any vtable other than the
+                    // one they are reserved for, so the concrete vtable is `$vtable`.
                     $(Self::$kind => CanonicalView::$kind(unsafe {
                         array.as_typed_unchecked::<$vtable>()
                     })),+
@@ -1281,6 +1296,15 @@ canonical_kinds! {
     Extension => Extension,
 }
 
+/// Returns the `TypeId` of the only vtable allowed to construct arrays with `id`, if `id` is one
+/// of the reserved canonical or constant encoding IDs.
+pub(crate) fn reserved_vtable_type_id(id: ArrayId) -> Option<TypeId> {
+    if id.is_constant() {
+        return Some(TypeId::of::<Constant>());
+    }
+    CanonicalKind::of_id(id).map(CanonicalKind::vtable_type_id)
+}
+
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
@@ -1288,13 +1312,13 @@ impl Matcher for AnyCanonical {
 
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        array.dyn_array().canonical_kind().is_some()
+        array.encoding_id().is_canonical()
     }
 
     #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        let kind = array.dyn_array().canonical_kind()?;
-        // SAFETY: `kind` was computed from the concrete vtable of `array`.
+        let kind = CanonicalKind::of_id(array.encoding_id())?;
+        // SAFETY: `kind` was computed from the encoding ID of `array`.
         Some(unsafe { kind.view(array) })
     }
 }
@@ -1336,6 +1360,15 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
+
+    #[test]
+    fn canonical_vtables_use_their_reserved_ids() {
+        for (kind, id) in super::canonical_vtable_ids() {
+            let id = id.expect("canonical vtables have a static id");
+            assert_eq!(id.canonical_index(), Some(kind as usize), "{id}");
+        }
+        assert!(<Constant as crate::array::VTable>::static_id().is_some_and(|id| id.is_constant()));
+    }
 
     /// A shared session for these canonical tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);

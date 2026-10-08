@@ -20,7 +20,6 @@ use vortex_session::registry::Id;
 use crate::ExecutionCtx;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::canonical::CanonicalKind;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
@@ -129,9 +128,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the [`TypeId`] of the concrete vtable `V`.
     fn vtable_type_id(&self) -> TypeId;
-
-    /// Classifies the concrete vtable independently of its logical dtype or encoding ID.
-    fn canonical_kind(&self) -> Option<CanonicalKind>;
 
     /// Returns the [`Validity`] of the array.
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity>;
@@ -294,10 +290,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     #[inline]
     fn vtable_type_id(&self) -> TypeId {
         TypeId::of::<V>()
-    }
-
-    fn canonical_kind(&self) -> Option<CanonicalKind> {
-        CanonicalKind::of::<V>()
     }
 
     fn as_any(&self) -> &dyn Any {

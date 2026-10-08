@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -19,19 +20,115 @@ use vortex_error::VortexExpect;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
+/// Array encoding IDs reserved for the canonical encodings, in the order of their index in
+/// [`Id::canonical_index`].
+pub const CANONICAL_ARRAY_IDS: [&str; CANONICAL_LEN as usize] = [
+    "vortex.null",
+    "vortex.bool",
+    "vortex.primitive",
+    "vortex.decimal",
+    "vortex.struct",
+    "vortex.union",
+    "vortex.listview",
+    "vortex.map",
+    "vortex.fixed_size_list",
+    "vortex.varbinview",
+    "vortex.variant",
+    "vortex.ext",
+];
+
+/// Array encoding ID reserved for the constant encoding.
+pub const CONSTANT_ARRAY_ID: &str = "vortex.constant";
+
+const CANONICAL_LEN: u32 = 12;
+
+/// Number of interner keys reserved for [`CANONICAL_ARRAY_IDS`] followed by [`CONSTANT_ARRAY_ID`].
+const RESERVED_LEN: u32 = CANONICAL_LEN + 1;
+
 /// Global string interner for [`Id`] values.
-static INTERNER: LazyLock<ThreadedRodeo<Spur, DefaultHashBuilder>> =
-    LazyLock::new(|| ThreadedRodeo::with_hasher(DefaultHashBuilder::default()));
+///
+/// The reserved IDs are interned first, so they take the first keys in a fixed order and
+/// [`Id::reserved`] can build them at compile time.
+static INTERNER: LazyLock<ThreadedRodeo<Spur, DefaultHashBuilder>> = LazyLock::new(|| {
+    let interner = ThreadedRodeo::with_hasher(DefaultHashBuilder::default());
+    for name in CANONICAL_ARRAY_IDS.into_iter().chain([CONSTANT_ARRAY_ID]) {
+        interner.get_or_intern_static(name);
+    }
+    interner
+});
 
 /// A lightweight, copyable identifier backed by a global string interner.
 ///
 /// Used for array encoding IDs, scalar function IDs, layout IDs, and similar
 /// globally-unique string identifiers throughout Vortex. Equality and hashing
 /// are O(1) symbol comparisons.
+///
+/// The names in [`CANONICAL_ARRAY_IDS`] and [`CONSTANT_ARRAY_ID`] take the first interner keys,
+/// so [`Id::reserved`] is a `const fn` and [`Id::is_canonical`], [`Id::is_constant`] and
+/// [`Id::canonical_index`] are a single comparison of the key.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(Spur);
 
 impl Id {
+    /// Returns the `Id` of a reserved name at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics, at compile time when used in a `const`, if `name` is not one of
+    /// [`CANONICAL_ARRAY_IDS`] or [`CONSTANT_ARRAY_ID`].
+    pub const fn reserved(name: &str) -> Self {
+        let mut index = 0;
+        while index < CANONICAL_LEN {
+            if str_eq(name, CANONICAL_ARRAY_IDS[index as usize]) {
+                return Self::from_key(index + 1);
+            }
+            index += 1;
+        }
+        assert!(
+            str_eq(name, CONSTANT_ARRAY_ID),
+            "Id::reserved called with a name that is not reserved"
+        );
+        Self::from_key(RESERVED_LEN)
+    }
+
+    /// Builds the `Id` for the one-based interner key `key`, which must be at least 1.
+    const fn from_key(key: u32) -> Self {
+        let key = NonZeroU32::MIN.saturating_add(key - 1);
+        // SAFETY: `Spur` is a `#[repr(transparent)]` wrapper around the one-based `NonZeroU32`
+        // key, and the reserved names were interned first, in order, so they own keys
+        // `1..=RESERVED_LEN`.
+        Self(unsafe { std::mem::transmute::<NonZeroU32, Spur>(key) })
+    }
+
+    #[inline]
+    fn key(&self) -> u32 {
+        self.0.into_inner().get()
+    }
+
+    /// Whether this is one of the [`CANONICAL_ARRAY_IDS`].
+    #[inline]
+    pub fn is_canonical(&self) -> bool {
+        self.key() < RESERVED_LEN
+    }
+
+    /// Whether this is the [`CONSTANT_ARRAY_ID`].
+    #[inline]
+    pub fn is_constant(&self) -> bool {
+        self.key() == RESERVED_LEN
+    }
+
+    /// Whether this is one of the [`CANONICAL_ARRAY_IDS`] or the [`CONSTANT_ARRAY_ID`].
+    #[inline]
+    pub fn is_canonical_or_constant(&self) -> bool {
+        self.key() <= RESERVED_LEN
+    }
+
+    /// Returns the index of this `Id` in [`CANONICAL_ARRAY_IDS`], if it is canonical.
+    #[inline]
+    pub fn canonical_index(&self) -> Option<usize> {
+        self.is_canonical().then(|| self.key() as usize - 1)
+    }
+
     /// Intern a string and return its `Id`.
     pub fn new(s: &str) -> Self {
         Self(INTERNER.get_or_intern(s))
@@ -49,6 +146,21 @@ impl Id {
         // pointers are stable for the lifetime of the program.
         unsafe { &*(s as *const str) }
     }
+}
+
+const fn str_eq(lhs: &str, rhs: &str) -> bool {
+    let (lhs, rhs) = (lhs.as_bytes(), rhs.as_bytes());
+    if lhs.len() != rhs.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < lhs.len() {
+        if lhs[i] != rhs[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 impl From<&str> for Id {
@@ -243,8 +355,43 @@ impl Interner {
 mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
+    use super::CANONICAL_ARRAY_IDS;
+    use super::CONSTANT_ARRAY_ID;
     use super::CachedId;
+    use super::Id;
     use super::Interner;
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "comparing interned and reserved ids"
+    )]
+    fn reserved_ids_match_interned_ids() {
+        for (index, name) in CANONICAL_ARRAY_IDS.into_iter().enumerate() {
+            let id = Id::reserved(name);
+            assert_eq!(id, Id::new(name));
+            assert_eq!(id.as_str(), name);
+            assert!(id.is_canonical() && id.is_canonical_or_constant() && !id.is_constant());
+            assert_eq!(id.canonical_index(), Some(index));
+        }
+
+        let constant = Id::reserved(CONSTANT_ARRAY_ID);
+        assert_eq!(constant, Id::new(CONSTANT_ARRAY_ID));
+        assert_eq!(constant.as_str(), CONSTANT_ARRAY_ID);
+        assert!(constant.is_constant() && constant.is_canonical_or_constant());
+        assert!(!constant.is_canonical());
+        assert_eq!(constant.canonical_index(), None);
+
+        let other = Id::new("vortex.test.unreserved");
+        assert!(!other.is_canonical_or_constant());
+        assert_eq!(other.canonical_index(), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "not reserved")]
+    fn unreserved_name_panics() {
+        let _id = Id::reserved("vortex.test.unreserved");
+    }
 
     static VALID: CachedId = CachedId::new("vortex.test.valid");
     static INVALID: CachedId = CachedId::new("vortex.test.invalid");

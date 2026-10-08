@@ -13,7 +13,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -81,8 +80,8 @@ impl VTable for ListView {
     type ValidityVTable = Self;
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.listview");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.listview");
+        ID
     }
 
     #[inline]

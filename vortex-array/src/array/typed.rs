@@ -9,6 +9,7 @@
 //! operate over any encoding, and downcast to [`Array<V>`] or [`ArrayView<V>`] only when it needs
 //! encoding-specific state.
 
+use std::any::TypeId;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
@@ -28,6 +29,7 @@ use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::canonical::reserved_vtable_type_id;
 use crate::dtype::DType;
 use crate::legacy_session;
 use crate::stats::ArrayStats;
@@ -137,6 +139,13 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         debug_assert!(
             V::static_id().is_none_or(|id| id == encoding_id),
             "VTable::static_id does not match VTable::id"
+        );
+        // Matchers trust reserved IDs without checking the vtable type. For a vtable with a
+        // reserved ID this folds away at compile time.
+        assert!(
+            !encoding_id.is_canonical_or_constant()
+                || reserved_vtable_type_id(encoding_id) == Some(TypeId::of::<V>()),
+            "encoding ID {encoding_id} is reserved for a built-in vtable"
         );
         let ArrayParts {
             vtable,

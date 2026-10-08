@@ -7,7 +7,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayParts;
 use crate::ArrayRef;
@@ -57,8 +56,8 @@ impl VTable for Map {
 
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.map");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.map");
+        ID
     }
 
     #[inline]

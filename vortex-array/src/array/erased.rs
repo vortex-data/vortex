@@ -51,6 +51,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
 use crate::matcher::Matcher;
+use crate::matcher::vtable_matches;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -468,7 +469,7 @@ impl ArrayRef {
 
     /// Returns the [`TypeId`] of the concrete vtable behind this array.
     ///
-    /// This is a virtual call; [`Matcher`] implementations first reject on the inline encoding ID
+    /// This is a virtual call; [`Matcher`] implementations first decide on the inline encoding ID
     /// where the vtable has a [`VTable::static_id`].
     #[inline]
     pub(crate) fn vtable_type_id(&self) -> TypeId {
@@ -856,19 +857,12 @@ impl<V: VTable> Matcher for V {
 
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        // Encoding IDs are not guaranteed unique per vtable, so an ID match is confirmed by
-        // `TypeId` before the unchecked downcast in `try_match`.
-        if let Some(id) = V::static_id()
-            && array.encoding_id() != id
-        {
-            return false;
-        }
-        array.vtable_type_id() == TypeId::of::<V>()
+        vtable_matches::<V>(array, array.encoding_id(), &mut None)
     }
 
     #[inline]
     fn try_match(array: &'_ ArrayRef) -> Option<ArrayView<'_, V>> {
-        // SAFETY: `matches` compared the concrete vtable's `TypeId` with `V`.
+        // SAFETY: `matches` established that the concrete vtable is `V`.
         V::matches(array).then(|| unsafe { array.as_typed_unchecked::<V>() })
     }
 }

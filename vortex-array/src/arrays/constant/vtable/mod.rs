@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -83,8 +82,8 @@ impl VTable for Constant {
 
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.constant");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.constant");
+        ID
     }
 
     #[inline]

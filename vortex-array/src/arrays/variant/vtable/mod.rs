@@ -12,7 +12,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
@@ -63,8 +62,8 @@ impl VTable for Variant {
 
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.variant");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.variant");
+        ID
     }
 
     #[inline]

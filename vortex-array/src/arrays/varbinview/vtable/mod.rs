@@ -13,7 +13,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayParts;
 use crate::ArrayRef;
@@ -80,8 +79,8 @@ impl VTable for VarBinView {
 
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.varbinview");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.varbinview");
+        ID
     }
 
     #[inline]

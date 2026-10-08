@@ -33,8 +33,6 @@ mod kernel;
 mod operations;
 mod validity;
 
-use vortex_session::registry::CachedId;
-
 use crate::EqMode;
 use crate::array::ArrayId;
 use crate::arrays::bool::compute::rules::RULES;
@@ -76,8 +74,8 @@ impl VTable for Bool {
 
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.bool");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.bool");
+        ID
     }
 
     #[inline]
