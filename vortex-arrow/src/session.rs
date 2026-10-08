@@ -77,7 +77,6 @@ use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
-use crate::convert::trim_list_view_offsets;
 use crate::convert::trim_map_entries;
 use crate::convert::trim_offsets;
 use crate::dtype::from_arrow_data_type;
@@ -761,12 +760,9 @@ impl ArrowSession {
             }
             DataType::ListView(elem_field) => {
                 let list = array.as_list_view::<i32>();
-                let (offsets, referenced) = trim_list_view_offsets(list.offsets(), list.sizes());
-                let elements = self.from_arrow_array(
-                    list.values().slice(referenced.start, referenced.len()),
-                    elem_field.as_ref(),
-                )?;
-                let offsets = offsets.into_array();
+                let elements = self
+                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
+                let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
                 // SAFETY: Arrow list views share one integer type for offsets and sizes, and every
@@ -778,12 +774,9 @@ impl ArrowSession {
             }
             DataType::LargeListView(elem_field) => {
                 let list = array.as_list_view::<i64>();
-                let (offsets, referenced) = trim_list_view_offsets(list.offsets(), list.sizes());
-                let elements = self.from_arrow_array(
-                    list.values().slice(referenced.start, referenced.len()),
-                    elem_field.as_ref(),
-                )?;
-                let offsets = offsets.into_array();
+                let elements = self
+                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
+                let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
                 // SAFETY: Arrow list views share one integer type for offsets and sizes, and every
