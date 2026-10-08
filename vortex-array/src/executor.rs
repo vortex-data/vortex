@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -164,7 +165,13 @@ impl ArrayRef {
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        // `execute::<Canonical>` passes `AnyCanonical` as the target, making it the same predicate
+        // as the loop's universal stop condition. Folds to a constant per monomorphization.
+        let target_is_any_canonical = TypeId::of::<M>() == TypeId::of::<AnyCanonical>();
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -184,12 +191,22 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                // At the root one scan can answer both, rather than scanning the encoding twice.
+                None => {
+                    let done_target = M::matches(&current_array);
+                    let done_canonical = if target_is_any_canonical {
+                        done_target
+                    } else {
+                        AnyCanonical::matches(&current_array)
+                    };
+                    (done_target, done_canonical)
+                }
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
