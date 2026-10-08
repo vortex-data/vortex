@@ -169,9 +169,6 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // `execute::<Canonical>` passes `AnyCanonical` as the target, making it the same predicate
-        // as the loop's universal stop condition. Folds to a constant per monomorphization.
-        let target_is_any_canonical = TypeId::of::<M>() == TypeId::of::<AnyCanonical>();
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -192,16 +189,7 @@ impl ArrayRef {
             ));
 
             let (done_target, done_canonical) = match stack.last() {
-                // At the root one scan can answer both, rather than scanning the encoding twice.
-                None => {
-                    let done_target = M::matches(&current_array);
-                    let done_canonical = if target_is_any_canonical {
-                        done_target
-                    } else {
-                        AnyCanonical::matches(&current_array)
-                    };
-                    (done_target, done_canonical)
-                }
+                None => root_done_check::<M>(&current_array),
                 Some(frame) => (
                     (frame.done)(&current_array),
                     AnyCanonical::matches(&current_array),
@@ -580,6 +568,20 @@ pub fn execute_into_builder(
 ) -> VortexResult<Box<dyn ArrayBuilder>> {
     array.append_to_builder(builder.as_mut(), ctx)?;
     Ok(builder)
+}
+
+/// Returns whether `array` matches the root target `M` and whether it is canonical.
+///
+/// `execute::<Canonical>` targets [`AnyCanonical`], the same predicate as the universal stop
+/// condition, so a single scan answers both. The `TypeId` comparison folds to a constant per
+/// monomorphization.
+#[inline]
+fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
+    if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
+        let canonical = AnyCanonical::matches(array);
+        return (canonical, canonical);
+    }
+    (M::matches(array), AnyCanonical::matches(array))
 }
 
 /// Pop a stack frame, restoring the parent with the finished child in its slot.
