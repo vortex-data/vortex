@@ -101,7 +101,9 @@ where
         match self.lookup.entry(NativeValue(v)) {
             Entry::Occupied(o) => Some(*o.get()),
             Entry::Vacant(vac) => {
-                if self.values.len() >= self.max_dict_len {
+                // Always admit the first entry so an empty dictionary always makes progress;
+                // otherwise the caller retries a chunk it encoded 0 rows of forever.
+                if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
                     return None;
                 }
                 let next_code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
@@ -121,7 +123,8 @@ where
             return Some(*code);
         }
 
-        if self.values.len() >= self.max_dict_len {
+        // Always admit the first entry so an empty dictionary always makes progress.
+        if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
             return None;
         }
 

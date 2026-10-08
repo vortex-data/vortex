@@ -597,6 +597,7 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::DictionaryTransformer;
@@ -694,5 +695,61 @@ mod tests {
             &DType::Primitive(PType::U16, NonNullable),
             "codes stream should use U16 dtype for dictionaries with >255 entries"
         );
+    }
+
+    /// Sums the number of encoded rows across every codes chunk in `chunks`.
+    fn encoded_row_count(chunks: &[super::DictionaryChunk]) -> usize {
+        chunks
+            .iter()
+            .map(|chunk| match chunk {
+                super::DictionaryChunk::Codes { codes, .. } => codes.len(),
+                super::DictionaryChunk::Values(_) => 0,
+            })
+            .sum()
+    }
+
+    /// Regression test for an infinite loop: a value too large to fit an empty dictionary made the
+    /// encoder produce 0 rows, so [`DictStreamState::encode`] retried the same chunk forever. The
+    /// dictionary must now always admit the first entry, so encoding makes progress and returns.
+    ///
+    /// A dictionary entry costs its bytes plus one 16-byte `BinaryView`, so a 49-byte value cannot
+    /// fit a 64-byte dictionary and exercises the fix.
+    #[test]
+    fn test_encode_value_larger_than_dictionary_budget_terminates() -> VortexResult<()> {
+        let mut state = super::DictStreamState {
+            encoder: None,
+            constraints: DictConstraints {
+                max_bytes: 64,
+                max_len: 100,
+            },
+        };
+        let value = "x".repeat(49);
+        let chunk = VarBinArray::from(vec![value.as_str()]).into_array();
+        let mut labeler = super::DictChunkLabeler::new(SequenceId::root().advance());
+        let encoded = state.encode(&mut labeler, chunk, &mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(encoded_row_count(&encoded), 1);
+        Ok(())
+    }
+
+    /// An oversized value in the middle of a chunk must be split into its own single-entry
+    /// dictionary while the surrounding values still encode normally.
+    #[test]
+    fn test_encode_splits_oversized_value_into_its_own_dictionary() -> VortexResult<()> {
+        let mut state = super::DictStreamState {
+            encoder: None,
+            constraints: DictConstraints {
+                max_bytes: 64,
+                max_len: 100,
+            },
+        };
+        let big = "x".repeat(49);
+        let chunk = VarBinArray::from(vec!["a", big.as_str(), "b"]).into_array();
+        let mut labeler = super::DictChunkLabeler::new(SequenceId::root().advance());
+        let encoded = state.encode(&mut labeler, chunk, &mut SESSION.create_execution_ctx())?;
+        let drained = state.drain_values(&mut labeler);
+
+        assert_eq!(encoded_row_count(&encoded) + encoded_row_count(&drained), 3);
+        Ok(())
     }
 }

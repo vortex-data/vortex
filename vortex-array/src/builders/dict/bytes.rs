@@ -130,7 +130,11 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         ) {
             HashTableEntry::Occupied(occupied) => Some(*occupied.get()),
             HashTableEntry::Vacant(vacant) => {
-                if self.views.len() >= self.max_dict_len {
+                // Always admit the first entry so a value larger than the dictionary budget still
+                // makes progress; otherwise the caller retries a chunk it encoded 0 rows of forever.
+                let is_first_entry = self.views.is_empty();
+
+                if !is_first_entry && self.views.len() >= self.max_dict_len {
                     return None;
                 }
 
@@ -146,7 +150,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                     size_of::<BinaryView>() + val.len()
                 };
 
-                if self.dict_bytes() + additional_bytes > self.max_dict_bytes {
+                if !is_first_entry && self.dict_bytes() + additional_bytes > self.max_dict_bytes {
                     return None;
                 }
 
@@ -171,8 +175,10 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             return Some(*code);
         }
 
-        if self.views.len() >= self.max_dict_len
-            || self.dict_bytes() + size_of::<BinaryView>() > self.max_dict_bytes
+        // Always admit the first entry so an empty dictionary always makes progress.
+        if !self.views.is_empty()
+            && (self.views.len() >= self.max_dict_len
+                || self.dict_bytes() + size_of::<BinaryView>() > self.max_dict_bytes)
         {
             return None;
         }
