@@ -420,31 +420,58 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Query>)>> = LazyLock::
         .collect()
 });
 
-/// Every query on every file variant, as `query@variant`.
+/// How a run is split: at the chunk boundaries of the columns it reads, as the V1 scan does by
+/// default, or into fixed row ranges that ignore the layout.
+#[derive(Clone, Copy)]
+struct SplitRule {
+    name: &'static str,
+    by: SplitBy,
+}
+
+const SPLITS: [SplitRule; 2] = [
+    SplitRule {
+        name: "layout",
+        by: SplitBy::Layout,
+    },
+    SplitRule {
+        name: "64k",
+        by: SplitBy::RowCount(1 << 16),
+    },
+];
+
+/// Every query on every file variant under every split rule, as `query@variant@split`.
 fn cases() -> Vec<&'static str> {
     FILES
         .iter()
         .flat_map(|(variant, _, queries)| {
-            queries
-                .iter()
-                .map(move |q| &*Box::leak(format!("{}@{variant}", q.name).into_boxed_str()))
+            queries.iter().flat_map(move |q| {
+                SPLITS.iter().map(move |split| {
+                    &*Box::leak(format!("{}@{variant}@{}", q.name, split.name).into_boxed_str())
+                })
+            })
         })
         .collect()
 }
 
-fn lookup(case: &str) -> (&'static VortexFile, &'static Query) {
-    let (name, variant) = case.split_once('@').expect("case");
+fn lookup(case: &str) -> (&'static VortexFile, &'static Query, SplitRule) {
+    let mut parts = case.split('@');
+    let (name, variant, split) = (
+        parts.next().expect("query"),
+        parts.next().expect("variant"),
+        parts.next().expect("split"),
+    );
     let (_, file, queries) = FILES.iter().find(|(v, ..)| *v == variant).expect("variant");
     (
         file,
         queries.iter().find(|q| q.name == name).expect("query"),
+        *SPLITS.iter().find(|s| s.name == split).expect("split"),
     )
 }
 
-/// One V1 scan of the query over the file's natural splits, drained on the session's runtime.
+/// One V1 scan of the query over the case's splits, drained on the session's runtime.
 #[divan::bench(args = cases())]
 fn v1(bencher: Bencher, case: &str) {
-    let (file, query) = lookup(case);
+    let (file, query, split) = lookup(case);
     bencher
         .counter(ItemsCount::new(query.expected))
         .bench_local(|| {
@@ -454,7 +481,7 @@ fn v1(bencher: Bencher, case: &str) {
                     .expect("scan")
                     .with_some_filter(query.filter.clone())
                     .with_projection(query.projection.clone())
-                    .with_split_by(SplitBy::Layout)
+                    .with_split_by(split.by)
                     .into_array_stream()
                     .expect("stream");
                 let mut rows = 0;
