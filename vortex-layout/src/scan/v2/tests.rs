@@ -42,7 +42,7 @@ use vortex_array::expr::not_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -542,7 +542,11 @@ async fn write_dict_layout(
         FlatLayoutStrategy::default(),
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
         DictLayoutOptions::default(),
-        Arc::new(BtrBlocksCompressor::from_session(session)),
+        Arc::new(
+            BtrBlocksCompressorBuilder::from_session(session)
+                .unrestricted()
+                .build(),
+        ),
     )
     .write_stream(
         ArrayContext::empty().into(),
