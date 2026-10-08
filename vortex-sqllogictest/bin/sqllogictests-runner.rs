@@ -67,13 +67,13 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
 
     let rt = build_runtime()?;
     rt.block_on(async {
+        let mut vortex_options = VortexTableOptions::default();
+        vortex_options.morsel_scan =
+            std::env::var("VORTEX_DF_MORSEL_SCAN").is_ok_and(|value| value == "1");
         // Keep EXPLAIN plans independent of the host's CPU count.
         let config = SessionConfig::default()
             .with_target_partitions(4)
-            .with_option_extension(VortexTableOptions {
-                morsel_scan: std::env::var("VORTEX_DF_MORSEL_SCAN").is_ok_and(|v| v == "1"),
-                ..Default::default()
-            });
+            .with_option_extension(vortex_options);
         let vortex_session = VortexSession::default();
         vortex_session.enable_edition(CORE_2026_08_3)?;
         let factory = Arc::new(VortexFormatFactory::new_with_session(vortex_session));
