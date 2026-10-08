@@ -25,6 +25,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::CoalesceConfig;
+use crate::FILE_PREFERRED_READ_SIZE;
 use crate::OBJECT_STORAGE_PREFERRED_READ_SIZE;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
@@ -48,6 +49,12 @@ pub struct ObjectStoreReadAt {
     preferred_read_size: Option<u64>,
 }
 
+/// Whether `store` is `object_store`'s local filesystem, recognised by its `Display` output since
+/// the trait offers no way to downcast.
+fn is_local_filesystem(store: &dyn ObjectStore) -> bool {
+    store.to_string().starts_with("LocalFileSystem(")
+}
+
 impl ObjectStoreReadAt {
     /// Create a new object store source.
     pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
@@ -67,6 +74,17 @@ impl ObjectStoreReadAt {
         allocator: BufferAllocatorRef,
     ) -> Self {
         let uri = Arc::from(path.to_string());
+        // Local disks (engines such as DataFusion read local files through `LocalFileSystem`)
+        // want the small coalescing gaps and pages of direct file reads, not those sized for
+        // the latency of remote object storage.
+        let (coalesce_config, preferred_read_size) = if is_local_filesystem(store.as_ref()) {
+            (CoalesceConfig::file(), FILE_PREFERRED_READ_SIZE)
+        } else {
+            (
+                CoalesceConfig::object_storage(),
+                OBJECT_STORAGE_PREFERRED_READ_SIZE,
+            )
+        };
         Self {
             store,
             path,
@@ -74,8 +92,8 @@ impl ObjectStoreReadAt {
             handle,
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
-            coalesce_config: Some(CoalesceConfig::object_storage()),
-            preferred_read_size: Some(OBJECT_STORAGE_PREFERRED_READ_SIZE),
+            coalesce_config: Some(coalesce_config),
+            preferred_read_size: Some(preferred_read_size),
         }
     }
 
@@ -281,6 +299,7 @@ mod tests {
     use crate::runtime::AbortHandle;
     use crate::runtime::AbortHandleRef;
     use crate::runtime::Executor;
+    use crate::runtime::tokio::TokioRuntime;
 
     const TEST_DATA: &[u8] = b"object store test data";
 
@@ -376,5 +395,33 @@ mod tests {
         assert_eq!(executor.spawn_count.load(Ordering::SeqCst), 0);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn local_filesystem_uses_local_disk_read_settings() {
+        let handle = TokioRuntime::current();
+        let local = ObjectStoreReadAt::new(
+            Arc::new(object_store::local::LocalFileSystem::new()),
+            ObjectPath::from("data.vortex"),
+            handle.clone(),
+        );
+        let local_coalesce = local.coalesce_config().expect("local coalesce config");
+        assert_eq!(local_coalesce.distance, CoalesceConfig::file().distance);
+        assert_eq!(local.preferred_read_size(), Some(FILE_PREFERRED_READ_SIZE));
+
+        let remote = ObjectStoreReadAt::new(
+            Arc::new(InMemory::new()),
+            ObjectPath::from("data.vortex"),
+            handle,
+        );
+        let remote_coalesce = remote.coalesce_config().expect("remote coalesce config");
+        assert_eq!(
+            remote_coalesce.distance,
+            CoalesceConfig::object_storage().distance
+        );
+        assert_eq!(
+            remote.preferred_read_size(),
+            Some(OBJECT_STORAGE_PREFERRED_READ_SIZE)
+        );
     }
 }
