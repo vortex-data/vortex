@@ -3,6 +3,7 @@
 
 use std::io;
 use std::sync::Arc;
+use std::sync::LazyLock;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -67,18 +68,22 @@ impl ObjectStoreReadAt {
         allocator: BufferAllocatorRef,
     ) -> Self {
         let uri = Arc::from(path.to_string());
-        let coalesce_config = if is_local_file_system(store.as_ref()) {
+        let local = is_local_file_system(store.as_ref());
+        let coalesce_config = env_coalesce_config().filter(|_| local).unwrap_or(if local {
             CoalesceConfig::file()
         } else {
             CoalesceConfig::object_storage()
-        };
+        });
+        let concurrency = env_concurrency()
+            .filter(|_| local)
+            .unwrap_or(DEFAULT_CONCURRENCY);
         Self {
             store,
             path,
             uri,
             handle,
             allocator,
-            concurrency: DEFAULT_CONCURRENCY,
+            concurrency,
             coalesce_config: Some(coalesce_config),
         }
     }
@@ -94,6 +99,37 @@ impl ObjectStoreReadAt {
         self.coalesce_config = Some(config);
         self
     }
+}
+
+/// The coalescing `VORTEX_IO_COALESCE` asks of local stores: `file`, `ssd`, `object`, or
+/// `<distance>:<max_size>` in bytes. An experiment knob for tuning local reads.
+fn env_coalesce_config() -> Option<CoalesceConfig> {
+    static CONFIG: LazyLock<Option<CoalesceConfig>> = LazyLock::new(|| {
+        let value = std::env::var("VORTEX_IO_COALESCE").ok()?;
+        match value.as_str() {
+            "file" => Some(CoalesceConfig::file()),
+            "ssd" => Some(CoalesceConfig::ssd()),
+            "object" => Some(CoalesceConfig::object_storage()),
+            custom => {
+                let (distance, max_size) = custom.split_once(':')?;
+                Some(CoalesceConfig::new(
+                    distance.parse().ok()?,
+                    max_size.parse().ok()?,
+                ))
+            }
+        }
+    });
+    *CONFIG
+}
+
+/// The read concurrency `VORTEX_IO_CONCURRENCY` asks of local stores.
+fn env_concurrency() -> Option<usize> {
+    static CONCURRENCY: LazyLock<Option<usize>> = LazyLock::new(|| {
+        std::env::var("VORTEX_IO_CONCURRENCY")
+            .ok()
+            .and_then(|value| value.parse().ok())
+    });
+    *CONCURRENCY
 }
 
 /// Whether `store` is object_store's `LocalFileSystem`, whose reads are local file reads.

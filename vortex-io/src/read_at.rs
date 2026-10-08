@@ -76,6 +76,14 @@ impl CoalesceConfig {
         Self::new(64 << 10, 4 << 20) // 64KB distance, 4MB max
     }
 
+    /// Configuration appropriate for reads that reach a local SSD rather than the page cache.
+    ///
+    /// A device read costs on the order of 100us, about as long as transferring a few hundred
+    /// kilobytes, so bridging gaps up to that size costs less than issuing another read.
+    pub const fn ssd() -> Self {
+        Self::new(256 << 10, 8 << 20) // 256KB distance, 8MB max
+    }
+
     /// Configuration appropriate for object storage (S3, GCS, etc.).
     pub const fn object_storage() -> Self {
         Self::new(1 << 20, 16 << 20) // 1MB distance, 16MB max
