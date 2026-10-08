@@ -193,7 +193,9 @@ impl IoSource for FileSplitIo {
         let requests = batch.len();
         let mut state = self.state.lock();
         let previous_reads = state.reads.len();
-        let mut wanted = 0usize;
+        // Register the whole batch before any of it is wanted, so the driver can coalesce a
+        // wanted read with every range the batch names.
+        let mut reads = Vec::with_capacity(batch.len());
         for request in batch {
             let IoTarget::Range {
                 offset,
@@ -208,6 +210,10 @@ impl IoSource for FileSplitIo {
                 Some(read) => read,
                 None => self.register(offset, len, alignment)?,
             };
+            reads.push((request, key, read));
+        }
+        let mut wanted = 0usize;
+        for (request, key, read) in reads {
             if request.intent != IoIntent::Announce {
                 wanted += usize::from(self.want(&read)?);
             }
