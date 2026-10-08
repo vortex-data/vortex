@@ -235,6 +235,17 @@ impl ArrayKernels {
         self.reduce_parent.get(&hash_fn_id(parent, child))
     }
 
+    /// Returns true when one or more parent-reduce functions are registered for `(parent, child)`.
+    ///
+    /// `parent` is the parent array's encoding id, or the scalar function id for a `ScalarFnArray`
+    /// parent (for example `FillNull.id()`), and `child` is the child array's encoding id (for
+    /// example `Primitive.id()`). Only session-registered functions are consulted; an encoding's
+    /// static `PARENT_RULES` are not.
+    pub fn has_reduce_parent(&self, parent: Id, child: Id) -> bool {
+        self.find_reduce_parent(parent, child)
+            .is_some_and(|fns| !fns.is_empty())
+    }
+
     /// Register [`ExecuteParentFn`]s for `(parent, child)`.
     ///
     /// The executor invokes these functions in registration order when it sees a parent with
@@ -276,10 +287,15 @@ impl ArrayKernels {
     }
 
     /// Returns true when one or more execute-parent kernels are registered for `(parent, child)`.
+    ///
+    /// `parent` is the parent array's encoding id, or the scalar function id for a `ScalarFnArray`
+    /// parent (for example `FillNull.id()`), and `child` is the child array's encoding id (for
+    /// example `Primitive.id()`). Only session-registered kernels are consulted; an encoding's
+    /// own `execute` path is not.
     pub fn has_execute_parent(&self, parent: Id, child: Id) -> bool {
         self.execute_parent
             .get(&hash_fn_id(parent, child))
-            .is_some()
+            .is_some_and(|kernels| !kernels.is_empty())
     }
 
     /// Return the currently published execute-parent kernel snapshot.
@@ -379,12 +395,19 @@ impl<S: SessionExt> ArrayKernelsExt for S {}
 mod tests {
     use vortex_session::VortexSession;
 
+    use super::ArrayKernels;
     use super::ArrayKernelsExt;
     use super::KernelSession;
+    use super::ReduceParentFn;
     use crate::ArrayVTable;
     use crate::arrays::Bool;
+    use crate::arrays::Null;
+    use crate::arrays::Primitive;
+    use crate::arrays::Struct;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::cast::Cast;
+    use crate::scalar_fn::fns::fill_null::FillNull;
 
     #[test]
     fn kernel_session_default_registers_builtin_kernels() {
@@ -402,6 +425,42 @@ mod tests {
         crate::initialize(&session);
 
         assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn has_execute_parent_reports_scalar_fn_kernels() {
+        let session = VortexSession::empty().with::<KernelSession>();
+        let kernels = session.kernels();
+
+        assert!(kernels.has_execute_parent(FillNull.id(), Primitive.id()));
+        assert!(!kernels.has_execute_parent(FillNull.id(), Null.id()));
+    }
+
+    #[test]
+    fn has_reduce_parent_reports_registered_fns() {
+        let session = VortexSession::empty().with::<KernelSession>();
+        let kernels = session.kernels();
+
+        assert!(kernels.has_reduce_parent(Cast.id(), Struct.id()));
+        assert!(!kernels.has_reduce_parent(FillNull.id(), Primitive.id()));
+
+        kernels.register_reduce_parent(
+            FillNull.id(),
+            Primitive.id(),
+            &[(|_child, _parent, _idx| Ok(None)) as ReduceParentFn],
+        );
+        assert!(kernels.has_reduce_parent(FillNull.id(), Primitive.id()));
+    }
+
+    #[test]
+    fn has_kernels_ignores_empty_registrations() {
+        let kernels = ArrayKernels::empty();
+
+        kernels.register_reduce_parent(FillNull.id(), Primitive.id(), &[]);
+        kernels.register_execute_parent(FillNull.id(), Primitive.id(), &[]);
+
+        assert!(!kernels.has_reduce_parent(FillNull.id(), Primitive.id()));
+        assert!(!kernels.has_execute_parent(FillNull.id(), Primitive.id()));
     }
 
     #[test]
