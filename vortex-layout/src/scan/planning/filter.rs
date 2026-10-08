@@ -321,7 +321,8 @@ impl FilterPlanner {
         self.evaluate_all = self.filters.infallible[index]
             && (self.mask.density() >= 0.2
                 || self.filters.dictionary[index]
-                || self.filters.numeric_disjunction[index]);
+                || self.filters.numeric_disjunction[index])
+            && !self.reads_unselected_chunks(index)?;
         let evaluation_mask = if self.evaluate_all {
             Mask::new_true(self.mask.len())
         } else {
@@ -341,6 +342,26 @@ impl FilterPlanner {
             ProtocolGraph::new(graph, Arc::clone(&self.plans.locations), self.next_io_id),
         ));
         Ok(PlannerOutput::Continue)
+    }
+
+    /// Whether evaluating plan `index` over every row would read segments that its selected rows
+    /// do not, such as the chunks of zones that pruning ruled out.
+    fn reads_unselected_chunks(&self, index: usize) -> VortexResult<bool> {
+        if self.mask.all_true() {
+            return Ok(false);
+        }
+        let plan = &self.filters.plans[index];
+        let mut every = Vec::new();
+        plan_segments(plan, self.scope.rows.clone(), &mut every)?;
+        let mut selected = Vec::new();
+        for range in selected_ranges(&self.scope.rows, &self.mask) {
+            plan_segments(plan, range, &mut selected)?;
+        }
+        every.sort_unstable();
+        every.dedup();
+        selected.sort_unstable();
+        selected.dedup();
+        Ok(every != selected)
     }
 
     /// Narrows the mask to the rows plan `index` keeps.
