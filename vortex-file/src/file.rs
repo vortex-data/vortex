@@ -22,6 +22,7 @@ use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
+use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
@@ -49,6 +50,8 @@ pub struct VortexFile {
     metadata: Arc<HashMap<String, ByteBuffer>>,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
+    /// The V2 equivalent of the cached reader tree, enabled by the same option.
+    pub(crate) scan_file_cache: Option<OnceLock<ScanFile>>,
     /// Serves the planning protocol's reads, when the file was opened over a reader.
     scan_io: Option<Arc<dyn IoService>>,
 }
@@ -87,12 +90,16 @@ impl VortexFile {
             session,
             metadata: Arc::new(HashMap::new()),
             layout_reader_cache: None,
+            scan_file_cache: None,
             scan_io: None,
         }
     }
 
     pub(crate) fn with_scan_io(mut self, scan_io: Arc<dyn IoService>) -> Self {
         self.scan_io = Some(scan_io);
+        if let Some(cache) = &mut self.scan_file_cache {
+            cache.take();
+        }
         self
     }
 
@@ -111,6 +118,7 @@ impl VortexFile {
     ///
     /// Repeated calls to [`layout_reader`](Self::layout_reader), [`scan`](Self::scan), and
     /// [`data_source`](Self::data_source) will share the same reader tree.
+    /// V2 scans retain the equivalent layout plans and dictionary and zone state.
     pub fn with_caching(self) -> Self {
         Self {
             footer: self.footer,
@@ -118,6 +126,7 @@ impl VortexFile {
             session: self.session,
             metadata: self.metadata,
             layout_reader_cache: Some(OnceLock::new()),
+            scan_file_cache: Some(OnceLock::new()),
             scan_io: self.scan_io,
         }
     }
@@ -170,7 +179,7 @@ impl VortexFile {
 
     /// Replace the segment source used by this file.
     ///
-    /// Any cached layout reader is cleared so that subsequent scans construct readers over the
+    /// Any cached layout reader and V2 plans are cleared so that subsequent scans read from the
     /// replacement source.
     pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
         self.segment_source = segment_source;
@@ -178,6 +187,9 @@ impl VortexFile {
         self.scan_io = None;
         if self.layout_reader_cache.is_some() {
             self.layout_reader_cache = Some(OnceLock::new());
+        }
+        if let Some(cache) = &mut self.scan_file_cache {
+            cache.take();
         }
         self
     }

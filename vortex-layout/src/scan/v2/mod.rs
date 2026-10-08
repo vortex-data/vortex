@@ -41,6 +41,7 @@ use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+pub use file::FilePlans;
 pub use repeated_scan::RepeatedScanV2;
 pub use repeated_scan::prepare;
 pub use scan_builder::ScanBuilder;
@@ -75,6 +76,10 @@ pub struct ScanFile {
     /// Serves the splits' reads, when the file provides a service for them; otherwise they are
     /// served from `segments`.
     pub io: Option<Arc<dyn IoService>>,
+    /// Retains layout plans, dictionary values, and zone statistics for an explicitly cached
+    /// reader. Ordinary decoded segments and query expressions are not retained here.
+    /// Only share this state between scans over the same layout and segment source.
+    pub plans: Option<Arc<FilePlans>>,
 }
 
 #[cfg(test)]

@@ -96,6 +96,13 @@ impl AnnouncePlanner {
         // V1 constructs projection futures before filtering, so a shared segment read remains
         // live for each pending projection. Keep one registration per potential consumer.
         for rows in projection_splits(&plans.projection_starts, rows.clone()) {
+            // The input selection is already known, even before predicates run. Empty chunks
+            // cannot produce a projection consumer and must not keep read registrations alive.
+            let start = usize::try_from(rows.start - selected.scope.rows.start)?;
+            let end = usize::try_from(rows.end - selected.scope.rows.start)?;
+            if selected.mask.slice(start..end).all_false() {
+                continue;
+            }
             announce(&plans.projection, rows)?;
         }
         ids.into_iter()
@@ -155,5 +162,85 @@ impl Planner for AnnouncePlanner {
             None => vortex_bail!("AnnouncePlanner has no continuation"),
         };
         Ok(PlannerOutput::Planner(scope, next))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
+    use vortex_buffer::Alignment;
+    use vortex_mask::Mask;
+    use vortex_scan::planning::planner::WorkScope;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+    use crate::plan::ConcatPlan;
+    use crate::plan::FilterPlan;
+    use crate::plan::SegmentScanPlan;
+    use crate::plan::exec::DecodeCache;
+    use crate::scan::planning::SegmentLocation;
+    use crate::segments::SegmentId;
+    use crate::test::new_session;
+
+    #[test]
+    fn announcements_skip_chunks_without_selected_rows() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+        let chunks = (0..3)
+            .map(|segment| {
+                FilterPlan::new(
+                    SegmentScanPlan::new(
+                        dtype.clone(),
+                        1000,
+                        SegmentId::from(segment),
+                        ReadContext::new([]),
+                        None,
+                    )
+                    .into_plan(),
+                )
+                .into_plan()
+            })
+            .collect();
+        let locations: Arc<[_]> = (0..3)
+            .map(|offset| SegmentLocation {
+                offset,
+                length: 1,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let selected = SelectedRows {
+            scope: WorkScope {
+                file_ordinal: 0,
+                rows: 100..2900,
+            },
+            mask: Mask::from_iter((100..2900).map(|row| row == 150 || row == 2800)),
+        };
+        let mut planner = AnnouncePlanner::for_split(
+            ScanPlans {
+                session: new_session(),
+                locations: Arc::clone(&locations),
+                projection: ConcatPlan::try_new(dtype, chunks)?.into_plan(),
+                projection_starts: Arc::from([0, 1000, 2000]),
+                row_offset: 0,
+                decoded: DecodeCache::disabled(),
+            },
+            None,
+            None,
+            selected,
+        );
+        let PlannerOutput::NeedsIO(requests) = planner.compute()? else {
+            vortex_bail!("expected announcements");
+        };
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.intent == IoIntent::Announce)
+        );
+        let targets: Vec<_> = requests.iter().map(|request| request.target).collect();
+        assert_eq!(targets, vec![locations[0].target(), locations[2].target()]);
+        Ok(())
     }
 }

@@ -11,6 +11,8 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Barrier;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::thread;
 
 use futures::FutureExt;
@@ -54,8 +56,11 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
+use crate::LayoutChildren;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::layouts::chunked::Chunked;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::dict::Dict;
 use crate::layouts::dict::writer::DictLayoutOptions;
@@ -64,9 +69,11 @@ use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
+use crate::plan::PlanRef;
 use crate::scan::planning::SegmentLocation;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::v2;
+use crate::scan::v2::FilePlans;
 use crate::scan::v2::ScanFile;
 use crate::scan::v2::file::shared_file;
 use crate::segments::SegmentFuture;
@@ -80,6 +87,106 @@ use crate::test::new_session;
 
 const CHUNK_ROWS: i32 = 1000;
 const DTYPE: DType = DType::Primitive(PType::I32, NonNullable);
+
+#[derive(Clone)]
+struct CountingChildren {
+    inner: Arc<dyn LayoutChildren>,
+    accessed: Arc<AtomicUsize>,
+    row_counts: Arc<AtomicUsize>,
+    hints: Arc<AtomicUsize>,
+}
+
+impl LayoutChildren for CountingChildren {
+    fn to_arc(&self) -> Arc<dyn LayoutChildren> {
+        Arc::new(self.clone())
+    }
+
+    fn child(&self, index: usize, dtype: &DType) -> VortexResult<LayoutRef> {
+        self.accessed.fetch_add(1, Ordering::Relaxed);
+        self.inner.child(index, dtype)
+    }
+
+    fn child_row_count(&self, index: usize) -> u64 {
+        self.row_counts.fetch_add(1, Ordering::Relaxed);
+        self.inner.child_row_count(index)
+    }
+
+    fn nchildren(&self) -> usize {
+        self.inner.nchildren()
+    }
+
+    fn child_is_indivisible(&self, index: usize) -> bool {
+        self.hints.fetch_add(1, Ordering::Relaxed);
+        self.inner.child_is_indivisible(index)
+    }
+}
+
+#[rstest]
+#[case::empty(&[], 0)]
+#[case::sparse(&[1, 2001], 2)]
+#[case::same_chunk(&[1001, 1002], 1)]
+#[case::last_row(&[3999], 1)]
+#[tokio::test]
+async fn identity_preparation_keeps_flat_chunks_lazy(
+    #[case] indices: &'static [u64],
+    #[case] selected_chunks: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let mut expected_segments = BTreeSet::new();
+    for &index in indices {
+        let child = layout
+            .slot(usize::try_from(index / CHUNK_ROWS as u64)?)?
+            .ok_or_else(|| vortex_err!("Missing selected chunk"))?;
+        expected_segments.extend(segment_ids(&child)?);
+    }
+    let registered = Arc::default();
+    let segments: Arc<dyn SegmentSource> = Arc::new(RecordingSegments {
+        inner: segments,
+        registered: Arc::clone(&registered),
+        reads: Arc::default(),
+    });
+    let accessed = Arc::new(AtomicUsize::new(0));
+    let row_counts = Arc::new(AtomicUsize::new(0));
+    let hints = Arc::new(AtomicUsize::new(0));
+    let layout = ChunkedLayout::new(
+        layout.row_count(),
+        DTYPE,
+        Arc::new(CountingChildren {
+            inner: Arc::clone(layout.as_::<Chunked>().children()),
+            accessed: Arc::clone(&accessed),
+            row_counts: Arc::clone(&row_counts),
+            hints: Arc::clone(&hints),
+        }),
+    )
+    .into_layout();
+    let file = scan_file(&segments, &layout)?;
+    accessed.store(0, Ordering::Relaxed);
+    row_counts.store(0, Ordering::Relaxed);
+    hints.store(0, Ordering::Relaxed);
+    let case = Case {
+        rows: Some(indices),
+        ..Default::default()
+    };
+    let scan = v2::prepare(builder(&session, &segments, &layout, &case)?, file)?;
+    assert_eq!(accessed.load(Ordering::Relaxed), 0);
+    assert_eq!(row_counts.load(Ordering::Relaxed), 0);
+    assert_eq!(hints.load(Ordering::Relaxed), selected_chunks);
+
+    let actual = await_tasks(DTYPE, scan.execute(None)?).await?;
+    assert_eq!(*registered.lock(), expected_segments);
+    let expected = indices
+        .iter()
+        .copied()
+        .map(i32::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_arrays_eq!(
+        actual,
+        Buffer::from(expected).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
 
 /// Four chunks of consecutive integers, `0..4000`.
 async fn write_layout(
@@ -127,6 +234,7 @@ fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexRes
         locations,
         segments: Arc::clone(segments),
         io: None,
+        plans: None,
     })
 }
 
@@ -703,6 +811,124 @@ async fn registry_does_not_retain_inactive_scan_caches() -> VortexResult<()> {
     drop(shared);
     assert!(weak.upgrade().is_none());
     assert_eq!(Arc::strong_count(&reader), 1);
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn reader_cache_retains_dictionary_values_but_not_codes(
+    #[values(false, true)] cached: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_dict_layout(&session).await?;
+    let mut values = BTreeSet::new();
+    for node in layout.depth_first_traversal() {
+        let node = node?;
+        if node.is::<Dict>() {
+            values.extend(segment_ids(
+                &node.slot(0)?.ok_or_else(|| vortex_err!("missing values"))?,
+            )?);
+        }
+    }
+    assert!(!values.is_empty());
+    let recording = Arc::new(RecordingSegments {
+        inner: segments,
+        reads: Default::default(),
+        registered: Default::default(),
+    });
+    let source: Arc<dyn SegmentSource> = recording.clone();
+    let reader = layout.new_reader("".into(), source.clone(), &session, &Default::default())?;
+    let mut file = scan_file(&source, &layout)?;
+    file.plans = cached.then(|| Arc::new(FilePlans::default()));
+    let mut first_reads = BTreeSet::new();
+    for iteration in 0..2 {
+        recording.reads.lock().clear();
+        let arrays = v2::into_stream(
+            ScanBuilder::new(session.clone(), reader.clone()),
+            file.clone(),
+        )?
+        .try_collect::<Vec<_>>()
+        .await?;
+        let expected = VarBinArray::from_iter_nonnull(
+            (0..4).flat_map(|chunk| {
+                (0..CHUNK_ROWS).map(move |row| WORDS[((row * 7 + chunk) % 4) as usize])
+            }),
+            DType::Utf8(NonNullable),
+        );
+        assert_arrays_eq!(
+            ChunkedArray::try_new(arrays, DType::Utf8(NonNullable))?,
+            expected,
+            &mut session.create_execution_ctx()
+        );
+        let reads = recording.reads.lock().clone();
+        if iteration == 0 {
+            assert!(values.is_subset(&reads));
+            first_reads = reads;
+        } else {
+            let expected = if cached {
+                first_reads.difference(&values).copied().collect()
+            } else {
+                first_reads.clone()
+            };
+            assert!(!expected.is_empty());
+            assert_eq!(reads, expected);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn reader_plan_cache_has_no_ownership_cycle() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let mut file = scan_file(&segments, &layout)?;
+    let plans = Arc::new(FilePlans::default());
+    let weak_plans = Arc::downgrade(&plans);
+    file.plans = Some(plans);
+    let shared = shared_file(&reader, file.clone())?;
+    let root = shared.root.clone();
+    let weak_shared = Arc::downgrade(&shared);
+    drop(shared);
+    assert!(weak_shared.upgrade().is_none());
+    let shared = shared_file(&reader, file.clone())?;
+    assert!(PlanRef::ptr_eq(&root, &shared.root));
+    drop(shared);
+    drop(file);
+    assert!(weak_plans.upgrade().is_none());
+    assert_eq!(Arc::strong_count(&reader), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn cached_dictionary_accepts_different_queries() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_dict_layout(&session).await?;
+    let reader = layout.new_reader("".into(), segments.clone(), &session, &Default::default())?;
+    let mut file = scan_file(&segments, &layout)?;
+    file.plans = Some(Arc::default());
+    let dtype = DType::Utf8(NonNullable);
+    for (projection, filter) in [
+        (root(), eq(root(), lit("apple"))),
+        (byte_length(root()), gt(byte_length(root()), lit(3u64))),
+        (root(), eq(root(), lit("banana"))),
+    ] {
+        let builder = || -> VortexResult<_> {
+            Ok(ScanBuilder::new(session.clone(), reader.clone())
+                .with_projection(projection.bind(&dtype)?)
+                .with_filter(filter.bind(&dtype)?))
+        };
+        let result_dtype = builder()?.dtype()?;
+        let expected = builder()?.into_stream()?.try_collect::<Vec<_>>().await?;
+        let actual = v2::into_stream(builder()?, file.clone())?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_arrays_eq!(
+            ChunkedArray::try_new(actual, result_dtype.clone())?,
+            ChunkedArray::try_new(expected, result_dtype)?,
+            &mut session.create_execution_ctx()
+        );
+    }
     Ok(())
 }
 

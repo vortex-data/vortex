@@ -52,7 +52,6 @@ use crate::scan::v2::conjuncts::group_conjuncts;
 use crate::scan::v2::file::SharedFile;
 use crate::scan::v2::file::shared_file;
 use crate::scan::v2::io::SegmentScanIo;
-use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::pruning::PrunedFile;
 use crate::scan::v2::pruning::file_pruning_enabled;
 use crate::scan::v2::pruning::prune_file;
@@ -60,6 +59,7 @@ use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitPlan;
 use crate::scan::v2::splits::chunk_starts;
 use crate::scan::v2::splits::filter_split_boundaries;
+use crate::scan::v2::splits::layout_chunk_starts;
 use crate::scan::v2::splits::max_split_rows;
 
 /// Computes split ranges for `builder` and returns an executable scan over `file`, the file the
@@ -94,6 +94,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
         &shared,
         &builder.projection,
         builder.filter.as_ref(),
+        &builder.selection,
         &builder.session,
     )?;
     let plans = ScanPlans {
@@ -128,7 +129,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
         io: shared.file.io.clone().unwrap_or_else(|| {
             Arc::new(SegmentScanIo::new(
                 Arc::clone(&shared.file.segments),
-                segment_ranges(&shared.file.locations),
+                shared.segment_ranges(),
             ))
         }),
         shared,
@@ -141,7 +142,7 @@ pub(super) fn prepare_scan<A: 'static + Send>(
     })
 }
 
-/// Expression plans and chunk boundaries, independent of a partition's row range and selection.
+/// Expression plans and chunk boundaries for a scan.
 struct PreparedPlans {
     projection: PlanRef,
     filter: Option<FilterPlans>,
@@ -156,8 +157,30 @@ impl PreparedPlans {
         shared: &SharedFile,
         projection: &BoundExpression,
         filter: Option<&BoundExpression>,
+        selection: &Selection,
         session: &VortexSession,
     ) -> VortexResult<Self> {
+        if projection.is_root() && filter.is_none() {
+            // Identity scans need no expression rewrites or changes to dictionary value forms.
+            // Read chunk metadata without lowering the unselected parts of the layout into plans.
+            let indices = match selection {
+                Selection::IncludeByIndex(indices)
+                    if indices.len() as u64 <= shared.root.row_count() / 8 =>
+                {
+                    Some(indices.as_slice())
+                }
+                _ => None,
+            };
+            let starts: Arc<[u64]> = layout_chunk_starts(&shared.file.layout, indices)?.into();
+            return Ok(Self {
+                projection: shared.root.clone(),
+                filter: None,
+                pruning: None,
+                projection_starts: Arc::clone(&starts),
+                filter_starts: Arc::clone(&starts),
+                all_starts: starts,
+            });
+        }
         let root = shared.root.clone();
         let plan = |expression| optimize(plan_row_idx_expression(expression, root.clone())?);
         let filter_expression = filter;

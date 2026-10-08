@@ -14,7 +14,14 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::LayoutRef;
+use crate::layouts::chunked::Chunked;
+use crate::layouts::dict::Dict;
+use crate::layouts::struct_::Struct;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 use crate::plan::Concat;
 use crate::plan::Eval;
 use crate::plan::Filter;
@@ -36,6 +43,85 @@ const SPLITS_PER_THREAD: u64 = 4;
 pub(super) fn max_split_rows(rows: u64, threads: usize) -> u64 {
     let splits = SPLITS_PER_THREAD * u64::try_from(threads.max(1)).unwrap_or(u64::MAX);
     (rows / splits).clamp(MIN_SPLIT_ROWS, MAX_SPLIT_ROWS)
+}
+
+/// Identity scans retain natural chunk boundaries without materializing the full physical plan.
+/// Dictionary values and list elements are separate row domains, as in [`chunk_starts`].
+/// Sparse indices restrict the walk to selected chunks; their end boundaries separate empty gaps.
+pub(super) fn layout_chunk_starts(
+    layout: &LayoutRef,
+    indices: Option<&[u64]>,
+) -> VortexResult<Vec<u64>> {
+    let mut starts = Vec::new();
+    collect_layout_starts(layout, 0, indices, &mut starts)?;
+    starts.sort_unstable();
+    starts.dedup();
+    Ok(starts)
+}
+
+fn collect_layout_starts(
+    layout: &LayoutRef,
+    offset: u64,
+    indices: Option<&[u64]>,
+    starts: &mut Vec<u64>,
+) -> VortexResult<()> {
+    if let Some(chunked) = layout.as_opt::<Chunked>() {
+        if let Some(mut indices) = indices {
+            let offsets = chunked.chunk_offsets();
+            while let Some(&row) = indices.first() {
+                let index = offsets
+                    .partition_point(|&start| start <= row.saturating_sub(offset))
+                    .saturating_sub(1);
+                if index >= chunked.nchildren() {
+                    break;
+                }
+                let start = offset
+                    .checked_add(offsets[index])
+                    .ok_or_else(|| vortex_err!("Chunked row offset overflow"))?;
+                let end = offset
+                    .checked_add(offsets[index + 1])
+                    .ok_or_else(|| vortex_err!("Chunked row offset overflow"))?;
+                let count = indices.partition_point(|&row| row < end);
+                // Both edges are needed: the gap before the next selected chunk must remain
+                // an empty projection split, so IO planning does not announce its segments.
+                starts.extend([start, end]);
+                if !chunked.children().child_is_indivisible(index) {
+                    let child = layout
+                        .slot(index)?
+                        .ok_or_else(|| vortex_err!("Missing chunk {index}"))?;
+                    collect_layout_starts(&child, start, Some(&indices[..count]), starts)?;
+                }
+                indices = &indices[count..];
+            }
+            return Ok(());
+        }
+        for (index, &child_offset) in chunked.chunk_offsets()[..chunked.nchildren()]
+            .iter()
+            .enumerate()
+        {
+            let offset = offset
+                .checked_add(child_offset)
+                .ok_or_else(|| vortex_err!("Chunked row offset overflow"))?;
+            starts.push(offset);
+            if !chunked.children().child_is_indivisible(index) {
+                let child = layout
+                    .slot(index)?
+                    .ok_or_else(|| vortex_err!("Missing chunk {index}"))?;
+                collect_layout_starts(&child, offset, None, starts)?;
+            }
+        }
+    } else if layout.is::<Dict>() || layout.is::<Zoned>() || layout.is::<LegacyStats>() {
+        let slot = usize::from(layout.is::<Dict>());
+        let child = layout
+            .slot(slot)?
+            .ok_or_else(|| vortex_err!("Missing layout child {slot}"))?;
+        collect_layout_starts(&child, offset, indices, starts)?;
+    } else if layout.is::<Struct>() {
+        for child in layout.children()? {
+            collect_layout_starts(&child, offset, indices, starts)?;
+        }
+    }
+    Ok(())
 }
 
 /// The row positions where the chunks of `plans` start, over their shared row domain, sorted and

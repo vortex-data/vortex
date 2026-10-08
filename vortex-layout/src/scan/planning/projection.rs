@@ -37,8 +37,8 @@ use crate::scan::v2::splits::projection_splits;
 /// with a selected row becomes one [`ProjectionMorsel`], so a morsel reads at most one chunk of
 /// every column. The planner finishes once it has handed out every morsel.
 ///
-/// Before the first morsel, the planner prefetches every segment the projection reads over the
-/// selected rows, so the reads of all its morsels start together. Nothing asks for projection
+/// When there are multiple morsels, the planner first prefetches every segment the projection
+/// reads over the selected rows, so their reads start together. Nothing asks for projection
 /// segments earlier by default. Opt-in projection read-ahead can start a bounded set during
 /// filtering instead.
 pub struct ProjectionPlanner {
@@ -61,6 +61,11 @@ impl ProjectionPlanner {
 
     /// Prefetches the nonempty projection chunks, which are already cut for execution.
     fn prefetch(&self) -> VortexResult<IoBatch> {
+        if self.pending.len() == 1 {
+            // One morsel publishes its own reads before waiting; there are no later morsels
+            // whose reads need to start ahead of it.
+            return Ok(Vec::new());
+        }
         let mut ids = Vec::new();
         for selected in &self.pending {
             plan_segments(

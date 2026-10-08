@@ -62,11 +62,16 @@ pub(crate) fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
 
 /// The parts of an opened file that the `VORTEX_SCAN_V2` executor reads through.
 pub fn scan_file(file: &VortexFile) -> ScanFile {
-    ScanFile {
+    let create = || ScanFile {
         layout: Arc::clone(file.footer().layout()),
         locations: segment_locations(file.footer()),
         segments: file.segment_source(),
         io: file.scan_io().cloned(),
+        plans: file.scan_file_cache.as_ref().map(|_| Arc::default()),
+    };
+    match &file.scan_file_cache {
+        Some(cache) => cache.get_or_init(create).clone(),
+        None => create(),
     }
 }
 

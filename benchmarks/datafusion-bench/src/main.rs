@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::json::LineDelimitedWriter;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
@@ -230,11 +232,35 @@ async fn run(args: Args) -> anyhow::Result<()> {
                         if io_diagnostics {
                             eprintln!("IO_ITERATION_BEGIN query={query_idx}");
                         }
+                        let override_query = std::env::var("VORTEX_BENCH_QUERY_OVERRIDE_DIR")
+                            .ok()
+                            .map(|directory| {
+                                std::fs::read_to_string(
+                                    PathBuf::from(directory).join(format!("{query_idx}.sql")),
+                                )
+                            })
+                            .transpose()?;
+                        let query = override_query.as_deref().unwrap_or(query);
                         let timer = Instant::now();
                         let (batches, plan) = execute_query(session, query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
+                        if let Ok(directory) = std::env::var("VORTEX_BENCH_RESULTS_DIR") {
+                            let path = PathBuf::from(directory)
+                                .join(format!("{format}-{query_idx}.jsonl"));
+                            if !path.exists() {
+                                let mut writer = LineDelimitedWriter::new(File::create(&path)?);
+                                writer.write_batches(&batches.iter().collect::<Vec<_>>())?;
+                                writer.finish()?;
+                                if let Some(batch) = batches.first() {
+                                    std::fs::write(
+                                        path.with_extension("schema"),
+                                        format!("{:?}", batch.schema()),
+                                    )?;
+                                }
+                            }
+                        }
 
                         if io_diagnostics {
                             for (scan, metrics) in VortexMetricsFinder::find_all(plan.as_ref())

@@ -20,12 +20,15 @@ use vortex_array::expr::lit;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::ReadAtIoSource;
+use vortex_layout::segments::SegmentSource;
+use vortex_layout::segments::TestSegments;
 use vortex_scan::planning::driver::Batch;
 use vortex_scan::planning::driver::Driver;
 use vortex_scan::planning::next::next_fn;
@@ -37,6 +40,7 @@ use vortex_scan::planning::planner::WorkScope;
 use crate::Footer;
 use crate::planning::FileSource;
 use crate::planning::plan_file;
+use crate::planning::scan_file;
 use crate::planning::tests::fixtures::FailingReadAt;
 use crate::planning::tests::fixtures::LifoReadAtIoSource;
 use crate::planning::tests::fixtures::PanickingReadAt;
@@ -75,6 +79,36 @@ fn run(
 
 fn numbers_file() -> VortexResult<ByteBuffer> {
     write_test_file(&[("numbers", buffer![1u32, 2, 3, 4, 5, 6, 7, 8].into_array())])
+}
+
+#[test]
+fn v2_reader_cache_is_opt_in_and_cleared_when_source_changes() -> VortexResult<()> {
+    let file = open_buffer(&numbers_file()?)?;
+    assert!(scan_file(&file).plans.is_none());
+    let file = file.with_caching();
+    let first = scan_file(&file);
+    let second = scan_file(&file);
+    assert!(Arc::ptr_eq(&first.locations, &second.locations));
+    let first_plans = first
+        .plans
+        .as_ref()
+        .ok_or_else(|| vortex_err!("missing first cache"))?;
+    let second_plans = second
+        .plans
+        .as_ref()
+        .ok_or_else(|| vortex_err!("missing second cache"))?;
+    assert!(Arc::ptr_eq(first_plans, second_plans));
+    let source: Arc<dyn SegmentSource> = Arc::new(TestSegments::default());
+    let file = file.with_segment_source(source.clone());
+    let replaced = scan_file(&file);
+    let replaced_plans = replaced
+        .plans
+        .as_ref()
+        .ok_or_else(|| vortex_err!("missing replacement cache"))?;
+    assert!(!Arc::ptr_eq(first_plans, replaced_plans));
+    assert!(Arc::ptr_eq(&source, &replaced.segments));
+    assert!(replaced.io.is_none());
+    Ok(())
 }
 
 fn range_row(start: u64, end: u64) -> VortexResult<ArrayRef> {

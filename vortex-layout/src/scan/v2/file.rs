@@ -13,27 +13,49 @@ use vortex_error::VortexResult;
 use crate::LayoutReader;
 use crate::plan::PlanRef;
 use crate::scan::v2::ScanFile;
+use crate::scan::v2::io::SegmentRanges;
+use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::lower::lower;
 use crate::scan::v2::lower::lower_with_zones;
 
+/// Layout-derived state with the same lifetime as an explicitly cached layout reader.
+///
+/// Plans retain dictionary values and zone statistics, as the V1 reader does. This does not
+/// cache ordinary decoded segments or query-specific expressions.
+#[derive(Default)]
+pub struct FilePlans {
+    root: OnceCell<PlanRef>,
+    zones: OnceCell<PlanRef>,
+    ranges: OnceCell<SegmentRanges>,
+}
+
 /// Lowered plans shared by active scans over one layout reader.
 ///
-/// Dictionary values and zone statistics may be retained while these scans run, as in V1.
-/// The registry holds only weak references, so it never extends their lifetime.
+/// The registry holds only weak references, so it never extends their lifetime. An explicitly
+/// cached reader owns its [`FilePlans`] independently, as V1 retains state on its reader tree.
 pub(super) struct SharedFile {
     pub(super) file: ScanFile,
     /// The file's layout lowered to a plan.
     pub(super) root: PlanRef,
-    /// The file's layout lowered with its zone statistics, for pruning.
-    zones: OnceCell<PlanRef>,
+    /// Layout-derived state shared by active scans or retained by an explicitly cached reader.
+    plans: Arc<FilePlans>,
     _reader: Arc<dyn LayoutReader>,
 }
 
 impl SharedFile {
     pub(super) fn zones(&self) -> VortexResult<PlanRef> {
-        self.zones
+        self.plans
+            .zones
             .get_or_try_init(|| lower_with_zones(&self.file.layout))
             .cloned()
+    }
+
+    pub(super) fn segment_ranges(&self) -> SegmentRanges {
+        Arc::clone(
+            self.plans
+                .ranges
+                .get_or_init(|| segment_ranges(&self.file.locations)),
+        )
     }
 }
 
@@ -66,9 +88,11 @@ pub(super) fn shared_file(
     if let Some(shared) = known.upgrade() {
         return Ok(shared);
     }
+    let plans = file.plans.clone().unwrap_or_default();
+    let root = plans.root.get_or_try_init(|| lower(&file.layout))?.clone();
     let shared = Arc::new(SharedFile {
-        root: lower(&file.layout)?,
-        zones: OnceCell::default(),
+        root,
+        plans,
         _reader: Arc::clone(reader),
         file,
     });

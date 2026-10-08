@@ -205,6 +205,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::session::ArraySessionExt;
@@ -215,7 +217,70 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use super::*;
+    use crate::plan::exec::DecodeCache;
     use crate::segments::SegmentId;
+
+    #[rstest]
+    #[case::sparse(0..2048, &[1, 13, 700, 2020])]
+    #[case::offset(100..1900, &[0, 1, 12, 1000])]
+    #[case::contiguous(100..1900, &[10, 11, 12, 13])]
+    #[case::empty(100..1900, &[])]
+    fn list_selection_preserves_values_and_nulls(
+        #[case] rows: Range<u64>,
+        #[case] indices: &[usize],
+        #[values(false, true)] view: bool,
+        #[values(false, true)] bitmap: bool,
+    ) -> VortexResult<()> {
+        let session = crate::test::new_session();
+        let mut ctx = session.create_execution_ctx();
+        let elements =
+            PrimitiveArray::from_option_iter((0..6150_i32).map(|i| (i % 7 != 0).then_some(i)))
+                .into_array();
+        let validity = Validity::from_iter((0..2048).map(|i| i % 13 != 0));
+        let array = if view {
+            // Views can reference elements in reverse order and overlap other lists.
+            ListViewArray::try_new(
+                elements,
+                Buffer::from_iter((0..2048_u32).map(|i| 6144 - 3 * i)).into_array(),
+                Buffer::from_iter((0..2048_u32).map(|i| if i % 17 == 0 { 0 } else { 5 }))
+                    .into_array(),
+                validity,
+            )?
+            .into_array()
+        } else {
+            ListArray::try_new(
+                elements,
+                Buffer::from_iter((0..=2048_u32).map(|i| 5 + 3 * (i - i / 17))).into_array(),
+                validity,
+            )?
+            .into_array()
+        };
+        let len = usize::try_from(rows.end - rows.start)?;
+        let mask = if bitmap {
+            Mask::from_iter((0..len).map(|i| indices.contains(&i)))
+        } else {
+            Mask::from_indices(len, indices.iter().copied())
+        };
+        let plan = SegmentScanPlan::new(
+            array.dtype().clone(),
+            array.len() as u64,
+            SegmentId::from(0),
+            ReadContext::new([]),
+            None,
+        );
+        let node = SegmentScanNode::try_new(
+            plan,
+            Selection::try_new(rows.clone(), mask.clone())?,
+            Some(mask),
+            ExecContext::new(session, 0, DecodeCache::disabled()),
+        )?;
+        let expected = array
+            .take(Buffer::from_iter(indices.iter().map(|&i| rows.start + i as u64)).into_array())?;
+        let actual = node.select(array)?;
+        assert_eq!(actual.rows, rows);
+        assert_arrays_eq!(actual.array, expected, &mut ctx);
+        Ok(())
+    }
 
     #[rstest]
     #[case::whole(0, 15)]
