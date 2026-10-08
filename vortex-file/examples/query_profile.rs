@@ -105,7 +105,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 /// Rows in the table.
-const ROWS: usize = 1 << 18;
+/// Rows in the table: `ROWS` as a power of two, 18 by default.
+static ROWS: LazyLock<usize> = LazyLock::new(|| {
+    1 << std::env::var("ROWS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(18)
+});
 /// Rows per chunk of the written stream. The writer repartitions these into its own blocks.
 const CHUNK: usize = 1 << 16;
 
@@ -133,18 +139,18 @@ const RETURNFLAGS: [&str; 3] = ["A", "N", "R"];
 fn table() -> Table {
     let mut rng = StdRng::seed_from_u64(42);
     let mut t = Table {
-        orderkey: Vec::with_capacity(ROWS),
-        partkey: Vec::with_capacity(ROWS),
-        quantity: Vec::with_capacity(ROWS),
-        extendedprice: Vec::with_capacity(ROWS),
-        discount: Vec::with_capacity(ROWS),
-        shipdate: Vec::with_capacity(ROWS),
-        returnflag: Vec::with_capacity(ROWS),
-        shipmode: Vec::with_capacity(ROWS),
-        comment: Vec::with_capacity(ROWS),
+        orderkey: Vec::with_capacity(*ROWS),
+        partkey: Vec::with_capacity(*ROWS),
+        quantity: Vec::with_capacity(*ROWS),
+        extendedprice: Vec::with_capacity(*ROWS),
+        discount: Vec::with_capacity(*ROWS),
+        shipdate: Vec::with_capacity(*ROWS),
+        returnflag: Vec::with_capacity(*ROWS),
+        shipmode: Vec::with_capacity(*ROWS),
+        comment: Vec::with_capacity(*ROWS),
     };
     let total_days = DAYS_PER_YEAR * YEARS;
-    for row in 0..ROWS {
+    for row in 0..*ROWS {
         t.orderkey.push((row / 4) as i64 * 2 + 1);
         t.partkey.push(rng.random_range(1..200_000));
         let quantity = rng.random_range(1..=50);
@@ -152,7 +158,7 @@ fn table() -> Table {
         t.extendedprice
             .push(quantity as f64 * rng.random_range(900.0..100_000.0_f64).round() / 100.0);
         t.discount.push(rng.random_range(0..=10) as f64 / 100.0);
-        let base = (row as i64 * total_days as i64 / ROWS as i64) as i32;
+        let base = (row as i64 * total_days as i64 / *ROWS as i64) as i32;
         t.shipdate
             .push((base + rng.random_range(-45..=45)).clamp(0, total_days - 1));
         t.returnflag.push(RETURNFLAGS[rng.random_range(0..3)]);
@@ -223,7 +229,7 @@ struct Variant {
 /// Writes the table through the default strategy, configured by `variant`, into memory and
 /// opens it.
 fn write_file(t: &Table, variant: Variant) -> VortexFile {
-    let chunks = (0..ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
+    let chunks = (0..*ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
     let array = ChunkedArray::from_iter(chunks).into_array();
     let mut strategy = WriteStrategyBuilder::from_session(&SESSION)
         .with_zone_maps(variant.zone_maps)
@@ -309,7 +315,7 @@ fn queries(t: &Table, dtype: &DType) -> Vec<Query> {
         ),
         lt(col("l_quantity"), lit(24_i64)),
     );
-    let q6_rows = (0..ROWS)
+    let q6_rows = (0..*ROWS)
         .filter(|&r| {
             year.contains(&t.shipdate[r])
                 && (0.05..=0.07).contains(&t.discount[r])
@@ -332,7 +338,7 @@ fn queries(t: &Table, dtype: &DType) -> Vec<Query> {
         ),
         lt(col("l_quantity"), lit(24_i64)),
     );
-    let q6_flat_rows = (0..ROWS)
+    let q6_flat_rows = (0..*ROWS)
         .filter(|&r| {
             keys.contains(&t.partkey[r])
                 && (0.05..=0.07).contains(&t.discount[r])
@@ -343,7 +349,7 @@ fn queries(t: &Table, dtype: &DType) -> Vec<Query> {
         eq(col("l_shipmode"), lit("AIR")),
         gt(col("l_quantity"), lit(25_i64)),
     );
-    let dict_rows = (0..ROWS)
+    let dict_rows = (0..*ROWS)
         .filter(|&r| t.shipmode[r] == "AIR" && t.quantity[r] > 25)
         .count();
     vec![
@@ -383,7 +389,7 @@ fn queries(t: &Table, dtype: &DType) -> Vec<Query> {
             )
             .bind(dtype)
             .expect("bind"),
-            expected: ROWS,
+            expected: *ROWS,
         },
     ]
 }
