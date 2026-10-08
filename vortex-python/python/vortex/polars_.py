@@ -159,6 +159,10 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         expr = expr["Function"]
         _inputs = [_polars_to_vortex(e) for e in expr["input"]]
 
+        if expr["function"] == "FillNull":
+            if "Literal" in expr["input"][1]:
+                return ve.fill_null(_inputs[0], _inputs[1])
+            return ve.zip_(ve.is_null(_inputs[0]), _inputs[1], _inputs[0])
         fn = expr["function"]
         if "Boolean" in fn:
             fn = fn["Boolean"]
