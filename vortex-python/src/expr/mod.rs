@@ -1388,7 +1388,11 @@ pub fn replace_time_zone(
     let null_on_non_existent = match non_existent {
         "raise" => false,
         "null" => true,
-        _ => return Err(PyValueError::new_err("non_existent must be 'raise' or 'null'")),
+        _ => {
+            return Err(PyValueError::new_err(
+                "non_existent must be 'raise' or 'null'",
+            ));
+        }
     };
     Ok(PyExpr {
         inner: expr::replace_time_zone(

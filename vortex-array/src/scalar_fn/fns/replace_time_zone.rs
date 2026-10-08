@@ -50,11 +50,11 @@ pub struct ReplaceTimeZoneOptions {
 
 impl fmt::Display for ReplaceTimeZoneOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "tz={:?}, null_on_non_existent={}",
-            self.time_zone, self.null_on_non_existent
-        )
+        match &self.time_zone {
+            Some(tz) => write!(f, "tz={tz}")?,
+            None => write!(f, "tz=none")?,
+        }
+        write!(f, ", null_on_non_existent={}", self.null_on_non_existent)
     }
 }
 
@@ -106,11 +106,7 @@ impl ScalarFnVTable for ReplaceTimeZone {
         }
     }
 
-    fn return_dtype(
-        &self,
-        options: &Self::Options,
-        arg_dtypes: &[DType],
-    ) -> VortexResult<DType> {
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input = timestamp_options(&arg_dtypes[0])?;
         if input.unit == TimeUnit::Days {
             vortex_bail!("Timestamp cannot use day units");
@@ -124,12 +120,8 @@ impl ScalarFnVTable for ReplaceTimeZone {
         resolve_zone(options.time_zone.as_deref())?;
         // A row's ambiguity policy can request null even for non-nullable children.
         Ok(DType::Extension(
-            Timestamp::new_with_tz(
-                input.unit,
-                options.time_zone.clone(),
-                Nullability::Nullable,
-            )
-            .erased(),
+            Timestamp::new_with_tz(input.unit, options.time_zone.clone(), Nullability::Nullable)
+                .erased(),
         ))
     }
 
@@ -141,10 +133,8 @@ impl ScalarFnVTable for ReplaceTimeZone {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let ambiguous = args.get(1)?;
-        let dtype = self.return_dtype(
-            options,
-            &[input.dtype().clone(), ambiguous.dtype().clone()],
-        )?;
+        let dtype =
+            self.return_dtype(options, &[input.dtype().clone(), ambiguous.dtype().clone()])?;
         let metadata = timestamp_options(input.dtype())?.clone();
         let source = resolve_zone(metadata.tz.as_deref())?;
         let target = resolve_zone(options.time_zone.as_deref())?;
@@ -184,9 +174,7 @@ impl ScalarFnVTable for ReplaceTimeZone {
         }
 
         if matches!(ambiguous.dtype(), DType::Null) {
-            return Ok(
-                ConstantArray::new(Scalar::null(dtype), args.row_count()).into_array(),
-            );
+            return Ok(ConstantArray::new(Scalar::null(dtype), args.row_count()).into_array());
         }
         let input = input.execute::<ExtensionArray>(ctx)?;
         let storage = input
@@ -196,9 +184,7 @@ impl ScalarFnVTable for ReplaceTimeZone {
         let values = storage.to_buffer::<i64>();
         let valid = storage.validity()?.execute_mask(values.len(), ctx)?;
         let policies = ambiguous.execute::<VarBinViewArray>(ctx)?;
-        let policies_valid = policies
-            .validity()?
-            .execute_mask(values.len(), ctx)?;
+        let policies_valid = policies.validity()?.execute_mask(values.len(), ctx)?;
         let mut output = Vec::with_capacity(values.len());
         for (i, ((value, valid), policy_valid)) in values
             .iter()
@@ -226,10 +212,10 @@ impl ScalarFnVTable for ReplaceTimeZone {
 }
 
 fn timestamp_options(dtype: &DType) -> VortexResult<&TimestampOptions> {
-    if let DType::Extension(ext) = dtype {
-        if let Some(options) = ext.metadata_opt::<Timestamp>() {
-            return Ok(options);
-        }
+    if let DType::Extension(ext) = dtype
+        && let Some(options) = ext.metadata_opt::<Timestamp>()
+    {
+        return Ok(options);
     }
     vortex_bail!("replace_time_zone() requires Timestamp, got {dtype}")
 }
@@ -318,7 +304,14 @@ mod tests {
             Some(value + 18_000 * scale)
         );
         assert_eq!(
-            replace(value + 18_000 * scale, unit, &new_york, &utc, "raise", false)?,
+            replace(
+                value + 18_000 * scale,
+                unit,
+                &new_york,
+                &utc,
+                "raise",
+                false
+            )?,
             Some(value)
         );
         Ok(())
@@ -335,7 +328,14 @@ mod tests {
             .parse::<jiff::Timestamp>()?
             .as_second();
         let convert = |value, policy, null_on_non_existent| {
-            replace(value, TimeUnit::Seconds, &utc, &new_york, policy, null_on_non_existent)
+            replace(
+                value,
+                TimeUnit::Seconds,
+                &utc,
+                &new_york,
+                policy,
+                null_on_non_existent,
+            )
         };
         assert_eq!(convert(fold, "earliest", false)?, Some(fold + 14_400));
         assert_eq!(convert(fold, "latest", false)?, Some(fold + 18_000));
@@ -353,8 +353,15 @@ mod tests {
         assert!(replace(0, TimeUnit::Seconds, &utc, &utc, "invalid", false).is_err());
         let new_york = resolve_zone(Some("America/New_York"))?;
         assert!(
-            replace(i64::MAX, TimeUnit::Nanoseconds, &utc, &new_york, "raise", false)
-                .is_err()
+            replace(
+                i64::MAX,
+                TimeUnit::Nanoseconds,
+                &utc,
+                &new_york,
+                "raise",
+                false
+            )
+            .is_err()
         );
         assert!(resolve_zone(Some("Not/A/Timezone")).is_err());
         Ok(())
