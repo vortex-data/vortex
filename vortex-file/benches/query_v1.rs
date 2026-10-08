@@ -182,14 +182,29 @@ fn columns(t: &Table, range: std::ops::Range<usize>) -> ArrayRef {
     .into_array()
 }
 
-/// Writes the table through the default strategy, with or without zone maps, into memory and
+/// How a file variant is written.
+#[derive(Clone, Copy)]
+struct Variant {
+    name: &'static str,
+    zone_maps: bool,
+    /// Rows per block. The default strategy uses 8192 and coalesces blocks into 1MB segments;
+    /// the small-block variants coalesce nothing, so a split is one block of every column.
+    row_block: usize,
+    coalesce: bool,
+}
+
+/// Writes the table through the default strategy, configured by `variant`, into memory and
 /// opens it.
-fn write_file(t: &Table, zone_maps: bool) -> VortexFile {
+fn write_file(t: &Table, variant: Variant) -> VortexFile {
     let chunks = (0..ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
     let array = ChunkedArray::from_iter(chunks).into_array();
-    let strategy = WriteStrategyBuilder::from_session(&SESSION)
-        .with_zone_maps(zone_maps)
-        .build();
+    let mut strategy = WriteStrategyBuilder::from_session(&SESSION)
+        .with_zone_maps(variant.zone_maps)
+        .with_row_block_size(variant.row_block);
+    if !variant.coalesce {
+        strategy = strategy.with_data_block_target_bytes(None);
+    }
+    let strategy = strategy.build();
     let mut buf = ByteBufferMut::empty();
     RUNTIME
         .block_on(
@@ -205,10 +220,39 @@ fn write_file(t: &Table, zone_maps: bool) -> VortexFile {
     SESSION.open_options().open_buffer(buf).expect("open")
 }
 
-/// The file variants: written with zone maps, as the default strategy does, and without them,
-/// so that a comparison with an executor that does not prune has nothing to prune on either
-/// side and no statistics to evaluate.
-const VARIANTS: [(&str, bool); 2] = [("zoned", true), ("plain", false)];
+/// The file variants.
+///
+/// `zoned` is what the default strategy writes. `plain` drops the zone maps, so a comparison with
+/// an executor that does not prune has nothing to prune on either side and no statistics to
+/// evaluate. The `plain-*` variants also shrink the blocks and coalesce nothing, so a split is
+/// a few hundred or a few thousand rows: the work per split becomes small enough that what is
+/// measured is each executor's own cost per split and per node, on the same layouts and plans.
+const VARIANTS: [Variant; 4] = [
+    Variant {
+        name: "zoned",
+        zone_maps: true,
+        row_block: 8192,
+        coalesce: true,
+    },
+    Variant {
+        name: "plain",
+        zone_maps: false,
+        row_block: 8192,
+        coalesce: true,
+    },
+    Variant {
+        name: "plain-2k",
+        zone_maps: false,
+        row_block: 2048,
+        coalesce: false,
+    },
+    Variant {
+        name: "plain-256",
+        zone_maps: false,
+        row_block: 256,
+        coalesce: false,
+    },
+];
 
 /// A query: a filter, a projection, and the rows it keeps, from the plain columns.
 struct Query {
@@ -334,10 +378,10 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Query>)>> = LazyLock::
     let t = table();
     VARIANTS
         .iter()
-        .map(|&(variant, zone_maps)| {
-            let file = write_file(&t, zone_maps);
+        .map(|variant| {
+            let file = write_file(&t, *variant);
             let queries = queries(&t, file.dtype());
-            (variant, file, queries)
+            (variant.name, file, queries)
         })
         .collect()
 });

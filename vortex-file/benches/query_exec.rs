@@ -205,14 +205,29 @@ fn columns(t: &Table, range: std::ops::Range<usize>) -> ArrayRef {
     .into_array()
 }
 
-/// Writes the table through the default strategy, with or without zone maps, into memory and
+/// How a file variant is written.
+#[derive(Clone, Copy)]
+struct Variant {
+    name: &'static str,
+    zone_maps: bool,
+    /// Rows per block. The default strategy uses 8192 and coalesces blocks into 1MB segments;
+    /// the small-block variants coalesce nothing, so a split is one block of every column.
+    row_block: usize,
+    coalesce: bool,
+}
+
+/// Writes the table through the default strategy, configured by `variant`, into memory and
 /// opens it.
-fn write_file(t: &Table, zone_maps: bool) -> VortexFile {
+fn write_file(t: &Table, variant: Variant) -> VortexFile {
     let chunks = (0..ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
     let array = ChunkedArray::from_iter(chunks).into_array();
-    let strategy = WriteStrategyBuilder::from_session(&SESSION)
-        .with_zone_maps(zone_maps)
-        .build();
+    let mut strategy = WriteStrategyBuilder::from_session(&SESSION)
+        .with_zone_maps(variant.zone_maps)
+        .with_row_block_size(variant.row_block);
+    if !variant.coalesce {
+        strategy = strategy.with_data_block_target_bytes(None);
+    }
+    let strategy = strategy.build();
     let mut buf = ByteBufferMut::empty();
     RUNTIME
         .block_on(
@@ -228,10 +243,39 @@ fn write_file(t: &Table, zone_maps: bool) -> VortexFile {
     SESSION.open_options().open_buffer(buf).expect("open")
 }
 
-/// The file variants: written with zone maps, as the default strategy does, and without them,
-/// so that a comparison with an executor that does not prune has nothing to prune on either
-/// side and no statistics to evaluate.
-const VARIANTS: [(&str, bool); 2] = [("zoned", true), ("plain", false)];
+/// The file variants.
+///
+/// `zoned` is what the default strategy writes. `plain` drops the zone maps, so a comparison with
+/// an executor that does not prune has nothing to prune on either side and no statistics to
+/// evaluate. The `plain-*` variants also shrink the blocks and coalesce nothing, so a split is
+/// a few hundred or a few thousand rows: the work per split becomes small enough that what is
+/// measured is each executor's own cost per split and per node, on the same layouts and plans.
+const VARIANTS: [Variant; 4] = [
+    Variant {
+        name: "zoned",
+        zone_maps: true,
+        row_block: 8192,
+        coalesce: true,
+    },
+    Variant {
+        name: "plain",
+        zone_maps: false,
+        row_block: 8192,
+        coalesce: true,
+    },
+    Variant {
+        name: "plain-2k",
+        zone_maps: false,
+        row_block: 2048,
+        coalesce: false,
+    },
+    Variant {
+        name: "plain-256",
+        zone_maps: false,
+        row_block: 256,
+        coalesce: false,
+    },
+];
 
 /// A query: a filter, a projection, and the rows it keeps, from the plain columns.
 struct Query {
@@ -402,13 +446,13 @@ static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Planned>)>> = LazyLock
     let t = table();
     VARIANTS
         .iter()
-        .map(|&(variant, zone_maps)| {
-            let file = write_file(&t, zone_maps);
+        .map(|variant| {
+            let file = write_file(&t, *variant);
             let planned = queries(&t, file.dtype())
                 .iter()
                 .map(|query| plan(&file, query))
                 .collect();
-            (variant, file, planned)
+            (variant.name, file, planned)
         })
         .collect()
 });
@@ -471,57 +515,66 @@ fn drive(
     }
 }
 
-/// Runs `plan`, a boolean plan, over every row of `rows` and joins what it produces into one
-/// lazy array.
+/// Runs `plan`, a boolean plan, over every row of `rows`, and returns what it produces: one lazy
+/// array per piece, in row order.
 fn predicate(
     source: &Arc<dyn SegmentSource>,
     plan: &PlanRef,
     rows: std::ops::Range<u64>,
     decoded: &DecodeCache,
-) -> ArrayRef {
+) -> Vec<ArrayRef> {
     let len = (rows.end - rows.start) as usize;
     let mut pieces = Vec::new();
     drive(source, plan, rows, Mask::new_true(len), decoded, |array| {
         pieces.push(array)
     });
-    ChunkedArray::try_new(pieces, plan.dtype().clone())
-        .expect("predicate")
-        .into_array()
+    pieces
 }
 
-/// The selected fraction at or above which a conjunct runs over the whole split, as the V1
+/// The selected fraction at or above which a conjunct runs over the whole piece, as the V1
 /// flat reader's threshold.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-/// Evaluates one conjunct under `mask` exactly as the V1 flat reader does: the predicate is
-/// applied to every row, then either filtered to the selected rows before it is executed, when
-/// few are selected, or executed whole and intersected with the mask.
+/// Evaluates one conjunct under `mask` exactly as the V1 readers do: the predicate is applied
+/// to every row of each flat piece, then either filtered to the selected rows before it is
+/// executed, when few are selected, or executed whole and intersected with the mask, and the
+/// pieces' masks are concatenated as the V1 chunked reader concatenates its chunks'.
 fn evaluate_conjunct(
     source: &Arc<dyn SegmentSource>,
     plan: &PlanRef,
     rows: std::ops::Range<u64>,
-    mask: Mask,
+    mask: &Mask,
     decoded: &DecodeCache,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> Mask {
-    let array = predicate(source, plan, rows, decoded);
-    if mask.density() < EXPR_EVAL_THRESHOLD {
-        let conjunct = array
-            .filter(mask.clone())
-            .expect("filter")
-            .fill_null(false)
-            .expect("fill_null")
-            .execute::<Mask>(ctx)
-            .expect("mask");
-        mask.intersect_by_rank(&conjunct)
-    } else {
-        let conjunct = array
-            .fill_null(false)
-            .expect("fill_null")
-            .execute::<Mask>(ctx)
-            .expect("mask");
-        mask.bitand(&conjunct)
+    let mut offset = 0;
+    let mut masks = Vec::new();
+    for piece in predicate(source, plan, rows, decoded) {
+        let mask = mask.slice(offset..offset + piece.len());
+        offset += piece.len();
+        masks.push(if mask.density() < EXPR_EVAL_THRESHOLD {
+            let conjunct = piece
+                .filter(mask.clone())
+                .expect("filter")
+                .fill_null(false)
+                .expect("fill_null")
+                .execute::<Mask>(ctx)
+                .expect("mask");
+            mask.intersect_by_rank(&conjunct)
+        } else {
+            let conjunct = piece
+                .fill_null(false)
+                .expect("fill_null")
+                .execute::<Mask>(ctx)
+                .expect("mask");
+            mask.bitand(&conjunct)
+        });
     }
+    assert_eq!(offset, mask.len(), "the pieces tile the split");
+    if masks.len() == 1 {
+        return masks.remove(0);
+    }
+    Mask::from_iter(masks)
 }
 
 /// How the exec graph evaluates a query's filter.
@@ -566,7 +619,10 @@ fn run(
         match algorithm {
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
-                    mask = predicate(&source, filter, split.clone(), &cache())
+                    let pieces = predicate(&source, filter, split.clone(), &cache());
+                    mask = ChunkedArray::try_new(pieces, filter.dtype().clone())
+                        .expect("predicate")
+                        .into_array()
                         .execute::<Mask>(ctx)
                         .expect("mask");
                 }
@@ -584,7 +640,7 @@ fn run(
                             &source,
                             &query.conjuncts[idx],
                             split.clone(),
-                            mask,
+                            &mask,
                             &cache(),
                             ctx,
                         );
