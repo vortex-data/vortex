@@ -31,7 +31,6 @@ pub use plans::Eval;
 pub use plans::EvalData;
 pub use plans::EvalPlan;
 pub use plans::Filter;
-pub use plans::FilterData;
 pub use plans::FilterPlan;
 pub use plans::ListPack;
 pub use plans::ListPackData;

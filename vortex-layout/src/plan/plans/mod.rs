@@ -19,7 +19,6 @@ pub use eval::EvalData;
 pub(crate) use eval::EvalIdentityRule;
 pub use eval::EvalPlan;
 pub use filter::Filter;
-pub use filter::FilterData;
 pub use filter::FilterPlan;
 pub use list_pack::ListPack;
 pub use list_pack::ListPackData;

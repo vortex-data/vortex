@@ -25,10 +25,6 @@ use crate::plan::check_child_count;
 #[derive(Clone, Debug)]
 pub struct Filter;
 
-/// Operator-specific data for a [`Filter`] plan.
-#[derive(Clone, Debug)]
-pub struct FilterData;
-
 /// A plan that keeps only the selected rows of its child.
 pub type FilterPlan = Plan<Filter>;
 
@@ -40,7 +36,7 @@ impl FilterPlan {
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
             children: vec![child].into(),
-            data: FilterData,
+            data: (),
         }
         .into_typed()
     }
@@ -52,7 +48,7 @@ impl FilterPlan {
 }
 
 impl PlanVTable for Filter {
-    type PlanData = FilterData;
+    type PlanData = ();
     type Metadata = EmptyMetadata;
 
     fn id(&self) -> PlanId {
