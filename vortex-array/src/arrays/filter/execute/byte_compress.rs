@@ -145,11 +145,21 @@ fn filter_chunk_into<T: Copy>(
 /// must be valid for writes of every selected element.
 pub(super) unsafe fn compress_words<T: Copy>(src: &[T], words: &[u64], dst: *mut T) -> usize {
     let mut written = 0;
-    for (byte_idx, chunk) in src.chunks(8).enumerate() {
-        let mask_byte = words[byte_idx / 8].to_le_bytes()[byte_idx % 8];
-        // SAFETY: the mask byte selects only elements of `chunk`, and `dst` has room for every
-        // selected element.
-        written += unsafe { compress_byte(chunk, mask_byte, dst.add(written)) };
+    for (word, src) in words.iter().zip(src.chunks(64)) {
+        let (chunks, tail) = src.as_chunks::<8>();
+        let mask_bytes = word.to_le_bytes();
+
+        for (chunk, &mask_byte) in chunks.iter().zip(&mask_bytes) {
+            // SAFETY: the mask byte selects only elements of `chunk`, and `dst` has room for
+            // every selected element.
+            written += unsafe { compress_byte(chunk, mask_byte, dst.add(written)) };
+        }
+
+        if !tail.is_empty() {
+            // SAFETY: the bits past `src.len()` are cleared, so the mask byte selects only
+            // elements of `tail`.
+            written += unsafe { compress_byte(tail, mask_bytes[chunks.len()], dst.add(written)) };
+        }
     }
     written
 }

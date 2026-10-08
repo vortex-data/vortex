@@ -14,8 +14,9 @@
 //! | at most 16 per byte of value width | decode only the selected values                   |
 //! | otherwise                          | decode to scratch, then compact the scratch       |
 //!
-//! The scratch buffer stays in cache. It is compacted by copying the slices, or with the same
-//! SIMD, byte compress and scalar kernels that `filter_buffer` chooses for the chunk's density.
+//! The scratch buffer stays in cache. It is compacted by copying the slices, by copying the runs
+//! of set bits when they average at least [`MIN_RUN_BYTES`], and otherwise with the same SIMD,
+//! byte compress and scalar kernels that `filter_buffer` chooses for the chunk's density.
 
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -31,6 +32,7 @@ use super::simd_compress;
 use super::simd_compress::SLACK_BYTES;
 use super::slice::MaskBits;
 use super::slice::compact_by_bitmap;
+use super::slice::compact_runs_by_bitmap;
 use super::slice::low_bits_mask;
 use crate::dtype::NativePType;
 
@@ -47,6 +49,10 @@ const SPARSE_VALUES_PER_BYTE: usize = 16;
 
 /// The largest number of selected values for which a chunk decodes only those values.
 const MAX_SPARSE_VALUES: usize = SPARSE_VALUES_PER_BYTE * 8;
+
+/// Chunks whose runs of selected values average at least this many bytes copy each run. Shorter
+/// runs are faster to compact with the SIMD and byte compress kernels.
+const MIN_RUN_BYTES: usize = 96;
 
 /// Number of mask bytes read to assemble the words of a chunk at an arbitrary bit offset.
 const CHUNK_WORD_BYTES: usize = FILTER_CHUNK_LEN / 8 + 8;
@@ -192,10 +198,9 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
             } else {
                 let dst = self.dst().cast::<T>();
                 let src = &self.decode_scratch(chunk_idx)[chunk_offset..][..chunk_len];
-                let density = selected as f64 / chunk_len as f64;
                 // SAFETY: the words select only values of `src` and clear any bits past
                 // `chunk_len`, and the output has room for every selected value plus the slack.
-                let written = unsafe { compact_words(src, words, density, dst) };
+                let written = unsafe { compact_words(src, words, selected, dst) };
                 debug_assert_eq!(written, selected);
                 self.written += selected;
             }
@@ -271,22 +276,33 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
     }
 }
 
-/// Copies the values of `src` selected by `words` to `dst` with the kernel that
-/// [`filter_buffer`](super::buffer::filter_buffer) chooses for `density`, and returns the number
+/// Copies the `selected` values of `src` selected by `words` to `dst` and returns the number
 /// copied.
+///
+/// Runs of set bits that average at least [`MIN_RUN_BYTES`] are copied run by run. Otherwise the kernel is the one that
+/// [`filter_buffer`](super::buffer::filter_buffer) chooses for the density.
 ///
 /// # Safety
 ///
 /// `words` must hold `src.len()` bits with any bits past `src.len()` cleared, and `dst` must be
 /// valid for writes of every selected value plus [`SLACK_BYTES`].
-unsafe fn compact_words<T: Copy>(src: &[T], words: &[u64], density: f64, dst: *mut T) -> usize {
+unsafe fn compact_words<T: Copy>(src: &[T], words: &[u64], selected: usize, dst: *mut T) -> usize {
     let bits = MaskBits::Words {
         words,
         len: src.len(),
     };
+    // A run that crosses a word boundary counts once in each word, as the run walk copies it.
+    let runs = words
+        .iter()
+        .map(|&word| (word & !(word << 1)).count_ones() as usize)
+        .sum::<usize>();
+    let density = selected as f64 / src.len() as f64;
+
     // SAFETY: forwarded from the caller contract.
     unsafe {
-        if let Some(written) = simd_compress::compress_bits(src, bits, density, dst) {
+        if selected * size_of::<T>() >= MIN_RUN_BYTES * runs {
+            compact_runs_by_bitmap(src, bits, dst)
+        } else if let Some(written) = simd_compress::compress_bits(src, bits, density, dst) {
             written
         } else if density >= byte_compress_density_threshold::<T>() {
             byte_compress::compress_words(src, words, dst)
@@ -422,19 +438,20 @@ mod tests {
 
     /// Runs long enough that the cached slices are used rather than the bitmap.
     #[rstest]
-    fn filter_chunked_by_slices_matches_expected(
+    fn filter_chunked_runs_matches_expected(
         #[values(9, 12, 200, 3000)] run_len: usize,
-        #[values(16, 64, 1500)] gap: usize,
+        #[values(1, 16, 64, 1500)] gap: usize,
         #[values(0, 3, 1000)] offset: usize,
+        #[values(false, true)] slices: bool,
     ) {
         let bits = (0..5000)
             .map(|i| i % (run_len + gap) < run_len)
             .collect::<BitBuffer>();
 
-        check::<u8>(&bits, offset, true);
-        check::<u16>(&bits, offset, true);
-        check::<u32>(&bits, offset, true);
-        check::<u64>(&bits, offset, true);
+        check::<u8>(&bits, offset, slices);
+        check::<u16>(&bits, offset, slices);
+        check::<u32>(&bits, offset, slices);
+        check::<u64>(&bits, offset, slices);
     }
 
     #[rstest]
