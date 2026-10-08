@@ -523,11 +523,7 @@ pub trait ALPRDArrayExt: ALPRDArraySlotsExt {
     }
 
     fn left_parts_patches(&self) -> Option<Patches> {
-        patches_from_slots(
-            self.as_ref().slots(),
-            self.patches_data.as_ref(),
-            self.as_ref().len(),
-        )
+        patches_from_slots(self.slots(), self.patches_data.as_ref(), self.len())
     }
 
     fn left_parts_dictionary(&self) -> &Buffer<u16> {

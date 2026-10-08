@@ -1022,15 +1022,14 @@ pub trait FSSTArrayExt: FSSTArraySlotsExt {
     /// from [`FSSTData`] with the offsets and validity stored in the array's slots.
     fn codes(&self) -> VarBinArray {
         let offsets = self.codes_offsets().clone();
-        let validity =
-            child_to_validity(self.codes_validity(), self.as_ref().dtype().nullability());
+        let validity = child_to_validity(self.codes_validity(), self.dtype().nullability());
         let codes_bytes = self.codes_bytes_handle().clone();
         // SAFETY: components were validated at construction time.
         unsafe {
             VarBinArray::new_unchecked_from_handle(
                 offsets,
                 codes_bytes,
-                DType::Binary(self.as_ref().dtype().nullability()),
+                DType::Binary(self.dtype().nullability()),
                 validity,
             )
         }
@@ -1038,7 +1037,7 @@ pub trait FSSTArrayExt: FSSTArraySlotsExt {
 
     /// Get the DType of the codes array.
     fn codes_dtype(&self) -> DType {
-        DType::Binary(self.as_ref().dtype().nullability())
+        DType::Binary(self.dtype().nullability())
     }
 }
 

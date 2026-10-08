@@ -421,8 +421,8 @@ pub trait ALPArrayExt: ALPArraySlotsExt {
     fn patches(&self) -> Option<Patches> {
         PatchesData::patches_from_slots(
             self.patches_data.as_ref(),
-            self.as_ref().len(),
-            self.as_ref().slots(),
+            self.len(),
+            self.slots(),
             PATCH_SLOTS,
         )
     }

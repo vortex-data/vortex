@@ -151,13 +151,13 @@ impl SparseOwnedExt for Array<Sparse> {
         let patches = Patches::new(
             self.len(),
             self.patches().offset(),
-            self.as_ref().slots()[SparseSlots::PATCH_INDICES]
+            self.slots()[SparseSlots::PATCH_INDICES]
                 .clone()
                 .vortex_expect("indices"),
-            self.as_ref().slots()[SparseSlots::PATCH_VALUES]
+            self.slots()[SparseSlots::PATCH_VALUES]
                 .clone()
                 .vortex_expect("values"),
-            self.as_ref().slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone(),
+            self.slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone(),
         )?;
         Ok(SparseParts {
             patches,

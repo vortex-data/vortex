@@ -107,26 +107,26 @@ pub struct PrimitiveDataParts {
 
 pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     fn ptype(&self) -> PType {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Primitive(ptype, _) => *ptype,
             _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
         }
     }
 
     fn nullability(&self) -> Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Primitive(_, nullability) => *nullability,
             _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
         }
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PrimitiveSlots::VALIDITY].as_ref()
+        self.slots()[PrimitiveSlots::VALIDITY].as_ref()
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[PrimitiveSlots::VALIDITY].as_ref(),
+            self.slots()[PrimitiveSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -183,7 +183,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             return Ok(self.to_owned());
         };
 
-        let nullability = self.as_ref().dtype().nullability();
+        let nullability = self.dtype().nullability();
 
         if min < 0 || max < 0 {
             // Signed

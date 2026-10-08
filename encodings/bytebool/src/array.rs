@@ -203,8 +203,8 @@ pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> + ByteBoolArraySlotsExt {
     /// Returns the [`Validity`] derived from the validity slot.
     fn bytebool_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[ByteBoolSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[ByteBoolSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }

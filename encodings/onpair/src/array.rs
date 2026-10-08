@@ -732,8 +732,8 @@ pub trait OnPairArrayExt: OnPairArraySlotsExt {
     /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[OnPairSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[OnPairSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }
