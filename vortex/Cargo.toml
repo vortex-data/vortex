@@ -56,6 +56,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
+gearhash = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }

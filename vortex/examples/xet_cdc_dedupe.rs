@@ -17,8 +17,10 @@
 //! `XET_CDC_OUT` environment variable).
 
 use std::fs;
+use std::ops::Range;
 use std::time::Instant;
 
+use gearhash::Hasher;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -30,7 +32,6 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::layout::layouts::cdc::ContentDefinedChunkingOptions;
-use vortex::layout::layouts::cdc::xet::xet_chunks;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_set::HashSet;
 
@@ -130,6 +131,34 @@ async fn write_file(
         .await?;
     let column_sizes = summary.compressed_column_sizes()?;
     Ok((buf.freeze().as_slice().to_vec(), column_sizes))
+}
+
+/// Split `data` into the chunks Xet stores it as: a GEAR rolling hash over the bytes, cut where
+/// its top 16 bits are zero but at least 8 KiB and at most 128 KiB into a chunk, with the hash
+/// reset after each cut. See <https://huggingface.co/docs/xet/chunking>.
+fn xet_chunks(data: &[u8]) -> Vec<Range<usize>> {
+    const MIN_CHUNK: usize = 8 * 1024;
+    const MAX_CHUNK: usize = 128 * 1024;
+    const BOUNDARY_MASK: u64 = 0xFFFF_0000_0000_0000;
+
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < data.len() {
+        let mut end = data.len().min(start + MAX_CHUNK);
+        if end - start >= MIN_CHUNK {
+            // The first byte that may end a chunk is the one completing the minimum size; hash the
+            // bytes before it without testing for a cut.
+            let first_cut = start + MIN_CHUNK - 1;
+            let mut hasher = Hasher::default();
+            hasher.update(&data[start..first_cut]);
+            if let Some(len) = hasher.next_match(&data[first_cut..end], BOUNDARY_MASK) {
+                end = first_cut + len;
+            }
+        }
+        chunks.push(start..end);
+        start = end;
+    }
+    chunks
 }
 
 struct ChunkMap {

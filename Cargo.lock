@@ -11285,6 +11285,7 @@ dependencies = [
  "arrow-schema 59.3.0",
  "codspeed-divan-compat",
  "fastlanes 0.7.2",
+ "gearhash",
  "mimalloc",
  "parquet 59.3.0",
  "rand 0.10.3",
