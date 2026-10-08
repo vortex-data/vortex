@@ -11603,6 +11603,9 @@ name = "vortex-compat"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.0",
+ "arrow-cast 59.3.0",
+ "arrow-ipc 59.3.0",
+ "arrow-schema 59.3.0",
  "arrow-select 59.3.0",
  "base16ct",
  "bytes",
