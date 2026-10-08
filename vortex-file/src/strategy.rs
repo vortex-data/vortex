@@ -63,6 +63,8 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    /// Whether to write zone maps (per-block statistics) for each column.
+    zone_maps: bool,
 }
 
 impl WriteStrategyBuilder {
@@ -79,7 +81,16 @@ impl WriteStrategyBuilder {
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: use_experimental_list_layout(),
+            zone_maps: true,
         }
+    }
+
+    /// Whether to write zone maps, the per-block statistics that let scans prune blocks a
+    /// filter cannot match. Enabled by default. Disabling them makes files smaller and faster to
+    /// write, at the cost of reading every block of a filtered column.
+    pub fn with_zone_maps(mut self, zone_maps: bool) -> Self {
+        self.zone_maps = zone_maps;
+        self
     }
 
     /// Override the row block size used for row repartitioning and zoned statistics.
@@ -229,14 +240,18 @@ impl WriteStrategyBuilder {
         let row_block_size = NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
 
         // 2. calculate stats for each row group
-        let stats = ZonedStrategy::new(
-            dict,
-            compress_then_flat.clone(),
-            ZonedLayoutOptions {
-                block_size: row_block_size,
-                ..Default::default()
-            },
-        );
+        let stats: Arc<dyn LayoutStrategy> = if self.zone_maps {
+            Arc::new(ZonedStrategy::new(
+                dict,
+                compress_then_flat.clone(),
+                ZonedLayoutOptions {
+                    block_size: row_block_size,
+                    ..Default::default()
+                },
+            ))
+        } else {
+            Arc::new(dict)
+        };
 
         // 1. repartition each column to fixed row counts
         let repartition = RepartitionStrategy::new(

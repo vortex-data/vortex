@@ -56,7 +56,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
-    LazyLock::force(&FILE);
+    LazyLock::force(&FILES);
     divan::main();
 }
 
@@ -182,11 +182,14 @@ fn columns(t: &Table, range: std::ops::Range<usize>) -> ArrayRef {
     .into_array()
 }
 
-/// Writes the table through the default strategy into memory and opens it.
-fn write_file(t: &Table) -> VortexFile {
+/// Writes the table through the default strategy, with or without zone maps, into memory and
+/// opens it.
+fn write_file(t: &Table, zone_maps: bool) -> VortexFile {
     let chunks = (0..ROWS / CHUNK).map(|i| columns(t, i * CHUNK..(i + 1) * CHUNK));
     let array = ChunkedArray::from_iter(chunks).into_array();
-    let strategy = WriteStrategyBuilder::from_session(&SESSION).build();
+    let strategy = WriteStrategyBuilder::from_session(&SESSION)
+        .with_zone_maps(zone_maps)
+        .build();
     let mut buf = ByteBufferMut::empty();
     RUNTIME
         .block_on(
@@ -201,6 +204,11 @@ fn write_file(t: &Table) -> VortexFile {
         .expect("write");
     SESSION.open_options().open_buffer(buf).expect("open")
 }
+
+/// The file variants: written with zone maps, as the default strategy does, and without them,
+/// so that a comparison with an executor that does not prune has nothing to prune on either
+/// side and no statistics to evaluate.
+const VARIANTS: [(&str, bool); 2] = [("zoned", true), ("plain", false)];
 
 /// A query: a filter, a projection, and the rows it keeps, from the plain columns.
 struct Query {
@@ -322,22 +330,43 @@ fn queries(t: &Table, dtype: &DType) -> Vec<Query> {
     ]
 }
 
-static FILE: LazyLock<(VortexFile, Vec<Query>)> = LazyLock::new(|| {
+static FILES: LazyLock<Vec<(&'static str, VortexFile, Vec<Query>)>> = LazyLock::new(|| {
     let t = table();
-    let file = write_file(&t);
-    let queries = queries(&t, file.dtype());
-    (file, queries)
+    VARIANTS
+        .iter()
+        .map(|&(variant, zone_maps)| {
+            let file = write_file(&t, zone_maps);
+            let queries = queries(&t, file.dtype());
+            (variant, file, queries)
+        })
+        .collect()
 });
 
-fn query_names() -> Vec<&'static str> {
-    FILE.1.iter().map(|q| q.name).collect()
+/// Every query on every file variant, as `query@variant`.
+fn cases() -> Vec<&'static str> {
+    FILES
+        .iter()
+        .flat_map(|(variant, _, queries)| {
+            queries
+                .iter()
+                .map(move |q| &*Box::leak(format!("{}@{variant}", q.name).into_boxed_str()))
+        })
+        .collect()
+}
+
+fn lookup(case: &str) -> (&'static VortexFile, &'static Query) {
+    let (name, variant) = case.split_once('@').expect("case");
+    let (_, file, queries) = FILES.iter().find(|(v, ..)| *v == variant).expect("variant");
+    (
+        file,
+        queries.iter().find(|q| q.name == name).expect("query"),
+    )
 }
 
 /// One V1 scan of the query over the file's natural splits, drained on the session's runtime.
-#[divan::bench(args = query_names())]
-fn v1(bencher: Bencher, name: &str) {
-    let (file, queries) = &*FILE;
-    let query = queries.iter().find(|q| q.name == name).expect("query");
+#[divan::bench(args = cases())]
+fn v1(bencher: Bencher, case: &str) {
+    let (file, query) = lookup(case);
     bencher
         .counter(ItemsCount::new(query.expected))
         .bench_local(|| {

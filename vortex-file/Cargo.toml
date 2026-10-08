@@ -58,6 +58,7 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 allocator-api2 = { workspace = true }
+bit-vec = { workspace = true }
 divan = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod arrow;
-mod filter;
+pub mod filter;
 pub mod layout;
 pub mod multi;
 pub mod repeated_scan;

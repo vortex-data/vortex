@@ -11918,6 +11918,7 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "async-trait",
+ "bit-vec 0.10.1",
  "bytes",
  "codspeed-divan-compat",
  "flatbuffers",
