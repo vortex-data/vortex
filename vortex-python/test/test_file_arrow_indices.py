@@ -29,9 +29,7 @@ def test_arrow_indices_preserve_values_and_requested_schema(indexed_file, indice
     file, table = indexed_file
     indices = pa.array(indices, type=pa.uint64())
     schema = pa.schema([("payload", pa.string())])
-    reader = file.to_arrow(
-        ["payload"], indices=vx.array(indices), batch_size=batch_size, schema=schema
-    )
+    reader = file.to_arrow(["payload"], indices=vx.array(indices), batch_size=batch_size, schema=schema)
     batches = list(reader)
     scan_batches = list(file.scan(["payload"], indices=vx.array(indices), batch_size=batch_size))
     assert [batch.num_rows for batch in batches] == [len(batch) for batch in scan_batches]
