@@ -40,11 +40,15 @@ const NUM_ELEMENTS: usize = 1 << 17;
 /// cached-slices expansion.
 #[divan::bench(consts = [2, 16], args = [0.01, 0.5])]
 fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
-    let num_elements = if LIST_SIZE == 2 {
-        NUM_ELEMENTS / 2
-    } else {
-        NUM_ELEMENTS
-    };
+    // Short lists produce many more runs per element and dense selections copy far more
+    // elements, so both use smaller arrays to keep each iteration short.
+    let mut num_elements = NUM_ELEMENTS;
+    if LIST_SIZE == 2 {
+        num_elements /= 2;
+    }
+    if density > 0.1 {
+        num_elements /= 8;
+    }
     let len = num_elements / LIST_SIZE as usize;
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE as usize) as i32).into_array();
     let array =
