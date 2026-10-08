@@ -8,12 +8,15 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
+use vortex_array::VortexSessionExecute;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::nbytes_audit;
+use crate::nbytes_audit::Site;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -48,6 +51,12 @@ impl LayoutStrategy for BufferedStrategy {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
         let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        let audit_site = Site {
+            name: "buffered.push",
+            stream: nbytes_audit::next_stream_id(),
+            threshold: buffer_size,
+        };
+        let audit_session = session.clone();
 
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
@@ -55,10 +64,12 @@ impl LayoutStrategy for BufferedStrategy {
 
             let mut nbytes = 0u64;
             let mut chunks = VecDeque::new();
+            let mut audit_ctx = audit_session.create_execution_ctx();
 
             while let Some(chunk) = stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let chunk_size = chunk.nbytes();
+                nbytes_audit::observe(audit_site, &chunk, &mut audit_ctx)?;
                 nbytes += chunk_size;
                 chunks.push_back((chunk, buffered_bytes.reserve(chunk_size)));
 

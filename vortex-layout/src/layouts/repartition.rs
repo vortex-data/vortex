@@ -10,6 +10,7 @@ use futures::StreamExt as _;
 use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
@@ -21,6 +22,8 @@ use vortex_session::VortexSession;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::nbytes_audit;
+use crate::nbytes_audit::Site;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -129,13 +132,23 @@ impl LayoutStrategy for RepartitionStrategy {
         let block_len = options.effective_block_len(&dtype);
         let block_size_minimum = options.block_size_minimum;
         let repartition_session = session.clone();
+        let stream_id = nbytes_audit::next_stream_id();
+        let push_site = Site {
+            name: "repartition.push",
+            stream: stream_id,
+            threshold: block_size_minimum,
+        };
+        let emit_site = Site {
+            name: "repartition.emit",
+            ..push_site
+        };
 
         let repartitioned_stream = try_stream! {
             let canonical_stream = stream.peekable();
             pin_mut!(canonical_stream);
 
             let mut ctx = repartition_session.create_execution_ctx();
-            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len);
+            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, push_site);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
@@ -143,16 +156,17 @@ impl LayoutStrategy for RepartitionStrategy {
                 while offset < chunk.len() {
                     let end = (offset + block_len).min(chunk.len());
                     let sliced = chunk.slice(offset..end)?;
-                    chunks.push_back(sliced);
+                    chunks.push_back(sliced, &mut ctx)?;
                     offset = end;
 
                     if chunks.have_enough() {
-                        let output_chunks = chunks.collect_exact_blocks()?;
+                        let output_chunks = chunks.collect_exact_blocks(&mut ctx)?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                         if !chunked.is_empty() {
                             let canonical = chunked.into_array().execute::<Canonical>(&mut ctx)?.into_array();
+                            nbytes_audit::observe(emit_site, &canonical, &mut ctx)?;
                             yield (
                                 sequence_pointer.advance(),
                                 canonical,
@@ -167,6 +181,7 @@ impl LayoutStrategy for RepartitionStrategy {
                     )?;
                     if !to_flush.is_empty() {
                         let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
+                        nbytes_audit::observe(emit_site, &canonical, &mut ctx)?;
                         yield (
                             sequence_pointer.advance(),
                             canonical,
@@ -189,7 +204,7 @@ impl LayoutStrategy for RepartitionStrategy {
 }
 
 struct ChunksBuffer {
-    /// Each entry stores the chunk and the `nbytes()` snapshot taken at push time.
+    /// Each entry stores the chunk and the size snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
     data: VecDeque<(ArrayRef, u64)>,
@@ -197,16 +212,18 @@ struct ChunksBuffer {
     nbytes: u64,
     block_size_minimum: u64,
     block_len_multiple: usize,
+    site: Site,
 }
 
 impl ChunksBuffer {
-    fn new(block_size_minimum: u64, block_len_multiple: usize) -> Self {
+    fn new(block_size_minimum: u64, block_len_multiple: usize, site: Site) -> Self {
         Self {
             data: Default::default(),
             row_count: 0,
             nbytes: 0,
             block_size_minimum,
             block_len_multiple,
+            site,
         }
     }
 
@@ -214,7 +231,7 @@ impl ChunksBuffer {
         self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len_multiple
     }
 
-    fn collect_exact_blocks(&mut self) -> VortexResult<Vec<ArrayRef>> {
+    fn collect_exact_blocks(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<ArrayRef>> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
@@ -227,7 +244,7 @@ impl ChunksBuffer {
             if len > remaining {
                 let left = chunk.slice(0..remaining)?;
                 let right = chunk.slice(remaining..len)?;
-                self.push_front(right);
+                self.push_front(right, ctx)?;
                 res.push(left);
                 remaining = 0;
             } else {
@@ -238,18 +255,20 @@ impl ChunksBuffer {
         Ok(res)
     }
 
-    fn push_back(&mut self, chunk: ArrayRef) {
-        let nb = chunk.nbytes();
+    fn push_back(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        let nb = nbytes_audit::measure(self.site, &chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
         self.data.push_back((chunk, nb));
+        Ok(())
     }
 
-    fn push_front(&mut self, chunk: ArrayRef) {
-        let nb = chunk.nbytes();
+    fn push_front(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        let nb = nbytes_audit::measure(self.site, &chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
         self.data.push_front((chunk, nb));
+        Ok(())
     }
 
     fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
@@ -508,9 +527,14 @@ mod tests {
         let s1 = arr.slice(0..block_len)?;
         let s2 = arr.slice(block_len..n)?;
 
-        let mut buf = ChunksBuffer::new(0, block_len);
-        buf.push_back(s1);
-        buf.push_back(s2);
+        let site = Site {
+            name: "test",
+            stream: 0,
+            threshold: 0,
+        };
+        let mut buf = ChunksBuffer::new(0, block_len, site);
+        buf.push_back(s1, &mut ctx)?;
+        buf.push_back(s2, &mut ctx)?;
 
         let _output = buf.pop_front().unwrap();
 

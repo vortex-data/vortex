@@ -15,6 +15,10 @@ version = { workspace = true }
 name = "data-gen"
 test = false
 
+[[bin]]
+name = "nbytes-audit"
+test = false
+
 [lints]
 workspace = true
 

@@ -22,6 +22,7 @@ use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::count::CountGroupedKernel;
+use crate::aggregate_fn::fns::exact_nbytes::ExactNBytes;
 use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -115,6 +116,7 @@ impl Default for AggregateFnSession {
         this.register(Sum);
         this.register(SumV2);
         this.register(UncompressedSizeInBytes);
+        this.register(ExactNBytes);
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);

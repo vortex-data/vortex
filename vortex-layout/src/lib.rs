@@ -32,6 +32,7 @@ pub mod display;
 mod encoding;
 pub mod flatbuffers;
 mod layout;
+pub mod nbytes_audit;
 mod reader;
 mod reader_context;
 pub mod scan;
