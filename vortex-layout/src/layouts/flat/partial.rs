@@ -126,7 +126,44 @@ struct RegisteredPage {
     buffers: Vec<(SegmentFuture, SerializedBuffer)>,
 }
 
+/// A buffer whose bytes are proportional to rows: `bytes_per_granule` bytes for every
+/// `rows_per_granule` rows.
+pub(super) struct RowBuffer {
+    pub range: Range<usize>,
+    pub rows_per_granule: usize,
+    pub bytes_per_granule: usize,
+}
+
 impl PartialReadPlan {
+    /// The buffers that can be split into runs of rows.
+    pub(super) fn row_buffers(&self) -> VortexResult<Vec<RowBuffer>> {
+        match &self.kind {
+            PartialReadKind::Fixed(buffers) => Ok(buffers
+                .iter()
+                .map(|buffer| RowBuffer {
+                    range: buffer.descriptor.range().clone(),
+                    rows_per_granule: buffer.row_granularity,
+                    bytes_per_granule: buffer.bytes_per_granule,
+                })
+                .collect()),
+            PartialReadKind::Alprd(plan) => {
+                let list_size = usize::try_from(plan.list_size)?;
+                let values_per_granule = checked_lcm(1024, list_size)?;
+                Ok([&plan.left, &plan.right]
+                    .into_iter()
+                    .filter(|bitpacked| bitpacked.offset == 0)
+                    .map(|bitpacked| RowBuffer {
+                        range: bitpacked.descriptor.range().clone(),
+                        rows_per_granule: values_per_granule / list_size,
+                        bytes_per_granule: values_per_granule / 1024
+                            * 128
+                            * usize::from(bitpacked.bit_width),
+                    })
+                    .collect())
+            }
+        }
+    }
+
     pub(super) fn supports_mask(mask: &Mask) -> bool {
         !mask.all_false()
     }
@@ -1107,7 +1144,7 @@ fn gcd(mut left: usize, mut right: usize) -> usize {
     left
 }
 
-fn checked_lcm(left: usize, right: usize) -> VortexResult<usize> {
+pub(super) fn checked_lcm(left: usize, right: usize) -> VortexResult<usize> {
     left.checked_div(gcd(left, right))
         .and_then(|value| value.checked_mul(right))
         .ok_or_else(|| vortex_err!("Partial row granularity overflow"))

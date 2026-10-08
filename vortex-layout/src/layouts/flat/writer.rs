@@ -15,6 +15,7 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,7 +28,13 @@ use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::StripedBuffer;
+use crate::layouts::flat::Stripes;
 use crate::layouts::flat::flat_layout_inline_array_node;
+use crate::layouts::flat::flat_layout_stripe_bytes;
+use crate::layouts::flat::partial::PartialReadPlan;
+use crate::layouts::flat::partial::checked_lcm;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -40,6 +47,9 @@ pub struct FlatLayoutStrategy {
     pub max_variable_length_statistics_size: usize,
     /// Whether to inline the array tree in the layout metadata, which partial segment reads need.
     pub inline_array_node: bool,
+    /// Interleave row-proportional buffers in stripes of about this many bytes, so the bytes
+    /// for a block of rows are contiguous. Needs the inline array node.
+    pub stripe_bytes: Option<usize>,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -48,6 +58,7 @@ impl Default for FlatLayoutStrategy {
             include_padding: true,
             max_variable_length_statistics_size: 64,
             inline_array_node: flat_layout_inline_array_node(),
+            stripe_bytes: flat_layout_stripe_bytes(),
         }
     }
 }
@@ -64,6 +75,15 @@ impl FlatLayoutStrategy {
     /// Defaults to the `FLAT_LAYOUT_INLINE_ARRAY_NODE=1` environment variable.
     pub fn with_inline_array_node(mut self, inline_array_node: bool) -> Self {
         self.inline_array_node = inline_array_node;
+        self
+    }
+
+    /// Set whether, and in stripes of about how many bytes, to interleave row-proportional
+    /// buffers.
+    ///
+    /// Defaults to the `FLAT_LAYOUT_STRIPE_BYTES` environment variable.
+    pub fn with_stripe_bytes(mut self, stripe_bytes: Option<usize>) -> Self {
+        self.stripe_bytes = stripe_bytes;
         self
     }
 
@@ -166,20 +186,92 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let array_node = self
             .inline_array_node
             .then(|| buffers[buffers.len() - 2].clone());
+        let stripes = match (&array_node, self.stripe_bytes) {
+            (Some(array_node), Some(stripe_bytes)) => plan_stripes(
+                &FlatLayout::new_with_metadata(
+                    row_count,
+                    stream.dtype().clone(),
+                    SegmentId::from(0),
+                    ReadContext::new(ctx.array_ctx().to_ids()),
+                    Some(array_node.clone()),
+                ),
+                buffers.iter().map(|buffer| buffer.len() as u64).sum(),
+                stripe_bytes,
+            )?,
+            _ => None,
+        };
+        let buffers = match &stripes {
+            Some(stripes) => {
+                let mut logical =
+                    ByteBufferMut::with_capacity(buffers.iter().map(ByteBuffer::len).sum());
+                for buffer in &buffers {
+                    logical.extend_from_slice(buffer);
+                }
+                let mut physical =
+                    ByteBufferMut::with_capacity_aligned(logical.len(), buffers[0].alignment());
+                stripes.map().stripe(&logical, &mut physical);
+                vec![physical.freeze()]
+            }
+            None => buffers,
+        };
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
         };
-        Ok(FlatLayout::new_with_metadata(
+        Ok(FlatLayout::new_striped(
             row_count,
             stream.dtype().clone(),
             segment_id,
             ReadContext::new(ctx.array_ctx().to_ids()),
             array_node,
+            stripes,
         )
         .into_layout())
     }
+}
+
+/// Stripe the row-proportional buffers of `layout` so each stripe holds about `stripe_bytes`,
+/// or `None` when there is nothing to interleave.
+fn plan_stripes(
+    layout: &FlatLayout,
+    segment_len: u64,
+    stripe_bytes: usize,
+) -> VortexResult<Option<Stripes>> {
+    let Some(plan) = PartialReadPlan::try_new(layout)? else {
+        return Ok(None);
+    };
+    let buffers = plan.row_buffers()?;
+    if buffers.len() < 2 {
+        return Ok(None);
+    }
+    let granule_rows = buffers.iter().try_fold(1usize, |rows, buffer| {
+        checked_lcm(rows, buffer.rows_per_granule)
+    })?;
+    let granule_bytes: usize = buffers
+        .iter()
+        .map(|buffer| granule_rows / buffer.rows_per_granule * buffer.bytes_per_granule)
+        .sum();
+    if granule_bytes == 0 {
+        return Ok(None);
+    }
+    let stripe_rows = granule_rows * (stripe_bytes / granule_bytes).max(1);
+    let striped = buffers
+        .iter()
+        .map(|buffer| StripedBuffer {
+            offset: buffer.range.start as u64,
+            length: buffer.range.len() as u64,
+            bytes_per_stripe: (stripe_rows / buffer.rows_per_granule * buffer.bytes_per_granule)
+                as u64,
+        })
+        .collect::<Vec<_>>();
+    if striped
+        .iter()
+        .all(|buffer| buffer.length <= buffer.bytes_per_stripe)
+    {
+        return Ok(None);
+    }
+    Stripes::try_new(segment_len, striped).map(Some)
 }
 
 #[cfg(test)]

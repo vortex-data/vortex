@@ -28,6 +28,7 @@ use crate::layouts::flat::lazy::LazyRead;
 use crate::layouts::flat::lazy::LazyState;
 use crate::layouts::flat::partial::PartialReadPlan;
 use crate::layouts::flat::partial::RegisteredPartialRead;
+use crate::layouts::flat::striped::StripedSegmentSource;
 use crate::reader::LayoutReader;
 use crate::reader::RowSplits;
 use crate::reader::SplitRange;
@@ -64,6 +65,14 @@ impl FlatReader {
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
     ) -> Self {
+        let segment_source = match layout.stripes() {
+            Some(stripes) => Arc::new(StripedSegmentSource::new(
+                segment_source,
+                layout.segment_id(),
+                Arc::clone(stripes.map()),
+            )),
+            None => segment_source,
+        };
         Self {
             layout,
             name,
@@ -479,6 +488,7 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -492,6 +502,7 @@ mod test {
     use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use crate::LayoutStrategy;
+    use crate::layouts::flat::Flat;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::scan::scan_builder::ScanBuilder;
     use crate::segments::SegmentFuture;
@@ -882,6 +893,67 @@ mod test {
 
             assert_eq!(source.whole_requests.load(Ordering::Relaxed), 1);
             assert!(source.ranges.lock().is_empty());
+            Ok(())
+        })
+    }
+
+    /// A striped segment serves each row's columns from one stripe and reads back whole.
+    #[test]
+    fn striped_segment_reads_rows_from_stripes() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let source = RangedTestSource::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let array = StructArray::from_fields(
+                [
+                    ("a", PrimitiveArray::from_iter(0i32..1024).into_array()),
+                    ("b", PrimitiveArray::from_iter(0i64..1024).into_array()),
+                ]
+                .as_slice(),
+            )?
+            .into_array();
+            let layout = FlatLayoutStrategy::default()
+                .with_inline_array_node(true)
+                .with_stripe_bytes(Some(24))
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&source.inner),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            assert!(layout.as_::<Flat>().stripes().is_some());
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(source.clone()),
+                &session,
+                &Default::default(),
+            )?;
+            let expr = root().bind(reader.dtype())?;
+
+            let result = reader
+                .projection_evaluation(
+                    &(0..1024),
+                    &expr,
+                    MaskFuture::ready(Mask::from_indices(1024, [1, 10])).with_partial_reads(),
+                )?
+                .await?;
+            assert_arrays_eq!(
+                result,
+                array.take(buffer![1u64, 10].into_array())?,
+                &mut ctx
+            );
+            assert_eq!(source.whole_requests.load(Ordering::Relaxed), 0);
+            // Two rows of `a` (4 bytes each) then two rows of `b` (8 bytes each) per stripe.
+            assert_eq!(*source.ranges.lock(), [4..8, 16..24, 120..124, 128..136]);
+
+            let result = reader
+                .projection_evaluation(&(0..1024), &expr, MaskFuture::new_true(1024))?
+                .await?;
+            assert_arrays_eq!(result, array, &mut ctx);
+            assert_eq!(source.whole_requests.load(Ordering::Relaxed), 1);
             Ok(())
         })
     }
