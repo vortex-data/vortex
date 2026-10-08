@@ -28,18 +28,47 @@ class Read:
     length: int
 
 
+def parse_read(values: dict[str, int]) -> Read:
+    end = values["completed_unix_ns"]
+    if "queued_unix_ns" in values:
+        return Read(
+            values["queued_unix_ns"],
+            values["started_unix_ns"],
+            values["reading_unix_ns"],
+            end,
+            values["length"],
+        )
+    reading = end - values["read_ns"]
+    started = reading - values["allocation_ns"]
+    return Read(started - values["queue_ns"], started, reading, end, values["length"])
+
+
 def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
     return ordered[min(int(fraction * len(ordered)), len(ordered) - 1)] if ordered else 0.0
 
 
-def summarize(reads: list[Read], compute: list[tuple[int, int]], query: dict) -> dict:
+def summarize(
+    reads: list[Read], compute: list[tuple[int, int]], query: dict, starts: list[tuple[int, int]] | None = None
+) -> dict:
     end = query["completed_unix_ns"]
     start = end - query["callback_ns"]
     selected = [read for read in reads if read.queued < end and read.completed > start]
     events: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0, 0])
     events[start]
     events[end]
+    first_read = min((max(start, read.queued) for read in selected), default=end)
+    last_read = max((min(end, read.completed) for read in selected), default=start)
+    events[first_read]
+    events[last_read]
+    backlog = None
+    backlog_updates = {}
+    for timestamp, remaining in sorted(starts or []):
+        if timestamp <= start:
+            backlog = remaining
+        elif timestamp < end:
+            backlog_updates[timestamp] = remaining
+            events[timestamp]
 
     def interval(begin: int, stop: int, kind: int):
         begin, stop = max(begin, start), min(stop, end)
@@ -62,6 +91,11 @@ def summarize(reads: list[Read], compute: list[tuple[int, int]], query: dict) ->
     compute_with_queued_io = 0
     outstanding_busy = 0
     outstanding_peak = 0
+    interior_idle = 0
+    idle_with_compute = 0
+    idle_with_unstarted = 0
+    longest_idle = 0
+    gap_start = None
     previous = start
     for time, changes in sorted(events.items()):
         elapsed = time - previous
@@ -73,9 +107,21 @@ def summarize(reads: list[Read], compute: list[tuple[int, int]], query: dict) ->
         if depth[0] or depth[1]:
             outstanding_busy += elapsed
             compute_with_queued_io += depth[3] * elapsed
+        if first_read <= previous < time <= last_read:
+            if not depth[0] and not depth[1]:
+                interior_idle += elapsed
+                idle_with_compute += elapsed if depth[3] else 0
+                idle_with_unstarted += elapsed if backlog else 0
+                if gap_start is None:
+                    gap_start = previous
+                longest_idle = max(longest_idle, time - gap_start)
+            else:
+                gap_start = None
         depth = [value + change for value, change in zip(depth, changes)]
         peak = [max(value, maximum) for value, maximum in zip(depth, peak)]
         outstanding_peak = max(outstanding_peak, depth[0] + depth[1])
+        if time in backlog_updates:
+            backlog = backlog_updates[time]
         previous = time
 
     result = {
@@ -89,6 +135,18 @@ def summarize(reads: list[Read], compute: list[tuple[int, int]], query: dict) ->
         last_read = min(end, max(read.completed for read in selected))
         result["last_read_completion_ms"] = (last_read - start) / 1e6
         result["callback_after_last_read_ms"] = (end - last_read) / 1e6
+        read_span = last_read - first_read
+        result["io_idle"] = {
+            "read_phase_ms": read_span / 1e6,
+            "interior_empty_ms": interior_idle / 1e6,
+            "interior_empty_percent": 100 * interior_idle / read_span if read_span else 0,
+            "interior_empty_with_compute_ms": idle_with_compute / 1e6,
+            "longest_interior_gap_ms": longest_idle / 1e6,
+            "empty_with_unstarted_splits_ms": idle_with_unstarted / 1e6 if starts else None,
+            "empty_with_unstarted_splits_percent": 100 * idle_with_unstarted / read_span
+            if starts and read_span
+            else None,
+        }
     for kind, name in enumerate(("queued_io", "running_io", "pread", "compute")):
         result[name] = {
             "peak": peak[kind],
@@ -126,32 +184,40 @@ def main():
     parser.add_argument("log", type=Path)
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--ignore-backlog",
+        action="store_true",
+        help="ignore per-scan backlog events when a query has multiple concurrent scan streams",
+    )
     args = parser.parse_args()
     ansi = re.compile(r"\x1b\[[0-9;]*m")
     fields = re.compile(
-        r"\b(completed_unix_ns|queue_ns|allocation_ns|read_ns|compute_ns|callback_ns|iteration|query_idx|length)=(\d+)"
+        r"\b(completed_unix_ns|queued_unix_ns|started_unix_ns|reading_unix_ns|queue_ns|allocation_ns|read_ns|compute_ns|callback_ns|iteration|query_idx|length|unstarted_splits)=(\d+)"
     )
-    reads, compute, queries = [], [], []
+    reads, compute, queries, starts = [], [], [], []
     for line in args.log.read_text().splitlines():
         values = {key: int(value) for key, value in fields.findall(ansi.sub("", line))}
         if "completed_unix_ns" not in values:
             continue
         end = values["completed_unix_ns"]
         if "read_ns" in values and "queue_ns" in values:
-            reading = end - values["read_ns"]
-            started = reading - values["allocation_ns"]
-            reads.append(Read(started - values["queue_ns"], started, reading, end, values["length"]))
+            reads.append(parse_read(values))
         elif "compute_ns" in values:
             compute.append((end - values["compute_ns"], end))
         elif "callback_ns" in values and values["iteration"] >= args.warmup:
             queries.append(values)
+        elif "unstarted_splits" in values and not args.ignore_backlog:
+            starts.append((end, values["unstarted_splits"]))
     if not reads or not compute or not queries:
         parser.error("log needs completed reads, compute events, and query callback windows after warmup")
     result = {
         "log": str(args.log),
         "warmup": args.warmup,
-        "scope": "Vortex compute-step wall time; running IO includes buffer allocation; pread excludes it",
-        "queries": [summarize(reads, compute, query) for query in queries],
+        "scope": (
+            "Vortex compute-step wall time; explicit local object-store intervals cover blocking IO; "
+            "legacy running IO includes allocation"
+        ),
+        "queries": [summarize(reads, compute, query, starts) for query in queries],
     }
     encoded = json.dumps(result, indent=2) + "\n"
     if args.output:

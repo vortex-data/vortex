@@ -20,6 +20,8 @@ File preparation windows apply only to DuckDB Vortex v2. DataFusion's
 environment is set as well as --threads to support older baseline binaries.
 Use --baseline-projection-prefetch-bytes and --candidate-projection-prefetch-bytes
 to compare V2 projection read-ahead, including two settings of the same binary.
+DataFusion's per-label scan-concurrency and io-threads flags require binaries with
+the corresponding CLI controls.
 Optional perf-stat processes run separately. Add --perf-branches to collect
 branch counts and branch misses alongside instructions and cycles. The benchmark runner enables their
 counters around query callbacks after warmup, excluding initial setup and result
@@ -139,6 +141,12 @@ def run(
     ]
     if queries:
         command += ["--queries", queries]
+    scan_concurrency = getattr(args, f"{label}_datafusion_scan_concurrency")
+    if engine == "datafusion" and scan_concurrency is not None:
+        command += ["--scan-concurrency", str(scan_concurrency)]
+    io_threads = getattr(args, f"{label}_datafusion_io_threads")
+    if engine == "datafusion" and io_threads is not None:
+        command += ["--io-threads", str(io_threads)]
     if suite == "tpch":
         command += ["--opt", f"scale-factor={args.scale_factor}"]
     elif suite == "tpcds":
@@ -156,6 +164,8 @@ def run(
     projection_budget = getattr(args, f"{label}_projection_prefetch_bytes", None)
     if projection_budget is not None and scan == "v2" and fmt != "parquet":
         env["VORTEX_SCAN_PROJECTION_PREFETCH_BYTES"] = str(projection_budget)
+    if args.file_pruning and scan == "v2" and fmt != "parquet":
+        env["VORTEX_SCAN_FILE_PRUNING"] = "1"
     metadata = {
         "command": command,
         "env": {
@@ -188,6 +198,7 @@ def run(
             "scan": scan,
             "prefetch": prefetch,
             "projection_prefetch_bytes": int(env.get("VORTEX_SCAN_PROJECTION_PREFETCH_BYTES", "0")),
+            "datafusion_scan_concurrency": scan_concurrency if engine == "datafusion" else None,
             "label": label,
             "round": round_id,
             "times_ms": measured,
@@ -298,6 +309,14 @@ def main():
     )
     parser.add_argument("--threads", type=positive, nargs="+", default=[8])
     parser.add_argument("--scan", nargs="+", choices=("v1", "v2"), default=["v2"])
+    parser.add_argument("--file-pruning", action="store_true", help="enable V2 whole-file statistics pruning")
+    for label in ("baseline", "candidate"):
+        parser.add_argument(
+            f"--{label}-datafusion-scan-concurrency",
+            type=positive,
+            help=f"Vortex split tasks per available worker within each DataFusion file scan in the {label}",
+        )
+        parser.add_argument(f"--{label}-datafusion-io-threads", type=positive)
     parser.add_argument("--prefetch", type=int, nargs="+", default=[0, 4])
     parser.add_argument(
         "--baseline-projection-prefetch-bytes",
