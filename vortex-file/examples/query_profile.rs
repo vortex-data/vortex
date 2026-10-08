@@ -522,6 +522,7 @@ fn layout_splits(
 /// A file variant, its layout lowered to a plan once, and its planned queries.
 struct Fixture {
     name: &'static str,
+    variant: Variant,
     file: VortexFile,
     source: PlanRef,
     planned: Vec<Planned>,
@@ -542,6 +543,7 @@ static FILES: LazyLock<Vec<Fixture>> = LazyLock::new(|| {
             let source = lower(file.footer().layout()).expect("lower");
             Fixture {
                 name: variant.name,
+                variant: *variant,
                 file,
                 source,
                 planned,
@@ -614,9 +616,15 @@ fn drive(
     }
 }
 
-/// Splits in flight at once: four per core, as the V1 scan's default concurrency.
-fn in_flight() -> usize {
-    4 * get_available_parallelism().unwrap_or(1)
+/// Splits in flight at once for a file read through real IO: four per core, as the V1 scan's
+/// default concurrency, so reads overlap compute. A file in memory answers reads at once, so
+/// nothing is gained by holding more than one split's graph alive.
+fn in_flight(variant: Variant) -> usize {
+    if variant.on_disk {
+        4 * get_available_parallelism().unwrap_or(1)
+    } else {
+        1
+    }
 }
 
 /// Runs `plan` over `splits` with up to `in_flight` graphs at once, so the reads of later splits
@@ -791,10 +799,11 @@ fn run(
     query: &Planned,
     algorithm: Algorithm,
     source: &PlanRef,
+    variant: Variant,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> usize {
     let segments = file.segment_source();
-    let shared = DecodeCache::with_window(in_flight() as u64);
+    let shared = DecodeCache::with_window(in_flight(variant) as u64);
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
@@ -805,7 +814,7 @@ fn run(
     let mut rows = 0;
     if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source);
-        return drive_splits(&segments, &plan, &splits, &cache, in_flight());
+        return drive_splits(&segments, &plan, &splits, &cache, in_flight(variant));
     }
     for split in &query.splits {
         let len = (split.end - split.start) as usize;
@@ -879,9 +888,15 @@ fn run_v1(file: &VortexFile, query: &Planned) -> usize {
 }
 
 #[inline(never)]
-fn run_exec(file: &VortexFile, query: &Planned, algorithm: Algorithm, source: &PlanRef) -> usize {
+fn run_exec(
+    file: &VortexFile,
+    query: &Planned,
+    algorithm: Algorithm,
+    source: &PlanRef,
+    variant: Variant,
+) -> usize {
     let mut ctx = SESSION.create_execution_ctx();
-    run(file, query, algorithm, source, &mut ctx)
+    run(file, query, algorithm, source, variant, &mut ctx)
 }
 
 fn main() {
@@ -895,13 +910,14 @@ fn main() {
         _ => Algorithm::Conjuncts,
     };
     let Fixture {
-        name: variant,
+        name,
+        variant,
         file,
         source,
         planned,
     } = &FILES[0];
     let query = planned.iter().find(|q| q.name == wanted).expect("query");
-    println!("{variant} {wanted} splits={}", query.splits.len());
+    println!("{name} {wanted} splits={}", query.splits.len());
     {
         let start = std::time::Instant::now();
         let (built, splits) = query.build(file, source);
@@ -918,7 +934,7 @@ fn main() {
         if only != "v1" {
             let start = std::time::Instant::now();
             READS.store(0, Ordering::Relaxed);
-            let rows = run_exec(file, query, algorithm, source);
+            let rows = run_exec(file, query, algorithm, source, *variant);
             println!("exec reads={}", READS.load(Ordering::Relaxed));
             println!("exec rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
         }

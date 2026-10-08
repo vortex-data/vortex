@@ -518,6 +518,7 @@ fn layout_splits(
 /// A file variant, its layout lowered to a plan once, and its planned queries.
 struct Fixture {
     name: &'static str,
+    variant: Variant,
     file: VortexFile,
     source: PlanRef,
     planned: Vec<Planned>,
@@ -536,6 +537,7 @@ static FILES: LazyLock<Vec<Fixture>> = LazyLock::new(|| {
             let source = lower(file.footer().layout()).expect("lower");
             Fixture {
                 name: variant.name,
+                variant: *variant,
                 file,
                 source,
                 planned,
@@ -607,9 +609,15 @@ fn drive(
     }
 }
 
-/// Splits in flight at once: four per core, as the V1 scan's default concurrency.
-fn in_flight() -> usize {
-    4 * get_available_parallelism().unwrap_or(1)
+/// Splits in flight at once for a file read through real IO: four per core, as the V1 scan's
+/// default concurrency, so reads overlap compute. A file in memory answers reads at once, so
+/// nothing is gained by holding more than one split's graph alive.
+fn in_flight(variant: Variant) -> usize {
+    if variant.on_disk {
+        4 * get_available_parallelism().unwrap_or(1)
+    } else {
+        1
+    }
 }
 
 /// Runs `plan` over `splits` with up to `in_flight` graphs at once, so the reads of later splits
@@ -795,10 +803,11 @@ fn run(
     query: &Planned,
     algorithm: Algorithm,
     source: &PlanRef,
+    variant: Variant,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> usize {
     let segments = file.segment_source();
-    let shared = DecodeCache::with_window(in_flight() as u64);
+    let shared = DecodeCache::with_window(in_flight(variant) as u64);
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
@@ -809,7 +818,7 @@ fn run(
     let mut rows = 0;
     if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source);
-        return drive_splits(&segments, &plan, &splits, &cache, in_flight());
+        return drive_splits(&segments, &plan, &splits, &cache, in_flight(variant));
     }
     for split in &query.splits {
         let len = (split.end - split.start) as usize;
@@ -872,7 +881,14 @@ fn exec<const ALGORITHM: usize>(bencher: Bencher, case: &str) {
     bencher
         .counter(ItemsCount::new(query.expected))
         .bench_local(|| {
-            let rows = run(&fixture.file, query, algorithm, &fixture.source, &mut ctx);
+            let rows = run(
+                &fixture.file,
+                query,
+                algorithm,
+                &fixture.source,
+                fixture.variant,
+                &mut ctx,
+            );
             assert_eq!(rows, query.expected);
         });
 }
