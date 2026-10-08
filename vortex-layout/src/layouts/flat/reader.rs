@@ -16,6 +16,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::serde::SerializedArray;
+use vortex_array::serde::SerializedBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -23,6 +24,8 @@ use vortex_session::VortexSession;
 
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::lazy::LazyRead;
+use crate::layouts::flat::lazy::LazyState;
 use crate::layouts::flat::partial::PartialReadPlan;
 use crate::layouts::flat::partial::RegisteredPartialRead;
 use crate::reader::LayoutReader;
@@ -37,6 +40,9 @@ use crate::segments::SegmentSource;
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
+/// The smallest segment, in pages, that is read lazily instead of whole.
+const LAZY_MIN_SEGMENT_PAGES: u64 = 4;
+
 #[derive(Clone)]
 pub struct FlatReader {
     layout: FlatLayout,
@@ -44,6 +50,14 @@ pub struct FlatReader {
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
     partial_plan: Arc<OnceLock<Option<PartialReadPlan>>>,
+    lazy_template: Arc<OnceLock<Option<LazyTemplate>>>,
+    lazy_state: Arc<LazyState>,
+}
+
+/// The validated array tree and buffer locations used for lazy partial reads.
+struct LazyTemplate {
+    array: SerializedArray,
+    descriptors: Vec<SerializedBuffer>,
 }
 
 impl FlatReader {
@@ -59,7 +73,78 @@ impl FlatReader {
             segment_source,
             session,
             partial_plan: Arc::new(OnceLock::new()),
+            lazy_template: Arc::new(OnceLock::new()),
+            lazy_state: Arc::default(),
         }
+    }
+
+    fn partial_plan(&self) -> Option<&PartialReadPlan> {
+        self.partial_plan
+            .get_or_init(|| match PartialReadPlan::try_new(&self.layout) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    tracing::debug!("Flat partial-read plan disabled: {error}");
+                    None
+                }
+            })
+            .as_ref()
+    }
+
+    fn lazy_template(&self) -> Option<&LazyTemplate> {
+        self.lazy_template
+            .get_or_init(|| {
+                let array =
+                    SerializedArray::from_array_tree(self.layout.array_tree()?.clone()).ok()?;
+                let descriptors = array.buffer_descriptors().ok()?;
+                Some(LazyTemplate { array, descriptors })
+            })
+            .as_ref()
+    }
+
+    /// Whether this segment can be read lazily: the source serves ranges, the array tree is
+    /// inline, and no specialized partial-read plan covers its encoding.
+    fn lazy_eligible(&self) -> bool {
+        let Some(page) = self.segment_source.preferred_read_size() else {
+            return false;
+        };
+        // Lazily decoding, slicing and rebuilding an array costs more than reading a small
+        // segment whole, so only large segments are worth it.
+        self.segment_source
+            .segment_len(self.layout.segment_id())
+            .is_some_and(|len| len >= page.saturating_mul(LAZY_MIN_SEGMENT_PAGES))
+            && !self.lazy_state.is_disabled()
+            && self.partial_plan().is_none()
+            && self.lazy_template().is_some()
+    }
+
+    /// Read the selected rows through lazy buffers, or `None` to read the whole segment.
+    async fn read_lazily(
+        &self,
+        row_range: &Range<usize>,
+        mask: &Mask,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let (Some(template), Some(segment_len), Some(page)) = (
+            self.lazy_template(),
+            self.segment_source.segment_len(self.layout.segment_id()),
+            self.segment_source.preferred_read_size(),
+        ) else {
+            return Ok(None);
+        };
+        LazyRead {
+            template: &template.array,
+            descriptors: &template.descriptors,
+            source: &self.segment_source,
+            segment_id: self.layout.segment_id(),
+            segment_len: usize::try_from(segment_len)?,
+            page: usize::try_from(page)?,
+            dtype: self.layout.dtype(),
+            row_count: usize::try_from(self.layout.row_count())?,
+            ctx: self.layout.array_ctx(),
+            session: &self.session,
+            state: &self.lazy_state,
+        }
+        .read(row_range, mask)
+        .await
     }
 
     fn register_partial(
@@ -73,16 +158,7 @@ impl FlatReader {
         {
             return None;
         }
-        let plan = self
-            .partial_plan
-            .get_or_init(|| match PartialReadPlan::try_new(&self.layout) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    tracing::debug!("Flat partial-read plan disabled: {error}");
-                    None
-                }
-            });
-        plan.as_ref()?.register(
+        self.partial_plan()?.register(
             &self.segment_source,
             self.layout.segment_id(),
             usize::try_from(self.layout.row_count()).ok()?,
@@ -324,9 +400,11 @@ impl LayoutReader for FlatReader {
             .then(|| mask.upper_bound())
             .flatten()
             .and_then(|upper_bound| self.register_partial(&row_range, upper_bound));
+        let read_lazily = partial_reads_allowed && registered.is_none() && self.lazy_eligible();
         let eager_array = ((!partial_reads_allowed || mask.upper_bound_is_exact())
-            && registered.is_none())
-        .then(|| self.array_future());
+            && registered.is_none()
+            && !read_lazily)
+            .then(|| self.array_future());
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
@@ -345,6 +423,16 @@ impl LayoutReader for FlatReader {
                     .await?;
                 array = array.apply_bound(&expr)?;
                 return Ok(array);
+            }
+
+            if read_lazily {
+                match reader.read_lazily(&row_range, &mask).await {
+                    Ok(Some(array)) => return array.apply_bound(&expr),
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::debug!(%error, "Flat lazy partial read failed, reading the segment");
+                    }
+                }
             }
 
             let mut array = match eager_array {
@@ -797,6 +885,53 @@ mod test {
 
             assert_eq!(source.whole_requests.load(Ordering::Relaxed), 1);
             assert!(source.ranges.lock().is_empty());
+            Ok(())
+        })
+    }
+
+    /// Encodings without a specialized plan are read through lazy buffers narrowed by slicing.
+    #[test]
+    fn unplanned_encoding_reads_sliced_buffer_ranges() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let source = RangedTestSource::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let array = BoolArray::from_iter((0..1024).map(|i| i % 3 == 0)).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .with_inline_array_node(true)
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&source.inner),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(source.clone()),
+                &session,
+                &Default::default(),
+            )?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(
+                    &(0..1024),
+                    &expr,
+                    MaskFuture::ready(Mask::from_indices(1024, [99, 900])).with_partial_reads(),
+                )?
+                .await?;
+
+            assert_arrays_eq!(result, BoolArray::from_iter([true, true]), &mut ctx);
+            assert_eq!(source.whole_requests.load(Ordering::Relaxed), 0);
+            let bytes: u64 = source
+                .ranges
+                .lock()
+                .iter()
+                .map(|range| range.end - range.start)
+                .sum();
+            assert!(bytes < 64, "read {bytes} of 128 bit-buffer bytes");
             Ok(())
         })
     }
