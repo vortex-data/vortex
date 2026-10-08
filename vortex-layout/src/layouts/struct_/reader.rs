@@ -158,6 +158,53 @@ impl StructReader {
             .transpose()
     }
 
+    /// Evaluate a field-scoped `expr` over the field's values with this struct's nulls applied
+    /// first, so the expression sees exactly what `get_item` yields in memory. Masking the output
+    /// instead would be wrong for expressions that map a null input to a non-null result, such as
+    /// `is_null`.
+    fn masked_field_evaluation(
+        &self,
+        validity: &LayoutReaderRef,
+        name: &FieldName,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: MaskFuture,
+    ) -> VortexResult<ArrayFuture> {
+        let reader = self.field_reader(name)?;
+        let values = reader
+            .projection_evaluation(row_range, &root().bind(reader.dtype())?, mask.clone())
+            .map_err(|err| {
+                err.with_context(format!("While evaluating projection partition {name}"))
+            })?;
+        let validity =
+            validity.projection_evaluation(row_range, &root().bind(validity.dtype())?, mask)?;
+        let expr = expr.clone();
+        Ok(Box::pin(async move {
+            let (values, validity) = try_join!(values, validity)?;
+            values.mask(validity)?.apply_bound(&expr)
+        }))
+    }
+
+    /// Evaluate `expr` over a nullable struct by masking each field before evaluating it.
+    fn masked_projection_evaluation(
+        &self,
+        validity: &LayoutReaderRef,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: MaskFuture,
+    ) -> VortexResult<ArrayFuture> {
+        match &self.partition_expr(expr)? {
+            Partitioned::Single(name, partition) => {
+                self.masked_field_evaluation(validity, name, row_range, partition, mask)
+            }
+            Partitioned::Multi(partitioned) => {
+                Arc::clone(partitioned).into_array_future(mask, |name, expr, mask| {
+                    self.masked_field_evaluation(validity, name, row_range, expr, mask)
+                })
+            }
+        }
+    }
+
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
         let key = ExactBoundExpr(expr.clone());
@@ -394,6 +441,12 @@ impl LayoutReader for StructReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        // Field statistics also cover values hidden under a null parent, so they cannot prove an
+        // expression false for rows where this struct is null.
+        if self.validity()?.is_some() {
+            return Ok(MaskFuture::ready(mask));
+        }
+
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
@@ -420,6 +473,20 @@ impl LayoutReader for StructReader {
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        // Field readers know nothing about this struct's nulls, so a nullable struct evaluates the
+        // predicate over masked fields rather than pushing it down.
+        if let Some(validity) = self.validity()? {
+            let array =
+                self.masked_projection_evaluation(validity, row_range, expr, mask.clone())?;
+            let session = self.session.clone();
+            return Ok(MaskFuture::new(mask.len(), async move {
+                let (array, mask) = try_join!(array, mask)?;
+                let mut ctx = session.create_execution_ctx();
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+                Ok(mask.intersect_by_rank(&array_mask))
+            }));
+        }
+
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
@@ -461,75 +528,65 @@ impl LayoutReader for StructReader {
         expr: &BoundExpression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let validity_fut = self
-            .validity()?
-            .map(|reader| {
-                let root = root().bind(reader.dtype())?;
-                reader.projection_evaluation(row_range, &root, mask_fut.clone())
-            })
-            .transpose()?;
-
-        // Partition the expression into expressions that can be evaluated over individual fields
-        let (projected, is_pack_merge) = match &self.partition_expr(expr)? {
-            Partitioned::Single(name, partition) => {
-                let reader = self.field_reader(name)?;
-                (
-                    reader
-                        .projection_evaluation(row_range, partition, mask_fut)
-                        .map_err(|err| {
-                            err.with_context(format!(
-                                "While evaluating projection partition {name}"
-                            ))
-                        })?,
-                    is_pack_or_merge(partition),
-                )
+        if let Some(validity) = self.validity()? {
+            let is_pack_merge = match &self.partition_expr(expr)? {
+                Partitioned::Single(_, partition) => is_pack_or_merge(partition),
+                Partitioned::Multi(partitioned) => is_pack_or_merge(&partitioned.root),
+            };
+            let projected =
+                self.masked_projection_evaluation(validity, row_range, expr, mask_fut.clone())?;
+            if !is_pack_merge {
+                return Ok(projected);
             }
 
-            Partitioned::Multi(partitioned) => (
+            // A struct-valued result cannot carry this struct's validity at the top level, so
+            // each of its fields is masked instead. This is what keeps a nested nullable struct
+            // nullable when it is projected through its parent.
+            let validity = validity.projection_evaluation(
+                row_range,
+                &root().bind(validity.dtype())?,
+                mask_fut,
+            )?;
+            let session = self.session.clone();
+            return Ok(Box::pin(async move {
+                let (array, validity) = try_join!(projected, validity)?;
+                let mut ctx = session.create_execution_ctx();
+                let struct_array = array.execute::<StructArray>(&mut ctx)?;
+                let masked_fields: Vec<ArrayRef> = struct_array
+                    .iter_unmasked_fields()
+                    .map(|a| a.clone().mask(validity.clone()))
+                    .try_collect()?;
+
+                Ok(StructArray::try_new(
+                    struct_array.names().clone(),
+                    masked_fields,
+                    struct_array.len(),
+                    struct_array.validity()?,
+                )?
+                .into_array())
+            }));
+        }
+
+        // Partition the expression into expressions that can be evaluated over individual fields
+        match &self.partition_expr(expr)? {
+            Partitioned::Single(name, partition) => self
+                .field_reader(name)?
+                .projection_evaluation(row_range, partition, mask_fut)
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating projection partition {name}"))
+                }),
+            Partitioned::Multi(partitioned) => {
                 Arc::clone(partitioned).into_array_future(mask_fut, |name, expr, mask| {
-                    let reader = self.field_reader(name)?;
-                    reader
+                    self.field_reader(name)?
                         .projection_evaluation(row_range, expr, mask)
                         .map_err(|err| {
                             err.with_context(format!(
                                 "While evaluating projection partition {name}"
                             ))
                         })
-                })?,
-                is_pack_or_merge(&partitioned.root),
-            ),
-        };
-
-        let session = self.session.clone();
-        Ok(Box::pin(async move {
-            if let Some(validity_fut) = validity_fut {
-                let (array, validity) = try_join!(projected, validity_fut)?;
-
-                // If root expression was a pack, then we apply the validity to each child field
-                if is_pack_merge {
-                    let mut ctx = session.create_execution_ctx();
-                    let struct_array = array.execute::<StructArray>(&mut ctx)?;
-                    let masked_fields: Vec<ArrayRef> = struct_array
-                        .iter_unmasked_fields()
-                        .map(|a| a.clone().mask(validity.clone()))
-                        .try_collect()?;
-
-                    Ok(StructArray::try_new(
-                        struct_array.names().clone(),
-                        masked_fields,
-                        struct_array.len(),
-                        struct_array.validity()?,
-                    )?
-                    .into_array())
-                } else {
-                    // If the root expression was not a pack or merge, e.g. if it's something like
-                    // a get_item, then we apply the validity directly to the result
-                    array.mask(validity)
-                }
-            } else {
-                projected.await
+                })
             }
-        }))
+        }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -564,6 +621,7 @@ mod tests {
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
+    use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::pack;
@@ -874,6 +932,44 @@ mod tests {
             expected_b,
             &mut ctx
         );
+    }
+
+    #[rstest]
+    #[case::hidden_value_is_null(gt(col("a"), lit(1)), [false, true, true])]
+    #[case::null_parent_field_is_null(is_null(col("a")), [true, false, false])]
+    #[case::multiple_fields(or(gt(col("a"), lit(5)), gt(col("b"), lit(4))), [false, true, true])]
+    fn test_struct_layout_filter_respects_parent_nulls(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] expr: Expression,
+        #[case] expected: [bool; 3],
+    ) {
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
+        let expr = expr.bind(reader.dtype()).unwrap();
+        let filter = reader
+            .filter_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
+            .unwrap();
+
+        let result = block_on(move |_| filter).unwrap();
+        assert_eq!(result, Mask::from_iter(expected));
+    }
+
+    #[rstest]
+    fn test_struct_layout_projection_masks_inputs(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
+        let expr = is_null(col("a")).bind(reader.dtype()).unwrap();
+        let project = reader
+            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
+            .unwrap();
+
+        let result = block_on(move |_| project).unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
     }
 
     #[rstest]
