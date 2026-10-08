@@ -635,9 +635,16 @@ mod test {
 
         let mut ctx = SESSION.create_execution_ctx();
         let dict = dict_encode(&arr, &mut ctx)?;
-        let codes = dict.codes().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(codes.as_slice::<u8>(), &[0, 0, 0]);
-        assert_eq!(dict.values().len(), 1);
+        assert_arrays_eq!(
+            dict.codes(),
+            PrimitiveArray::from_iter([0u8, 0, 0]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            dict.values(),
+            VarBinViewArray::from_iter_str(["hello"]),
+            &mut ctx
+        );
         Ok(())
     }
 

@@ -148,3 +148,43 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
     }
     Ok(dict_array)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::dict_encode;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::dict::DictArraySlotsExt;
+    use crate::arrays::primitive::PrimitiveArrayExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+
+    /// `narrow_codes` picks the code type from the dictionary length instead of scanning the
+    /// codes, so it must land on the same type a scan would at every width boundary.
+    #[rstest]
+    #[case::empty(0)]
+    #[case::single(1)]
+    #[case::fills_u8(256)]
+    #[case::overflows_u8(257)]
+    #[case::fills_u16(65_536)]
+    #[case::overflows_u16(65_537)]
+    fn codes_are_as_narrow_as_a_scan_makes_them(#[case] distinct: u32) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter((0..distinct).chain(0..distinct)).into_array();
+
+        let codes = dict_encode(&array, &mut ctx)?
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+
+        assert_eq!(codes.ptype(), codes.narrow(&mut ctx)?.ptype());
+        Ok(())
+    }
+}
