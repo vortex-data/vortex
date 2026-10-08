@@ -170,7 +170,6 @@ impl FlatReader {
             usize::try_from(self.layout.row_count()).ok()?,
             row_range,
             mask,
-            self.layout.stripes().is_some(),
         )
     }
 
@@ -483,17 +482,24 @@ mod test {
     use futures::TryStreamExt;
     use parking_lot::Mutex;
     use rstest::rstest;
+    use vortex_alp::ALPRD;
+    use vortex_alp::ALPRDArrayExt;
+    use vortex_alp::ALPRDArraySlotsExt;
+    use vortex_alp::RDEncoder;
+    use vortex_alp::RDEncoderExt;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -955,6 +961,115 @@ mod test {
                 .await?;
             assert_arrays_eq!(result, array, &mut ctx);
             assert_eq!(source.whole_requests.load(Ordering::Relaxed), 1);
+            Ok(())
+        })
+    }
+
+    /// Striped ALP-RD vectors read each selected row, with its own patches, as one range.
+    #[test]
+    fn striped_alprd_rows_read_with_their_patches() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            vortex_alp::initialize(&session);
+            vortex_fastlanes::initialize(&session);
+            let mut ctx = session.create_execution_ctx();
+            let source = RangedTestSource::default();
+            let (ptr, eof) = SequenceId::root().split();
+            let rows = 16;
+            let values = PrimitiveArray::from_iter((0..rows * 1024).map(|i| {
+                if i % 97 == 0 {
+                    i as f32 * 3e25
+                } else {
+                    1.0 + (i % 1000) as f32 * 1e-4
+                }
+            }));
+            let encoded = RDEncoder::new(&[1.0f32, 1.05, 1.0999]).encode(values.as_view());
+            // Store the patch indices unpacked, as a compressor does for short patch lists.
+            let patches = encoded
+                .left_parts_patches()
+                .ok_or_else(|| vortex_error::vortex_err!("no patches"))?;
+            let patches = Patches::new(
+                patches.array_len(),
+                patches.offset(),
+                patches
+                    .indices()
+                    .clone()
+                    .execute::<PrimitiveArray>(&mut ctx)?
+                    .into_array(),
+                patches.values().clone(),
+                None,
+            )?;
+            let elements = ALPRD::try_new(
+                encoded.dtype().clone(),
+                encoded.left_parts().clone(),
+                encoded.left_parts_dictionary().clone(),
+                encoded.right_parts().clone(),
+                encoded.right_bit_width(),
+                Some(patches),
+            )?
+            .into_array();
+            let array = FixedSizeListArray::try_new(elements, 1024, Validity::NonNullable, rows)?
+                .into_array();
+            let layout = FlatLayoutStrategy::default()
+                .with_inline_array_node(true)
+                .with_stripe_bytes(Some(1))
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&source.inner),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let stripes = layout
+                .as_::<Flat>()
+                .stripes()
+                .ok_or_else(|| vortex_error::vortex_err!("segment is not striped"))?;
+            assert_eq!(stripes.rows_per_stripe(), Some(1));
+            assert!(stripes.map().element_counts().iter().sum::<u32>() > 0);
+            let segment_len = source
+                .inner
+                .segment_len(layout.segment_ids()[0])
+                .ok_or_else(|| vortex_error::vortex_err!("missing segment"))?;
+
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(source.clone()),
+                &session,
+                &Default::default(),
+            )?;
+            let expr = root().bind(reader.dtype())?;
+            for (selected, reads) in [(vec![1usize, 10], 2), (vec![4, 5], 1)] {
+                source.ranges.lock().clear();
+                let result = reader
+                    .projection_evaluation(
+                        &(0..rows as u64),
+                        &expr,
+                        MaskFuture::ready(Mask::from_indices(rows, selected.iter().copied()))
+                            .with_partial_reads(),
+                    )?
+                    .await?;
+                let indices = selected.iter().map(|&row| row as u64).collect::<Vec<_>>();
+                assert_arrays_eq!(
+                    result,
+                    array.take(PrimitiveArray::from_iter(indices).into_array())?,
+                    &mut ctx
+                );
+                let ranges = source.ranges.lock().clone();
+                assert_eq!(ranges.len(), reads, "{ranges:?}");
+                let bytes: u64 = ranges.iter().map(|range| range.end - range.start).sum();
+                // Each row is its stripe: its bits and its patches, about 1/16 of the segment.
+                assert!(
+                    bytes * 6 < segment_len,
+                    "read {bytes} of {segment_len} bytes"
+                );
+            }
+            assert_eq!(source.whole_requests.load(Ordering::Relaxed), 0);
+
+            let result = reader
+                .projection_evaluation(&(0..rows as u64), &expr, MaskFuture::new_true(rows))?
+                .await?;
+            assert_arrays_eq!(result, array, &mut ctx);
             Ok(())
         })
     }

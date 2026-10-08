@@ -19,6 +19,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -186,33 +187,33 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let array_node = self
             .inline_array_node
             .then(|| buffers[buffers.len() - 2].clone());
-        let stripes = match (&array_node, self.stripe_bytes) {
-            (Some(array_node), Some(stripe_bytes)) => plan_stripes(
-                &FlatLayout::new_with_metadata(
-                    row_count,
-                    stream.dtype().clone(),
-                    SegmentId::from(0),
-                    ReadContext::new(ctx.array_ctx().to_ids()),
-                    Some(array_node.clone()),
-                ),
-                buffers.iter().map(|buffer| buffer.len() as u64).sum(),
-                stripe_bytes,
-            )?,
-            _ => None,
-        };
-        let buffers = match &stripes {
-            Some(stripes) => {
+        let striped = match (&array_node, self.stripe_bytes) {
+            (Some(array_node), Some(stripe_bytes)) => {
                 let mut logical =
                     ByteBufferMut::with_capacity(buffers.iter().map(ByteBuffer::len).sum());
                 for buffer in &buffers {
                     logical.extend_from_slice(buffer);
                 }
+                let layout = FlatLayout::new_with_metadata(
+                    row_count,
+                    stream.dtype().clone(),
+                    SegmentId::from(0),
+                    ReadContext::new(ctx.array_ctx().to_ids()),
+                    Some(array_node.clone()),
+                );
+                plan_stripes(&layout, &logical, stripe_bytes)?
+                    .map(|stripes| (stripes, logical.freeze()))
+            }
+            _ => None,
+        };
+        let (stripes, buffers) = match striped {
+            Some((stripes, logical)) => {
                 let mut physical =
                     ByteBufferMut::zeroed_aligned(logical.len(), buffers[0].alignment());
                 stripes.map().stripe(&logical, physical.as_mut_slice());
-                vec![physical.freeze()]
+                (Some(stripes), vec![physical.freeze()])
             }
-            None => buffers,
+            None => (None, buffers),
         };
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
@@ -231,13 +232,17 @@ impl LayoutStrategy for FlatLayoutStrategy {
     }
 }
 
-/// Stripe the row-proportional buffers of `layout` so each stripe holds about `stripe_bytes`,
-/// or `None` when there is nothing to interleave.
+/// Stripe the row-proportional buffers of `layout`, whose unstriped segment is `logical`, so
+/// each stripe holds about `stripe_bytes`, or `None` when there is nothing to interleave.
+///
+/// Plain primitive patches are split by stripe too, so each stripe carries the patches of its
+/// rows.
 fn plan_stripes(
     layout: &FlatLayout,
-    segment_len: u64,
+    logical: &[u8],
     stripe_bytes: usize,
 ) -> VortexResult<Option<Stripes>> {
+    let segment_len = logical.len() as u64;
     let Some(plan) = PartialReadPlan::try_new(layout)? else {
         return Ok(None);
     };
@@ -256,13 +261,14 @@ fn plan_stripes(
         return Ok(None);
     }
     let stripe_rows = granule_rows * (stripe_bytes / granule_bytes).max(1);
-    let striped = buffers
+    let mut striped = buffers
         .iter()
         .map(|buffer| StripedBuffer {
             offset: buffer.range.start as u64,
             length: buffer.range.len() as u64,
             bytes_per_stripe: (stripe_rows / buffer.rows_per_granule * buffer.bytes_per_granule)
                 as u64,
+            bytes_per_element: 0,
         })
         .collect::<Vec<_>>();
     if striped
@@ -271,7 +277,45 @@ fn plan_stripes(
     {
         return Ok(None);
     }
-    Stripes::try_new(segment_len, striped).map(Some)
+
+    let mut element_counts = Vec::new();
+    if let Some(columns) = plan.patch_columns() {
+        let stripes = usize::try_from(layout.row_count())?.div_ceil(stripe_rows);
+        let values_per_stripe = stripe_rows
+            .checked_mul(columns.values_per_row)
+            .ok_or_else(|| vortex_err!("Stripe length overflow"))?;
+        let width = columns.index_ptype.byte_width();
+        element_counts = vec![0u32; stripes];
+        for index in logical[columns.indices.range().clone()].chunks_exact(width) {
+            let mut bytes = [0u8; 8];
+            bytes[..width].copy_from_slice(index);
+            let position = usize::try_from(u64::from_le_bytes(bytes))?
+                .checked_sub(columns.offset)
+                .ok_or_else(|| vortex_err!("Patch index before the patch offset"))?;
+            let count = element_counts
+                .get_mut(position / values_per_stripe)
+                .ok_or_else(|| vortex_err!("Patch index past the end of the array"))?;
+            *count += 1;
+        }
+        for (buffer, ptype) in [
+            (&columns.indices, columns.index_ptype),
+            (&columns.values, columns.value_ptype),
+        ] {
+            striped.push(StripedBuffer {
+                offset: buffer.range().start as u64,
+                length: buffer.range().len() as u64,
+                bytes_per_stripe: 0,
+                bytes_per_element: ptype.byte_width() as u64,
+            });
+        }
+    }
+    Stripes::try_new(
+        segment_len,
+        Some(stripe_rows as u64),
+        striped,
+        &element_counts,
+    )
+    .map(Some)
 }
 
 #[cfg(test)]

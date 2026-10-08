@@ -73,19 +73,33 @@ pub struct FlatData {
 #[derive(Clone, Debug)]
 pub struct Stripes {
     segment_len: u64,
+    rows_per_stripe: Option<u64>,
     buffers: Vec<StripedBuffer>,
     map: Arc<StripeMap>,
 }
 
 impl Stripes {
-    /// Describe a segment of `segment_len` bytes that interleaves `buffers` in stripes.
-    pub fn try_new(segment_len: u64, buffers: Vec<StripedBuffer>) -> VortexResult<Self> {
-        let map = Arc::new(StripeMap::try_new(segment_len, &buffers)?);
+    /// Describe a segment of `segment_len` bytes that interleaves `buffers` in stripes of
+    /// `rows_per_stripe` rows. Buffers split by elements hold `element_counts[i]` elements in
+    /// stripe `i`.
+    pub fn try_new(
+        segment_len: u64,
+        rows_per_stripe: Option<u64>,
+        buffers: Vec<StripedBuffer>,
+        element_counts: &[u32],
+    ) -> VortexResult<Self> {
+        let map = Arc::new(StripeMap::try_new(segment_len, &buffers, element_counts)?);
         Ok(Self {
             segment_len,
+            rows_per_stripe,
             buffers,
             map,
         })
+    }
+
+    /// The rows in each stripe, when recorded.
+    pub fn rows_per_stripe(&self) -> Option<u64> {
+        self.rows_per_stripe
     }
 
     fn map(&self) -> &Arc<StripeMap> {
@@ -120,6 +134,15 @@ impl VTable for Flat {
                 .as_ref()
                 .map(|stripes| stripes.buffers.clone())
                 .unwrap_or_default(),
+            rows_per_stripe: layout
+                .stripes
+                .as_ref()
+                .and_then(|stripes| stripes.rows_per_stripe),
+            stripe_element_counts: layout
+                .stripes
+                .as_ref()
+                .map(|stripes| stripes.map.element_counts())
+                .unwrap_or_default(),
         })
     }
 
@@ -143,7 +166,14 @@ impl VTable for Flat {
                 .map(|bytes| ByteBuffer::from(bytes.clone())),
             stripes: metadata
                 .striped_segment_len
-                .map(|segment_len| Stripes::try_new(segment_len, metadata.striped_buffers.clone()))
+                .map(|segment_len| {
+                    Stripes::try_new(
+                        segment_len,
+                        metadata.rows_per_stripe,
+                        metadata.striped_buffers.clone(),
+                        &metadata.stripe_element_counts,
+                    )
+                })
                 .transpose()?,
         })
     }
@@ -244,4 +274,10 @@ pub struct FlatLayoutMetadata {
     pub striped_segment_len: Option<u64>,
     #[prost(message, repeated, tag = "3")]
     pub striped_buffers: Vec<StripedBuffer>,
+    /// Rows in each stripe of a striped segment.
+    #[prost(optional, uint64, tag = "4")]
+    pub rows_per_stripe: Option<u64>,
+    /// Elements in each stripe of the striped buffers split by elements.
+    #[prost(uint32, repeated, tag = "5")]
+    pub stripe_element_counts: Vec<u32>,
 }

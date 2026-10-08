@@ -23,12 +23,14 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::SerializedArray;
 use vortex_array::serde::SerializedBuffer;
 use vortex_array::validity::Validity;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -41,6 +43,8 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::flat::Stripes;
+use crate::layouts::flat::striped::StripeMap;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -51,6 +55,8 @@ pub(super) struct PartialReadPlan {
     bytes_per_row: usize,
     row_granularity: usize,
     kind: PartialReadKind,
+    /// The physical layout of a striped segment, whose reads are estimated in physical bytes.
+    stripe_map: Option<Arc<StripeMap>>,
 }
 
 #[derive(Clone)]
@@ -81,6 +87,62 @@ struct ALPRDReadPlan {
     element_dtype: DType,
     list_size: u32,
     row_count: usize,
+    /// The patches, when they are plain primitive buffers that can be read in part.
+    patch_columns: Option<PatchColumns>,
+    /// How a striped segment splits the patches by stripe, so pages read only their own.
+    patch_stripes: Option<PatchStripes>,
+}
+
+/// Patches stored as one primitive buffer of indices and one of values.
+#[derive(Clone)]
+pub(super) struct PatchColumns {
+    pub indices: SerializedBuffer,
+    pub index_ptype: PType,
+    pub values: SerializedBuffer,
+    pub value_ptype: PType,
+    /// The patch offset: index `i` patches value `i - offset`.
+    pub offset: usize,
+    /// Patched values per row.
+    pub values_per_row: usize,
+}
+
+#[derive(Clone)]
+struct PatchStripes {
+    rows_per_stripe: usize,
+    map: Arc<StripeMap>,
+}
+
+impl PatchStripes {
+    /// The patches of the stripes overlapping `rows`.
+    fn patches(&self, rows: &Range<usize>) -> Option<Range<usize>> {
+        let starts = self.map.element_starts()?;
+        let first = rows.start / self.rows_per_stripe;
+        let end = rows
+            .end
+            .div_ceil(self.rows_per_stripe)
+            .min(starts.len() - 1);
+        Some(usize::try_from(*starts.get(first)?).ok()?..usize::try_from(starts[end]).ok()?)
+    }
+}
+
+impl PatchColumns {
+    /// The byte ranges of the indices and values of `patches`.
+    fn ranges(&self, patches: &Range<usize>) -> (Range<usize>, Range<usize>) {
+        let bytes = |buffer: &SerializedBuffer, width: usize| {
+            buffer.range().start + patches.start * width..buffer.range().start + patches.end * width
+        };
+        (
+            bytes(&self.indices, self.index_ptype.byte_width()),
+            bytes(&self.values, self.value_ptype.byte_width()),
+        )
+    }
+}
+
+impl ALPRDReadPlan {
+    /// The patch buffers and their stripes, when pages read only their own patches.
+    fn page_patches(&self) -> Option<(&PatchColumns, &PatchStripes)> {
+        Some((self.patch_columns.as_ref()?, self.patch_stripes.as_ref()?))
+    }
 }
 
 struct PageResolveContext<'a> {
@@ -94,7 +156,7 @@ struct PageResolveContext<'a> {
 #[derive(Clone)]
 struct BitPackedReadPlan {
     descriptor: SerializedBuffer,
-    ptype: vortex_array::dtype::PType,
+    ptype: PType,
     bit_width: u8,
     offset: u16,
 }
@@ -119,6 +181,8 @@ struct RegisteredALPRDPage {
     rows: Range<usize>,
     left: SegmentFuture,
     right: SegmentFuture,
+    /// The indices and values of the page's own patches, when the segment stripes them.
+    patches: Option<(SegmentFuture, SegmentFuture)>,
 }
 
 struct RegisteredPage {
@@ -164,6 +228,14 @@ impl PartialReadPlan {
         }
     }
 
+    /// The patches, when they are plain primitive buffers that a writer can split by stripe.
+    pub(super) fn patch_columns(&self) -> Option<&PatchColumns> {
+        match &self.kind {
+            PartialReadKind::Alprd(plan) => plan.patch_columns.as_ref(),
+            PartialReadKind::Fixed(_) => None,
+        }
+    }
+
     pub(super) fn supports_mask(mask: &Mask) -> bool {
         !mask.all_false()
     }
@@ -176,18 +248,21 @@ impl PartialReadPlan {
         let descriptors: Arc<[SerializedBuffer]> = serialized.buffer_descriptors()?.into();
         let row_count = usize::try_from(layout.row_count())?;
 
+        let stripe_map = layout.stripes().map(|stripes| Arc::clone(stripes.map()));
         if let Some((plan, bytes_per_row)) = try_alprd_plan(
             &serialized,
             layout.dtype(),
             layout.array_ctx(),
             row_count,
             Arc::clone(&descriptors),
+            layout.stripes(),
         )? {
             return Ok(Some(Self {
                 array_tree: serialized.clone(),
                 bytes_per_row,
                 row_granularity: 1,
                 kind: PartialReadKind::Alprd(Box::new(plan)),
+                stripe_map,
             }));
         }
 
@@ -237,6 +312,7 @@ impl PartialReadPlan {
             bytes_per_row,
             row_granularity,
             kind: PartialReadKind::Fixed(planned.into()),
+            stripe_map,
         }))
     }
 
@@ -247,7 +323,6 @@ impl PartialReadPlan {
         layout_len: usize,
         row_range: &Range<usize>,
         mask: &Mask,
-        striped: bool,
     ) -> Option<RegisteredPartialRead> {
         if !Self::supports_mask(mask) {
             return None;
@@ -257,8 +332,8 @@ impl PartialReadPlan {
         // Reads are rounded to I/O blocks per buffer rather than to row pages spanning every
         // buffer, so a single row costs a block or two of each buffer, not a page of each.
         let block = (preferred_read_size / 16).max(1);
-        // Striped sources round to blocks themselves, in physical offsets.
-        let request_block = if striped { 1 } else { block };
+        // Striped segments keep the bytes of a row together, so they read exactly those bytes.
+        let request_block = if self.stripe_map.is_some() { 1 } else { block };
         // Runs of selected rows closer than a block of bytes are read and decoded together.
         let merge_gap_rows = block / self.bytes_per_row;
         let pages = selected_runs(
@@ -292,10 +367,10 @@ impl PartialReadPlan {
         // a lower bound for what a read must fetch.
         let needed_bytes = mask.true_count().saturating_mul(self.bytes_per_row)
             + match &self.kind {
-                PartialReadKind::Alprd(plan) => {
+                PartialReadKind::Alprd(plan) if plan.patch_stripes.is_none() => {
                     plan.patch_buffers.iter().map(|b| b.range().len()).sum()
                 }
-                PartialReadKind::Fixed(_) => 0,
+                _ => 0,
             };
         if partial_cost.saturating_mul(min_saving_factor) > segment_len {
             tracing::trace!(
@@ -368,6 +443,7 @@ impl PartialReadPlan {
             }
             PartialReadKind::Alprd(plan) => {
                 let values_per_row = usize::try_from(plan.list_size).ok()?;
+                let page_patches = plan.page_patches();
                 let page_specs = pages
                     .into_iter()
                     .map(|rows| {
@@ -375,17 +451,33 @@ impl PartialReadPlan {
                         let inner_end = rows.end.checked_mul(values_per_row)?;
                         let left = bitpacked_range(&plan.left, inner_start..inner_end)?;
                         let right = bitpacked_range(&plan.right, inner_start..inner_end)?;
-                        Some((rows, left, right))
+                        let patches = match page_patches {
+                            Some((columns, stripes)) => {
+                                let patches = stripes.patches(&rows)?;
+                                (!patches.is_empty()).then(|| columns.ranges(&patches))
+                            }
+                            None => None,
+                        };
+                        Some((rows, left, right, patches))
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let patch_specs = plan
-                    .patch_buffers
-                    .iter()
-                    .map(|descriptor| (descriptor.range().clone(), descriptor.clone()))
-                    .collect::<Vec<_>>();
+                let patch_specs = if page_patches.is_some() {
+                    Vec::new()
+                } else {
+                    plan.patch_buffers
+                        .iter()
+                        .map(|descriptor| (descriptor.range().clone(), descriptor.clone()))
+                        .collect::<Vec<_>>()
+                };
                 let ranges = page_specs
                     .iter()
-                    .flat_map(|(_, left, right)| [left.clone(), right.clone()])
+                    .flat_map(|(_, left, right, patches)| {
+                        [left.clone(), right.clone()].into_iter().chain(
+                            patches
+                                .iter()
+                                .flat_map(|(indices, values)| [indices.clone(), values.clone()]),
+                        )
+                    })
                     .chain(patch_specs.iter().map(|(range, _)| range.clone()))
                     .collect();
                 let mut requests =
@@ -393,11 +485,18 @@ impl PartialReadPlan {
                         .into_iter();
                 let pages = page_specs
                     .into_iter()
-                    .map(|(rows, ..)| {
+                    .map(|(rows, _, _, patches)| {
+                        let left = requests.next()?;
+                        let right = requests.next()?;
+                        let patches = match patches {
+                            Some(_) => Some((requests.next()?, requests.next()?)),
+                            None => None,
+                        };
                         Some(RegisteredALPRDPage {
                             rows,
-                            left: requests.next()?,
-                            right: requests.next()?,
+                            left,
+                            right,
+                            patches,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -450,19 +549,36 @@ impl PartialReadPlan {
             }
             PartialReadKind::Alprd(plan) => {
                 let values_per_row = usize::try_from(plan.list_size).ok()?;
+                let page_patches = plan.page_patches();
                 for rows in pages {
                     let values = rows.start.checked_mul(values_per_row)?
                         ..rows.end.checked_mul(values_per_row)?;
                     ranges.push(bitpacked_range(&plan.left, values.clone())?);
                     ranges.push(bitpacked_range(&plan.right, values)?);
+                    if let Some((columns, stripes)) = page_patches {
+                        let (indices, values) = columns.ranges(&stripes.patches(rows)?);
+                        ranges.extend([indices, values]);
+                    }
                 }
-                ranges.extend(plan.patch_buffers.iter().map(|b| b.range().clone()));
+                if page_patches.is_none() {
+                    ranges.extend(plan.patch_buffers.iter().map(|b| b.range().clone()));
+                }
             }
         }
-        let mut ranges = ranges
-            .into_iter()
-            .map(|range| block_aligned(range, block, segment_len))
-            .collect::<Vec<_>>();
+        let mut ranges = match &self.stripe_map {
+            // A striped segment reads the exact physical pieces of each range.
+            Some(map) => ranges
+                .into_iter()
+                .filter(|range| !range.is_empty())
+                .flat_map(|range| map.physical_ranges(range.start as u64..range.end as u64))
+                .map(|range| usize::try_from(range.start).ok()..usize::try_from(range.end).ok())
+                .map(|range| Some(range.start?..range.end?))
+                .collect::<Option<Vec<_>>>()?,
+            None => ranges
+                .into_iter()
+                .map(|range| block_aligned(range, block, segment_len))
+                .collect::<Vec<_>>(),
+        };
         ranges.sort_unstable_by_key(|range| range.start);
 
         let mut bytes = 0usize;
@@ -599,12 +715,19 @@ async fn resolve_alprd_pages(
         let right_alignment = plan.right.descriptor.alignment();
         Some(
             async move {
-                let (left, right) = futures::try_join!(page.left, page.right)?;
+                let patches = async move {
+                    match page.patches {
+                        Some((indices, values)) => futures::try_join!(indices, values).map(Some),
+                        None => Ok(None),
+                    }
+                };
+                let (left, right, patches) = futures::try_join!(page.left, page.right, patches)?;
                 Ok::<_, vortex_error::VortexError>((
                     page.rows,
                     local_mask,
                     left.ensure_aligned(left_alignment)?,
                     right.ensure_aligned(right_alignment)?,
+                    patches,
                 ))
             }
             .right_future(),
@@ -615,40 +738,45 @@ async fn resolve_alprd_pages(
     // together so the driver can issue and coalesce patch, left-part, and right-part reads in one
     // I/O round; array reconstruction starts only after that set has resolved.
     let (patch_handles, page_handles) = futures::try_join!(patch_handles, page_handles)?;
-    let mut handles = empty_handles(plan.descriptors.len());
-    for (index, handle) in patch_handles {
-        handles[index] = handle;
-    }
-    let serialized = array_tree.with_buffers(handles);
-    let alprd = serialized.child(0);
-    let patch_len = plan.patch_metadata.len()?;
-    let patch_indices =
-        alprd
-            .child(2)
-            .decode(&plan.patch_indices_dtype, patch_len, ctx, session)?;
-    let patch_indices = patch_indices
-        .execute::<PrimitiveArray>(&mut session.create_execution_ctx())?
-        .into_array();
-    let patch_values = alprd.child(3).decode(
-        &plan.left_parts_dtype.as_nonnullable(),
-        patch_len,
-        ctx,
-        session,
-    )?;
     let full_inner_len = usize::try_from(plan.list_size)?
         .checked_mul(plan.row_count)
         .ok_or_else(|| vortex_err!("ALPRD inner length overflow"))?;
-    let full_patches = Patches::new(
-        full_inner_len,
-        plan.patch_metadata.offset()?,
-        patch_indices,
-        patch_values,
-        None,
-    )?;
+    // Unless each page read its own patches, decode the segment's patches once for all pages.
+    let full_patches = if patch_handles.is_empty() {
+        None
+    } else {
+        let mut handles = empty_handles(plan.descriptors.len());
+        for (index, handle) in patch_handles {
+            handles[index] = handle;
+        }
+        let serialized = array_tree.with_buffers(handles);
+        let alprd = serialized.child(0);
+        let patch_len = plan.patch_metadata.len()?;
+        let patch_indices =
+            alprd
+                .child(2)
+                .decode(&plan.patch_indices_dtype, patch_len, ctx, session)?;
+        let patch_indices = patch_indices
+            .execute::<PrimitiveArray>(&mut session.create_execution_ctx())?
+            .into_array();
+        let patch_values = alprd.child(3).decode(
+            &plan.left_parts_dtype.as_nonnullable(),
+            patch_len,
+            ctx,
+            session,
+        )?;
+        Some(Patches::new(
+            full_inner_len,
+            plan.patch_metadata.offset()?,
+            patch_indices,
+            patch_values,
+            None,
+        )?)
+    };
 
     page_handles
         .into_iter()
-        .map(|(rows, local_mask, left, right)| {
+        .map(|(rows, local_mask, left, right, page_patches)| {
             let inner_start = rows.start * plan.list_size as usize;
             let inner_end = rows.end * plan.list_size as usize;
             let inner_len = inner_end - inner_start;
@@ -672,7 +800,18 @@ async fn resolve_alprd_pages(
                 0,
             )?
             .into_array();
-            let patches = full_patches.slice(inner_start..inner_end)?;
+            let patches = match (page_patches, &full_patches, &plan.patch_columns) {
+                (Some((indices, values)), _, Some(columns)) => Patches::new(
+                    full_inner_len,
+                    columns.offset,
+                    primitive(indices, columns.index_ptype)?,
+                    primitive(values, columns.value_ptype)?,
+                    None,
+                )?
+                .slice(inner_start..inner_end)?,
+                (None, Some(full_patches), _) => full_patches.slice(inner_start..inner_end)?,
+                _ => None,
+            };
             let elements = ALPRD::try_new(
                 plan.element_dtype.clone(),
                 left,
@@ -693,6 +832,12 @@ async fn resolve_alprd_pages(
             apply_page_mask(array, local_mask)
         })
         .collect()
+}
+
+/// A non-nullable primitive array of `ptype` over the bytes in `handle`.
+fn primitive(handle: BufferHandle, ptype: PType) -> VortexResult<ArrayRef> {
+    let handle = handle.ensure_aligned(Alignment::new(ptype.byte_width()))?;
+    Ok(PrimitiveArray::from_buffer_handle(handle, ptype, Validity::NonNullable).into_array())
 }
 
 fn finish_chunks(
@@ -755,6 +900,15 @@ fn request_block_aligned(
     segment_len: usize,
     ranges: Vec<Range<usize>>,
 ) -> Vec<SegmentFuture> {
+    if block <= 1 {
+        return source.request_ranges(
+            segment_id,
+            ranges
+                .into_iter()
+                .map(|range| range.start as u64..range.end as u64)
+                .collect(),
+        );
+    }
     let wide = ranges
         .iter()
         .map(|range| block_aligned(range.clone(), block, segment_len))
@@ -848,6 +1002,7 @@ fn try_alprd_plan(
     ctx: &ReadContext,
     row_count: usize,
     descriptors: Arc<[SerializedBuffer]>,
+    stripes: Option<&Stripes>,
 ) -> VortexResult<Option<(ALPRDReadPlan, usize)>> {
     if ctx.resolve(node.encoding_id()) != Some(FixedSizeList.id())
         || node.nbuffers() != 0
@@ -865,10 +1020,7 @@ fn try_alprd_plan(
     let DType::Primitive(element_ptype, element_nullability) = element_dtype.as_ref() else {
         return Ok(None);
     };
-    if !matches!(
-        element_ptype,
-        vortex_array::dtype::PType::F32 | vortex_array::dtype::PType::F64
-    ) {
+    if !matches!(element_ptype, PType::F32 | PType::F64) {
         return Ok(None);
     }
 
@@ -887,8 +1039,8 @@ fn try_alprd_plan(
     };
     let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), *element_nullability);
     let right_ptype = match element_ptype {
-        vortex_array::dtype::PType::F32 => vortex_array::dtype::PType::U32,
-        vortex_array::dtype::PType::F64 => vortex_array::dtype::PType::U64,
+        PType::F32 => PType::U32,
+        PType::F64 => PType::U64,
         _ => unreachable!(),
     };
     let inner_len = row_count
@@ -929,6 +1081,24 @@ fn try_alprd_plan(
         return Ok(None);
     }
 
+    let patch_columns = match (
+        primitive_buffer(&alprd.child(2), ctx, &descriptors),
+        primitive_buffer(&alprd.child(3), ctx, &descriptors),
+    ) {
+        (Some(indices), Some(values)) => Some(PatchColumns {
+            indices,
+            index_ptype: patch_metadata.indices_dtype()?.as_ptype(),
+            values,
+            value_ptype: left_parts_dtype.as_ptype(),
+            offset: patch_metadata.offset()?,
+            values_per_row: list_size_usize,
+        }),
+        _ => None,
+    };
+    let patch_stripes = patch_columns
+        .as_ref()
+        .and_then(|columns| patch_stripes(columns, stripes));
+
     let blocks_per_row = list_size_usize / 1024;
     let bytes_per_row = blocks_per_row
         .checked_mul(128)
@@ -948,14 +1118,52 @@ fn try_alprd_plan(
             element_dtype: element_dtype.as_ref().clone(),
             list_size: *list_size,
             row_count,
+            patch_columns,
+            patch_stripes,
         },
         bytes_per_row,
     )))
 }
 
+/// The buffer of a primitive array node without children.
+fn primitive_buffer(
+    node: &SerializedArray,
+    ctx: &ReadContext,
+    descriptors: &[SerializedBuffer],
+) -> Option<SerializedBuffer> {
+    if ctx.resolve(node.encoding_id())? != Primitive.id()
+        || node.nchildren() != 0
+        || node.buffer_indices().len() != 1
+    {
+        return None;
+    }
+    descriptors.get(node.buffer_indices()[0]).cloned()
+}
+
+/// How `stripes` split `columns`, when they split the indices and values by element.
+fn patch_stripes(columns: &PatchColumns, stripes: Option<&Stripes>) -> Option<PatchStripes> {
+    let stripes = stripes?;
+    let rows_per_stripe = usize::try_from(stripes.rows_per_stripe()?).ok()?;
+    let map = stripes.map();
+    map.element_starts()?;
+    let split = |buffer: &SerializedBuffer, ptype: PType| {
+        stripes.buffers.iter().any(|striped| {
+            striped.offset == buffer.range().start as u64
+                && striped.bytes_per_element == ptype.byte_width() as u64
+        })
+    };
+    (rows_per_stripe > 0
+        && split(&columns.indices, columns.index_ptype)
+        && split(&columns.values, columns.value_ptype))
+    .then(|| PatchStripes {
+        rows_per_stripe,
+        map: Arc::clone(map),
+    })
+}
+
 fn try_bitpacked_plan(
     node: &SerializedArray,
-    ptype: vortex_array::dtype::PType,
+    ptype: PType,
     ctx: &ReadContext,
     len: usize,
     descriptors: &[SerializedBuffer],
