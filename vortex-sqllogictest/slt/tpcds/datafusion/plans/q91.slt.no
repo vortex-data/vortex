@@ -80,16 +80,16 @@ physical_plan
 13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cr_returning_customer_sk@3, c_customer_sk@0)], projection=[cc_call_center_id@0, cc_name@1, cc_manager@2, cr_net_loss@4, c_current_cdemo_sk@6, c_current_hdemo_sk@7, c_current_addr_sk@8]
 14)--------------------------CoalescePartitionsExec
 15)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cr_returned_date_sk@3)], projection=[cc_call_center_id@1, cc_name@2, cc_manager@3, cr_returning_customer_sk@5, cr_net_loss@6]
-16)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_moy@8 = 11 AND d_year@6 = 1998
+16)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], output_ordering=[d_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: d_moy@8 = 11 AND d_year@6 = 1998
 17)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cc_call_center_sk@0, cr_call_center_sk@2)], projection=[cc_call_center_id@1, cc_name@2, cc_manager@3, cr_returned_date_sk@4, cr_returning_customer_sk@5, cr_net_loss@7]
 18)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/call_center.vortex]]}, projection=[cc_call_center_sk, cc_call_center_id, cc_name, cc_manager], file_type=vortex
 19)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-20)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_returning_customer_sk, cr_call_center_sk, cr_net_loss], file_type=vortex
-21)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk], file_type=vortex
-23)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-24)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -7.00
-25)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-26)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], file_type=vortex, predicate: cd_marital_status@2 = M AND cd_education_status@3 = Unknown OR cd_marital_status@2 = W AND cd_education_status@3 = Advanced Degree
-27)--------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-28)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_buy_potential@2 LIKE Unknown%
+20)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_returning_customer_sk, cr_call_center_sk, cr_net_loss], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+21)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk], output_ordering=[c_customer_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ]
+23)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+24)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], output_ordering=[ca_address_sk@0 ASC NULLS LAST], file_type=vortex, predicate: ca_gmt_offset@11 = -7.00 AND DynamicFilter [ empty ]
+25)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+26)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], output_ordering=[cd_demo_sk@0 ASC NULLS LAST], file_type=vortex, predicate: (cd_marital_status@2 = M AND cd_education_status@3 = Unknown OR cd_marital_status@2 = W AND cd_education_status@3 = Advanced Degree) AND DynamicFilter [ empty ]
+27)--------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+28)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], output_ordering=[hd_demo_sk@0 ASC NULLS LAST], file_type=vortex, predicate: hd_buy_potential@2 LIKE Unknown% AND DynamicFilter [ empty ]

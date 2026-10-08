@@ -47,7 +47,7 @@ physical_plan
 06)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
 07)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
 08)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
-09)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 20 AND t_minute@4 >= 30
+09)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], output_ordering=[t_time_sk@0 ASC NULLS LAST], file_type=vortex, predicate: t_hour@3 = 20 AND t_minute@4 >= 30
 10)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
-11)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 7
-12)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+11)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], output_ordering=[hd_demo_sk@0 ASC NULLS LAST], file_type=vortex, predicate: hd_dep_count@3 = 7
+12)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]

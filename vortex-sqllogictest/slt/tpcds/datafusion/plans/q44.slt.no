@@ -138,8 +138,8 @@ physical_plan
 32)----------------------------------RepartitionExec: partitioning=Hash([ss_item_sk@0], 4), input_partitions=4
 33)------------------------------------AggregateExec: mode=Partial, gby=[ss_item_sk@0 as ss_item_sk], aggr=[avg(ss1.ss_net_profit)]
 34)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_item_sk, ss_net_profit], file_type=vortex, predicate: ss_store_sk@7 = 4
-35)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_product_name], file_type=vortex
-36)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_product_name], file_type=vortex
+35)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_product_name], output_ordering=[i_item_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ]
+36)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_product_name], output_ordering=[i_item_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ]
 37)--ProjectionExec: expr=[CAST(avg(store_sales.ss_net_profit)@1 AS Float64) as rank_col]
 38)----AggregateExec: mode=FinalPartitioned, gby=[ss_store_sk@0 as ss_store_sk], aggr=[avg(store_sales.ss_net_profit)], ordering_mode=Sorted
 39)------RepartitionExec: partitioning=Hash([ss_store_sk@0], 4), input_partitions=4

@@ -103,7 +103,7 @@ logical_plan
 01)Projection: list_test.id
 02)--Filter: array_length(list_test.a) >= UInt64(4)
 03)----TableScan: list_test projection=[id, a], partial_filters=[array_length(list_test.a) >= UInt64(4)]
-physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/list_test/<slt:ignore>_0.vortex]]}, projection=[id], file_type=vortex, predicate: array_length(a@1) >= 4
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/list_test/<slt:ignore>_0.vortex]]}, projection=[id], output_ordering=[id@0 ASC NULLS LAST], file_type=vortex, predicate: array_length(a@1) >= 4
 
 query I
 SELECT id FROM list_test WHERE array_length(a) >= 4 ORDER BY id;
@@ -120,7 +120,7 @@ logical_plan
 01)Projection: list_test.id
 02)--Filter: array_length(list_test.a) >= UInt64(4) AND array_length(list_test.b) >= UInt64(3)
 03)----TableScan: list_test projection=[id, a, b], partial_filters=[array_length(list_test.a) >= UInt64(4), array_length(list_test.b) >= UInt64(3)]
-physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/list_test/<slt:ignore>_0.vortex]]}, projection=[id], file_type=vortex, predicate: array_length(a@1) >= 4 AND array_length(b@2) >= 3
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/list_test/<slt:ignore>_0.vortex]]}, projection=[id], output_ordering=[id@0 ASC NULLS LAST], file_type=vortex, predicate: array_length(a@1) >= 4 AND array_length(b@2) >= 3
 
 query I
 SELECT id FROM list_test WHERE array_length(a) >= 4 AND array_length(b) >= 3 ORDER BY id;

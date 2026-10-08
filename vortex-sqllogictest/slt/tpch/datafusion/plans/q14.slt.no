@@ -35,5 +35,5 @@ physical_plan
 06)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l_partkey@0, p_partkey@0)], projection=[l_extendedprice@1, l_discount@2, p_type@4]
 07)------------CoalescePartitionsExec
 08)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_partkey, l_extendedprice, l_discount], file_type=vortex, predicate: l_shipdate@10 >= 1995-09-01 AND l_shipdate@10 < 1995-10-01
-09)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-10)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey, p_type], file_type=vortex
+09)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+10)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey, p_type], output_ordering=[p_partkey@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ]

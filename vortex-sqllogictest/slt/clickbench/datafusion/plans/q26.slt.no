@@ -15,5 +15,6 @@ physical_plan
 01)ProjectionExec: expr=[SearchPhrase@0 as SearchPhrase]
 02)--SortPreservingMergeExec: [EventTime@1 ASC NULLS LAST, SearchPhrase@0 ASC NULLS LAST], fetch=10
 03)----ProjectionExec: expr=[SearchPhrase@1 as SearchPhrase, EventTime@0 as EventTime]
-04)------SortExec: TopK(fetch=10), expr=[EventTime@0 ASC NULLS LAST, SearchPhrase@1 ASC NULLS LAST], preserve_partitioning=[true]
-05)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>]]}, projection=[EventTime, SearchPhrase], file_type=vortex, predicate: SearchPhrase@39 != 
+04)------SortPreservingMergeExec: [EventTime@0 ASC NULLS LAST, SearchPhrase@1 ASC NULLS LAST], fetch=10
+05)--------SortExec: TopK(fetch=10), expr=[EventTime@0 ASC NULLS LAST, SearchPhrase@1 ASC NULLS LAST], preserve_partitioning=[true]
+06)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>]]}, projection=[EventTime, SearchPhrase], file_type=vortex, predicate: SearchPhrase@39 !=  AND DynamicFilter [ empty ], read_order: [EventTime@0 ASC NULLS LAST, SearchPhrase@1 ASC NULLS LAST]

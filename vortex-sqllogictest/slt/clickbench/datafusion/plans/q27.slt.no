@@ -17,7 +17,7 @@ physical_plan
 02)--ProjectionExec: expr=[CounterID@0 as CounterID, avg(octet_length(hits.URL))@1 as l, count(Int64(1))@2 as c]
 03)----SortExec: TopK(fetch=25), expr=[avg(octet_length(hits.URL))@1 DESC], preserve_partitioning=[true]
 04)------FilterExec: count(Int64(1))@2 > 100000
-05)--------AggregateExec: mode=FinalPartitioned, gby=[CounterID@0 as CounterID], aggr=[avg(octet_length(hits.URL)), count(Int64(1))]
-06)----------RepartitionExec: partitioning=Hash([CounterID@0], 4), input_partitions=4
-07)------------AggregateExec: mode=Partial, gby=[CounterID@0 as CounterID], aggr=[avg(octet_length(hits.URL)), count(Int64(1))]
-08)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>]]}, projection=[CounterID, URL], file_type=vortex, predicate: URL@13 != 
+05)--------AggregateExec: mode=FinalPartitioned, gby=[CounterID@0 as CounterID], aggr=[avg(octet_length(hits.URL)), count(Int64(1))], ordering_mode=Sorted
+06)----------RepartitionExec: partitioning=Hash([CounterID@0], 4), input_partitions=4, preserve_order=true, sort_exprs=CounterID@0 ASC NULLS LAST
+07)------------AggregateExec: mode=Partial, gby=[CounterID@0 as CounterID], aggr=[avg(octet_length(hits.URL)), count(Int64(1))], ordering_mode=Sorted
+08)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>]]}, projection=[CounterID, URL], output_ordering=[CounterID@0 ASC NULLS LAST], file_type=vortex, predicate: URL@13 != 

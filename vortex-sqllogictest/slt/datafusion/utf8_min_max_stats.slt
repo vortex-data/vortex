@@ -29,7 +29,7 @@ logical_plan
 02)--TableScan: ${WORK_DIR}/utf8_min_max_stats.vortex projection=[value]
 physical_plan
 01)AggregateExec: mode=Single, gby=[], aggr=[min(${WORK_DIR}/utf8_min_max_stats.vortex.value)]
-02)--DataSourceExec: file_groups={1 group: [[${WORK_DIR}/utf8_min_max_stats.vortex]]}, projection=[value], file_type=vortex
+02)--DataSourceExec: file_groups={1 group: [[${WORK_DIR}/utf8_min_max_stats.vortex]]}, projection=[value], output_ordering=[value@0 ASC NULLS LAST], file_type=vortex
 
 
 query T
@@ -48,4 +48,4 @@ logical_plan
 02)--TableScan: ${WORK_DIR}/utf8_min_max_stats.vortex projection=[value]
 physical_plan
 01)AggregateExec: mode=Single, gby=[], aggr=[max(${WORK_DIR}/utf8_min_max_stats.vortex.value)]
-02)--DataSourceExec: file_groups={1 group: [[${WORK_DIR}/utf8_min_max_stats.vortex]]}, projection=[value], file_type=vortex
+02)--DataSourceExec: file_groups={1 group: [[${WORK_DIR}/utf8_min_max_stats.vortex]]}, projection=[value], output_ordering=[value@0 ASC NULLS LAST], file_type=vortex

@@ -159,7 +159,7 @@ physical_plan
 01)ScalarSubqueryExec: subqueries=15
 02)--ProjectionExec: expr=[CASE WHEN scalar_subquery(<pending>) > 74129 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket1, CASE WHEN scalar_subquery(<pending>) > 122840 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket2, CASE WHEN scalar_subquery(<pending>) > 56580 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket3, CASE WHEN scalar_subquery(<pending>) > 10097 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket4, CASE WHEN scalar_subquery(<pending>) > 165306 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket5]
 03)----RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-04)------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/reason.vortex]]}, projection=[r_reason_sk], file_type=vortex, predicate: r_reason_sk@0 = 1
+04)------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/reason.vortex]]}, projection=[r_reason_sk], output_ordering=[r_reason_sk@0 ASC NULLS LAST], file_type=vortex, predicate: r_reason_sk@0 = 1
 05)--ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
 06)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
 07)------CoalescePartitionsExec

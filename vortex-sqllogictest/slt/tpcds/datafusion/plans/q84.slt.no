@@ -51,17 +51,17 @@ physical_plan
 04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@3, sr_cdemo_sk@0)], projection=[c_customer_id@0, c_last_name@2, c_first_name@1]
 05)--------CoalescePartitionsExec
 06)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ib_income_band_sk@0, hd_income_band_sk@4)], projection=[c_customer_id@1, c_first_name@2, c_last_name@3, cd_demo_sk@4]
-07)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/income_band.vortex]]}, projection=[ib_income_band_sk], file_type=vortex, predicate: ib_lower_bound@1 >= 38128 AND ib_upper_bound@2 <= 88128
+07)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/income_band.vortex]]}, projection=[ib_income_band_sk], output_ordering=[ib_income_band_sk@0 ASC NULLS LAST], file_type=vortex, predicate: ib_lower_bound@1 >= 38128 AND ib_upper_bound@2 <= 88128
 08)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
 09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_hdemo_sk@1, hd_demo_sk@0)], projection=[c_customer_id@0, c_first_name@2, c_last_name@3, cd_demo_sk@4, hd_income_band_sk@6]
 10)----------------CoalescePartitionsExec
 11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_cdemo_sk@1, cd_demo_sk@0)], projection=[c_customer_id@0, c_current_hdemo_sk@2, c_first_name@3, c_last_name@4, cd_demo_sk@5]
 12)--------------------CoalescePartitionsExec
 13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@3)], projection=[c_customer_id@1, c_current_cdemo_sk@2, c_current_hdemo_sk@3, c_first_name@5, c_last_name@6]
-14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_city@6 = Edgewood
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], output_ordering=[ca_address_sk@0 ASC NULLS LAST], file_type=vortex, predicate: ca_city@6 = Edgewood
 15)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_name, c_last_name], file_type=vortex
-17)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-18)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex
-19)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk, hd_income_band_sk], file_type=vortex
-20)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_cdemo_sk], file_type=vortex
+16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_name, c_last_name], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+17)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+18)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], output_ordering=[cd_demo_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ]
+19)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk, hd_income_band_sk], output_ordering=[hd_demo_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+20)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_cdemo_sk], file_type=vortex, predicate: DynamicFilter [ empty ]

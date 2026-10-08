@@ -122,34 +122,34 @@ physical_plan
 06)----------CoalescePartitionsExec
 07)------------AggregateExec: mode=Partial, gby=[], aggr=[sum(store_sales.ss_ext_sales_price)]
 08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_ext_sales_price@2]
-09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex, predicate: i_category@12 = Jewelry
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], output_ordering=[i_item_sk@0 ASC NULLS LAST], file_type=vortex, predicate: i_category@12 = Jewelry
 10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@2)], projection=[ss_item_sk@1, ss_ext_sales_price@2]
-11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], output_ordering=[ca_address_sk@0 ASC NULLS LAST], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
 12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_customer_sk@1, c_customer_sk@0)], projection=[ss_item_sk@0, ss_ext_sales_price@2, c_current_addr_sk@4]
 13)--------------------CoalescePartitionsExec
 14)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_customer_sk@3, ss_ext_sales_price@4]
-15)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 11
+15)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], output_ordering=[d_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 11
 16)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_promo_sk@0, ss_promo_sk@3)], projection=[ss_sold_date_sk@1, ss_item_sk@2, ss_customer_sk@3, ss_ext_sales_price@5]
-17)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], file_type=vortex, predicate: p_channel_dmail@8 = Y OR p_channel_email@9 = Y OR p_channel_tv@11 = Y
+17)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], output_ordering=[p_promo_sk@0 ASC NULLS LAST], file_type=vortex, predicate: p_channel_dmail@8 = Y OR p_channel_email@9 = Y OR p_channel_tv@11 = Y
 18)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@3)], projection=[ss_sold_date_sk@1, ss_item_sk@2, ss_customer_sk@3, ss_promo_sk@5, ss_ext_sales_price@6]
 19)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_gmt_offset@27 = -5.00
-20)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_promo_sk, ss_ext_sales_price], file_type=vortex
-21)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-22)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk], file_type=vortex
+20)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_promo_sk, ss_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+21)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+22)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk], output_ordering=[c_customer_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 23)------ProjectionExec: expr=[sum(store_sales.ss_ext_sales_price)@0 as total]
 24)--------AggregateExec: mode=Final, gby=[], aggr=[sum(store_sales.ss_ext_sales_price)]
 25)----------CoalescePartitionsExec
 26)------------AggregateExec: mode=Partial, gby=[], aggr=[sum(store_sales.ss_ext_sales_price)]
 27)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_ext_sales_price@2]
-28)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex, predicate: i_category@12 = Jewelry
+28)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], output_ordering=[i_item_sk@0 ASC NULLS LAST], file_type=vortex, predicate: i_category@12 = Jewelry
 29)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@2)], projection=[ss_item_sk@1, ss_ext_sales_price@2]
-30)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
+30)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], output_ordering=[ca_address_sk@0 ASC NULLS LAST], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
 31)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_customer_sk@1, c_customer_sk@0)], projection=[ss_item_sk@0, ss_ext_sales_price@2, c_current_addr_sk@4]
 32)--------------------CoalescePartitionsExec
 33)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_customer_sk@3, ss_ext_sales_price@4]
-34)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 11
+34)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], output_ordering=[d_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 11
 35)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@3)], projection=[ss_sold_date_sk@1, ss_item_sk@2, ss_customer_sk@3, ss_ext_sales_price@5]
 36)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_gmt_offset@27 = -5.00
-37)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ext_sales_price], file_type=vortex
-38)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-39)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk], file_type=vortex
+37)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+38)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+39)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk], output_ordering=[c_customer_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]

@@ -120,13 +120,13 @@ physical_plan
 11)--------------------AggregateExec: mode=Partial, gby=[w_warehouse_name@3 as w_warehouse_name, w_warehouse_sk@2 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@4 as d_moy], aggr=[stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)], ordering_mode=PartiallySorted([3])
 12)----------------------ProjectionExec: expr=[CAST(inv_quantity_on_hand@0 AS Float64) as __common_expr_1, i_item_sk@1 as i_item_sk, w_warehouse_sk@2 as w_warehouse_sk, w_warehouse_name@3 as w_warehouse_name, d_moy@4 as d_moy]
 13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@0)], projection=[inv_quantity_on_hand@3, i_item_sk@4, w_warehouse_sk@5, w_warehouse_name@6, d_moy@1]
-14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 1
+14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], output_ordering=[d_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 1
 15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, inv_warehouse_sk@1)], projection=[inv_date_sk@2, inv_quantity_on_hand@4, i_item_sk@5, w_warehouse_sk@0, w_warehouse_name@1]
 16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_warehouse_name], file_type=vortex
 17)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@1)], projection=[inv_date_sk@1, inv_warehouse_sk@3, inv_quantity_on_hand@4, i_item_sk@0]
-18)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex
-19)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-20)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], file_type=vortex
+18)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], output_ordering=[i_item_sk@0 ASC NULLS LAST], file_type=vortex
+19)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+20)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], output_ordering=[inv_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 21)--------ProjectionExec: expr=[w_warehouse_sk@0 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@2 as d_moy, avg(inventory.inv_quantity_on_hand)@4 as mean, CASE avg(inventory.inv_quantity_on_hand)@4 WHEN 0 THEN NULL ELSE stddev(inventory.inv_quantity_on_hand)@3 / avg(inventory.inv_quantity_on_hand)@4 END as cov]
 22)----------FilterExec: CASE avg(inventory.inv_quantity_on_hand)@4 WHEN 0 THEN 0 ELSE stddev(inventory.inv_quantity_on_hand)@3 / avg(inventory.inv_quantity_on_hand)@4 END > 1
 23)------------ProjectionExec: expr=[w_warehouse_sk@1 as w_warehouse_sk, i_item_sk@2 as i_item_sk, d_moy@3 as d_moy, stddev(inventory.inv_quantity_on_hand)@4 as stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)@5 as avg(inventory.inv_quantity_on_hand)]
@@ -135,10 +135,10 @@ physical_plan
 26)------------------AggregateExec: mode=Partial, gby=[w_warehouse_name@3 as w_warehouse_name, w_warehouse_sk@2 as w_warehouse_sk, i_item_sk@1 as i_item_sk, d_moy@4 as d_moy], aggr=[stddev(inventory.inv_quantity_on_hand), avg(inventory.inv_quantity_on_hand)], ordering_mode=PartiallySorted([3])
 27)--------------------ProjectionExec: expr=[CAST(inv_quantity_on_hand@0 AS Float64) as __common_expr_2, i_item_sk@1 as i_item_sk, w_warehouse_sk@2 as w_warehouse_sk, w_warehouse_name@3 as w_warehouse_name, d_moy@4 as d_moy]
 28)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@0)], projection=[inv_quantity_on_hand@3, i_item_sk@4, w_warehouse_sk@5, w_warehouse_name@6, d_moy@1]
-29)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 2
+29)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], output_ordering=[d_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 2
 30)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, inv_warehouse_sk@1)], projection=[inv_date_sk@2, inv_quantity_on_hand@4, i_item_sk@5, w_warehouse_sk@0, w_warehouse_name@1]
 31)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_warehouse_name], file_type=vortex
 32)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, inv_item_sk@1)], projection=[inv_date_sk@1, inv_warehouse_sk@3, inv_quantity_on_hand@4, i_item_sk@0]
-33)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex
-34)----------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-35)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], file_type=vortex
+33)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], output_ordering=[i_item_sk@0 ASC NULLS LAST], file_type=vortex
+34)----------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+35)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], output_ordering=[inv_date_sk@0 ASC NULLS LAST], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]

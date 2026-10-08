@@ -69,9 +69,9 @@ physical_plan
 09)----------------HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(c_custkey@0, o_custkey@0)], projection=[c_phone@1, c_acctbal@2]
 10)------------------CoalescePartitionsExec
 11)--------------------FilterExec: substr(c_phone@1, 1, 2) IN (SET) ([13, 31, 23, 29, 30, 18, 17]) AND CAST(c_acctbal@2 AS Decimal128(19, 6)) > scalar_subquery(<pending>)
-12)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-13)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_custkey, c_phone, c_acctbal], file_type=vortex
-14)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_custkey], file_type=vortex
+12)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+13)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_custkey, c_phone, c_acctbal], output_ordering=[c_custkey@0 ASC NULLS LAST], file_type=vortex
+14)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_custkey], file_type=vortex, predicate: DynamicFilter [ empty ]
 15)--AggregateExec: mode=Final, gby=[], aggr=[avg(customer.c_acctbal)]
 16)----CoalescePartitionsExec
 17)------AggregateExec: mode=Partial, gby=[], aggr=[avg(customer.c_acctbal)]
