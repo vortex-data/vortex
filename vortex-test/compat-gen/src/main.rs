@@ -9,6 +9,7 @@ use vortex_compat::adapter;
 use vortex_compat::check;
 use vortex_compat::generate;
 use vortex_compat::reader_check;
+use vortex_compat::sweep;
 use vortex_error::VortexResult;
 
 #[derive(Parser)]
@@ -97,6 +98,32 @@ enum Commands {
         exclude: Vec<String>,
     },
 
+    /// Write a seeded random sweep of files: random canonical arrays through the flat layout and
+    /// both compressor pipelines, plus randomly built dict, constant and run-end arrays.
+    ///
+    /// Honours --edition the same way `generate` does. Files the edition rejects are skipped.
+    Sweep {
+        /// Output directory for the .vortex files and sweep.json.
+        #[arg(long, value_name = "DIR")]
+        output: PathBuf,
+
+        /// First seed. Each seed yields up to six files.
+        #[arg(long, default_value_t = 0)]
+        first_seed: u64,
+
+        /// Number of seeds.
+        #[arg(long, default_value_t = 100)]
+        seeds: u64,
+
+        /// Maximum row count of the random canonical array.
+        #[arg(long, default_value_t = 4096)]
+        max_len: usize,
+
+        /// Edition to write with, e.g. `core2025.10.0`.
+        #[arg(long, value_name = "EDITION")]
+        edition: Option<String>,
+    },
+
     /// Check that an old reader decoded the fixtures in a directory to the same values as the
     /// current reader.
     ///
@@ -128,6 +155,18 @@ fn main() -> VortexResult<()> {
             generate::generate(&output, &exclude)
         }
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
+        Commands::Sweep {
+            output,
+            first_seed,
+            seeds,
+            max_len,
+            edition,
+        } => {
+            if let Some(edition) = edition {
+                adapter::set_target_edition(&edition)?;
+            }
+            sweep::sweep(&output, first_seed, seeds, max_len)
+        }
         Commands::CheckReader { dir, arrow_dir } => reader_check::check_reader(&dir, &arrow_dir),
     }
 }

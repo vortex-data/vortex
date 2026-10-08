@@ -11602,6 +11602,7 @@ dependencies = [
 name = "vortex-compat"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "arrow-array 59.3.0",
  "arrow-cast 59.3.0",
  "arrow-ipc 59.3.0",
@@ -11626,6 +11627,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-edition",
  "vortex-error",
+ "vortex-runend",
  "vortex-session",
 ]
 
