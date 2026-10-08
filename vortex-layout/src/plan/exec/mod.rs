@@ -37,11 +37,14 @@
 //! [`Ready::AllClosed`], are barriers between them, as a join build is in a query engine.
 
 mod concat;
+mod eval;
 mod filter;
 mod pack;
+mod row_idx;
 mod segment_scan;
 mod selection;
 pub mod synthetic;
+mod take;
 
 use std::collections::VecDeque;
 use std::mem;
@@ -674,10 +677,13 @@ impl From<StepCx<'_>> for Effects {
 }
 
 pub(crate) use concat::ConcatNode;
+pub(crate) use eval::EvalNode;
 pub(crate) use filter::FilterNode;
 pub(crate) use pack::PackNode;
+pub(crate) use row_idx::RowIdxNode;
 pub(crate) use segment_scan::SegmentScanNode;
 pub(crate) use selection::Selection;
+pub(crate) use take::TakeNode;
 
 #[cfg(test)]
 mod scheduling_tests;

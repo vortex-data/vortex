@@ -3,11 +3,13 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -17,6 +19,10 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::EvalNode;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanReduceRule;
 
 /// Applies an expression to the output of its child.
@@ -112,6 +118,18 @@ impl PlanVTable for Eval {
         } else {
             Cow::Owned(format!("child[{index}]"))
         }
+    }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        _ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(EvalNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+        )))
     }
 }
 
