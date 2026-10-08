@@ -135,8 +135,12 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
 
-    // The accumulator caches the result as statistics.
-    Ok(result_scalar.as_bool().value().unwrap_or(false))
+    let result = result_scalar.as_bool().value().unwrap_or(false);
+
+    // Cache the computed result as statistics.
+    cache_is_sorted(array, strict, result);
+
+    Ok(result)
 }
 
 fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
@@ -194,6 +198,22 @@ impl IsSorted {
                 ],
             )
         })
+    }
+
+    /// The partial scalar of a batch of `dtype` known not to be (strictly) sorted.
+    ///
+    /// It carries no boundary values, since an unsorted batch settles the result.
+    pub(crate) fn not_sorted_partial(dtype: &DType, strict: bool) -> Scalar {
+        let value_dtype = dtype.as_nullable();
+        Scalar::struct_(
+            make_is_sorted_partial_dtype(dtype),
+            vec![
+                Scalar::bool(false, Nullability::NonNullable),
+                Scalar::bool(strict, Nullability::NonNullable),
+                Scalar::null(value_dtype.clone()),
+                Scalar::null(value_dtype),
+            ],
+        )
     }
 }
 
@@ -409,53 +429,6 @@ impl AggregateFnVTable for IsSorted {
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_sorted
-    }
-
-    fn cached_partial(
-        &self,
-        args: AggregateArgs<'_, Self::Options>,
-        batch: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Self::Partial>> {
-        if batch.is_empty() {
-            return Ok(None);
-        }
-        let stat = if args.options.strict {
-            Stat::IsStrictSorted
-        } else {
-            Stat::IsSorted
-        };
-        Ok(match batch.statistics().get_as::<bool>(stat) {
-            // A sorted batch still needs its boundaries to check the order across batches.
-            Precision::Exact(true) => Some(IsSortedPartial {
-                is_sorted: true,
-                first_value: Some(batch.execute_scalar(0, ctx)?.into_nullable()),
-                last_value: Some(batch.execute_scalar(batch.len() - 1, ctx)?.into_nullable()),
-            }),
-            // An unsorted batch saturates the result, so its boundaries are never used.
-            Precision::Exact(false) => Some(IsSortedPartial {
-                is_sorted: false,
-                first_value: None,
-                last_value: None,
-            }),
-            _ => None,
-        })
-    }
-
-    fn caches_partials(&self, _args: AggregateArgs<'_, Self::Options>) -> bool {
-        true
-    }
-
-    fn cache_partial(
-        &self,
-        args: AggregateArgs<'_, Self::Options>,
-        batch: &ArrayRef,
-        partial: &Self::Partial,
-    ) {
-        if partial.is_sorted && partial.first_value.is_none() {
-            return;
-        }
-        cache_is_sorted(batch, args.options.strict, partial.is_sorted);
     }
 
     fn accumulate(

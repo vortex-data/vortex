@@ -250,43 +250,6 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(false)
     }
 
-    /// Read the partial state of `batch` from its cached statistics.
-    ///
-    /// Returns `None` if the statistics do not determine the partial state. Aggregates cached
-    /// under a legacy [`Stat`](crate::expr::stats::Stat) slot are read by the accumulator and do
-    /// not need to implement this.
-    fn cached_partial(
-        &self,
-        _args: AggregateArgs<'_, Self::Options>,
-        _batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Self::Partial>> {
-        Ok(None)
-    }
-
-    /// Whether [`cache_partial`] caches anything for these arguments.
-    ///
-    /// When it does, the accumulator accumulates each batch into an empty state of its own, so
-    /// the cached result is the batch's own rather than the running one.
-    ///
-    /// [`cache_partial`]: AggregateFnVTable::cache_partial
-    fn caches_partials(&self, _args: AggregateArgs<'_, Self::Options>) -> bool {
-        false
-    }
-
-    /// Cache `partial`, the result of accumulating `batch` alone, in the statistics of `batch`.
-    ///
-    /// Only called when [`caches_partials`] returns `true`.
-    ///
-    /// [`caches_partials`]: AggregateFnVTable::caches_partials
-    fn cache_partial(
-        &self,
-        _args: AggregateArgs<'_, Self::Options>,
-        _batch: &ArrayRef,
-        _partial: &Self::Partial,
-    ) {
-    }
-
     /// Accumulate a new canonical array into the partial state.
     fn accumulate(
         &self,

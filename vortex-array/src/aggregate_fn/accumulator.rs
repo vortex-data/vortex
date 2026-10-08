@@ -16,6 +16,8 @@ use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
@@ -23,6 +25,7 @@ use crate::executor::max_iterations;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -171,6 +174,33 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     }
 }
 
+/// Where an aggregate's per-batch result is cached in the batch's statistics.
+#[derive(Clone, Copy)]
+enum StatSlot {
+    /// The stat holds the aggregate's partial scalar.
+    Partial(Stat),
+    /// The stat holds the aggregate's boolean result, which is narrower than its partial.
+    Verdict(Stat),
+}
+
+impl StatSlot {
+    fn of(aggregate_fn: &AggregateFnRef) -> Option<Self> {
+        if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
+            return Some(Self::Partial(stat));
+        }
+        if aggregate_fn.is::<IsConstant>() {
+            return Some(Self::Verdict(Stat::IsConstant));
+        }
+        aggregate_fn.as_opt::<IsSorted>().map(|options| {
+            Self::Verdict(if options.strict {
+                Stat::IsStrictSorted
+            } else {
+                Stat::IsSorted
+            })
+        })
+    }
+}
+
 /// A trait object for type-erased accumulators, used for dynamic dispatch when the aggregate
 /// function is not known at compile time.
 pub trait DynAccumulator: 'static + Send {
@@ -232,36 +262,46 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 
         vortex_ensure_eq!(batch.dtype(), &self.dtypes.dtype, "Input DType mismatch");
 
-        // Statistics bridge: an aggregate consumes its result cached in the batch's statistics
-        // before kernel dispatch or decode, and otherwise caches its result there. Aggregates
-        // still cached under a legacy `Stat` slot use that slot; others use the vtable's hooks.
-        let stat = Stat::from_aggregate_fn(&self.aggregate_fn);
-        if let Some(stat) = stat {
-            if let Precision::Exact(partial) = batch.statistics().get(stat) {
-                let partial = if partial.dtype() == &self.dtypes.partial_dtype {
-                    partial
-                } else {
-                    vortex_ensure!(
+        // Legacy stats bridge: an aggregate still cached under a legacy `Stat` slot consumes that
+        // exact stat before kernel dispatch or decode, and otherwise caches its result there.
+        let Some(slot) = StatSlot::of(&self.aggregate_fn) else {
+            return self.accumulate_batch(batch, ctx);
+        };
+
+        match slot {
+            StatSlot::Partial(stat) => {
+                if let Precision::Exact(partial) = batch.statistics().get(stat) {
+                    let partial = if partial.dtype() == &self.dtypes.partial_dtype {
                         partial
-                            .dtype()
-                            .eq_ignore_nullability(&self.dtypes.partial_dtype),
-                        "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                        self.aggregate_fn,
-                        stat,
-                        partial.dtype(),
-                        self.dtypes.partial_dtype,
-                    );
-                    partial.cast(&self.dtypes.partial_dtype)?
-                };
-                return self.fold_partial_scalar(&partial);
+                    } else {
+                        vortex_ensure!(
+                            partial
+                                .dtype()
+                                .eq_ignore_nullability(&self.dtypes.partial_dtype),
+                            "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                            self.aggregate_fn,
+                            stat,
+                            partial.dtype(),
+                            self.dtypes.partial_dtype,
+                        );
+                        partial.cast(&self.dtypes.partial_dtype)?
+                    };
+                    return self.fold_partial_scalar(&partial);
+                }
             }
-        } else {
-            let args = self.dtypes.args(&self.options);
-            if let Some(partial) = self.vtable.cached_partial(args, batch, ctx)? {
-                return self.fold_partial(partial);
-            }
-            if !self.vtable.caches_partials(args) {
-                return self.accumulate_batch(batch, ctx);
+            StatSlot::Verdict(stat) => {
+                // A cached `false` settles the result. A cached `true` does not determine the
+                // values that merging with neighbouring batches needs, so the batch is computed.
+                if batch.statistics().get_as::<bool>(stat) == Precision::Exact(false) {
+                    let partial = match stat {
+                        Stat::IsConstant => IsConstant::not_constant_partial(&self.dtypes.dtype),
+                        _ => IsSorted::not_sorted_partial(
+                            &self.dtypes.dtype,
+                            stat == Stat::IsStrictSorted,
+                        ),
+                    };
+                    return self.fold_partial_scalar(&partial);
+                }
             }
         }
 
@@ -276,16 +316,22 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             return Ok(());
         };
         let args = self.dtypes.args(&self.options);
-        match stat {
-            Some(stat) => {
-                let batch_result = self.vtable.to_scalar(args, &batch_partial)?;
-                // A null partial, e.g. an overflowed sum or the minimum of an all-null batch, has
-                // no exact stat value.
-                if let Some(value) = batch_result.into_value() {
-                    batch.statistics().set(stat, Precision::Exact(value));
-                }
+        let batch_result = self.vtable.to_scalar(args, &batch_partial)?;
+        // A null partial, e.g. an overflowed sum, the minimum of an all-null batch or the verdict
+        // of an empty batch, has no exact stat value.
+        if !batch_result.is_null() {
+            let (stat, value) = match slot {
+                StatSlot::Partial(stat) => (stat, batch_result.into_value()),
+                StatSlot::Verdict(stat) => (
+                    stat,
+                    self.vtable
+                        .finalize_scalar(args, &batch_partial)?
+                        .into_value(),
+                ),
+            };
+            if let Some(value) = value {
+                batch.statistics().set(stat, Precision::Exact(value));
             }
-            None => self.vtable.cache_partial(args, batch, &batch_partial),
         }
         self.fold_partial(batch_partial)
     }
@@ -653,10 +699,10 @@ mod tests {
         acc.finish()
     }
 
-    /// Aggregates without a legacy stat slot cache through the vtable hooks, on the requested
-    /// batch rather than the canonical array it executes into.
+    /// IsConstant and IsSorted cache their boolean result on the requested batch rather than the
+    /// canonical array it executes into.
     #[test]
-    fn caches_hook_results_on_requested_batch() -> VortexResult<()> {
+    fn caches_verdicts_on_requested_batch() -> VortexResult<()> {
         let batch = DictArray::try_new(
             buffer![1u32, 0, 2].into_array(),
             buffer![5i32, 1, 9].into_array(),
@@ -681,37 +727,53 @@ mod tests {
             Some(true)
         );
         assert_eq!(
-            batch.statistics().get_as::<bool>(Stat::IsSorted),
-            Precision::exact(true)
-        );
-        assert_eq!(
             batch.statistics().get_as::<bool>(Stat::IsStrictSorted),
             Precision::exact(true)
         );
         Ok(())
     }
 
-    /// Planted statistics that contradict the data prove the hooks read them instead of scanning.
+    /// A planted `false` contradicting the data proves it is read instead of scanning the batch.
     #[test]
-    fn reads_hook_results_from_batch_statistics() -> VortexResult<()> {
-        let batch = buffer![3i32, 1, 2].into_array();
+    fn reads_cached_false_verdicts() -> VortexResult<()> {
+        let batch = buffer![1i32, 1, 1].into_array();
         let dtype = batch.dtype().clone();
         let stats = batch.statistics();
-        stats.set(Stat::IsConstant, Precision::Exact(true.into()));
-        stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+        stats.set(Stat::IsConstant, Precision::Exact(false.into()));
+        stats.set(Stat::IsSorted, Precision::Exact(false.into()));
 
         let mut is_constant = Accumulator::try_new(IsConstant, EmptyOptions, dtype.clone())?;
         assert_eq!(
             finish_on(&mut is_constant, &batch)?.as_bool().value(),
-            Some(true)
+            Some(false)
         );
 
         let mut is_sorted =
             Accumulator::try_new(IsSorted, IsSortedOptions { strict: false }, dtype)?;
         assert_eq!(
             finish_on(&mut is_sorted, &batch)?.as_bool().value(),
-            Some(true)
+            Some(false)
         );
+        Ok(())
+    }
+
+    /// A cached `true` lacks the values needed to merge with other batches, so it is not read:
+    /// two batches that are each constant are not constant together.
+    #[test]
+    fn cached_true_verdicts_are_recomputed() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let batch1 = buffer![5i32, 5].into_array();
+        let batch2 = buffer![6i32, 6].into_array();
+        for batch in [&batch1, &batch2] {
+            batch
+                .statistics()
+                .set(Stat::IsConstant, Precision::Exact(true.into()));
+        }
+
+        let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, batch1.dtype().clone())?;
+        acc.accumulate(&batch1, &mut ctx)?;
+        acc.accumulate(&batch2, &mut ctx)?;
+        assert_eq!(acc.finish()?.as_bool().value(), Some(false));
         Ok(())
     }
 
