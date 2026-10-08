@@ -171,3 +171,14 @@ def test_polars_date_literals(tmp_path):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == [1, 3]
+
+
+def test_polars_binary_literals(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2], "x": [b"a", None, b"b"]})
+    expr = pl.col("x") == b"a"
+    path = tmp_path / "binary_literals.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [0]
