@@ -90,12 +90,14 @@ where
         });
     }
 
+    let validity_offset = validity.offset();
     let buf = bits.inner();
-    let offset = bits.offset();
+    let bits_offset = bits.offset();
     BitBuffer::collect_bool(indices.len(), |i| {
         let idx = unsafe { indices.get_unchecked(i).as_() };
-        let mask_idx: usize = unsafe { get_bit_unchecked(ptr, offset + i) }.as_();
-        get_bit(buf, offset + idx & mask_idx.wrapping_neg())
+        let mask_idx: usize = unsafe { get_bit_unchecked(ptr, validity_offset + i) }.as_();
+        let masked_idx = idx & mask_idx.wrapping_neg();
+        get_bit(buf, bits_offset + masked_idx)
     })
 }
 
