@@ -17,6 +17,8 @@ use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
 use arrow_array::StructArray;
+use arrow_array::make_array;
+use arrow_schema::DataType;
 use arrow_ipc::reader::FileReader;
 use arrow_schema::Field;
 use arrow_schema::Schema;
@@ -76,6 +78,39 @@ fn read_ipc(path: &Path) -> VortexResult<RecordBatch> {
     concat_batches(&schema, &batches).map_err(|e| vortex_err!("{e}"))
 }
 
+/// Clear Arrow metadata that does not affect the values. The Map `keys_sorted` flag is dropped
+/// by some IPC implementations, and it does not change the physical layout.
+fn normalize_type(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::Map(field, _) => DataType::Map(normalize_field(field), false),
+        DataType::Struct(fields) => DataType::Struct(fields.iter().map(normalize_field).collect()),
+        DataType::List(field) => DataType::List(normalize_field(field)),
+        DataType::LargeList(field) => DataType::LargeList(normalize_field(field)),
+        DataType::ListView(field) => DataType::ListView(normalize_field(field)),
+        DataType::LargeListView(field) => DataType::LargeListView(normalize_field(field)),
+        DataType::FixedSizeList(field, n) => DataType::FixedSizeList(normalize_field(field), *n),
+        other => other.clone(),
+    }
+}
+
+fn normalize_field(field: &Arc<Field>) -> Arc<Field> {
+    Arc::new(field.as_ref().clone().with_data_type(normalize_type(field.data_type())))
+}
+
+fn normalize(array: &ArrowArrayRef) -> VortexResult<ArrowArrayRef> {
+    let normalized = normalize_type(array.data_type());
+    if &normalized == array.data_type() {
+        return Ok(Arc::clone(array));
+    }
+    let data = array
+        .to_data()
+        .into_builder()
+        .data_type(normalized)
+        .build()
+        .map_err(|e| vortex_err!("{e}"))?;
+    Ok(make_array(data))
+}
+
 /// Compare the two decodings column by column, naming the first difference.
 fn compare(current: &RecordBatch, old: &RecordBatch) -> VortexResult<()> {
     if current.num_rows() != old.num_rows() {
@@ -94,6 +129,8 @@ fn compare(current: &RecordBatch, old: &RecordBatch) -> VortexResult<()> {
     }
     for (i, (cur, old_col)) in current.columns().iter().zip(old.columns()).enumerate() {
         let name = current.schema().field(i).name().clone();
+        let cur = &normalize(cur)?;
+        let old_col = &normalize(old_col)?;
         // A newer release may prefer a different Arrow representation for the same values, so
         // cast to the old reader's type before comparing.
         let cur = if cur.data_type() == old_col.data_type() {
