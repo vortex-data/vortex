@@ -10,6 +10,10 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::SystemTime;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::UNIX_EPOCH;
 
 use futures::FutureExt;
 use futures::SinkExt;
@@ -303,25 +307,30 @@ async fn read_object_store_range(
         #[cfg(not(target_arch = "wasm32"))]
         ReadPayload::File(file) => {
             let submitted = timing.map(|_| Instant::now());
+            let queued_at = timing.map(|_| SystemTime::now());
             let (buffer, phases) = io_handle
                 .spawn_blocking(move || {
                     // A cancelled async read must not free the slot while pread is still running.
                     let _permit = local_permit;
-                    let started = submitted.map(|_| Instant::now());
+                    let started = submitted.map(|_| (Instant::now(), SystemTime::now()));
                     read_exact_at(file.as_ref(), buffer.as_mut_slice(), range.start)?;
-                    let finished = started.map(|_| Instant::now());
+                    let finished = started.map(|_| (Instant::now(), SystemTime::now()));
                     Ok::<_, io::Error>((buffer, submitted.zip(started).zip(finished)))
                 })
                 .await
                 .map_err(io::Error::other)?;
             if let Some((
-                (((start, received), admitted), allocated),
-                ((submitted, started), finished),
+                (
+                    (((start, received), admitted), allocated),
+                    ((submitted, (started, reading_at)), (finished, completed_at)),
+                ),
+                queued_at,
             )) = timing
                 .zip(received)
                 .zip(admitted)
                 .zip(allocated)
                 .zip(phases)
+                .zip(queued_at)
             {
                 let resumed = Instant::now();
                 tracing::debug!(
@@ -331,6 +340,10 @@ async fn read_object_store_range(
                     start_ns = start_ns.unwrap_or_default(),
                     offset,
                     length,
+                    queued_unix_ns = queued_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
+                    started_unix_ns = reading_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
+                    reading_unix_ns = reading_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
+                    completed_unix_ns = completed_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
                     file_handle_reused,
                     prepare_ns = u64::try_from(submitted.duration_since(start).as_nanos()).unwrap_or(u64::MAX),
                     allocation_ns = u64::try_from(allocated.duration_since(admitted).as_nanos()).unwrap_or(u64::MAX),

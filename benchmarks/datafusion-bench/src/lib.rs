@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod executor;
 pub mod metrics;
 pub mod tracer;
 
@@ -30,7 +31,10 @@ use vortex_datafusion::VortexTableOptions;
 
 /// Creates a benchmark session with the requested execution parallelism.
 #[expect(clippy::expect_used)]
-pub fn get_session_context(threads: Option<NonZeroUsize>) -> SessionContext {
+pub fn get_session_context(
+    threads: Option<NonZeroUsize>,
+    scan_concurrency: Option<NonZeroUsize>,
+) -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
     rt_builder = rt_builder.with_cache_manager(CacheManagerConfig::default());
@@ -39,7 +43,7 @@ pub fn get_session_context(threads: Option<NonZeroUsize>) -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::new().with_options(vortex_table_options());
+    let factory = VortexFormatFactory::new().with_options(vortex_table_options(scan_concurrency));
 
     let mut config = SessionConfig::from_env().expect("shouldn't fail");
     if let Some(threads) = threads {
@@ -104,12 +108,15 @@ pub fn make_object_store(
     }
 }
 
-pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
+pub fn format_to_df_format(
+    format: Format,
+    scan_concurrency: Option<NonZeroUsize>,
+) -> anyhow::Result<Arc<dyn FileFormat>> {
     Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => Arc::new(
-            VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
+            VortexFormat::new_with_options(SESSION.clone(), vortex_table_options(scan_concurrency)),
         ),
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance => {
             anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
@@ -117,11 +124,12 @@ pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>
     })
 }
 
-fn vortex_table_options() -> VortexTableOptions {
+fn vortex_table_options(scan_concurrency: Option<NonZeroUsize>) -> VortexTableOptions {
     let mut opts = VortexTableOptions::default();
 
     opts.predicate_pushdown = true;
     opts.projection_pushdown = true;
+    opts.scan_concurrency = scan_concurrency.map(NonZeroUsize::get);
 
     opts
 }

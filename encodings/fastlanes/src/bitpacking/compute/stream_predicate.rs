@@ -6,13 +6,12 @@
 //! Walks the encoded array one 1024-element FastLanes block at a time through a single
 //! reusable scratch buffer, splices any [`Patches`] into the unpacked block
 //! in place via a sorted-index cursor, then folds a `Fn(T) -> bool` predicate over the
-//! block. The fold matches the canonical [`BitBuffer::collect_bool`] shape
-//! (pack 64 bools into a `u64` in a tight auto-vectorisable inner loop) and writes the
+//! block. Full bitmap words use the lane predicate kernel, while partial words preserve
+//! bits from adjacent blocks. The fold writes the
 //! resulting words straight into the output bit buffer, so the materialised primitive
 //! never appears anywhere.
 //!
 //! [`BitPackedArray`]: crate::BitPackedArray
-//! [`BitBuffer::collect_bool`]: vortex_buffer::BitBuffer::collect_bool
 //! [`Patches`]: vortex_array::patches::Patches
 
 use std::mem::MaybeUninit;
@@ -30,6 +29,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_buffer::pack_bools_into_words;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
@@ -67,12 +67,12 @@ where
                 let mut p_cur: usize = 0;
                 chunks.for_each_unpacked_chunk(|block, range| {
                     p_cur = splice_patches::<T, I>(block, range.start, p_cur, p_idx, p_val, p_off);
-                    pack_bools_into_words(words, range.start, block.len(), |i| predicate(block[i]));
+                    pack_predicate(words, range.start, block, &predicate);
                 });
             });
         } else {
             chunks.for_each_unpacked_chunk(|block, range| {
-                pack_bools_into_words(words, range.start, block.len(), |i| predicate(block[i]));
+                pack_predicate(words, range.start, block, &predicate);
             });
         }
     }
@@ -80,6 +80,33 @@ where
     let bits = BitBufferMut::from_buffer(words.into_byte_buffer(), 0, len);
     let validity = array.validity()?.union_nullability(nullability);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+fn pack_predicate<T: Copy>(
+    words: &mut [u64],
+    start: usize,
+    values: &[T],
+    predicate: &impl Fn(T) -> bool,
+) {
+    let prefix = if start.is_multiple_of(64) {
+        0
+    } else {
+        (64 - start % 64).min(values.len())
+    };
+    if prefix != 0 {
+        pack_bools_into_words(words, start, prefix, |i| predicate(values[i]));
+    }
+    let values = &values[prefix..];
+    let full_len = values.len() / 64 * 64;
+    let word_start = (start + prefix) / 64;
+    values[..full_len].map_bits_into(
+        &mut words[word_start..word_start + full_len / 64],
+        predicate,
+    );
+    let tail = &values[full_len..];
+    pack_bools_into_words(words, start + prefix + full_len, tail.len(), |i| {
+        predicate(tail[i])
+    });
 }
 
 /// Overwrite the unpacked block in place with any patches falling in

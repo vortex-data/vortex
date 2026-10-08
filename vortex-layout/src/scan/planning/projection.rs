@@ -16,6 +16,7 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoTarget;
 use vortex_scan::planning::morsel::Morsel;
 use vortex_scan::planning::morsel::MorselOutput;
 use vortex_scan::planning::planner::Planner;
@@ -205,6 +206,13 @@ impl Planner for ProjectionPlanner {
                 .map(|value| value == "1")
         });
         if let Some(selected) = self.selected.take() {
+            tracing::debug!(
+                target: "vortex_layout::filter_stages",
+                row_start = selected.scope.rows.start,
+                row_end = selected.scope.rows.end,
+                selected_rows = selected.mask.true_count(),
+                "projection mask ready"
+            );
             self.pending = self.cut(&selected);
             // No projection split has a selected row.
             if self.pending.is_empty() {
@@ -322,7 +330,27 @@ impl Morsel for ProjectionMorsel {
         }
         Ok(match graph.compute()? {
             GraphStep::Yield => MorselOutput::Continue,
-            GraphStep::NeedsIO(batch) => MorselOutput::NeedsIO(batch),
+            GraphStep::NeedsIO(batch) => {
+                if tracing::enabled!(target: "vortex_layout::filter_stages", tracing::Level::DEBUG)
+                {
+                    for request in &batch {
+                        if request.intent == IoIntent::Fetch
+                            && let IoTarget::Range { offset, len, .. } = request.target
+                        {
+                            tracing::debug!(
+                                target: "vortex_layout::filter_stages",
+                                row_start = self.selected.scope.rows.start,
+                                row_end = self.selected.scope.rows.end,
+                                request = request.request.0,
+                                offset,
+                                length = len,
+                                "projection input requested"
+                            );
+                        }
+                    }
+                }
+                MorselOutput::NeedsIO(batch)
+            }
             GraphStep::Piece(piece) => {
                 self.pieces.push(piece);
                 MorselOutput::Continue

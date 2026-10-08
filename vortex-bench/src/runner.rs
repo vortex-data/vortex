@@ -440,6 +440,19 @@ impl SqlBenchmarkRunner {
                                     vortex_panic!("query {query_idx} failed: {err}");
                                 });
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
+                            if tracing::enabled!(target: "vortex_bench::query_timing", tracing::Level::DEBUG)
+                            {
+                                tracing::debug!(
+                                    target: "vortex_bench::query_timing",
+                                    query_idx,
+                                    iteration,
+                                    completed_unix_ns = u64::try_from(
+                                        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+                                    ).unwrap_or(u64::MAX),
+                                    callback_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                    "query callback"
+                                );
+                            }
                             if let Some(perf) = &mut perf {
                                 perf.stop()?;
                             }

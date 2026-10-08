@@ -20,6 +20,7 @@ use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
+use datafusion_bench::executor::SplitExecutor;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_bench::tracer::get_labelset_from_global;
@@ -34,6 +35,8 @@ use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::request::trace::timestamp_ns;
+use vortex::io::runtime::Executor;
+use vortex::io::runtime::Handle;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
@@ -70,6 +73,14 @@ struct Args {
     /// Number of Tokio workers and DataFusion execution partitions.
     #[arg(short, long)]
     threads: Option<NonZeroUsize>,
+
+    /// Vortex split tasks per available worker within each file scan.
+    #[arg(long)]
+    scan_concurrency: Option<NonZeroUsize>,
+
+    /// Run Vortex IO on this many dedicated Tokio workers.
+    #[arg(long)]
+    io_threads: Option<NonZeroUsize>,
 
     #[arg(short, long)]
     verbose: bool,
@@ -140,10 +151,37 @@ fn main() -> anyhow::Result<()> {
     if let Some(threads) = args.threads {
         runtime.worker_threads(threads.get());
     }
-    runtime.enable_all().build()?.block_on(run(args))
+    let runtime = runtime.enable_all().build()?;
+    let io_runtime = args
+        .io_threads
+        .map(|threads| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(threads.get())
+                .thread_name("vortex-io")
+                .enable_all()
+                .build()
+        })
+        .transpose()?;
+    let executor = io_runtime.as_ref().map(|io| {
+        Arc::new(SplitExecutor {
+            compute: runtime.handle().clone(),
+            io: io.handle().clone(),
+        }) as Arc<dyn Executor>
+    });
+    runtime.block_on(async {
+        if let Some(executor) = &executor {
+            SESSION
+                .clone()
+                .with_handle(Handle::new(Arc::downgrade(executor)));
+        }
+        run(args).await
+    })
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
+    if args.scan_concurrency.is_some() && use_scan_api() {
+        anyhow::bail!("--scan-concurrency requires the listing-table file-scan path");
+    }
     let opts = Opts::from(args.options);
 
     set_join_set_tracer(get_static_tracer())?;
@@ -200,12 +238,14 @@ async fn run(args: Args) -> anyhow::Result<()> {
             |format| {
                 let benchmark = &*benchmark;
                 async move {
-                    let session = datafusion_bench::get_session_context(args.threads);
+                    let session =
+                        datafusion_bench::get_session_context(args.threads, args.scan_concurrency);
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
+                    register_benchmark_tables(&session, benchmark, format, args.scan_concurrency)
+                        .await?;
                     if std::env::var("VORTEX_BENCH_PRELOAD_SEGMENTS")
                         .is_ok_and(|value| value == "1")
                     {
@@ -331,12 +371,13 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    scan_concurrency: Option<NonZeroUsize>,
 ) -> anyhow::Result<()> {
     if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format)?;
+        let file_format = format_to_df_format(format, scan_concurrency)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);

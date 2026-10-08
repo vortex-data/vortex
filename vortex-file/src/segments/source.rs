@@ -415,7 +415,7 @@ impl FileSegmentSource {
 
         // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
         // join it (below) only to surface a panic raised while driving reads.
-        let mut task = handle.spawn(drive_fut);
+        let mut task = handle.spawn_io(drive_fut);
         let driver_panic: DriverPanic = Arc::new(Mutex::new(None));
         let driver = {
             let driver_panic = Arc::clone(&driver_panic);
@@ -664,11 +664,37 @@ mod tests {
 
     use futures::future::BoxFuture;
     use vortex_error::vortex_bail;
+    use vortex_io::runtime::AbortHandleRef;
+    use vortex_io::runtime::Executor;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::segments::SegmentSource;
     use vortex_metrics::DefaultMetricsRegistry;
 
     use super::*;
+
+    #[derive(Default)]
+    struct IoExecutor {
+        io_spawns: AtomicUsize,
+    }
+
+    impl Executor for IoExecutor {
+        fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
+            Executor::spawn(&tokio::runtime::Handle::current(), future)
+        }
+
+        fn spawn_io(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
+            self.io_spawns.fetch_add(1, Ordering::Relaxed);
+            self.spawn(future)
+        }
+
+        fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            Executor::spawn_cpu(&tokio::runtime::Handle::current(), task)
+        }
+
+        fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            Executor::spawn_blocking_io(&tokio::runtime::Handle::current(), task)
+        }
+    }
 
     fn io_request(id: RequestId, offset: u64, length: usize) -> IoRequest {
         let (callback, _receiver) = oneshot::channel();
@@ -859,6 +885,28 @@ mod tests {
                 .collect::<Vec<_>>();
             futures::stream::iter(results).boxed()
         }
+    }
+
+    #[tokio::test]
+    async fn file_segment_source_driver_uses_io_executor() -> VortexResult<()> {
+        let executor = Arc::new(IoExecutor::default());
+        let runtime = Arc::clone(&executor) as Arc<dyn Executor>;
+        let metrics = DefaultMetricsRegistry::default();
+        let source = FileSegmentSource::open(
+            Arc::from([SegmentSpec {
+                offset: 0,
+                length: 4,
+                alignment: Alignment::none(),
+            }]),
+            ReadRangesOnly {
+                calls: Arc::default(),
+            },
+            Handle::new(Arc::downgrade(&runtime)),
+            RequestMetrics::new(&metrics, vec![]),
+        );
+        assert_eq!(executor.io_spawns.load(Ordering::Relaxed), 1);
+        assert_eq!(source.request(SegmentId::from(0)).await?.len(), 4);
+        Ok(())
     }
 
     #[tokio::test]
