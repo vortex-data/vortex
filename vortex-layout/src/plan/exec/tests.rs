@@ -12,6 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -22,6 +23,7 @@ use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
@@ -35,6 +37,7 @@ use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::list::ListLayout;
 use crate::layouts::struct_::StructLayout;
 use crate::plan::EvalPlan;
 use crate::plan::Filter;
@@ -610,4 +613,99 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
         delivery(Delivery::Lifo),
     )?;
     assert_view(&expected, &rows, &mask, run.arrays)
+}
+
+#[rstest]
+#[case::full(0..6, Sel::All)]
+#[case::range(1..5, Sel::All)]
+#[case::sparse(0..6, Sel::Rows(&[1, 3, 5]))]
+#[case::empty_list(1..2, Sel::All)]
+#[case::null_list(2..3, Sel::All)]
+#[case::no_rows(1..5, Sel::None)]
+#[case::empty_range(3..3, Sel::All)]
+fn list_views(
+    #[case] rows: Range<u64>,
+    #[case] sel: Sel,
+    #[values(false, true)] nullable: bool,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let elements = PrimitiveArray::from_option_iter([
+        Some(0i32),
+        None,
+        Some(2),
+        Some(3),
+        None,
+        Some(5),
+        Some(6),
+        Some(7),
+    ])
+    .into_array();
+    // Nonzero first offsets also occur when a list's children are sliced independently.
+    let offsets = PrimitiveArray::from_iter([1u64, 3, 3, 4, 6, 6, 8]).into_array();
+    let validity = BoolArray::from_iter([true, true, false, true, true, true]).into_array();
+    let expected = ListArray::try_new(
+        elements.clone(),
+        offsets.clone(),
+        if nullable {
+            Validity::Array(validity.clone())
+        } else {
+            Validity::NonNullable
+        },
+    )?
+    .into_array();
+    let layout = ListLayout::new(
+        expected.dtype().clone(),
+        store.chunked(&elements, &[2, 3, 3])?,
+        store.chunked(&offsets, &[2, 2, 3])?,
+        if nullable {
+            Some(store.chunked(&validity, &[1, 5])?)
+        } else {
+            None
+        },
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let mask = sel.mask((rows.end - rows.start) as usize);
+    let output = run(&store, &plan, rows.clone(), mask.clone(), delivery(order))?;
+    if mask.all_false() {
+        assert_eq!(reads(&output.events), 0);
+    }
+    assert_view(&expected, &rows, &mask, output.arrays)
+}
+
+#[rstest]
+fn nested_list_views(
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let elements = PrimitiveArray::from_iter([10i32, 20, 30, 40]).into_array();
+    let inner_offsets = PrimitiveArray::from_iter([0u32, 1, 1, 3, 4]).into_array();
+    let inner = ListArray::try_new(
+        elements.clone(),
+        inner_offsets.clone(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let inner_layout = ListLayout::new(
+        inner.dtype().clone(),
+        store.chunked(&elements, &[2, 2])?,
+        store.chunked(&inner_offsets, &[2, 3])?,
+        None,
+    )
+    .into_layout();
+    let offsets = PrimitiveArray::from_iter([0u32, 1, 3, 4]).into_array();
+    let expected = ListArray::try_new(inner, offsets.clone(), Validity::NonNullable)?.into_array();
+    let layout = ListLayout::new(
+        expected.dtype().clone(),
+        inner_layout,
+        store.flat(&offsets)?,
+        None,
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let rows = 1..3;
+    let mask = Mask::new_true(2);
+    let output = run(&store, &plan, rows.clone(), mask.clone(), delivery(order))?;
+    assert_view(&expected, &rows, &mask, output.arrays)
 }

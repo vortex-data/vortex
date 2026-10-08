@@ -39,6 +39,7 @@
 mod concat;
 mod eval;
 mod filter;
+mod list_pack;
 mod pack;
 mod row_idx;
 mod segment_scan;
@@ -679,6 +680,7 @@ impl From<StepCx<'_>> for Effects {
 pub(crate) use concat::ConcatNode;
 pub(crate) use eval::EvalNode;
 pub(crate) use filter::FilterNode;
+pub(crate) use list_pack::ListPackNode;
 pub(crate) use pack::PackNode;
 pub(crate) use row_idx::RowIdxNode;
 pub(crate) use segment_scan::SegmentScanNode;
