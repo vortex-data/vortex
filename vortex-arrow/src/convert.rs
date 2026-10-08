@@ -722,17 +722,8 @@ pub(crate) fn map_from_arrow_parts(
 
 /// Select the child entries that the map offsets reference, and rebase the offsets.
 pub(crate) fn trim_map_entries(array: &ArrowMapArray) -> (ArrowStructArray, OffsetBuffer<i32>) {
-    let offsets = array.offsets();
-    let first = offsets[0];
-    let last = offsets[offsets.len() - 1];
-    let entries = array
-        .entries()
-        .slice(first.as_usize(), (last - first).as_usize());
-    let offsets = if first == 0 {
-        offsets.clone()
-    } else {
-        OffsetBuffer::new(offsets.iter().map(|&offset| offset - first).collect())
-    };
+    let (offsets, referenced) = trim_offsets(array.offsets());
+    let entries = array.entries().slice(referenced.start, referenced.len());
     (entries, offsets)
 }
 
