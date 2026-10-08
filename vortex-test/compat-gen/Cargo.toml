@@ -30,6 +30,9 @@ vortex-session = { workspace = true }
 
 # TPC-H generation
 arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 

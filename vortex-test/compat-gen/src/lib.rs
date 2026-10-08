@@ -6,3 +6,4 @@ pub mod check;
 pub mod fixtures;
 pub mod generate;
 pub mod manifest;
+pub mod reader_check;

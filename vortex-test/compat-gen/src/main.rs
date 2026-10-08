@@ -7,6 +7,7 @@ use clap::Parser;
 use clap::Subcommand;
 use vortex_compat::check;
 use vortex_compat::generate;
+use vortex_compat::reader_check;
 use vortex_error::VortexResult;
 
 #[derive(Parser)]
@@ -89,6 +90,21 @@ enum Commands {
         #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
     },
+
+    /// Check that an old reader decoded the fixtures in a directory to the same values as the
+    /// current reader.
+    ///
+    /// The old reader is a separate binary built against a released vortex crate. It dumps each
+    /// fixture as `<name>.arrow` (Arrow IPC), or `<name>.error` when it could not read the file.
+    CheckReader {
+        /// Directory containing the .vortex fixtures written by the current writer.
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+
+        /// Directory containing the old reader's `<name>.arrow` / `<name>.error` dumps.
+        #[arg(long, value_name = "DIR")]
+        arrow_dir: PathBuf,
+    },
 }
 
 fn main() -> VortexResult<()> {
@@ -97,5 +113,6 @@ fn main() -> VortexResult<()> {
     match cli.command {
         Commands::Generate { output, exclude } => generate::generate(&output, &exclude),
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
+        Commands::CheckReader { dir, arrow_dir } => reader_check::check_reader(&dir, &arrow_dir),
     }
 }
