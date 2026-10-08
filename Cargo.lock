@@ -12129,6 +12129,7 @@ dependencies = [
  "rstest",
  "rustc-hash",
  "sketches-ddsketch",
+ "smallvec",
  "temp-env",
  "termtree",
  "tokio",
@@ -12143,6 +12144,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
@@ -12337,7 +12339,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "parking_lot",
  "roaring",
+ "rstest",
  "tracing",
  "vortex-array",
  "vortex-buffer",
@@ -12345,6 +12349,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

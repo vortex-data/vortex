@@ -123,6 +123,12 @@ impl ScalarFnVTable for DynamicComparison {
     fn is_strict(&self, _options: &Self::Options) -> bool {
         false
     }
+
+    /// A dynamic comparison is a comparison, or a constant while it has no value to compare
+    /// against, and neither can fail.
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug)]

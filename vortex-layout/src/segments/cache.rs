@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
+use futures::future;
 use moka::future::Cache;
 use moka::future::CacheBuilder;
 use moka::policy::EvictionPolicy;
@@ -28,6 +29,13 @@ use crate::segments::SegmentSource;
 /// device buffers and other non-host handles should be passed through uncached.
 #[async_trait]
 pub trait SegmentCache: Send + Sync {
+    /// Return immediately available cached bytes, or `None` to use the asynchronous lookup.
+    /// This must not perform IO. A miss still goes through [`Self::get`], which may resolve
+    /// while the source's announced request waits to be polled.
+    fn get_if_ready(&self, _id: SegmentId) -> Option<ByteBuffer> {
+        None
+    }
+
     /// Return a cached segment, or `None` on cache miss.
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>>;
     /// Store a segment in the cache.
@@ -72,6 +80,10 @@ impl MokaSegmentCache {
 
 #[async_trait]
 impl SegmentCache for MokaSegmentCache {
+    fn get_if_ready(&self, id: SegmentId) -> Option<ByteBuffer> {
+        self.0.get(&id).now_or_never().flatten()
+    }
+
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
         Ok(self.0.get(&id).await)
     }
@@ -115,6 +127,12 @@ impl<C: SegmentCache> InstrumentedSegmentCache<C> {
 
 #[async_trait]
 impl<C: SegmentCache> SegmentCache for InstrumentedSegmentCache<C> {
+    fn get_if_ready(&self, id: SegmentId) -> Option<ByteBuffer> {
+        let segment = self.segment_cache.get_if_ready(id)?;
+        self.hits.add(1);
+        Some(segment)
+    }
+
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
         let result = self.segment_cache.get(id).await?;
         if result.is_some() {
@@ -147,6 +165,10 @@ impl SegmentCacheSourceAdapter {
 
 impl SegmentSource for SegmentCacheSourceAdapter {
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        if let Some(segment) = self.cache.get_if_ready(id) {
+            tracing::debug!("Resolved segment {} from cache", id);
+            return future::ready(Ok(BufferHandle::new_host(segment))).boxed();
+        }
         let cache = Arc::clone(&self.cache);
         let delegate = self.source.request(id);
 
@@ -165,5 +187,86 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             Ok(result)
         }
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use rstest::rstest;
+
+    use super::*;
+
+    struct TestCache {
+        bytes: Option<ByteBuffer>,
+        immediate: bool,
+    }
+
+    #[async_trait]
+    impl SegmentCache for TestCache {
+        fn get_if_ready(&self, _id: SegmentId) -> Option<ByteBuffer> {
+            self.immediate.then(|| self.bytes.clone()).flatten()
+        }
+
+        async fn get(&self, _id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
+            Ok(self.bytes.clone())
+        }
+
+        async fn put(&self, _id: SegmentId, _buffer: ByteBuffer) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    struct RecordingSource {
+        bytes: ByteBuffer,
+        requests: AtomicUsize,
+        polls: Arc<AtomicUsize>,
+    }
+
+    impl SegmentSource for RecordingSource {
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            let polls = Arc::clone(&self.polls);
+            let bytes = self.bytes.clone();
+            async move {
+                polls.fetch_add(1, Ordering::Relaxed);
+                Ok(BufferHandle::new_host(bytes))
+            }
+            .boxed()
+        }
+    }
+
+    #[rstest]
+    #[case::immediate_hit(true, true, 0, 0)]
+    #[case::asynchronous_hit(true, false, 1, 0)]
+    #[case::miss(false, true, 1, 1)]
+    #[tokio::test]
+    async fn cache_hits_skip_reads_and_misses_keep_early_announcements(
+        #[case] cached: bool,
+        #[case] immediate: bool,
+        #[case] requests: usize,
+        #[case] polls: usize,
+    ) -> VortexResult<()> {
+        let bytes = ByteBuffer::from(vec![1, 2, 3, 4]);
+        let source = Arc::new(RecordingSource {
+            bytes: bytes.clone(),
+            requests: AtomicUsize::new(0),
+            polls: Arc::default(),
+        });
+        let adapter = SegmentCacheSourceAdapter::new(
+            Arc::new(TestCache {
+                bytes: cached.then(|| bytes.clone()),
+                immediate,
+            }),
+            source.clone(),
+        );
+        let request = adapter.request(SegmentId::from(0));
+        assert_eq!(source.requests.load(Ordering::Relaxed), requests);
+        assert_eq!(source.polls.load(Ordering::Relaxed), 0);
+        assert_eq!(request.await?.try_into_host()?.await?, bytes);
+        assert_eq!(source.polls.load(Ordering::Relaxed), polls);
+        Ok(())
     }
 }

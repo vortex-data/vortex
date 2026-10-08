@@ -29,6 +29,7 @@ pub mod duckdb;
 mod exporter;
 mod ffi;
 mod file_reader;
+mod file_prefetch;
 mod projection;
 mod table_function;
 

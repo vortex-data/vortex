@@ -3,6 +3,8 @@
 
 use std::io;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use futures::FutureExt;
 use futures::SinkExt;
@@ -65,6 +67,11 @@ impl ObjectStoreReadAt {
         allocator: BufferAllocatorRef,
     ) -> Self {
         let uri = Arc::from(path.to_string());
+        let coalesce_config = if is_local_file_system(store.as_ref()) {
+            CoalesceConfig::file()
+        } else {
+            CoalesceConfig::object_storage()
+        };
         Self {
             store,
             path,
@@ -72,7 +79,7 @@ impl ObjectStoreReadAt {
             handle,
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
-            coalesce_config: Some(CoalesceConfig::object_storage()),
+            coalesce_config: Some(coalesce_config),
         }
     }
 
@@ -89,6 +96,14 @@ impl ObjectStoreReadAt {
     }
 }
 
+/// Whether `store` is object_store's `LocalFileSystem`, whose reads are local file reads.
+///
+/// `ObjectStore` offers no downcast, so this matches the store's `Display`, which is
+/// `LocalFileSystem(<root>)`. A wrapped local store falls back to the object storage config.
+fn is_local_file_system(store: &dyn ObjectStore) -> bool {
+    store.to_string().starts_with("LocalFileSystem(")
+}
+
 async fn read_object_store_range(
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
@@ -96,6 +111,9 @@ async fn read_object_store_range(
     allocator: BufferAllocatorRef,
     request: ReadAtRequest,
 ) -> VortexResult<BufferHandle> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let timing = tracing::enabled!(target: "vortex_io::read_timing", tracing::Level::DEBUG)
+        .then(Instant::now);
     let ReadAtRequest {
         offset,
         length,
@@ -105,6 +123,8 @@ async fn read_object_store_range(
     let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
+    #[cfg(not(target_arch = "wasm32"))]
+    let allocated = timing.map(|_| Instant::now());
 
     let response = store
         .get_opts(
@@ -118,13 +138,37 @@ async fn read_object_store_range(
 
     let buffer = match response.payload {
         #[cfg(not(target_arch = "wasm32"))]
-        GetResultPayload::File(file, _) => io_handle
-            .spawn_blocking(move || {
-                read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
-                Ok::<_, io::Error>(buffer)
-            })
-            .await
-            .map_err(io::Error::other)?,
+        GetResultPayload::File(file, _) => {
+            let submitted = timing.map(|_| Instant::now());
+            let (buffer, phases) = io_handle
+                .spawn_blocking(move || {
+                    let started = submitted.map(|_| Instant::now());
+                    read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
+                    let finished = started.map(|_| Instant::now());
+                    Ok::<_, io::Error>((buffer, submitted.zip(started).zip(finished)))
+                })
+                .await
+                .map_err(io::Error::other)?;
+            if let Some(((start, allocated), ((submitted, started), finished))) =
+                timing.zip(allocated).zip(phases)
+            {
+                let resumed = Instant::now();
+                tracing::debug!(
+                    target: "vortex_io::read_timing",
+                    path = %path,
+                    offset,
+                    length,
+                    prepare_ns = u64::try_from(submitted.duration_since(start).as_nanos()).unwrap_or(u64::MAX),
+                    allocation_ns = u64::try_from(allocated.duration_since(start).as_nanos()).unwrap_or(u64::MAX),
+                    get_ns = u64::try_from(submitted.duration_since(allocated).as_nanos()).unwrap_or(u64::MAX),
+                    queue_ns = u64::try_from(started.duration_since(submitted).as_nanos()).unwrap_or(u64::MAX),
+                    read_ns = u64::try_from(finished.duration_since(started).as_nanos()).unwrap_or(u64::MAX),
+                    resume_ns = u64::try_from(resumed.duration_since(finished).as_nanos()).unwrap_or(u64::MAX),
+                    "local object-store read"
+                );
+            }
+            buffer
+        }
         #[cfg(target_arch = "wasm32")]
         GetResultPayload::File(..) => {
             unreachable!("File payload not supported on wasm32")
@@ -262,6 +306,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use object_store::PutPayload;
+    use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
 
     use super::*;
@@ -309,6 +354,14 @@ mod tests {
         fn abort(self: Box<Self>) {
             self.0.abort();
         }
+    }
+
+    #[test]
+    fn local_file_system_coalesces_as_file() {
+        let local = LocalFileSystem::new();
+        let memory = InMemory::new();
+        assert!(is_local_file_system(&local));
+        assert!(!is_local_file_system(&memory));
     }
 
     #[tokio::test]

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
@@ -10,6 +11,7 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -18,6 +20,10 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::ListPackNode;
+use crate::plan::exec::Selection;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -114,6 +120,19 @@ impl PlanVTable for ListPack {
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         validate_children(plan.dtype(), plan.row_count(), children)
+    }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(ListPackNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+            ctx.session().clone(),
+        )))
     }
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {

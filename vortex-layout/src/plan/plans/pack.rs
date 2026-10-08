@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -13,7 +14,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::descendent_bound_annotations;
 use vortex_array::expr::make_bound_free_field_annotator;
-use vortex_array::expr::transform::partition_bound;
+use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -27,6 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -37,7 +39,13 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::PackNode;
+use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 /// Assembles a struct from one child per field, plus an optional trailing validity child.
 #[derive(Clone, Debug)]
@@ -204,6 +212,27 @@ impl PlanVTable for Pack {
         }
         Cow::Borrowed("validity")
     }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        _ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(PackNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+        )))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::pack(plan, rows, mask, cx)
+    }
 }
 
 fn validate_field_child(
@@ -292,15 +321,16 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         let expression = parent.expression();
         let fields = child.fields();
-        let referenced_fields =
-            descendent_bound_annotations(expression, make_bound_free_field_annotator(fields))
-                .get(&ExactBoundExpr(expression.clone()))
-                .vortex_expect("Bound expression missing free-field annotations")
-                .clone();
-        let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
-        let partitioned =
-            partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
+        let expanded = expand_struct_root(expression.clone(), child.dtype(), fields)?;
+        // Expanding the root preserves free fields, so one annotation pass serves both the
+        // referenced fields and the partitioning.
+        let annotations =
+            descendent_bound_annotations(&expanded, make_bound_free_field_annotator(fields));
+        let referenced_fields = annotations
+            .get(&ExactBoundExpr(expanded.clone()))
+            .vortex_expect("Bound expression missing free-field annotations")
+            .clone();
+        let partitioned = partition_bound_annotations(expanded.clone(), annotations)?;
 
         if partitioned.partition_names.is_empty() {
             let selected_indices = fields
@@ -481,19 +511,41 @@ fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> 
     let Some(fields) = input_dtype.as_struct_fields_opt() else {
         return Ok(false);
     };
-    Ok(expression == &expanded_struct_root(input_dtype, fields)?)
+    // Structurally equal to `expanded_struct_root(input_dtype, fields)`, without building it.
+    let Some(pack) = expression.as_opt::<PackFn>() else {
+        return Ok(false);
+    };
+    Ok(pack.nullability == Nullability::NonNullable
+        && pack.names == *fields.names()
+        && expression.children().len() == fields.nfields()
+        && expression
+            .children()
+            .iter()
+            .zip(fields.names().iter())
+            .all(|(child, name)| {
+                child.as_opt::<GetItem>() == Some(name)
+                    && child.children()[0].is_root()
+                    && child.children()[0].dtype() == input_dtype
+            }))
 }
 
+/// Rewrites every root of `expression` into a pack of the root's fields.
+///
+/// Builds only the field accesses it substitutes: a whole-struct expansion is created only for a
+/// bare root, so expressions over a few columns of a wide struct stay cheap.
 fn expand_struct_root(
     expression: BoundExpression,
-    expanded_root: &BoundExpression,
+    root_dtype: &DType,
     fields: &StructFields,
 ) -> VortexResult<BoundExpression> {
+    let root = BoundExpression::new_root(root_dtype.clone());
+    let field_access =
+        |name: &FieldName| BoundExpression::try_new(GetItem.bind(name.clone()), [root.clone()]);
     Ok(expression
         .transform_down(|node| {
             if node.is_root() {
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: expanded_struct_root(root_dtype, fields)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -511,11 +563,12 @@ fn expand_struct_root(
             }
 
             if let Some(field_name) = scalar_fn.as_opt::<GetItem>() {
-                let index = fields.find(field_name).ok_or_else(|| {
-                    vortex_err!("Field {field_name} not found while expanding struct root")
-                })?;
+                vortex_ensure!(
+                    fields.find(field_name).is_some(),
+                    "Field {field_name} not found while expanding struct root"
+                );
                 return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
+                    value: field_access(field_name)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -525,13 +578,8 @@ fn expand_struct_root(
                 let names = selection.normalize_to_included_fields(fields.names())?;
                 let children = names
                     .iter()
-                    .map(|name| {
-                        let index = fields
-                            .find(name)
-                            .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
-                    })
-                    .collect();
+                    .map(field_access)
+                    .collect::<VortexResult<Vec<_>>>()?;
                 return Ok(Transformed {
                     value: bound_pack(names, children)?,
                     changed: true,

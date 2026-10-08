@@ -28,6 +28,14 @@ struct VortexGlobalState final : GlobalTableFunctionState {
     VortexGlobalState() = default;
     ~VortexGlobalState() override = default;
 
+    void FillPrefetch(idx_t file_index);
+
+    mutex prefetch_mutex;
+    idx_t prefetch_window = 0;
+    idx_t next_prefetch_index = 0;
+    MultiFileListScanData prefetch_scan;
+    const MultiFileList *prefetch_files = nullptr;
+    bool prefetch_exhausted = false;
     const void *ffi_bind_data = nullptr; // needed for local state partial accumulation
     unique_ptr<CData> ffi_global_state;
 };
@@ -158,6 +166,7 @@ struct VortexBaseReader final : BaseFileReader {
     }
 
     unique_ptr<CData> ffi_file;
+    bool prefetched = false;
     /*
      * Populated only for first file reader in scan when BindReader() is
      * called on it. Used in GetStatistics() which is called only for first

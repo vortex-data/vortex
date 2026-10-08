@@ -6,6 +6,8 @@
 //! This module is only used to build physical-plan fixtures for tests. It is not a production
 //! planning API.
 
+use std::sync::Arc;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -24,21 +26,28 @@ use crate::layouts::list::OFFSETS_CHILD_INDEX;
 use crate::layouts::list::VALIDITY_CHILD_INDEX;
 use crate::layouts::struct_::Struct;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 use crate::plan::ConcatPlan;
+use crate::plan::FilterPlan;
 use crate::plan::ListPackPlan;
 use crate::plan::PackPlan;
 use crate::plan::PlanChildren;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScanPlan;
 use crate::plan::TakePlan;
+use crate::plan::ZonedPlan;
 
 /// Constructs a physical-plan fixture from `layout` for tests.
 ///
 /// The root operator is built immediately. Its child container owns a hidden clone of the source
 /// layout and lowers each child independently on first access.
+///
+/// A flat layout lowers to a [`Filter`](crate::plan::Filter) over its segment scan, so the scan
+/// returns only the rows it is executed with.
 pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
     if let Some(layout) = layout.as_opt::<Flat>() {
-        return Ok(lower_flat(layout).into_plan());
+        return Ok(FilterPlan::new(lower_flat(layout).into_plan()).into_plan());
     }
     if let Some(layout) = layout.as_opt::<Chunked>() {
         return Ok(lower_chunked(layout)?.into_plan());
@@ -51,6 +60,9 @@ pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
     }
     if let Some(layout) = layout.as_opt::<List>() {
         return Ok(lower_list(layout)?.into_plan());
+    }
+    if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
+        return Ok(lower_zoned(layout)?.into_plan());
     }
     vortex_bail!(
         "No physical plan implementation for layout '{}'",
@@ -150,4 +162,23 @@ fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
             .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
         lower(&child)
     })
+}
+
+fn lower_zoned(layout: &LayoutRef) -> VortexResult<ZonedPlan> {
+    // Zoned and legacy stats layouts share a child shape: transparent data, auxiliary zones.
+    let metadata = if let Some(layout) = layout.as_opt::<Zoned>() {
+        layout.data()
+    } else if let Some(layout) = layout.as_opt::<LegacyStats>() {
+        layout.data()
+    } else {
+        vortex_bail!("Zoned plan requires a zoned layout")
+    };
+    Ok(ZonedPlan::from_children(
+        layout.dtype().clone(),
+        layout.row_count(),
+        lazy_children(Arc::clone(layout), vec![0, 1]),
+        u64::try_from(metadata.zone_len())?,
+        metadata.aggregate_fns(),
+        metadata.legacy_stats(),
+    ))
 }

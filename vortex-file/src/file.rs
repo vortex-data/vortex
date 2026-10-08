@@ -17,6 +17,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_io::request::IoService;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
@@ -48,6 +49,8 @@ pub struct VortexFile {
     metadata: Arc<HashMap<String, ByteBuffer>>,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
+    /// Serves the planning protocol's reads, when the file was opened over a reader.
+    scan_io: Option<Arc<dyn IoService>>,
 }
 
 fn layout_reader(
@@ -84,7 +87,19 @@ impl VortexFile {
             session,
             metadata: Arc::new(HashMap::new()),
             layout_reader_cache: None,
+            scan_io: None,
         }
+    }
+
+    pub(crate) fn with_scan_io(mut self, scan_io: Arc<dyn IoService>) -> Self {
+        self.scan_io = Some(scan_io);
+        self
+    }
+
+    /// The service that serves the planning protocol's reads of this file, when the file was
+    /// opened over a reader.
+    pub fn scan_io(&self) -> Option<&Arc<dyn IoService>> {
+        self.scan_io.as_ref()
     }
 
     pub(crate) fn with_metadata(mut self, metadata: Arc<HashMap<String, ByteBuffer>>) -> Self {
@@ -103,6 +118,7 @@ impl VortexFile {
             session: self.session,
             metadata: self.metadata,
             layout_reader_cache: Some(OnceLock::new()),
+            scan_io: self.scan_io,
         }
     }
 
@@ -158,6 +174,8 @@ impl VortexFile {
     /// replacement source.
     pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
         self.segment_source = segment_source;
+        // Reads now go to the replacement, which the old read driver knows nothing of.
+        self.scan_io = None;
         if self.layout_reader_cache.is_some() {
             self.layout_reader_cache = Some(OnceLock::new());
         }

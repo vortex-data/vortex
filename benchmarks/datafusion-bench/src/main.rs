@@ -24,6 +24,7 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
+use futures::TryStreamExt;
 use parking_lot::Mutex;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
@@ -95,6 +96,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
 
+    /// Emit iteration boundaries and exact scan counters for separate I/O diagnostic runs.
+    #[arg(long)]
+    io_diagnostics: bool,
+
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
 
@@ -165,6 +170,7 @@ async fn main() -> anyhow::Result<()> {
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
+    let io_diagnostics = args.io_diagnostics;
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -187,6 +193,21 @@ async fn main() -> anyhow::Result<()> {
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
                     register_benchmark_tables(&session, benchmark, format).await?;
+                    if std::env::var("VORTEX_BENCH_PRELOAD_SEGMENTS")
+                        .is_ok_and(|value| value == "1")
+                    {
+                        // Visit every file before timing. A LIMIT query can cancel whole file
+                        // opens, so repeating that query cannot reliably populate its cache.
+                        for table in benchmark.table_specs().iter() {
+                            let df = session.table(table.name).await?;
+                            let column = df.schema().field(0).name().clone();
+                            let mut batches =
+                                df.select_columns(&[&column])?.execute_stream().await?;
+                            while let Some(batch) = batches.try_next().await? {
+                                drop(batch);
+                            }
+                        }
+                    }
                     Ok((session, format))
                 }
             },
@@ -197,20 +218,41 @@ async fn main() -> anyhow::Result<()> {
 
                 Box::pin(
                     async move {
+                        if io_diagnostics {
+                            eprintln!("IO_ITERATION_BEGIN query={query_idx}");
+                        }
                         let timer = Instant::now();
                         let (batches, plan) = execute_query(session, query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
 
-                        // Store plan for metrics (only store once per query/format combination)
+                        if io_diagnostics {
+                            for (scan, metrics) in VortexMetricsFinder::find_all(plan.as_ref())
+                                .iter()
+                                .enumerate()
+                            {
+                                for metric in metrics.aggregate().iter() {
+                                    eprintln!(
+                                        "IO_METRIC scan={scan} name={} value={}",
+                                        metric.value().name(),
+                                        metric.value().as_usize(),
+                                    );
+                                }
+                            }
+                            eprintln!("IO_ITERATION_END query={query_idx}");
+                        }
+
+                        // Keep the last iteration so warmed-cache diagnostics describe the
+                        // steady-state execution rather than the initial cache fill.
                         if show_metrics {
                             let mut plans_mut = plans.lock();
-                            // Only store if we don't already have this query/format combo
-                            if !plans_mut
-                                .iter()
-                                .any(|(idx, f, _)| *idx == query_idx && *f == *format)
+                            if let Some((_, _, previous)) = plans_mut
+                                .iter_mut()
+                                .find(|(idx, f, _)| *idx == query_idx && *f == *format)
                             {
+                                *previous = Arc::clone(&plan);
+                            } else {
                                 plans_mut.push((query_idx, *format, Arc::clone(&plan)));
                             }
                         }

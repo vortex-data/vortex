@@ -58,6 +58,21 @@ duckdb_vx_data duckdb_reader_open(const char *file_path,
                                   size_t file_path_len,
                                   duckdb_vx_error *error);
 
+extern size_t duckdb_file_prefetch_window(const void *global);
+
+extern
+void duckdb_file_prefetch_submit(const void *global,
+                                 size_t index,
+                                 const char *path,
+                                 size_t path_len,
+                                 duckdb_vx_error *error);
+
+extern
+duckdb_vx_data duckdb_file_prefetch_take(const void *global,
+                                         size_t index,
+                                         bool skip,
+                                         duckdb_vx_error *error);
+
 extern
 bool duckdb_reader_get_statistics(const void *file,
                                   const void *bind,

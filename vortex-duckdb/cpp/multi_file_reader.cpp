@@ -9,6 +9,46 @@
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
 
+void VortexGlobalState::FillPrefetch(idx_t file_index) {
+    if (!prefetch_window) {
+        return;
+    }
+    lock_guard<mutex> lock(prefetch_mutex);
+    // Out-of-order claims can extend this by at most DuckDB's worker lookahead.
+    while (!prefetch_exhausted && next_prefetch_index < file_index + prefetch_window) {
+        OpenFileInfo file;
+        if (!prefetch_files->Scan(prefetch_scan, file)) {
+            prefetch_exhausted = true;
+            break;
+        }
+        duckdb_vx_error error = nullptr;
+        duckdb_file_prefetch_submit(ffi_global_state->DataPtr(), next_prefetch_index,
+                                   file.path.c_str(), file.path.size(), &error);
+        if (error) {
+            throw IOException(IntoErrString(error));
+        }
+        next_prefetch_index++;
+    }
+}
+
+static void ClaimPrefetched(VortexGlobalState &global, VortexBaseReader &reader,
+                           bool skip) {
+    if (!global.prefetch_window || reader.prefetched) {
+        return;
+    }
+    const auto index = reader.file_list_idx.GetIndex();
+    global.FillPrefetch(index);
+    duckdb_vx_error error = nullptr;
+    auto file = duckdb_file_prefetch_take(global.ffi_global_state->DataPtr(), index, skip, &error);
+    if (error) {
+        throw IOException(IntoErrString(error));
+    }
+    if (!skip) {
+        reader.ffi_file = unique_ptr<CData>(reinterpret_cast<CData *>(file));
+    }
+    reader.prefetched = true;
+}
+
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
     if (ffi_bind_data) {
@@ -49,6 +89,7 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     D_ASSERT(gstate.global_state != nullptr);
 
     VortexBaseReader &reader = reader_data.reader->Cast<VortexBaseReader>();
+    auto &global = gstate.global_state->Cast<VortexGlobalState>();
     const VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
 
     const void *const ffi_bind = bind.ffi_bind_data->DataPtr();
@@ -80,11 +121,12 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
                                                                                  context,
                                                                                  gstate);
         if (base_skip == ReaderInitializeType::SKIP_READING_FILE) {
+            ClaimPrefetched(global, reader, true);
             return base_skip;
         }
     }
 
-    const VortexGlobalState &global = gstate.global_state->Cast<VortexGlobalState>();
+    ClaimPrefetched(global, reader, false);
 
     duckdb_vx_error error = nullptr;
     const void *const ffi_global = global.ffi_global_state->DataPtr();
@@ -184,6 +226,10 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     auto result = make_uniq<VortexGlobalState>();
     result->ffi_bind_data = ffi_bind;
     result->ffi_global_state = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_global_state));
+    result->prefetch_window = duckdb_file_prefetch_window(result->ffi_global_state->DataPtr());
+    result->prefetch_files = &input.file_list;
+    input.file_list.InitializeScan(result->prefetch_scan);
+    result->FillPrefetch(0);
     return result;
 }
 
@@ -214,10 +260,15 @@ static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file) {
 }
 
 shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
-                                                               GlobalTableFunctionState &,
+                                                               GlobalTableFunctionState &gstate,
                                                                const OpenFileInfo &file,
                                                                idx_t,
                                                                const MultiFileBindData &) {
+    if (gstate.Cast<VortexGlobalState>().prefetch_window) {
+        // InitializeReader first applies DuckDB's virtual-column pruning, then claims
+        // the prepared Rust reader. No data is needed for the base column mapping.
+        return make_shared_ptr<VortexBaseReader>(file, nullptr);
+    }
     return OpenReader(file);
 }
 

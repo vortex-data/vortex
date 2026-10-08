@@ -35,6 +35,7 @@ pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
 sketches-ddsketch = { workspace = true }
+smallvec = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
@@ -47,6 +48,7 @@ vortex-error = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
@@ -88,6 +90,10 @@ harness = false
 
 [[bench]]
 name = "aggregate_partial_merge"
+harness = false
+
+[[bench]]
+name = "exec_graph"
 harness = false
 
 [lints]
