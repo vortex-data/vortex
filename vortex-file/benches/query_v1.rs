@@ -223,9 +223,9 @@ fn write_file(t: &Table, variant: Variant) -> VortexFile {
         )
         .expect("write");
     if variant.on_disk {
-        // The directory lives as long as the file is benchmarked.
-        let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
-        let path = dir.path().join(format!("{}.vortex", variant.name));
+        // A fixed path per variant, overwritten by every run, so runs leave one file behind
+        // rather than one each.
+        let path = std::env::temp_dir().join(format!("vortex-query-bench-{}.vortex", variant.name));
         std::fs::write(&path, buf.as_ref()).expect("write file");
         return RUNTIME
             .block_on(SESSION.open_options().open_path(&path))

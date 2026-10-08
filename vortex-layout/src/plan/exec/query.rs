@@ -8,11 +8,10 @@ use bit_vec::BitVec;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -26,10 +25,8 @@ use crate::plan::Take;
 use crate::plan::Zoned;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::NodeState;
-use crate::plan::exec::Ready;
 use crate::plan::exec::StepCx;
 use crate::plan::exec::selection::Selection;
-use crate::plan::exec::selection::join;
 
 /// The port the projection feeds. Conjunct `i` feeds port `i + 1`.
 const PROJECTION: usize = 0;
@@ -47,7 +44,8 @@ const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 /// projection under the rows that passed them all.
 ///
 /// Each pruning plan and each conjunct is a child spawned once the previous one has closed,
-/// since its selection is the previous one's result. A conjunct over a sparse mask is spawned
+/// since its selection is the previous one's result. Its arrays are executed to bits as they
+/// arrive, so a lazy result never outlives its piece and the segments it refers to can go. A conjunct over a sparse mask is spawned
 /// under that mask, so the scans beneath it filter their segments before the predicate runs. A
 /// conjunct over a dense mask is spawned over every row of the chunks holding a selected row,
 /// and its result is intersected afterwards; chunks with no selected row, such as those the
@@ -64,6 +62,9 @@ pub(crate) struct QueryNode {
     remaining: BitVec,
     /// The pruning plan or conjunct being evaluated, and the rows it was spawned under.
     current: Option<(usize, Spawned)>,
+    /// The result of the pruning plan or conjunct being evaluated, folded to bits as each of
+    /// its arrays arrives, so no lazy array and nothing it refers to outlives its piece.
+    folded: BitBufferMut,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,7 +96,33 @@ impl QueryNode {
             phase: Phase::Pruning(0),
             remaining: BitVec::from_elem(conjuncts, true),
             current: None,
+            folded: BitBufferMut::with_capacity(0),
         }
+    }
+
+    /// Executes the arrays `port` holds to bits, in order, and says whether the port has
+    /// finished. A null is false.
+    fn fold(&mut self, cx: &mut StepCx<'_>, port: usize) -> VortexResult<bool> {
+        while let Some(array) = cx.input(port).pop() {
+            let array = if array.dtype().is_nullable() {
+                array.fill_null(false)?
+            } else {
+                array
+            };
+            let mask = array.execute::<Mask>(&mut self.ctx)?;
+            match mask.bit_buffer() {
+                AllOr::All => self.folded.append_n(true, mask.len()),
+                AllOr::None => self.folded.append_n(false, mask.len()),
+                AllOr::Some(bits) => self.folded.append_buffer(bits),
+            }
+        }
+        Ok(cx.input(port).finished())
+    }
+
+    /// The bits folded so far, as a mask, leaving the fold empty.
+    fn folded(&mut self) -> Mask {
+        let bits = std::mem::replace(&mut self.folded, BitBufferMut::with_capacity(0));
+        Mask::from_buffer(bits.freeze())
     }
 
     /// The port the pruning plan of conjunct `index` feeds.
@@ -158,33 +185,24 @@ impl QueryNode {
         Ok(NodeState::Wait)
     }
 
-    /// Folds the closed pruning plan's result into the mask.
-    fn narrow_pruned(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
-        let (index, _) = self
-            .current
+    /// Folds the finished pruning plan's result into the mask.
+    fn narrow_pruned(&mut self) -> VortexResult<()> {
+        self.current
             .take()
             .ok_or_else(|| vortex_err!("Query has no pruning plan in progress"))?;
-        let port = self.pruning_port(index);
-        let kept = join(
-            &DType::Bool(Nullability::NonNullable),
-            cx.input(port).take_all(),
-        )?
-        .execute::<Mask>(&mut self.ctx)?;
+        let kept = self.folded();
         let mask = std::mem::replace(&mut self.mask, Mask::new_false(0));
         self.mask = mask.bitand(&kept);
         Ok(())
     }
 
-    /// Folds the closed conjunct's result into the mask and reports its selectivity.
-    fn narrow(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
+    /// Folds the finished conjunct's result into the mask and reports its selectivity.
+    fn narrow(&mut self) -> VortexResult<()> {
         let (index, spawned) = self
             .current
             .take()
             .ok_or_else(|| vortex_err!("Query has no conjunct in progress"))?;
-        let conjunct = self.plan.conjunct(index)?;
-        let result = join(conjunct.dtype(), cx.input(index + 1).take_all())?
-            .fill_null(false)?
-            .execute::<Mask>(&mut self.ctx)?;
+        let result = self.folded();
         let input = self.mask.true_count();
         let mask = std::mem::replace(&mut self.mask, Mask::new_false(0));
         self.mask = match spawned {
@@ -200,14 +218,6 @@ impl QueryNode {
 }
 
 impl ExecNode for QueryNode {
-    fn ready(&self) -> Ready {
-        if self.phase == Phase::Projecting {
-            Ready::Any
-        } else {
-            Ready::AllClosed
-        }
-    }
-
     fn start(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         self.prune(cx)
     }
@@ -215,11 +225,24 @@ impl ExecNode for QueryNode {
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         match self.phase {
             Phase::Pruning(_) => {
-                self.narrow_pruned(cx)?;
+                let Some((index, _)) = self.current else {
+                    return Err(vortex_err!("Query has no pruning plan in progress"));
+                };
+                let port = self.pruning_port(index);
+                if !self.fold(cx, port)? {
+                    return Ok(NodeState::Wait);
+                }
+                self.narrow_pruned()?;
                 self.prune(cx)
             }
             Phase::Conjuncts => {
-                self.narrow(cx)?;
+                let Some((index, _)) = self.current else {
+                    return Err(vortex_err!("Query has no conjunct in progress"));
+                };
+                if !self.fold(cx, index + 1)? {
+                    return Ok(NodeState::Wait);
+                }
+                self.narrow()?;
                 self.advance(cx)
             }
             Phase::Projecting => {

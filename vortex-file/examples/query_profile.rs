@@ -88,7 +88,66 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: CountingAlloc = CountingAlloc;
+
+/// Allocations and bytes allocated since the counters were last reset.
+static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// mimalloc, counting every allocation.
+struct CountingAlloc;
+
+// SAFETY: every call is forwarded to mimalloc unchanged; only counters are added.
+unsafe impl std::alloc::GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        unsafe { MiMalloc.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        unsafe { MiMalloc.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        ALLOC_BYTES.fetch_add(new_size, Ordering::Relaxed);
+        unsafe { MiMalloc.realloc(ptr, layout, new_size) }
+    }
+}
+
+/// Segment reads issued to the file's segment source since the counter was last reset, by
+/// either executor.
+static SEGMENT_READS: AtomicUsize = AtomicUsize::new(0);
+
+/// The file's segment source, counting the reads issued to it.
+struct CountingSource(Arc<dyn SegmentSource>);
+
+impl SegmentSource for CountingSource {
+    fn request(
+        &self,
+        id: vortex_layout::segments::SegmentId,
+    ) -> vortex_layout::segments::SegmentFuture {
+        SEGMENT_READS.fetch_add(1, Ordering::Relaxed);
+        self.0.request(id)
+    }
+}
+
+fn counted(file: VortexFile) -> VortexFile {
+    let source = file.segment_source();
+    file.with_segment_source(Arc::new(CountingSource(source)))
+}
+
+/// Prints the counters since the last reset, then resets them.
+fn report(who: &str, rows: usize, elapsed: std::time::Duration) {
+    println!(
+        "{who:4} rows={rows} {:.3}ms allocs={} alloc_bytes={} reads={}",
+        elapsed.as_secs_f64() * 1e3,
+        ALLOCS.swap(0, Ordering::Relaxed),
+        ALLOC_BYTES.swap(0, Ordering::Relaxed),
+        SEGMENT_READS.swap(0, Ordering::Relaxed),
+    );
+}
 
 /// Segment reads the exec graph issued in the current run.
 static READS: AtomicUsize = AtomicUsize::new(0);
@@ -261,15 +320,17 @@ fn write_file(t: &Table, variant: Variant) -> VortexFile {
         )
         .expect("write");
     if variant.on_disk {
-        // The directory lives as long as the file is benchmarked.
-        let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
-        let path = dir.path().join(format!("{}.vortex", variant.name));
+        // A fixed path per variant, overwritten by every run, so runs leave one file behind
+        // rather than one each.
+        let path = std::env::temp_dir().join(format!("vortex-query-bench-{}.vortex", variant.name));
         std::fs::write(&path, buf.as_ref()).expect("write file");
-        return RUNTIME
-            .block_on(SESSION.open_options().open_path(&path))
-            .expect("open path");
+        return counted(
+            RUNTIME
+                .block_on(SESSION.open_options().open_path(&path))
+                .expect("open path"),
+        );
     }
-    SESSION.open_options().open_buffer(buf).expect("open")
+    counted(SESSION.open_options().open_buffer(buf).expect("open"))
 }
 
 /// The file variants.
@@ -504,6 +565,18 @@ fn splits(file: &VortexFile, query: &Query) -> Vec<std::ops::Range<u64>> {
     layout_splits(file, &query.projection, query.filter.as_ref())
 }
 
+/// How the scan is split, for both executors: `SPLIT=layout` (the default) at the chunk
+/// boundaries of the columns read, or `SPLIT=<rows>` into fixed row ranges.
+fn split_by() -> SplitBy {
+    match std::env::var("SPLIT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        Some(rows) => SplitBy::RowCount(rows),
+        None => SplitBy::Layout,
+    }
+}
+
 fn layout_splits(
     file: &VortexFile,
     projection: &BoundExpression,
@@ -511,7 +584,7 @@ fn layout_splits(
 ) -> Vec<std::ops::Range<u64>> {
     let reader = file.layout_reader().expect("reader");
     let masks = referenced_field_masks(projection, filter).expect("masks");
-    SplitBy::Layout
+    split_by()
         .splits(reader.as_ref(), &(0..file.row_count()), &masks)
         .expect("splits")
         .windows(2)
@@ -620,6 +693,12 @@ fn drive(
 /// default concurrency, so reads overlap compute. A file in memory answers reads at once, so
 /// nothing is gained by holding more than one split's graph alive.
 fn in_flight(variant: Variant) -> usize {
+    if let Some(n) = std::env::var("IN_FLIGHT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        return n;
+    }
     if variant.on_disk {
         4 * get_available_parallelism().unwrap_or(1)
     } else {
@@ -876,7 +955,7 @@ fn run_v1(file: &VortexFile, query: &Planned) -> usize {
             .expect("scan")
             .with_some_filter(query.filter.clone())
             .with_projection(query.projection_expr.clone())
-            .with_split_by(SplitBy::Layout)
+            .with_split_by(split_by())
             .into_array_stream()
             .expect("stream");
         let mut rows = 0;
@@ -932,16 +1011,20 @@ fn main() {
     }
     for _ in 0..2 {
         if only != "v1" {
+            ALLOCS.store(0, Ordering::Relaxed);
+            ALLOC_BYTES.store(0, Ordering::Relaxed);
+            SEGMENT_READS.store(0, Ordering::Relaxed);
             let start = std::time::Instant::now();
-            READS.store(0, Ordering::Relaxed);
             let rows = run_exec(file, query, algorithm, source, *variant);
-            println!("exec reads={}", READS.load(Ordering::Relaxed));
-            println!("exec rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
+            report("exec", rows, start.elapsed());
         }
         if only != "exec" {
+            ALLOCS.store(0, Ordering::Relaxed);
+            ALLOC_BYTES.store(0, Ordering::Relaxed);
+            SEGMENT_READS.store(0, Ordering::Relaxed);
             let start = std::time::Instant::now();
             let rows = run_v1(file, query);
-            println!("v1   rows={rows} {}ms", start.elapsed().as_secs_f64() * 1e3);
+            report("v1", rows, start.elapsed());
         }
     }
 }
