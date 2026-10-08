@@ -24,6 +24,8 @@ use crate::layouts::list::OFFSETS_CHILD_INDEX;
 use crate::layouts::list::VALIDITY_CHILD_INDEX;
 use crate::layouts::struct_::Struct;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 use crate::plan::ConcatPlan;
 use crate::plan::FilterPlan;
 use crate::plan::ListPackPlan;
@@ -55,6 +57,14 @@ pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
     }
     if let Some(layout) = layout.as_opt::<List>() {
         return Ok(lower_list(layout)?.into_plan());
+    }
+    if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
+        // Zone statistics only drive pruning, which plans do not do yet. The data child holds
+        // the layout's rows.
+        let data = layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("Zoned layout is missing its data child"))?;
+        return lower(&data);
     }
     vortex_bail!(
         "No physical plan implementation for layout '{}'",

@@ -76,6 +76,14 @@ workspace = true
 name = "split_collection"
 harness = false
 
+[[bench]]
+name = "query_v1"
+harness = false
+
+[[bench]]
+name = "query_exec"
+harness = false
+
 [features]
 default = ["wasm-bindgen"]
 object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
