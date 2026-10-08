@@ -511,41 +511,19 @@ pub(super) fn run_end_canonicalize(
     let pends = ends.downcast::<Primitive>();
 
     Ok(match values.dtype() {
-        DType::Bool(_) => runend_decode_bools(
-            pends,
-            values.downcast::<Bool>(),
-            offset,
-            len,
-            ctx,
-        )?,
-        DType::Primitive(..) => runend_decode_primitive(
-            pends,
-            values.downcast::<Primitive>(),
-            offset,
-            len,
-            ctx,
-        )?,
-        DType::Decimal(..) => runend_decode_decimal(
-            pends,
-            values.downcast::<Decimal>(),
-            offset,
-            len,
-            ctx,
-        )?,
-        DType::Utf8(_) | DType::Binary(_) => runend_decode_varbinview(
-            pends,
-            values.downcast::<VarBinView>(),
-            offset,
-            len,
-            ctx,
-        )?,
-        DType::List(..) => runend_decode_listview(
-            pends,
-            values.downcast::<ListView>(),
-            offset,
-            len,
-        )?
-        .into_array(),
+        DType::Bool(_) => runend_decode_bools(pends, values.downcast::<Bool>(), offset, len, ctx)?,
+        DType::Primitive(..) => {
+            runend_decode_primitive(pends, values.downcast::<Primitive>(), offset, len, ctx)?
+        }
+        DType::Decimal(..) => {
+            runend_decode_decimal(pends, values.downcast::<Decimal>(), offset, len, ctx)?
+        }
+        DType::Utf8(_) | DType::Binary(_) => {
+            runend_decode_varbinview(pends, values.downcast::<VarBinView>(), offset, len, ctx)?
+        }
+        DType::List(..) => {
+            runend_decode_listview(pends, values.downcast::<ListView>(), offset, len)?.into_array()
+        }
         dtype => vortex_bail!("Unsupported RunEnd value type: {}", dtype),
     })
 }
