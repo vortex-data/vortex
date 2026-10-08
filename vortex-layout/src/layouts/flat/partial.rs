@@ -216,11 +216,19 @@ impl PartialReadPlan {
         }
         let preferred_read_size = usize::try_from(source.preferred_read_size()?).ok()?;
         let segment_len = usize::try_from(source.segment_len(segment_id)?).ok()?;
-        let desired_rows = (preferred_read_size / self.bytes_per_row).max(1);
-        let page_rows = desired_rows
-            .div_ceil(self.row_granularity)
-            .saturating_mul(self.row_granularity);
-        let pages = selected_pages(page_rows, layout_len, row_range, mask)?;
+        // Reads are rounded to I/O blocks per buffer rather than to row pages spanning every
+        // buffer, so a single row costs a block or two of each buffer, not a page of each.
+        let block = (preferred_read_size / 16).max(1);
+        // Runs of selected rows closer than a block of bytes are read and decoded together.
+        let merge_gap_rows = block / self.bytes_per_row;
+        let pages = selected_runs(
+            self.row_granularity,
+            merge_gap_rows,
+            layout_len,
+            row_range,
+            mask,
+        )?;
+        let page_rows = pages.iter().map(Range::len).max().unwrap_or(0);
         // Each extra read costs a request, an allocation and a decode, while a whole segment read
         // usually coalesces with its neighbours into one, and cached bytes are cheap to copy.
         // Charge a page of bytes per extra read. Encodings that decode per row (ALP-RD,
@@ -234,7 +242,7 @@ impl PartialReadPlan {
                 8
             };
         let (partial_bytes, request_count) =
-            self.estimated_partial_io(&pages, preferred_read_size / 4)?;
+            self.estimated_partial_io(&pages, preferred_read_size / 4, block, segment_len)?;
         let partial_cost = partial_bytes.checked_add(
             request_count
                 .saturating_sub(1)
@@ -289,17 +297,17 @@ impl PartialReadPlan {
                                 let end = buffer.descriptor.range().start
                                     + rows.end.div_ceil(buffer.row_granularity)
                                         * buffer.bytes_per_granule;
-                                Some((
-                                    u64::try_from(start).ok()?..u64::try_from(end).ok()?,
-                                    buffer.descriptor.clone(),
-                                ))
+                                Some((start..end, buffer.descriptor.clone()))
                             })
                             .collect::<Option<Vec<_>>>()?;
                         Some((rows, ranges))
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let requests = source.request_ranges(
+                let requests = request_block_aligned(
+                    source,
                     segment_id,
+                    block,
+                    segment_len,
                     page_specs
                         .iter()
                         .flat_map(|(_, ranges)| ranges.iter().map(|(range, _)| range.clone()))
@@ -327,30 +335,22 @@ impl PartialReadPlan {
                         let inner_end = rows.end.checked_mul(values_per_row)?;
                         let left = bitpacked_range(&plan.left, inner_start..inner_end)?;
                         let right = bitpacked_range(&plan.right, inner_start..inner_end)?;
-                        Some((
-                            rows,
-                            u64::try_from(left.start).ok()?..u64::try_from(left.end).ok()?,
-                            u64::try_from(right.start).ok()?..u64::try_from(right.end).ok()?,
-                        ))
+                        Some((rows, left, right))
                     })
                     .collect::<Option<Vec<_>>>()?;
                 let patch_specs = plan
                     .patch_buffers
                     .iter()
-                    .map(|descriptor| {
-                        Some((
-                            u64::try_from(descriptor.range().start).ok()?
-                                ..u64::try_from(descriptor.range().end).ok()?,
-                            descriptor.clone(),
-                        ))
-                    })
-                    .collect::<Option<Vec<_>>>()?;
+                    .map(|descriptor| (descriptor.range().clone(), descriptor.clone()))
+                    .collect::<Vec<_>>();
                 let ranges = page_specs
                     .iter()
                     .flat_map(|(_, left, right)| [left.clone(), right.clone()])
                     .chain(patch_specs.iter().map(|(range, _)| range.clone()))
                     .collect();
-                let mut requests = source.request_ranges(segment_id, ranges).into_iter();
+                let mut requests =
+                    request_block_aligned(source, segment_id, block, segment_len, ranges)
+                        .into_iter();
                 let pages = page_specs
                     .into_iter()
                     .map(|(rows, ..)| {
@@ -385,6 +385,8 @@ impl PartialReadPlan {
         &self,
         pages: &[Range<usize>],
         coalesce_distance: usize,
+        block: usize,
+        segment_len: usize,
     ) -> Option<(usize, usize)> {
         let mut ranges = Vec::new();
         match &self.kind {
@@ -417,6 +419,10 @@ impl PartialReadPlan {
                 ranges.extend(plan.patch_buffers.iter().map(|b| b.range().clone()));
             }
         }
+        let mut ranges = ranges
+            .into_iter()
+            .map(|range| block_aligned(range, block, segment_len))
+            .collect::<Vec<_>>();
         ranges.sort_unstable_by_key(|range| range.start);
 
         let mut bytes = 0usize;
@@ -689,19 +695,64 @@ fn empty_handles(len: usize) -> Vec<BufferHandle> {
         .collect()
 }
 
-fn selected_pages(
-    page_rows: usize,
+/// Expand `range` to whole `block`s, without passing the end of the segment.
+fn block_aligned(range: Range<usize>, block: usize, segment_len: usize) -> Range<usize> {
+    let start = range.start / block * block;
+    let end = range
+        .end
+        .div_ceil(block)
+        .saturating_mul(block)
+        .min(segment_len)
+        .max(range.end);
+    start..end
+}
+
+/// Request `ranges` rounded out to whole I/O blocks, resolving each to its exact bytes.
+fn request_block_aligned(
+    source: &Arc<dyn SegmentSource>,
+    segment_id: SegmentId,
+    block: usize,
+    segment_len: usize,
+    ranges: Vec<Range<usize>>,
+) -> Vec<SegmentFuture> {
+    let wide = ranges
+        .iter()
+        .map(|range| block_aligned(range.clone(), block, segment_len))
+        .collect::<Vec<_>>();
+    source
+        .request_ranges(
+            segment_id,
+            wide.iter()
+                .map(|range| range.start as u64..range.end as u64)
+                .collect(),
+        )
+        .into_iter()
+        .zip(ranges)
+        .zip(wide)
+        .map(|((read, exact), wide)| {
+            let start = exact.start - wide.start;
+            let len = exact.len();
+            async move { Ok(read.await?.slice(start..start + len)) }.boxed()
+        })
+        .collect()
+}
+
+/// The runs of rows to read: selected rows rounded out to the encoding's row granularity, with
+/// runs fewer than `merge_gap_rows` apart merged.
+fn selected_runs(
+    granularity: usize,
+    merge_gap_rows: usize,
     layout_len: usize,
     row_range: &Range<usize>,
     mask: &Mask,
 ) -> Option<Vec<Range<usize>>> {
-    let mut page_indices = BTreeSet::new();
     let all = [(0, mask.len())];
     let slices: &[(usize, usize)] = match mask.slices() {
         AllOr::None => &[],
         AllOr::All => &all,
         AllOr::Some(slices) => slices,
     };
+    let mut runs: Vec<Range<usize>> = Vec::new();
     for &(start, end) in slices {
         if start >= end {
             continue;
@@ -711,15 +762,15 @@ fn selected_pages(
         if global_end > row_range.end || global_end > layout_len {
             return None;
         }
-        page_indices.extend(global_start / page_rows..=(global_end - 1) / page_rows);
-    }
-    // Adjacent pages form one run, so they are read with one request and decoded once.
-    let mut runs: Vec<Range<usize>> = Vec::new();
-    for page_index in page_indices {
-        let start = page_index * page_rows;
-        let end = start.saturating_add(page_rows).min(layout_len);
+        let start = global_start / granularity * granularity;
+        let end = global_end
+            .div_ceil(granularity)
+            .saturating_mul(granularity)
+            .min(layout_len);
         match runs.last_mut() {
-            Some(run) if run.end == start => run.end = end,
+            Some(run) if start <= run.end.saturating_add(merge_gap_rows) => {
+                run.end = run.end.max(end);
+            }
             _ => runs.push(start..end),
         }
     }

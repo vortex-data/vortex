@@ -689,7 +689,7 @@ mod test {
             let expected = PrimitiveArray::from_iter([1i32, 10]).into_array();
             assert_arrays_eq!(result, expected, &mut ctx);
             assert_eq!(source.whole_requests.load(Ordering::Relaxed), 0);
-            assert_eq!(*source.ranges.lock(), [0..16, 32..48]);
+            assert_eq!(*source.ranges.lock(), [4..8, 40..44]);
 
             let result = reader
                 .projection_evaluation(
@@ -701,7 +701,7 @@ mod test {
             assert_arrays_eq!(result, expected, &mut ctx);
             assert_eq!(
                 *source.ranges.lock(),
-                [0..16, 32..48, 0..16, 32..48],
+                [4..8, 40..44, 4..8, 40..44],
                 "separate evaluations must not retain page data"
             );
             Ok(())
@@ -801,7 +801,7 @@ mod test {
             assert_arrays_eq!(result, expected, &mut ctx);
             assert_eq!(
                 *source.ranges.lock(),
-                [0..16, 32..48],
+                [4..8, 40..44],
                 "one in-flight request should serve filter and projection"
             );
             Ok(())
@@ -809,7 +809,7 @@ mod test {
     }
 
     #[test]
-    fn adjacent_pages_are_read_as_one_run() -> VortexResult<()> {
+    fn adjacent_rows_are_read_as_one_run() -> VortexResult<()> {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
@@ -837,15 +837,15 @@ mod test {
                 .projection_evaluation(
                     &(0..1024),
                     &expr,
-                    MaskFuture::ready(Mask::from_indices(1024, [1, 5])).with_partial_reads(),
+                    MaskFuture::ready(Mask::from_indices(1024, [1, 2])).with_partial_reads(),
                 )?
                 .await?;
 
-            assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 5]), &mut ctx);
+            assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2]), &mut ctx);
             assert_eq!(source.whole_requests.load(Ordering::Relaxed), 0);
             assert_eq!(
                 source.ranges.lock().as_slice(),
-                std::slice::from_ref(&(0u64..32))
+                std::slice::from_ref(&(4u64..12))
             );
             Ok(())
         })
