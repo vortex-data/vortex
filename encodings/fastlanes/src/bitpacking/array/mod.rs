@@ -150,8 +150,12 @@ fn block_range(
     packed_len: usize,
 ) -> VortexResult<Range<usize>> {
     vortex_ensure!(
-        base <= start && start <= end,
-        "Block boundaries {start} and {end} are decreasing (base {base})"
+        base <= start,
+        "Block boundary {start} is below the first boundary {base}"
+    );
+    vortex_ensure!(
+        start <= end,
+        "Block boundaries {start} and {end} are decreasing"
     );
     vortex_ensure!(
         end - base <= packed_len as u64,
