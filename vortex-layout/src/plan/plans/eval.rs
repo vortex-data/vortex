@@ -19,11 +19,12 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
-use crate::plan::exec::EvalNode;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanReduceRule;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::EvalStage;
+use crate::segments::SegmentId;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -120,16 +121,23 @@ impl PlanVTable for Eval {
         }
     }
 
-    fn exec(
+    fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        _ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        Ok(Box::new(EvalNode::new(
-            plan.clone(),
-            Selection::try_new(rows, mask)?,
-        )))
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let chain = compiler.compile(&plan.child_plan()?, rows, mask)?;
+        Ok(chain.map(|chain| chain.with(EvalStage::new(plan.expression().clone()))))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        plan.child_plan()?.reach(rows, at, visit)
     }
 }
 

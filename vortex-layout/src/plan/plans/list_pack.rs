@@ -20,10 +20,11 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::ListPackNode;
-use crate::plan::exec::Selection;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::ListPackSource;
+use crate::segments::SegmentId;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -122,19 +123,6 @@ impl PlanVTable for ListPack {
         validate_children(plan.dtype(), plan.row_count(), children)
     }
 
-    fn exec(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        Ok(Box::new(ListPackNode::new(
-            plan.clone(),
-            Selection::try_new(rows, mask)?,
-            ctx.session().clone(),
-        )))
-    }
-
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         match index {
             ELEMENTS => Cow::Borrowed("elements"),
@@ -142,6 +130,52 @@ impl PlanVTable for ListPack {
             VALIDITY => Cow::Borrowed("validity"),
             _ => Cow::Owned(format!("child[{index}]")),
         }
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let (Some(first), Some(last)) = (mask.first(), mask.last()) else {
+            return Ok(None);
+        };
+        // Only the lists from the first selected to the last are read.
+        let read = rows.start + u64::try_from(first)?..rows.start + u64::try_from(last)? + 1;
+        let mask = mask.slice(first..last + 1);
+        let len = mask.len();
+        let validity = plan.validity()?;
+        let mut chains = vec![
+            compiler
+                .compile(
+                    &plan.offsets()?,
+                    read.start..read.end + 1,
+                    &Mask::new_true(len + 1),
+                )?
+                .ok_or_else(|| vortex_err!("List offsets produced no rows"))?,
+        ];
+        if let Some(validity) = &validity {
+            chains.push(
+                compiler
+                    .compile(validity, read, &Mask::new_true(len))?
+                    .ok_or_else(|| vortex_err!("List validity produced no rows"))?,
+            );
+        }
+        let source = ListPackSource::new(plan.clone(), mask, validity.is_some());
+        Ok(Some(compiler.join(chains, source)))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        // The elements' range is known only once the offsets are read, so a list's segments
+        // are read by the list alone.
+        let _ = (plan, rows, at, visit);
+        Ok(())
     }
 }
 
