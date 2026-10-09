@@ -36,6 +36,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::between;
 use vortex::expr::binary;
 use vortex::expr::dynamic;
 use vortex::expr::get_item;
@@ -48,6 +49,8 @@ use vortex::expr::stats::Stat;
 use vortex::file::FileStatistics;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
+use vortex::scalar_fn::fns::between::BetweenOptions;
+use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::session::VortexSession;
 
@@ -599,42 +602,84 @@ fn column_static_filter(
     members: Option<Vec<Scalar>>,
 ) -> Option<Expression> {
     let lhs = get_item(name.to_owned(), root());
-    let mut conjuncts = vec![];
     // The range the file's rows can lie in after the bounds are applied; the whole file when the
     // bounds aren't selective enough to be worth evaluating.
     let mut range = file_range;
+    let mut kept_bounds = None;
     if !bounds.is_empty() {
         let bounded = bounded_range(&bounds, range)?;
         let kept = range_fraction(bounded, range);
         tracing::debug!(column = %name, kept, "complete dynamic filter bounds");
         if kept <= MAX_KEPT_FRACTION {
             range = bounded;
-            conjuncts.extend(
-                bounds
-                    .into_iter()
-                    .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
-            );
+            kept_bounds = Some(bounds);
         }
     }
     // A membership list is only worth its decode of the column when it prunes a meaningful share
     // of the rows the bounds keep, which a list that is dense in that range does not. Assumes an
     // integer column spread uniformly over the range.
+    let mut members_list = None;
     if let Some(values) = members
         && dtype.is_int()
     {
         let kept = (values.len() as f64 / (range.1 - range.0 + 1.0)).clamp(0.0, 1.0);
         tracing::debug!(column = %name, kept, members = values.len(), "complete dynamic filter members");
         if kept <= MAX_KEPT_FRACTION {
-            let list = Scalar::list(dtype.clone(), values, Nullability::NonNullable);
-            conjuncts.push(in_list(lhs.clone(), lit(list)));
+            members_list = Some(Scalar::list(
+                dtype.clone(),
+                values,
+                Nullability::NonNullable,
+            ));
         }
     }
-    let comparisons = and_collect(conjuncts)?;
+    // Every comparison decodes the column on its own, so the column is referenced once: the list
+    // alone when there is one (its values all lie within the bounds), else the bounds as a single
+    // `between` where they form a range.
+    let comparisons = match (members_list, kept_bounds) {
+        (Some(list), _) => in_list(lhs.clone(), lit(list)),
+        (None, Some(bounds)) => bounds_expr(&lhs, bounds)?,
+        (None, None) => return None,
+    };
     Some(if dtype.is_nullable() {
         or(is_null(lhs), comparisons)
     } else {
         comparisons
     })
+}
+
+/// `lhs` compared against `bounds`, as one `between` when they hold a single lower and a single
+/// upper bound.
+fn bounds_expr(lhs: &Expression, bounds: Vec<(CompareOperator, Scalar)>) -> Option<Expression> {
+    let lower = bounds
+        .iter()
+        .filter(|(op, _)| matches!(op, CompareOperator::Gt | CompareOperator::Gte))
+        .collect::<Vec<_>>();
+    let upper = bounds
+        .iter()
+        .filter(|(op, _)| matches!(op, CompareOperator::Lt | CompareOperator::Lte))
+        .collect::<Vec<_>>();
+    if let ([(lower_op, lower)], [(upper_op, upper)]) = (lower.as_slice(), upper.as_slice())
+        && bounds.len() == 2
+    {
+        let strictness = |op: &CompareOperator| match op {
+            CompareOperator::Gt | CompareOperator::Lt => StrictComparison::Strict,
+            _ => StrictComparison::NonStrict,
+        };
+        return Some(between(
+            lhs.clone(),
+            lit(lower.clone()),
+            lit(upper.clone()),
+            BetweenOptions {
+                lower_strict: strictness(lower_op),
+                upper_strict: strictness(upper_op),
+            },
+        ));
+    }
+    and_collect(
+        bounds
+            .into_iter()
+            .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
+    )
 }
 
 /// Narrows the `[min, max]` range of a column to the part `bounds` keep. Returns `None` for
@@ -1170,6 +1215,49 @@ mod tests {
             (None, None) => {}
             (converted, expected) => panic!("expected {expected:?}, got {converted:?}"),
         }
+        Ok(())
+    }
+
+    /// Every comparison decodes the column on its own, so a complete filter references each
+    /// column once: a range becomes one `between`, and a membership list replaces the bounds it
+    /// lies within.
+    #[rstest]
+    #[case(range(4, 5), lit_bool(true), [false, true, false])]
+    #[case(
+        binary(col_a(), DFOperator::Gt, lit_i32(4)),
+        binary(col_a(), DFOperator::Lt, lit_i32(6)),
+        [false, true, false],
+    )]
+    #[case(
+        binary(col_a(), DFOperator::Gt, lit_i32(4)),
+        binary(col_a(), DFOperator::LtEq, lit_i32(5)),
+        [false, true, false],
+    )]
+    #[case(range(1, 10), in_list_a(&[1, 10]), [true, false, true])]
+    fn complete_filter_reads_column_once(
+        #[case] left: PhysicalExprRef,
+        #[case] right: PhysicalExprRef,
+        #[case] expected: [bool; 3],
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input =
+            StructArray::from_fields(&[("a", buffer![1i32, 5, 10].into_array())])?.into_array();
+        let file_stats = stats_1_to_10(&input);
+        let filter = complete_filter(binary(left, DFOperator::And, right));
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+
+        let converted = dynamic_filter_to_vortex(&filter, fields, Some(&file_stats), &session)
+            .expect("selective filter should convert");
+        assert_eq!(
+            converted.to_string().matches("$.a").count(),
+            1,
+            "{converted}"
+        );
+        assert_arrays_eq!(
+            input.apply(&converted)?,
+            BoolArray::from_iter(expected),
+            &mut session.create_execution_ctx()
+        );
         Ok(())
     }
 
