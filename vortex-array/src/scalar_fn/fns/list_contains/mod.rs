@@ -16,6 +16,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::iter::ReduceBalancedIterExt;
@@ -291,10 +292,70 @@ fn compute_list_contains(
     }
 
     if let Some(list_scalar) = array.as_constant() {
-        return constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, options);
+        let list_scalar = list_scalar.as_list();
+        if let Some(result) =
+            sorted_integer_list_contains(&list_scalar, value, nullability, options, ctx)?
+        {
+            return Ok(result);
+        }
+        return constant_list_scalar_contains(&list_scalar, value, nullability, options);
     }
 
     vortex_bail!("unsupported list contains with list and element as arrays")
+}
+
+/// Lists at least this long are searched per needle instead of compared element by element.
+const MIN_SORTED_SEARCH_ELEMENTS: usize = 4;
+
+/// Integer needles against a constant list of at least [`MIN_SORTED_SEARCH_ELEMENTS`] non-null
+/// elements: a binary search over the sorted elements per needle, instead of one comparison over
+/// the whole needle array per element. Returns `None` when the fast path does not apply.
+fn sorted_integer_list_contains(
+    list_scalar: &ListScalar,
+    values: &ArrayRef,
+    nullability: Nullability,
+    options: &ListContainsOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let elements = list_scalar.elements().vortex_expect("non null");
+    let DType::Primitive(ptype, _) = values.dtype() else {
+        return Ok(None);
+    };
+    if !values.dtype().is_int()
+        || elements.len() < MIN_SORTED_SEARCH_ELEMENTS
+        || elements.iter().any(Scalar::is_null)
+    {
+        return Ok(None);
+    }
+
+    let needles = values.clone().execute::<PrimitiveArray>(ctx)?;
+    let valid = needles.validity()?.execute_mask(needles.len(), ctx)?;
+    let mut bits = match_each_integer_ptype!(*ptype, |T| {
+        let mut sorted = elements
+            .iter()
+            .map(|element| element.as_primitive().typed_value::<T>())
+            .collect::<Option<Vec<T>>>()
+            .vortex_expect("list elements share the needle dtype and are not null");
+        sorted.sort_unstable();
+        sorted.dedup();
+        needles
+            .as_slice::<T>()
+            .iter()
+            .map(|needle| sorted.binary_search(needle).is_ok())
+            .collect::<BitBuffer>()
+    });
+
+    // Null needles carry unspecified value bits, which must not match. Under SQL null semantics
+    // they stay null (the list holds no null, so they can't be true); otherwise they are false.
+    if !valid.all_true() {
+        bits = &bits & &valid.to_bit_buffer();
+    }
+    let validity = if options.sql_null_semantics {
+        Validity::from_mask(valid, nullability)
+    } else {
+        Validity::from_mask(Mask::new_true(needles.len()), nullability)
+    };
+    Ok(Some(BoolArray::new(bits, validity).into_array()))
 }
 
 /// There is a constant list scalar (haystack) being compared to an array of needles.
@@ -1422,6 +1483,38 @@ mod tests {
             lists.apply(&list_contains_opts(root(), lit(1), SQL)),
             [Some(true), Some(false), Some(false), Some(false)],
         )
+    }
+
+    /// Lists long enough for the sorted search give the same answer as element-wise comparison,
+    /// including for null needles under both null semantics.
+    #[test]
+    fn sorted_search_matches_elementwise_search() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let set = Scalar::list(
+            Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+            vec![
+                9i32.into(),
+                1i32.into(),
+                12i32.into(),
+                5i32.into(),
+                5i32.into(),
+            ],
+            Nullability::NonNullable,
+        );
+        let needles =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(5), Some(7), Some(12)])
+                .into_array();
+
+        let sql = needles.clone().apply(&in_list(root(), lit(set.clone())))?;
+        let expected =
+            BoolArray::from_iter([Some(true), None, Some(true), Some(false), Some(true)]);
+        assert_arrays_eq!(sql, expected, &mut ctx);
+
+        let plain = needles.apply(&list_contains(lit(set), root()))?;
+        let expected =
+            BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false), Some(true)]);
+        assert_arrays_eq!(plain, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
