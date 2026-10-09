@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use onpair::CompactDictionaryView;
 use prost::Message;
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -697,6 +698,41 @@ fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
 
     let expected = input.into_array().take(indices)?;
     assert_arrays_eq!(typed.into_array(), expected, &mut ctx);
+    Ok(())
+}
+
+/// A dense take leaves execution to decode every row once instead of gathering token runs, which
+/// would decode a row again for every index that repeats it.
+#[rstest]
+#[case::quarter((0..500).map(|i| i % 50).collect())]
+#[case::many_per_row((0..8_000).map(|i| i % 50).collect())]
+fn test_onpair_dense_take_declines(#[case] indices: Vec<u32>) -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = compress_onpair(&take_input().into_array(), &mut ctx)?;
+    let indices = PrimitiveArray::from_iter(indices).into_array();
+    assert!(<OnPair as TakeExecute>::take(arr.as_view(), &indices, &mut ctx)?.is_none());
+    Ok(())
+}
+
+/// A dictionary over OnPair values returns the right rows whether the take gathers token runs or
+/// decodes every row.
+#[rstest]
+#[case::sparse(vec![Some(1999u32), None, Some(0), Some(7), Some(7)])]
+#[case::dense_repeated((0..4_000).map(|i| (i % 7 != 0).then_some(i % 50)).collect())]
+#[case::every_row((0..2_000).rev().map(Some).collect())]
+#[case::all_null(vec![None; 1_000])]
+fn test_dict_over_onpair_take(#[case] indices: Vec<Option<u32>>) -> vortex_error::VortexResult<()> {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let input = take_input();
+    let arr = compress_onpair(&input.clone().into_array(), &mut ctx)?;
+    let indices = PrimitiveArray::from_option_iter(indices).into_array();
+    let dict = DictArray::try_new(indices.clone(), arr.into_array())?.into_array();
+
+    let expected = input.into_array().take(indices)?;
+    assert_arrays_eq!(dict, expected, &mut ctx);
     Ok(())
 }
 

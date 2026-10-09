@@ -21,12 +21,27 @@ use crate::FSST;
 use crate::FSSTArrayExt;
 use crate::FSSTArraySlotsExt;
 
+/// Below this many rows, decoding all of them costs less than gathering compressed rows.
+const MIN_GATHER_LEN: usize = 1024;
+
+/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers compressed
+/// rows. A denser take decodes every row once and gathers the decoded strings instead: gathering
+/// decodes a row again for every index that repeats it, and costs more per row than decoding
+/// in bulk.
+const SPARSE_TAKE_DENOMINATOR: usize = 4;
+
 impl TakeExecute for FSST {
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if array.len() < MIN_GATHER_LEN
+            || indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) >= array.len()
+        {
+            return Ok(None);
+        }
+
         Ok(Some(
             FSST::try_new_with_symbol_table(
                 array
@@ -55,14 +70,18 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::dict::TakeExecute;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
 
+    use crate::FSST;
     use crate::FSSTArray;
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
@@ -110,6 +129,43 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
         let array = fsst_compress(&varbin, &compressor, &mut ctx)?;
         test_take_conformance(&array.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    /// A dictionary over FSST values returns the right rows whether the take gathers compressed
+    /// rows or decodes every row, and a dense take leaves the decode to execution.
+    #[rstest]
+    #[case::sparse(300, 2_000, false)]
+    #[case::dense_repeated(4_000, 50, true)]
+    #[case::every_row(2_000, 2_000, true)]
+    fn test_dict_over_fsst_take(
+        #[case] len: u32,
+        #[case] range: u32,
+        #[case] declines: bool,
+    ) -> VortexResult<()> {
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+
+        let input = VarBinArray::from_iter(
+            (0..2_000)
+                .map(|i| (i % 11 != 0).then(|| format!("https://www.example.com/items/{i:06}"))),
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let compressor = fsst_train_compressor(&input, &mut ctx)?;
+        let fsst = fsst_compress(&input, &compressor, &mut ctx)?;
+
+        let indices = PrimitiveArray::from_option_iter(
+            (0..len).map(|i| (i % 3 != 0).then_some(i * 7 % range)),
+        )
+        .into_array();
+        let taken = <FSST as TakeExecute>::take(fsst.as_view(), &indices, &mut ctx)?;
+        assert_eq!(taken.is_none(), declines);
+
+        let dict = DictArray::try_new(indices.clone(), fsst.into_array())?.into_array();
+        let expected = input.take(indices)?;
+        assert_arrays_eq!(dict, expected, &mut ctx);
         Ok(())
     }
 
