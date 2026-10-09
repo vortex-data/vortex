@@ -129,3 +129,9 @@ message SelectOpts {
 message CaseWhenOpts {
   uint32 num_children = 1;
 }
+
+// Options for `vortex.replace_time_zone`. Ambiguity policy is an expression child.
+message ReplaceTimeZoneOpts {
+  optional string time_zone = 1;
+  bool null_on_non_existent = 2;
+}
