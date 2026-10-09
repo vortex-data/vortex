@@ -21,6 +21,7 @@ use vortex_mask::Mask;
 use super::synthetic::Probe;
 use super::synthetic::ProbeRun;
 use super::synthetic::RowSource;
+use super::synthetic::SyntheticPlan;
 use super::synthetic::empty_segment;
 use super::synthetic::row_dtype;
 use super::*;
@@ -195,4 +196,70 @@ fn splits_produce_their_own_rows() -> VortexResult<()> {
         assert_rows(indices(rows), std::mem::take(&mut by_split[split]))?;
     }
     Ok(())
+}
+
+/// Asks for every segment at once and emits each segment's id as it arrives.
+struct ManyReads {
+    wanted: Vec<SegmentId>,
+    left: usize,
+}
+
+impl Operator for ManyReads {
+    fn compute(&mut self, _input: Input, cx: &mut Cx<'_>) -> VortexResult<Step> {
+        if let Some((segment, _bytes)) = cx.take_segment() {
+            self.left -= 1;
+            return Ok(Step::More(indices([u64::from(*segment)])));
+        }
+        Ok(if self.left == 0 {
+            Step::Finished
+        } else {
+            Step::Blocked(Blocked::Io)
+        })
+    }
+}
+
+impl Source for ManyReads {
+    fn request(&mut self) -> Option<SegmentId> {
+        self.wanted.pop()
+    }
+}
+
+/// A source has all its reads in flight at once, and takes each segment's bytes as they arrive,
+/// tagged with the segment.
+#[test]
+fn a_source_has_several_reads_in_flight() -> VortexResult<()> {
+    let plan = SyntheticPlan::new(row_dtype(), 3, Vec::new(), |_, _, _| {
+        Ok(Some(Chain::new(ManyReads {
+            wanted: [3_u32, 2, 1].into_iter().map(SegmentId::from).collect(),
+            left: 3,
+        })))
+    })
+    .into_plan();
+    let mut scan = Scan::try_new(SESSION.clone(), plan, vec![Split::all(0..3)])?;
+    let mut inflight = Vec::new();
+    let mut arrays = Vec::new();
+    let mut first_wait = true;
+    loop {
+        match scan.step()? {
+            Turn::Read(read) => inflight.push(read),
+            Turn::Output(_, array) => arrays.push(array),
+            Turn::Waiting => {
+                if first_wait {
+                    assert_eq!(
+                        inflight.len(),
+                        3,
+                        "every read is asked for before any arrives"
+                    );
+                    first_wait = false;
+                }
+                // Deliver the last asked for first.
+                let read = inflight
+                    .pop()
+                    .ok_or_else(|| vortex_err!("no read in flight"))?;
+                scan.deliver(read.id, empty_segment())?;
+            }
+            Turn::Done => break,
+        }
+    }
+    assert_rows(indices([3, 2, 1]), arrays)
 }
