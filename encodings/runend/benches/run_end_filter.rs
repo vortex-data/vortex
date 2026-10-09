@@ -26,8 +26,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
-use vortex_runend::RunEnd;
 use vortex_runend::_benchmarking::filter_run_end_primitive;
+use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
 #[global_allocator]

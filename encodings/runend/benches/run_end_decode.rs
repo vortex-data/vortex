@@ -442,8 +442,7 @@ fn decode_primitive_nullable<T: NativePType>(bencher: Bencher, args: PrimitiveBe
         .map(|i| T::from_usize(i % 1024).vortex_expect("benchmark value fits"))
         .collect();
     let validity = BitBuffer::from_iter(
-        (0..run_count + args.validity_offset)
-            .map(|i| (i * 37) % 100 < args.valid_percent),
+        (0..run_count + args.validity_offset).map(|i| (i * 37) % 100 < args.valid_percent),
     )
     .slice(args.validity_offset..run_count + args.validity_offset);
     let validity = Mask::from(validity);
@@ -480,17 +479,18 @@ fn decode_primitive_non_nullable<T: NativePType>(bencher: Bencher, run_length: u
 fn decode_primitive_array<T: NativePType>(bencher: Bencher, run_length: usize) {
     let length = 65_536usize;
     let run_count = length.div_ceil(run_length);
-    let ends = PrimitiveArray::from_iter(
-        (1..=run_count).map(|i| (i * run_length).min(length) as u32),
-    );
+    let ends =
+        PrimitiveArray::from_iter((1..=run_count).map(|i| (i * run_length).min(length) as u32));
     let values = PrimitiveArray::new(
-        Buffer::from_iter((0..run_count).map(|i| {
-            T::from_usize(i % 1024).vortex_expect("benchmark value fits")
-        })),
+        Buffer::from_iter(
+            (0..run_count).map(|i| T::from_usize(i % 1024).vortex_expect("benchmark value fits")),
+        ),
         Validity::NonNullable,
     );
-    bencher.with_inputs(|| SESSION.create_execution_ctx()).bench_refs(|ctx| {
-        runend_decode_primitive(ends.clone(), values.clone(), 0, length, ctx)
-            .vortex_expect("benchmark decode succeeds")
-    });
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            runend_decode_primitive(ends.clone(), values.clone(), 0, length, ctx)
+                .vortex_expect("benchmark decode succeeds")
+        });
 }

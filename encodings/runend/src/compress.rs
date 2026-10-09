@@ -491,9 +491,11 @@ mod tests {
             PrimitiveArray::from_iter([1i64, 2, 3])
         };
         let expected = if nullable {
-            PrimitiveArray::from_option_iter(expected.into_iter().map(|value| {
-                (value != 2).then_some(value)
-            }))
+            PrimitiveArray::from_option_iter(
+                expected
+                    .into_iter()
+                    .map(|value| (value != 2).then_some(value)),
+            )
         } else {
             PrimitiveArray::from_iter(expected)
         };
