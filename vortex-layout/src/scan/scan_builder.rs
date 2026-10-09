@@ -9,7 +9,6 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
-use futures::StreamExt;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -36,6 +35,7 @@ use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
+use crate::scan::limit::ScanLimit;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -72,9 +72,7 @@ pub struct ScanBuilder {
     concurrency: usize,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Maximal number of rows to read after filtering.
-    limit: Option<u64>,
-    /// A row limit shared with sibling external partitions, when the caller owns one.
-    row_limit: Option<RowLimit>,
+    limit: Option<ScanLimit>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
@@ -99,7 +97,6 @@ impl ScanBuilder {
             concurrency: 4,
             metrics_registry: None,
             limit: None,
-            row_limit: None,
             row_offset: 0,
         }
     }
@@ -244,20 +241,23 @@ impl ScanBuilder {
     }
 
     /// Add or clear the maximum number of rows returned after filtering.
+    ///
+    /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
     pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
-        self.limit = limit;
+        self.limit = limit.map(ScanLimit::PerExecution);
         self
     }
 
     /// Set the maximum number of rows returned after filtering.
-    pub fn with_limit(mut self, limit: u64) -> Self {
-        self.limit = Some(limit);
-        self
+    ///
+    /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
+    pub fn with_limit(self, limit: u64) -> Self {
+        self.with_some_limit(Some(limit))
     }
 
-    /// Use a row limit supplied by the enclosing data source instead of creating a local one.
-    pub(crate) fn with_some_row_limit(mut self, row_limit: Option<RowLimit>) -> Self {
-        self.row_limit = row_limit;
+    /// Draw rows from a budget shared with sibling partitions instead of a limit of its own.
+    pub(crate) fn with_shared_limit(mut self, limit: RowLimit) -> Self {
+        self.limit = Some(ScanLimit::Shared(limit));
         self
     }
 
@@ -328,7 +328,6 @@ impl ScanBuilder {
             splits,
             self.concurrency,
             self.limit,
-            self.row_limit,
             dtype,
         ))
     }
@@ -393,8 +392,7 @@ impl Stream for LazyScanStream {
                     // This also keeps construction errors on the Preparing -> Error path rather
                     // than running construction on the caller's executor.
                     let task = handle.spawn_cpu(move || {
-                        let scan = builder.prepare()?;
-                        Ok(scan.execute_stream(None)?.boxed())
+                        builder.prepare()?.execute_stream(None)
                     });
                     self.state = LazyScanState::Preparing(PreparingScan { task });
                 }
@@ -947,13 +945,18 @@ mod test {
         Ok(())
     }
 
-    /// An ordered filtered limit cannot reserve per split (that would grant the budget to whichever
-    /// split filters first), so it trims the in-order output instead.
+    /// An ordered filtered limit reserves rows in split order, so it returns the earliest matching
+    /// rows and still never projects rows past the limit.
     #[test]
-    fn ordered_filtered_limit_trims_the_emitted_rows() -> VortexResult<()> {
+    fn ordered_filtered_limit_projects_only_the_earliest_rows() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
-        let reader = Arc::new(TestLayoutReader::new(8).with_split_size(4));
+        let projection_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(
+            TestLayoutReader::new(12)
+                .with_split_size(4)
+                .with_projection_masks(Arc::clone(&projection_masks)),
+        );
         let filter = root().bind(reader.dtype())?;
 
         let stream = ScanBuilder::new(session, reader)
@@ -964,68 +967,38 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(values, [0, 1, 2, 3, 4, 5]);
+        assert_eq!(projection_masks.lock().as_slice(), [4, 2]);
         Ok(())
     }
 
-    #[test]
-    fn filter_errors_are_stream_items_and_do_not_consume_the_limit() -> VortexResult<()> {
+    #[rstest]
+    #[case::filter_error(true, None)]
+    #[case::filter_error_with_limit(true, Some(2))]
+    #[case::projection_error(false, None)]
+    #[case::projection_error_with_limit(false, Some(2))]
+    fn errors_end_the_scan(
+        #[case] fail_filter: bool,
+        #[case] limit: Option<u64>,
+    ) -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
-        let projection_masks = Arc::new(Mutex::new(Vec::new()));
-        let reader = Arc::new(
-            TestLayoutReader::new(2)
-                .with_split_size(1)
-                .with_projection_masks(Arc::clone(&projection_masks))
-                .with_fail_first_filter(),
-        );
+        let reader = TestLayoutReader::new(2).with_split_size(1);
+        let reader = Arc::new(if fail_filter {
+            reader.with_fail_first_filter()
+        } else {
+            reader.with_fail_first_projection()
+        });
         let filter = root().bind(reader.dtype())?;
         let stream = ScanBuilder::new(session, reader)
             .with_filter(filter)
-            .with_limit(1)
-            .into_stream()?;
-        let mut iter = runtime.block_on_stream(stream);
-
-        assert!(matches!(iter.next(), Some(Err(_))));
-        let Some(chunk) = iter.next() else {
-            return Err(vortex_err!(
-                "matching split was not polled after the filter error"
-            ));
-        };
-        let mut ctx = array_session().create_execution_ctx();
-        let primitive = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
-
-        assert_eq!(primitive.into_buffer::<i32>().as_slice(), [1]);
-        assert!(iter.next().is_none());
-        assert_eq!(projection_masks.lock().as_slice(), [1]);
-        Ok(())
-    }
-
-    /// Rows reserved against a shared limit cannot be released back, so a projection failure after
-    /// reservation must end the scan rather than let a later split spend the freed budget.
-    #[test]
-    fn projection_error_after_reservation_terminates_the_limited_scan() -> VortexResult<()> {
-        let runtime = SingleThreadRuntime::default();
-        let session = session_with_handle(runtime.handle());
-        let projection_masks = Arc::new(Mutex::new(Vec::new()));
-        let reader = Arc::new(
-            TestLayoutReader::new(2)
-                .with_split_size(1)
-                .with_projection_masks(Arc::clone(&projection_masks))
-                .with_fail_first_projection(),
-        );
-        let filter = root().bind(reader.dtype())?;
-        let stream = ScanBuilder::new(session, reader)
-            .with_filter(filter)
-            // A budget of two leaves room for the second matching split. Continuing after the
-            // first projection failure would therefore yield a second stream item.
-            .with_limit(2)
-            .with_ordered(false)
+            .with_some_limit(limit)
             .into_stream()?;
         let mut iter = runtime.block_on_stream(stream);
 
         assert!(matches!(iter.next(), Some(Err(_))));
         assert!(iter.next().is_none());
-        assert!(projection_masks.lock().contains(&1));
+        drop(iter);
+        drain_runtime(&runtime);
         Ok(())
     }
 
@@ -1123,7 +1096,7 @@ mod test {
         let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
         let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader);
         let builder = if shared {
-            builder.with_some_row_limit(Some(RowLimit::new(1)))
+            builder.with_shared_limit(RowLimit::new(1))
         } else {
             builder.with_limit(1)
         };

@@ -394,6 +394,9 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
+            // Applying the limit after our filter is only correct because pushed-down filters are
+            // reported as exact: DataFusion pushes a limit into the scan only when no `FilterExec`
+            // remains above it to drop further rows.
             if let Some(limit) = limit {
                 scan_builder = scan_builder.with_limit(limit);
             }

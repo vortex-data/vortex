@@ -7,15 +7,32 @@ use std::sync::atomic::Ordering;
 
 use vortex_mask::Mask;
 
-/// A cloneable row limit shared by all work that can contribute rows to one scan.
+/// A cloneable row budget shared by all work that can contribute rows to one scan.
 ///
-/// Rows are reserved from a selection mask before projection work is constructed. This keeps
-/// rows that cannot be returned out of projection evaluation entirely. When a limit is shared by
-/// concurrent unordered partitions, reservation order is completion order, so callers may return
-/// any matching rows. Ordered limited scans instead serialize their external partitions before
-/// sharing a `RowLimit`, preserving the first matching rows in scan order.
+/// Splits reserve the rows their filter selected before projection work is constructed, so rows
+/// that cannot be returned are never decoded. Reservation order decides which rows are returned:
+/// an ordered scan reserves in split order, an unordered one in completion order.
 #[derive(Clone)]
 pub(crate) struct RowLimit(Arc<AtomicU64>);
+
+/// The row limit of a scan.
+#[derive(Clone)]
+pub(crate) enum ScanLimit {
+    /// A fresh budget of this many rows for every execution of the scan.
+    PerExecution(u64),
+    /// A budget shared with the sibling partitions of an unordered scan.
+    Shared(RowLimit),
+}
+
+impl ScanLimit {
+    /// The budget for one execution of the scan.
+    pub(crate) fn budget(&self) -> RowLimit {
+        match self {
+            Self::PerExecution(limit) => RowLimit::new(*limit),
+            Self::Shared(limit) => limit.clone(),
+        }
+    }
+}
 
 impl RowLimit {
     pub(crate) fn new(limit: u64) -> Self {

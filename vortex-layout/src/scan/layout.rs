@@ -346,10 +346,12 @@ impl Partition for LayoutReaderSplit {
             .with_selection(self.selection)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
-            .with_some_limit(self.limit)
-            .with_some_row_limit(self.row_limit)
             .with_some_metrics_registry(self.metrics_registry)
             .with_ordered(self.ordered);
+        let builder = match self.row_limit {
+            Some(row_limit) => builder.with_shared_limit(row_limit),
+            None => builder.with_some_limit(self.limit),
+        };
 
         let dtype = builder.dtype()?;
         // Use into_stream() which creates a LazyScanStream that spawns individual I/O
