@@ -15,8 +15,12 @@ use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
+use crate::builtins::ArrayBuiltins;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Reduce rule for between: restructure the array without reading buffers.
 ///
@@ -114,3 +118,65 @@ where
         <V as BetweenKernel>::between(array, lower, upper, parent.options, ctx)
     }
 }
+
+/// Uses an encoding's comparison kernels when it has no fused between kernel.
+///
+/// Both comparisons must be handled by the encoding. Otherwise this declines so the
+/// normal between fallback can canonicalize the input once.
+#[derive(Default, Debug)]
+pub struct BetweenCompareAdaptor<V>(pub V);
+
+impl<V: CompareKernel> ExecuteParentKernel<V> for BetweenCompareAdaptor<V> {
+    type Parent = ExactScalarFn<Between>;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, V>,
+        parent: ScalarFnArrayView<'_, Between>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 {
+            return Ok(None);
+        }
+        let children = parent.children();
+        let lower = &children[1];
+        let upper = &children[2];
+        if let Some(result) = short_circuit(array.array(), lower, upper, parent.options)? {
+            return result.execute::<ArrayRef>(ctx).map(Some);
+        }
+        between_compare(array, lower, upper, parent.options, ctx)
+    }
+}
+
+fn between_compare<V: CompareKernel>(
+    array: ArrayView<'_, V>,
+    lower: &ArrayRef,
+    upper: &ArrayRef,
+    options: &BetweenOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let lower_op = if options.lower_strict.is_strict() {
+        CompareOperator::Gt
+    } else {
+        CompareOperator::Gte
+    };
+    let upper_op = if options.upper_strict.is_strict() {
+        CompareOperator::Lt
+    } else {
+        CompareOperator::Lte
+    };
+    let Some(lower_cmp) = V::compare(array, lower, lower_op, ctx)? else {
+        return Ok(None);
+    };
+    let Some(upper_cmp) = V::compare(array, upper, upper_op, ctx)? else {
+        return Ok(None);
+    };
+    lower_cmp
+        .binary(upper_cmp, Operator::And)?
+        .execute::<ArrayRef>(ctx)
+        .map(Some)
+}
+
+#[cfg(test)]
+mod tests;

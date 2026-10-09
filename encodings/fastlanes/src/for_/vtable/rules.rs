@@ -9,6 +9,7 @@ use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
 
@@ -17,7 +18,7 @@ use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FoR> = ParentRuleSet::new(&[
-    // TODO: add BetweenReduceAdaptor(FoR)
+    ParentRuleSet::lift(&BetweenReduceAdaptor(FoR)),
     ParentRuleSet::lift(&FoRFilterPushDownRule),
     ParentRuleSet::lift(&FilterReduceAdaptor(FoR)),
     ParentRuleSet::lift(&SliceReduceAdaptor(FoR)),

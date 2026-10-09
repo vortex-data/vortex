@@ -135,12 +135,51 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn between_empty_and_nonempty_bounds() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = [Some(""), None, Some("a"), Some("b"), Some("c")];
+        let input = VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
+        let compressor = fsst_train_compressor(&input, &mut ctx)?;
+        let array = fsst_compress(&input, &compressor, &mut ctx)?.into_array();
+        for upper in ["", "b"] {
+            for lower_strict in [StrictComparison::Strict, StrictComparison::NonStrict] {
+                for upper_strict in [StrictComparison::Strict, StrictComparison::NonStrict] {
+                    let result = array
+                        .clone()
+                        .between(
+                            ConstantArray::new("", values.len()).into_array(),
+                            ConstantArray::new(upper, values.len()).into_array(),
+                            BetweenOptions {
+                                lower_strict,
+                                upper_strict,
+                            },
+                        )?
+                        .execute::<BoolArray>(&mut ctx)?;
+                    let expected = BoolArray::from_iter(values.map(|value| {
+                        value.map(|value| {
+                            let lower_matches = !lower_strict.is_strict() || !value.is_empty();
+                            let upper_matches =
+                                value < upper || (!upper_strict.is_strict() && value == upper);
+                            lower_matches && upper_matches
+                        })
+                    }));
+                    assert_arrays_eq!(result, expected, &mut ctx);
+                }
+            }
+        }
+        Ok(())
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();

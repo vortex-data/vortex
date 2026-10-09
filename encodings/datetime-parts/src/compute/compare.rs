@@ -243,6 +243,8 @@ mod test {
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
@@ -250,6 +252,54 @@ mod test {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
+    #[rstest]
+    fn between_non_midnight_timestamps(
+        #[values(2i64, 4)] upper_day: i64,
+        #[values(StrictComparison::Strict, StrictComparison::NonStrict)]
+        lower_strict: StrictComparison,
+        #[values(StrictComparison::Strict, StrictComparison::NonStrict)]
+        upper_strict: StrictComparison,
+    ) -> VortexResult<()> {
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let dtype = Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased();
+        let array = DateTimeParts::try_new(
+            DType::Extension(dtype.clone()),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), None]).into_array(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array(),
+            PrimitiveArray::from_iter([0i32; 4]).into_array(),
+        )?
+        .into_array();
+        let bound = |value| {
+            ConstantArray::new(
+                Scalar::extension_ref(
+                    dtype.clone(),
+                    Scalar::primitive(value, Nullability::Nullable),
+                ),
+                4,
+            )
+            .into_array()
+        };
+        let upper = upper_day * 86400 + 2;
+        let result = array
+            .between(
+                bound(0i64),
+                bound(upper),
+                BetweenOptions {
+                    lower_strict,
+                    upper_strict,
+                },
+            )?
+            .execute::<BoolArray>(&mut ctx)?;
+        let expected = BoolArray::from_iter(
+            [Some(86401i64), Some(172802), Some(259203), None].map(|value| {
+                value.map(|value| value < upper || (!upper_strict.is_strict() && value == upper))
+            }),
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,
         validity: Validity,

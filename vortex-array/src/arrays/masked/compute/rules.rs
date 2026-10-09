@@ -16,10 +16,12 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Masked> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&BetweenReduceAdaptor(Masked)),
     ParentRuleSet::lift(&FilterReduceAdaptor(Masked)),
     ParentRuleSet::lift(&MaskedGetItemRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(Masked)),
