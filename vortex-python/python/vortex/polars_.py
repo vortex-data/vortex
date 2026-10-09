@@ -25,8 +25,8 @@ def decompose_predicate(predicate: pl.Expr) -> tuple[ve.Expr | None, pl.Expr | N
     """Split a Polars predicate into a pushable Vortex expression and a Polars residual.
 
     The predicate is decomposed into its top-level AND conjuncts. Conjuncts that convert to
-    Vortex are ANDed into a single Vortex expression; the rest are ANDed into a residual
-    Polars expression that the caller must apply itself, e.g. per batch with
+    Vortex are combined with AND into a single Vortex expression; the rest are combined into
+    a residual Polars expression that the caller must apply itself, e.g. per batch with
     ``DataFrame.filter``. A row passes an AND conjunction exactly when every conjunct is
     true, so filtering by the two parts in sequence is equivalent to filtering by the
     original predicate.
