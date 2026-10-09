@@ -71,17 +71,23 @@ where
     let mut partitions = Vec::with_capacity(collector.sub_expressions.len());
     let mut partition_annotations = Vec::with_capacity(collector.sub_expressions.len());
 
-    for (annotation, exprs) in collector.sub_expressions {
-        // We pack all sub-expressions for the same annotation into a single expression.
-        let names: FieldNames = exprs
-            .iter()
-            .enumerate()
-            .map(|(idx, _)| PartitionCollector::field_name(&annotation, idx))
-            .collect();
-        let expr = pack(names.into_iter().zip(exprs), Nullability::NonNullable);
+    for (annotation, exprs) in &collector.sub_expressions {
+        // A lone sub-expression is the partition itself; several are packed into one partition.
+        let expr = match exprs.as_slice() {
+            [expr] => expr.clone(),
+            exprs => pack(
+                exprs.iter().enumerate().map(|(idx, expr)| {
+                    (
+                        PartitionCollector::field_name(annotation, idx),
+                        expr.clone(),
+                    )
+                }),
+                Nullability::NonNullable,
+            ),
+        };
 
         partitions.push(expr);
-        partition_annotations.push(annotation);
+        partition_annotations.push(annotation.clone());
     }
 
     let partition_names = partition_annotations
@@ -89,7 +95,8 @@ where
         .map(|id| FieldName::from(id.clone()))
         .collect::<FieldNames>();
     let root_scope = partition_root_dtype(&partition_names, &partitions);
-    let mut rewriter = PartitionRootRewriter::new(&annotations, root_scope);
+    let mut rewriter =
+        PartitionRootRewriter::new(&annotations, &collector.sub_expressions, root_scope);
     let root = expr.rewrite(&mut rewriter)?.value;
 
     Ok(BoundPartitionedExpr {
@@ -193,7 +200,10 @@ where
                     .next()
                     .vortex_expect("expected one field");
                 let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
-                sub_exprs.push(node.clone());
+                // Repeated sub-expressions share one partition output.
+                if !sub_exprs.contains(&node) {
+                    sub_exprs.push(node.clone());
+                }
                 Ok(Transformed {
                     value: node,
                     changed: false,
@@ -213,15 +223,19 @@ where
 
 struct PartitionRootRewriter<'a, A: Annotation> {
     annotations: &'a BoundAnnotations<A>,
-    partition_offsets: HashMap<A, usize>,
+    sub_expressions: &'a HashMap<A, Vec<BoundExpression>>,
     root_dtype: DType,
 }
 
 impl<'a, A: Annotation> PartitionRootRewriter<'a, A> {
-    fn new(annotations: &'a BoundAnnotations<A>, root_dtype: DType) -> Self {
+    fn new(
+        annotations: &'a BoundAnnotations<A>,
+        sub_expressions: &'a HashMap<A, Vec<BoundExpression>>,
+        root_dtype: DType,
+    ) -> Self {
         Self {
             annotations,
-            partition_offsets: HashMap::new(),
+            sub_expressions,
             root_dtype,
         }
     }
@@ -245,18 +259,24 @@ where
             .iter()
             .next()
             .vortex_expect("expected one annotation");
-        let offset = self
-            .partition_offsets
-            .entry(annotation.clone())
-            .or_default();
-        let field_name = PartitionCollector::field_name(annotation, *offset);
-        *offset += 1;
+        let sub_exprs = self
+            .sub_expressions
+            .get(annotation)
+            .vortex_expect("partition collected for annotated sub-expression");
 
         let partition = get_item(
             FieldName::from(annotation.clone()),
             BoundExpression::new_root(self.root_dtype.clone()),
         );
-        let value = get_item(field_name, partition);
+        let value = if sub_exprs.len() == 1 {
+            partition
+        } else {
+            let idx = sub_exprs
+                .iter()
+                .position(|sub_expr| sub_expr == &node)
+                .vortex_expect("sub-expression collected for its partition");
+            get_item(PartitionCollector::field_name(annotation, idx), partition)
+        };
 
         Ok(Transformed {
             value,
@@ -307,10 +327,13 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_bound_free_field_annotator;
+    use crate::expr::and;
     use crate::expr::checked_add;
     use crate::expr::col;
     use crate::expr::get_item;
+    use crate::expr::gt;
     use crate::expr::lit;
+    use crate::expr::lt;
     use crate::expr::merge;
     use crate::expr::pack;
     use crate::expr::root;
@@ -374,9 +397,7 @@ mod tests {
             partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
             partitioned.root,
-            get_item("a_0", get_item("a", root()))
-                .bind(&root_dtype)
-                .unwrap()
+            get_item("a", root()).bind(&root_dtype).unwrap()
         );
     }
 
@@ -430,7 +451,7 @@ mod tests {
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-        let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
+        let expected = merge([col("a"), col("b")]);
         let root_dtype =
             partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
@@ -444,7 +465,7 @@ mod tests {
         assert_eq!(partitioned.partitions.len(), 2);
 
         let part_a = partitioned.find_partition(&"a".into()).unwrap();
-        let expected_a = pack([("a_0", col("a"))], NonNullable);
+        let expected_a = col("a");
         assert_eq!(
             part_a,
             &expected_a.bind(&dtype).unwrap(),
@@ -452,7 +473,7 @@ mod tests {
         );
 
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
-        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
+        let expected_b = pack([("b", col("b"))], NonNullable);
         assert_eq!(
             part_b,
             &expected_b.bind(&dtype).unwrap(),
@@ -461,10 +482,68 @@ mod tests {
     }
 
     #[rstest]
+    fn single_predicate_partitions_keep_their_dtype(dtype: DType) -> VortexResult<()> {
+        let expr = and(gt(col("b"), lit(1)), lt(col("c"), lit(2)));
+        let partitioned = partition_by_field(expr.bind(&dtype)?, &dtype)?;
+
+        assert_eq!(partitioned.partitions.len(), 2);
+        for partition in partitioned.partitions.iter() {
+            assert_eq!(partition.dtype(), &DType::Bool(NonNullable));
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    fn repeated_sub_expressions_share_a_partition(dtype: DType) -> VortexResult<()> {
+        let expr = pack(
+            [
+                ("x", get_item("x", col("a"))),
+                ("b", col("b")),
+                ("y", get_item("y", col("a"))),
+                ("again", get_item("x", col("a"))),
+            ],
+            NonNullable,
+        );
+        let partitioned = partition_by_field(expr.bind(&dtype)?, &dtype)?;
+
+        assert_eq!(
+            partitioned.find_partition(&"a".into()),
+            Some(
+                &pack(
+                    [
+                        ("a_0", get_item("x", col("a"))),
+                        ("a_1", get_item("y", col("a"))),
+                    ],
+                    NonNullable,
+                )
+                .bind(&dtype)?
+            )
+        );
+        assert_eq!(
+            partitioned.find_partition(&"b".into()),
+            Some(&col("b").bind(&dtype)?)
+        );
+
+        let root_dtype =
+            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
+        let expected_root = pack(
+            [
+                ("x", get_item("a_0", col("a"))),
+                ("b", col("b")),
+                ("y", get_item("a_1", col("a"))),
+                ("again", get_item("a_0", col("a"))),
+            ],
+            NonNullable,
+        );
+        assert_eq!(partitioned.root, expected_root.bind(&root_dtype)?);
+        Ok(())
+    }
+
+    #[rstest]
     fn replacing_partitions_refreshes_root_dtype(dtype: DType) -> VortexResult<()> {
         let mut partitioned = partition_by_field(col("b").bind(&dtype)?, &dtype)?;
         let field_dtype = DType::Primitive(I32, Nullable);
-        let replacement = pack([("b_0", root())], NonNullable).bind(&field_dtype)?;
+        let replacement = root().bind(&field_dtype)?;
 
         partitioned.replace_partitions(vec![replacement].into_boxed_slice())?;
 

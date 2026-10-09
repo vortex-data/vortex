@@ -342,7 +342,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         }
 
         let residual = partitioned.root;
-        let mut collapsed = Vec::with_capacity(partitioned.partitions.len());
         let mut field_expressions = vec![None; fields.nfields()];
         for index in 0..partitioned.partitions.len() {
             let name = &partitioned.partition_names[index];
@@ -351,21 +350,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 vortex_err!("Struct expression references unknown field '{name}'")
             })?;
             let field = field_plan(child, field_index)?;
-            let lowered = if let Some(pack) = partition
-                .as_scalar()
-                .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>())
-                && partition.children().len() == 1
-            {
-                let value_name = pack
-                    .names
-                    .get(0)
-                    .ok_or_else(|| vortex_err!("Struct expression partition pack is empty"))?;
-                collapsed.push((name.clone(), value_name.clone()));
-                partition.children()[0].clone()
-            } else {
-                partition.clone()
-            };
-            let lowered = step_into_struct_field(lowered, name, field.dtype().clone())?;
+            let lowered = step_into_struct_field(partition.clone(), name, field.dtype().clone())?;
             field_expressions[field_index] = Some(lowered);
         }
 
@@ -389,7 +374,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         } else {
             child.to_plan()
         };
-        let residual = rewrite_partition_root(residual, rewritten.dtype().clone(), &collapsed)?;
+        let residual = rewrite_partition_root(residual, rewritten.dtype().clone())?;
 
         if !fields_changed && residual == *expression {
             return Ok(None);
@@ -399,40 +384,13 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
     }
 }
 
-/// Rebinds a partitioned residual expression after collapsing single-value partitions.
-///
-/// # Arguments
-///
-/// * `expression` - The residual recombination expression returned by `partition_bound`.
-/// * `root_dtype` - The dtype produced by the rewritten plan and used to rebind every root.
-/// * `collapsed` - `(partition_name, value_name)` pairs whose one-field `Pack` was removed;
-///   each `$.partition_name.value_name` access is rewritten to `$.partition_name`.
+/// Rebinds a partitioned residual expression to the dtype produced by the rewritten plan.
 pub(super) fn rewrite_partition_root(
     expression: BoundExpression,
     root_dtype: DType,
-    collapsed: &[(FieldName, FieldName)],
 ) -> VortexResult<BoundExpression> {
     Ok(expression
         .transform_down(|node| {
-            if let Some(value_name) = node.as_opt::<GetItem>() {
-                let partition_access = &node.children()[0];
-                if let Some(partition_name) = partition_access.as_opt::<GetItem>()
-                    && partition_access.children()[0].is_root()
-                    && collapsed.iter().any(|(partition, value)| {
-                        partition == partition_name && value == value_name
-                    })
-                {
-                    return Ok(Transformed {
-                        value: BoundExpression::try_new(
-                            GetItem.bind(partition_name.clone()),
-                            [BoundExpression::new_root(root_dtype.clone())],
-                        )?,
-                        changed: true,
-                        order: TraversalOrder::Skip,
-                    });
-                }
-            }
-
             if node.is_root() {
                 Ok(Transformed {
                     value: BoundExpression::new_root(root_dtype.clone()),

@@ -572,6 +572,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
@@ -874,6 +875,98 @@ mod tests {
             expected_b,
             &mut ctx
         );
+    }
+
+    #[rstest]
+    #[case(Nullability::NonNullable)]
+    #[case(Nullability::Nullable)]
+    fn field_projection_reorders_and_repeats_fields(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let expr = pack(
+            [
+                ("second", col("b")),
+                ("first", col("a")),
+                ("again", col("b")),
+            ],
+            nullability,
+        )
+        .bind(reader.dtype())?;
+        let result = block_on(|_| async {
+            reader
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    MaskFuture::ready(Mask::from_iter([false, true, true])),
+                )?
+                .await
+        })?;
+        let expected = StructArray::try_from_iter_with_validity(
+            [
+                ("second", buffer![5i32, 6].into_array()),
+                ("first", buffer![2i32, 3].into_array()),
+                ("again", buffer![5i32, 6].into_array()),
+            ],
+            nullability.into(),
+        )?;
+        assert_eq!(result.dtype(), expected.dtype());
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
+    fn field_projection_preserves_parent_nulls(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let expr = pack([("b", col("b")), ("a", col("a"))], Nullability::NonNullable)
+            .bind(reader.dtype())?;
+        let result = block_on(|_| async {
+            reader
+                .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+                .await
+        })?;
+        let expected = StructArray::from_fields(&[
+            (
+                "b",
+                PrimitiveArray::from_option_iter([None, Some(5i32), Some(6)]).into_array(),
+            ),
+            (
+                "a",
+                PrimitiveArray::from_option_iter([None, Some(2i32), Some(3)]).into_array(),
+            ),
+        ])?;
+        assert_eq!(result.dtype(), expected.dtype());
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
+    fn computed_projection_uses_expression_evaluation(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let expr = pack(
+            [("a", col("a")), ("greater", gt(col("a"), col("b")))],
+            Nullability::NonNullable,
+        )
+        .bind(reader.dtype())?;
+        let result = block_on(|_| async {
+            reader
+                .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+                .await
+        })?;
+        let expected = StructArray::from_fields(&[
+            ("a", buffer![7i32, 2, 3].into_array()),
+            (
+                "greater",
+                BoolArray::from_iter([true, false, false]).into_array(),
+            ),
+        ])?;
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[rstest]
