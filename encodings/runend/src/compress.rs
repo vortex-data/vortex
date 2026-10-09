@@ -34,6 +34,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::fill::decode_runs;
 use crate::iter::trimmed_ends_iter;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
@@ -226,52 +227,31 @@ fn runend_decode_slice<T: Copy + Default>(
 ) -> (Buffer<T>, Validity) {
     match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values) {
-                assert!(
-                    end >= decoded.len(),
-                    "Runend ends must be monotonic, got {end} after {}",
-                    decoded.len()
-                );
-                assert!(end <= length, "Runend end must be less than overall length");
-                // SAFETY:
-                // We preallocate enough capacity because we know the total length
-                unsafe { decoded.push_n_unchecked(*value, end - decoded.len()) };
-            }
-            (decoded.into(), values_nullability.into())
+            let decoded = decode_runs(run_ends.zip_eq(values.iter().copied()), length);
+            (decoded.freeze(), values_nullability.into())
         }
         Mask::AllFalse(_) => (Buffer::<T>::zeroed(length), Validity::AllInvalid),
         Mask::Values(mask) => {
-            let mut decoded = BufferMut::with_capacity(length);
-            let mut decoded_validity = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(
-                values
-                    .iter()
-                    .zip(mask.bit_buffer().iter())
-                    .map(|(&v, is_valid)| is_valid.then_some(v)),
-            ) {
-                assert!(
-                    end >= decoded.len(),
-                    "Runend ends must be monotonic, got {end} after {}",
-                    decoded.len()
-                );
-                assert!(end <= length, "Runend end must be less than overall length");
-                match value {
-                    None => {
-                        decoded_validity.append_n(false, end - decoded.len());
-                        // SAFETY:
-                        // We preallocate enough capacity because we know the total length
-                        unsafe { decoded.push_n_unchecked(T::default(), end - decoded.len()) };
+            let values_validity = mask.bit_buffer();
+            // Prefill validity with the majority of runs and only fill the others, so most runs
+            // touch no validity bits at all.
+            let valid_runs = values_validity.true_count();
+            let prefill = valid_runs >= values.len() - valid_runs;
+            let mut decoded_validity = BitBufferMut::full(prefill, length);
+            let mut pos = 0;
+            let runs = run_ends
+                .zip_eq(values.iter().zip(values_validity.iter()))
+                .map(|(end, (&value, is_valid))| {
+                    if is_valid != prefill {
+                        // Panics unless `pos <= end <= length`, before `decode_runs` sees the run.
+                        decoded_validity.fill_range(pos, end, is_valid);
                     }
-                    Some(value) => {
-                        decoded_validity.append_n(true, end - decoded.len());
-                        // SAFETY:
-                        // We preallocate enough capacity because we know the total length
-                        unsafe { decoded.push_n_unchecked(value, end - decoded.len()) };
-                    }
-                }
-            }
-            (decoded.into(), Validity::from(decoded_validity.freeze()))
+                    pos = end;
+                    (end, if is_valid { value } else { T::default() })
+                });
+            let decoded = decode_runs(runs, length);
+            decoded_validity.truncate(decoded.len());
+            (decoded.freeze(), Validity::from(decoded_validity.freeze()))
         }
     }
 }
@@ -367,8 +347,10 @@ pub fn runend_decode_varbinview(
 
 #[cfg(test)]
 mod tests {
+    use std::iter::repeat_n;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -435,6 +417,26 @@ mod tests {
         assert_arrays_eq!(ends, expected_ends, &mut ctx);
         let expected_values = PrimitiveArray::from_option_iter(vec![Option::<i32>::None]);
         assert_arrays_eq!(values, expected_values, &mut ctx);
+        Ok(())
+    }
+
+    /// Round-trips every run length up to 70 for narrow and wide values and with null runs, and
+    /// many short runs that take the head/tail kernel across several segments.
+    #[rstest]
+    #[case::narrow(PrimitiveArray::from_iter((0..=70u8).flat_map(|i| repeat_n(i, i.into()))))]
+    #[case::wide(PrimitiveArray::from_iter((0..=70u8).flat_map(|i| repeat_n(u64::from(i), i.into()))))]
+    #[case::nullable(PrimitiveArray::from_option_iter(
+        (0..=70u8).flat_map(|i| repeat_n((i % 3 != 0).then_some(u32::from(i)), i.into()))
+    ))]
+    #[case::short_runs(PrimitiveArray::from_iter(
+        (0..3000u32).flat_map(|i| repeat_n(i, (i % 7 + 1) as usize))
+    ))]
+    fn decode_every_run_length(#[case] expected: PrimitiveArray) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (ends, values) = runend_encode(expected.as_view(), &mut ctx);
+        let values = values.execute::<PrimitiveArray>(&mut ctx)?;
+        let decoded = runend_decode_primitive(ends, values, 0, expected.len(), &mut ctx)?;
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
