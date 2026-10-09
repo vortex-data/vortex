@@ -169,7 +169,7 @@ impl VTable for Filter {
         }
 
         if let Some(canonical) =
-            execute_all_null_filter_fast_path(array.as_view(), mask_values.true_count(), ctx)?
+            execute_all_null_filter_fast_path(array.as_view(), mask_values.true_count())?
         {
             return Ok(ExecutionResult::done(canonical));
         }

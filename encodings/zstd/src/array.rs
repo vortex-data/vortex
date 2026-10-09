@@ -38,6 +38,7 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::require_validity;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
@@ -279,14 +280,15 @@ impl VTable for Zstd {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        require_validity!(array, ZstdSlots::VALIDITY);
+
         let unsliced_validity = child_to_validity(
             array.as_ref().slots()[ZstdSlots::VALIDITY].as_ref(),
             array.dtype().nullability(),
         );
         array
             .data()
-            .decompress(array.dtype(), &unsliced_validity, ctx)?
-            .execute::<ArrayRef>(ctx)
+            .decompress(array.dtype(), &unsliced_validity, ctx)
             .map(ExecutionResult::done)
     }
 
