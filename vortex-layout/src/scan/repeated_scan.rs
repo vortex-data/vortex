@@ -6,8 +6,8 @@ use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::Future;
+use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::future;

@@ -391,9 +391,7 @@ impl Stream for LazyScanStream {
                     // task: poll_next must only wait for and poll an already-constructed stream.
                     // This also keeps construction errors on the Preparing -> Error path rather
                     // than running construction on the caller's executor.
-                    let task = handle.spawn_cpu(move || {
-                        builder.prepare()?.execute_stream(None)
-                    });
+                    let task = handle.spawn_cpu(move || builder.prepare()?.execute_stream(None));
                     self.state = LazyScanState::Preparing(PreparingScan { task });
                 }
                 LazyScanState::Preparing(preparing) => {
