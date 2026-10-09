@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,6 +12,7 @@ use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::json::LineDelimitedWriter;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
@@ -16,6 +20,7 @@ use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
+use datafusion_bench::executor::SplitExecutor;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_bench::tracer::get_labelset_from_global;
@@ -24,10 +29,14 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
+use futures::TryStreamExt;
 use parking_lot::Mutex;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::request::trace::timestamp_ns;
+use vortex::io::runtime::Executor;
+use vortex::io::runtime::Handle;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
@@ -61,8 +70,17 @@ struct Args {
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
 
+    /// Number of Tokio workers and DataFusion execution partitions.
     #[arg(short, long)]
-    threads: Option<usize>,
+    threads: Option<NonZeroUsize>,
+
+    /// Vortex split tasks per available worker within each file scan.
+    #[arg(long)]
+    scan_concurrency: Option<NonZeroUsize>,
+
+    /// Run Vortex IO on this many dedicated Tokio workers.
+    #[arg(long)]
+    io_threads: Option<NonZeroUsize>,
 
     #[arg(short, long)]
     verbose: bool,
@@ -95,6 +113,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
 
+    /// Emit iteration boundaries and exact scan counters for separate I/O diagnostic runs.
+    #[arg(long)]
+    io_diagnostics: bool,
+
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
 
@@ -123,9 +145,43 @@ struct Args {
     options: Vec<Opt>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    if let Some(threads) = args.threads {
+        runtime.worker_threads(threads.get());
+    }
+    let runtime = runtime.enable_all().build()?;
+    let io_runtime = args
+        .io_threads
+        .map(|threads| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(threads.get())
+                .thread_name("vortex-io")
+                .enable_all()
+                .build()
+        })
+        .transpose()?;
+    let executor = io_runtime.as_ref().map(|io| {
+        Arc::new(SplitExecutor {
+            compute: runtime.handle().clone(),
+            io: io.handle().clone(),
+        }) as Arc<dyn Executor>
+    });
+    runtime.block_on(async {
+        if let Some(executor) = &executor {
+            SESSION
+                .clone()
+                .with_handle(Handle::new(Arc::downgrade(executor)));
+        }
+        run(args).await
+    })
+}
+
+async fn run(args: Args) -> anyhow::Result<()> {
+    if args.scan_concurrency.is_some() && use_scan_api() {
+        anyhow::bail!("--scan-concurrency requires the listing-table file-scan path");
+    }
     let opts = Opts::from(args.options);
 
     set_join_set_tracer(get_static_tracer())?;
@@ -165,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
+    let io_diagnostics = args.io_diagnostics;
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -181,12 +238,29 @@ async fn main() -> anyhow::Result<()> {
             |format| {
                 let benchmark = &*benchmark;
                 async move {
-                    let session = datafusion_bench::get_session_context();
+                    let session =
+                        datafusion_bench::get_session_context(args.threads, args.scan_concurrency);
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
+                    register_benchmark_tables(&session, benchmark, format, args.scan_concurrency)
+                        .await?;
+                    if std::env::var("VORTEX_BENCH_PRELOAD_SEGMENTS")
+                        .is_ok_and(|value| value == "1")
+                    {
+                        // Visit every file before timing. A LIMIT query can cancel whole file
+                        // opens, so repeating that query cannot reliably populate its cache.
+                        for table in benchmark.table_specs().iter() {
+                            let df = session.table(table.name).await?;
+                            let column = df.schema().field(0).name().clone();
+                            let mut batches =
+                                df.select_columns(&[&column])?.execute_stream().await?;
+                            while let Some(batch) = batches.try_next().await? {
+                                drop(batch);
+                            }
+                        }
+                    }
                     Ok((session, format))
                 }
             },
@@ -197,20 +271,67 @@ async fn main() -> anyhow::Result<()> {
 
                 Box::pin(
                     async move {
+                        if io_diagnostics {
+                            eprintln!("IO_ITERATION_BEGIN query={query_idx} ts_ns={}", timestamp_ns());
+                        }
+                        let override_query = std::env::var("VORTEX_BENCH_QUERY_OVERRIDE_DIR")
+                            .ok()
+                            .map(|directory| {
+                                std::fs::read_to_string(
+                                    PathBuf::from(directory).join(format!("{query_idx}.sql")),
+                                )
+                            })
+                            .transpose()?;
+                        let query = override_query.as_deref().unwrap_or(query);
                         let timer = Instant::now();
                         let (batches, plan) = execute_query(session, query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
+                        if let Ok(directory) = std::env::var("VORTEX_BENCH_RESULTS_DIR") {
+                            let path = PathBuf::from(directory)
+                                .join(format!("{format}-{query_idx}.jsonl"));
+                            if !path.exists() {
+                                let mut writer = LineDelimitedWriter::new(File::create(&path)?);
+                                writer.write_batches(&batches.iter().collect::<Vec<_>>())?;
+                                writer.finish()?;
+                                if let Some(batch) = batches.first() {
+                                    std::fs::write(
+                                        path.with_extension("schema"),
+                                        format!("{:?}", batch.schema()),
+                                    )?;
+                                }
+                            }
+                        }
 
-                        // Store plan for metrics (only store once per query/format combination)
+                        if io_diagnostics {
+                            let end_ns = timestamp_ns();
+                            let rows = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+                            for (scan, metrics) in VortexMetricsFinder::find_all(plan.as_ref())
+                                .iter()
+                                .enumerate()
+                            {
+                                for (name, value) in diagnostic_values(metrics.iter().map(|metric| {
+                                    (metric.value().name(), metric.value().as_usize())
+                                })) {
+                                    eprintln!(
+                                        "IO_METRIC scan={scan} name={name} value={value}",
+                                    );
+                                }
+                            }
+                            eprintln!("IO_ITERATION_END query={query_idx} ts_ns={end_ns} query_ns={} rows={rows}", time.as_nanos());
+                        }
+
+                        // Keep the last iteration so warmed-cache diagnostics describe the
+                        // steady-state execution rather than the initial cache fill.
                         if show_metrics {
                             let mut plans_mut = plans.lock();
-                            // Only store if we don't already have this query/format combo
-                            if !plans_mut
-                                .iter()
-                                .any(|(idx, f, _)| *idx == query_idx && *f == *format)
+                            if let Some((_, _, previous)) = plans_mut
+                                .iter_mut()
+                                .find(|(idx, f, _)| *idx == query_idx && *f == *format)
                             {
+                                *previous = Arc::clone(&plan);
+                            } else {
                                 plans_mut.push((query_idx, *format, Arc::clone(&plan)));
                             }
                         }
@@ -250,12 +371,13 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    scan_concurrency: Option<NonZeroUsize>,
 ) -> anyhow::Result<()> {
     if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format)?;
+        let file_format = format_to_df_format(format, scan_concurrency)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);
@@ -367,6 +489,32 @@ pub async fn execute_query(
     Ok((result, plan))
 }
 
+fn diagnostic_values<'a>(
+    values: impl IntoIterator<Item = (&'a str, usize)>,
+) -> BTreeMap<&'a str, usize> {
+    let mut aggregated = BTreeMap::new();
+    for (name, value) in values {
+        // DataFusion sums file-level histogram extrema and quantiles. Extrema can be combined;
+        // query quantiles require the original samples, which the native read trace supplies.
+        if name.ends_with("_p95") || name.ends_with("_p99") {
+            continue;
+        }
+        aggregated
+            .entry(name)
+            .and_modify(|current: &mut usize| {
+                *current = if name.ends_with("_max") {
+                    (*current).max(value)
+                } else if name.ends_with("_min") {
+                    (*current).min(value)
+                } else {
+                    *current + value
+                };
+            })
+            .or_insert(value);
+    }
+    aggregated
+}
+
 /// Print Vortex metrics from execution plans.
 fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
     for (query_idx, format, plan) in plans {
@@ -382,5 +530,28 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
                 eprintln!("\t\t{metric}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diagnostic_values;
+
+    #[test]
+    fn diagnostic_extrema_across_files_are_not_summed() {
+        let values = diagnostic_values([
+            ("vortex.io.read.duration_count", 10),
+            ("vortex.io.read.duration_count", 20),
+            ("vortex.io.read.duration_max", 100),
+            ("vortex.io.read.duration_max", 200),
+            ("vortex.io.read.duration_min", 5),
+            ("vortex.io.read.duration_min", 3),
+            ("vortex.io.read.duration_p95", 90),
+            ("vortex.io.read.duration_p95", 190),
+        ]);
+        assert_eq!(values["vortex.io.read.duration_count"], 30);
+        assert_eq!(values["vortex.io.read.duration_max"], 200);
+        assert_eq!(values["vortex.io.read.duration_min"], 3);
+        assert!(!values.contains_key("vortex.io.read.duration_p95"));
     }
 }

@@ -18,9 +18,8 @@ use crate::MaskValuesRef;
 
 trait DepositBits {
     /// Whether the implementation benefits from short-circuiting on `rank_bits == 0`
-    /// and `self_chunk == u64::MAX`. The portable path loops `popcount(mask)` times,
-    /// so an all-ones mask is genuinely expensive; BMI2 PDEP is constant-time and
-    /// the branches just add mispredict cost.
+    /// and `self_chunk == u64::MAX`. These shortcuts avoid software scatter on the portable
+    /// path; BMI2 PDEP is constant-time and the branches add mispredict cost.
     const PREFER_BRANCHES: bool;
 
     fn deposit_bits(source: u64, mask: u64, mask_count: usize) -> u64;
@@ -39,8 +38,11 @@ impl DepositBits for Portable {
 
     #[inline]
     fn deposit_bits(source: u64, mask: u64, mask_count: usize) -> u64 {
-        if mask_count >= 16 && source.count_ones() as usize * 8 < mask_count {
-            return deposit_sparse_source(source, mask);
+        if mask_count >= 16 {
+            if source.count_ones() as usize * 8 < mask_count {
+                return deposit_sparse_source(source, mask);
+            }
+            return deposit_parallel(source, mask);
         }
 
         deposit_by_mask(source, mask)
@@ -66,6 +68,30 @@ fn deposit_by_mask(mut source: u64, mut mask: u64) -> u64 {
         mask &= mask - 1;
     }
     result
+}
+
+#[inline]
+fn deposit_parallel(mut source: u64, mask: u64) -> u64 {
+    // Compute the moves that compact the mask, then apply them in reverse to expand the source.
+    // Each stage moves bits by a power of two, replacing a loop over every selected mask bit.
+    let mut compacted = mask;
+    let mut holes = !mask << 1;
+    let mut moves = [0u64; 6];
+    for (stage, movement) in moves.iter_mut().enumerate() {
+        let mut prefix = holes ^ (holes << 1);
+        prefix ^= prefix << 2;
+        prefix ^= prefix << 4;
+        prefix ^= prefix << 8;
+        prefix ^= prefix << 16;
+        prefix ^= prefix << 32;
+        *movement = prefix & compacted;
+        compacted = (compacted ^ *movement) | (*movement >> (1 << stage));
+        holes &= !prefix;
+    }
+    for (stage, movement) in moves.into_iter().enumerate().rev() {
+        source = (source & !movement) | ((source << (1 << stage)) & movement);
+    }
+    source & mask
 }
 
 #[inline]
@@ -559,10 +585,31 @@ impl Mask {
 
 #[cfg(test)]
 mod tests {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
 
     use crate::Mask;
+
+    #[test]
+    fn parallel_deposit_matches_rank_selection() {
+        let mut rng = StdRng::seed_from_u64(0);
+        for mask in [0, u64::MAX, 1, 1 << 63]
+            .into_iter()
+            .chain((0..1000).map(|_| rng.random::<u64>()))
+        {
+            for source in [0, u64::MAX, 0x1234_5678_9abc_def0, 0xaaaa_aaaa_aaaa_aaaa] {
+                let expected = (0..64)
+                    .filter(|bit| mask & (1 << bit) != 0)
+                    .enumerate()
+                    .filter(|(rank, _)| source & (1 << rank) != 0)
+                    .fold(0, |result, (_, bit)| result | (1 << bit));
+                assert_eq!(super::deposit_parallel(source, mask), expected);
+            }
+        }
+    }
 
     #[test]
     fn mask_bitand_all_as_bit_and() {

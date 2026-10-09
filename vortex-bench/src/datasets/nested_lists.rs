@@ -26,6 +26,7 @@ use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 use crate::random_access::parquet_to_arrow_file;
 use crate::random_access::random_access_writer_properties;
+use crate::utils::file::IdempotentPath;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "nested_lists";
@@ -123,14 +124,22 @@ pub async fn nested_lists_parquet() -> Result<PathBuf> {
 
 /// Get the path to the nested lists vortex file, converting from parquet if needed.
 pub async fn nested_lists_vortex() -> Result<PathBuf> {
-    let parquet_path = nested_lists_parquet().await?;
     let path = data_path(DATASET, Format::OnDiskVortex);
+    let prepared = path.to_data_path();
+    if prepared.exists() {
+        return Ok(prepared);
+    }
+    let parquet_path = nested_lists_parquet().await?;
     write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Default).await
 }
 
 /// Get the path to the nested lists compact vortex file, converting from parquet if needed.
 pub async fn nested_lists_vortex_compact() -> Result<PathBuf> {
-    let parquet_path = nested_lists_parquet().await?;
     let path = data_path(DATASET, Format::VortexCompact);
+    let prepared = path.to_data_path();
+    if prepared.exists() {
+        return Ok(prepared);
+    }
+    let parquet_path = nested_lists_parquet().await?;
     write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
 }

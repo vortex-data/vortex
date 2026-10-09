@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -19,6 +20,7 @@ use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
@@ -31,6 +33,12 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::RowIdxNode;
+use crate::plan::exec::Selection;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 use crate::plan::plans::pack::rewrite_partition_root;
 
 const ROW_IDX_PARTITION_NAME: &str = "row_idx";
@@ -85,6 +93,27 @@ impl PlanVTable for RowIdx {
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("RowIdx", children, 0)
+    }
+
+    fn exec(
+        _plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(RowIdxNode::new(
+            Selection::try_new(rows, mask)?,
+            ctx.row_offset(),
+        )))
+    }
+
+    fn compile(
+        _plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::row_idx(rows, mask, cx)
     }
 }
 

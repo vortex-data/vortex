@@ -187,22 +187,25 @@ mod tests {
     fn multi_chunk_against_primitive_baseline(
         #[case] lower_strict: StrictComparison,
         #[case] upper_strict: StrictComparison,
+        #[values(0, 1, 63, 64, 65, 1023)] offset: usize,
+        #[values(0, 1, 63, 64, 65, 1023, 1024, 1025)] len: usize,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values: BufferMut<u32> = (0..3000u32).map(|i| i % 257).collect();
-        let prim = PrimitiveArray::new(values.freeze(), Validity::NonNullable);
-        let packed = BitPackedData::encode(&prim.clone().into_array(), 9, &mut ctx)?;
+        let prim = PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array();
+        let packed = BitPackedData::encode(&prim, 9, &mut ctx)?
+            .into_array()
+            .slice(offset..offset + len)?;
+        let prim = prim.slice(offset..offset + len)?;
 
         let lower = ConstantArray::new(40u32, prim.len()).into_array();
         let upper = ConstantArray::new(200u32, prim.len()).into_array();
         let options = opts(lower_strict, upper_strict);
 
         let expected = prim
-            .into_array()
             .between(lower.clone(), upper.clone(), options.clone())?
             .execute::<BoolArray>(&mut ctx)?;
         let actual = packed
-            .into_array()
             .between(lower, upper, options)?
             .execute::<BoolArray>(&mut ctx)?;
 
@@ -210,26 +213,29 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn signed_with_patches_against_primitive_baseline() -> VortexResult<()> {
+    #[rstest]
+    fn signed_with_patches_against_primitive_baseline(
+        #[values(0, 1, 63, 64, 65, 1023)] offset: usize,
+        #[values(0, 1, 63, 64, 65, 477)] len: usize,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<i32> = (0..1500)
             .map(|i| if i % 73 == 0 { 100_000 + i } else { i % 100 })
             .collect();
-        let prim = PrimitiveArray::from_iter(values);
-        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+        let prim = PrimitiveArray::from_iter(values).into_array();
+        let packed = BitPackedData::encode(&prim, 7, &mut ctx)?;
         assert!(packed.patches().is_some(), "test setup expects patches");
+        let packed = packed.into_array().slice(offset..offset + len)?;
+        let prim = prim.slice(offset..offset + len)?;
 
         let lower = ConstantArray::new(20i32, prim.len()).into_array();
         let upper = ConstantArray::new(80i32, prim.len()).into_array();
         let options = opts(StrictComparison::NonStrict, StrictComparison::NonStrict);
 
         let expected = prim
-            .into_array()
             .between(lower.clone(), upper.clone(), options.clone())?
             .execute::<BoolArray>(&mut ctx)?;
         let actual = packed
-            .into_array()
             .between(lower, upper, options)?
             .execute::<BoolArray>(&mut ctx)?;
 

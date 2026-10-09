@@ -198,6 +198,53 @@ pub unsafe extern "C-unwind" fn duckdb_reader_open(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_file_prefetch_window(global: *const c_void) -> usize {
+    let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
+    global
+        .file_prefetch
+        .as_ref()
+        .map_or(0, |prefetch| prefetch.window())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_file_prefetch_submit(
+    global: *const c_void,
+    index: usize,
+    path: *const c_char,
+    path_len: usize,
+    error: *mut cpp::duckdb_vx_error,
+) {
+    let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
+    let bytes = unsafe { std::slice::from_raw_parts(path.cast::<u8>(), path_len) };
+    try_or(error, || {
+        let path = str::from_utf8(bytes).map_err(|_| vortex_err!("invalid utf-8"))?;
+        global
+            .file_prefetch
+            .as_ref()
+            .vortex_expect("prefetch disabled")
+            .submit(index, path.to_owned())
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_file_prefetch_take(
+    global: *const c_void,
+    index: usize,
+    skip: bool,
+    error: *mut cpp::duckdb_vx_error,
+) -> cpp::duckdb_vx_data {
+    let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
+    try_or_null(error, || {
+        let file = global
+            .file_prefetch
+            .as_ref()
+            .vortex_expect("prefetch disabled")
+            .take(index, skip)?;
+        Ok(file.map_or(ptr::null_mut(), |file| Data::from(Box::new(file)).as_ptr()))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     file: *const c_void,
     bind: *const c_void,

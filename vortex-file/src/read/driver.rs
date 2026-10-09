@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::task::Context;
 use std::task::Poll;
 
@@ -13,7 +14,6 @@ use tracing::trace;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::read::ReadRequest;
 use crate::read::RequestId;
@@ -41,6 +41,11 @@ pin_project! {
 }
 
 impl<S> IoRequestStream<S> {
+    pub(crate) fn set_batch_size(&mut self, batch_size: usize) {
+        assert!(batch_size > 0, "I/O request batch size must be non-zero");
+        self.batch_size = batch_size;
+    }
+
     // FIXME(ngates): split this into coalesce_distance and max_read_size. We should keep
     //  expanding the request by coalesce_distance, but stop if we hit max_read_size.
     pub(crate) fn new(
@@ -90,6 +95,14 @@ where
             }
         }
 
+        if this.state.polled_requests.is_empty() {
+            return if *this.inner_done {
+                Poll::Ready(None)
+            } else {
+                Poll::Pending
+            };
+        }
+
         // Emit a partial batch immediately so the downstream driver can fill free I/O slots.
         let mut batch = Vec::with_capacity(*this.batch_size);
         while batch.len() < *this.batch_size {
@@ -129,16 +142,24 @@ struct State {
     // Metrics for tracking I/O request patterns
     metrics: RequestMetrics,
     coalesced_buffer_alignment: Alignment,
+    // Reuse removal storage across physical reads; the requests themselves move into the result.
+    coalesce_keys: Vec<(u64, RequestId)>,
+    coalesce_optional: bool,
 }
 
 impl State {
     fn new(metrics: RequestMetrics, coalesced_buffer_alignment: Alignment) -> Self {
+        static COALESCE_OPTIONAL: LazyLock<bool> = LazyLock::new(|| {
+            std::env::var("VORTEX_SCAN_IO_COALESCE_OPTIONAL").map_or(true, |value| value != "0")
+        });
         Self {
             requests: BTreeMap::new(),
             polled_requests: BTreeMap::new(),
             requests_by_offset: BTreeSet::new(),
             metrics,
             coalesced_buffer_alignment,
+            coalesce_keys: Vec::new(),
+            coalesce_optional: *COALESCE_OPTIONAL,
         }
     }
 
@@ -230,10 +251,8 @@ impl State {
         let mut current_end = requests[0].offset + requests[0].length as u64;
         let align = self.coalesced_buffer_alignment.as_usize() as u64;
 
-        // Track requests that we've already decided to remove (or that were cancelled) so that
-        // we don't repeatedly process them during range scans.
-        let mut keys_to_remove: Vec<(u64, RequestId)> = Vec::new();
-        let mut ids_to_remove: HashSet<RequestId> = HashSet::new();
+        // Retire chosen and cancelled offsets after each pass so expansion never revisits them.
+        self.coalesce_keys.clear();
         let mut found_new_requests = true;
 
         // Keep expanding the window while we can find new requests within constraints
@@ -249,22 +268,19 @@ impl State {
                 .requests_by_offset
                 .range((scan_start, RequestId::MIN)..=(scan_end, RequestId::MAX))
             {
-                // Skip if we've already marked this request for removal
-                if ids_to_remove.contains(&req_id) {
-                    continue;
-                }
-
-                let req = self
-                    .polled_requests
-                    .get(&req_id)
-                    .or_else(|| self.requests.get(&req_id))
-                    .vortex_expect("Missing request in requests_by_offset");
+                let (req, polled) = match self.polled_requests.get(&req_id) {
+                    Some(req) => (req, true),
+                    None => (
+                        self.requests
+                            .get(&req_id)
+                            .vortex_expect("Missing request in requests_by_offset"),
+                        false,
+                    ),
+                };
 
                 // Skip any cancelled requests
                 if req.callback.is_canceled() {
-                    if ids_to_remove.insert(req_id) {
-                        keys_to_remove.push((req_offset, req_id));
-                    }
+                    self.coalesce_keys.push((req_offset, req_id));
                     continue;
                 }
 
@@ -277,6 +293,15 @@ impl State {
                     let new_start = current_start.min(req_offset);
                     let new_end = current_end.max(req_end);
                     let aligned_start = new_start - (new_start % align);
+                    // Optional members already covered by the range can share its result, but
+                    // need not cause speculative bytes to be read before filtering finishes.
+                    if !self.coalesce_optional
+                        && !polled
+                        && (aligned_start < current_start - (current_start % align)
+                            || new_end != current_end)
+                    {
+                        continue;
+                    }
                     let new_total_size = new_end - aligned_start;
 
                     if new_total_size > window.max_size {
@@ -293,20 +318,16 @@ impl State {
                         .vortex_expect("Missing request in requests_by_offset");
 
                     requests.push(req);
-                    if ids_to_remove.insert(req_id) {
-                        keys_to_remove.push((req_offset, req_id));
-                    }
+                    self.coalesce_keys.push((req_offset, req_id));
                     found_new_requests = true;
                 }
             }
-        }
-
-        // Remove any dropped requests
-        for (req_offset, req_id) in keys_to_remove {
-            self.requests_by_offset.remove(&(req_offset, req_id));
-            self.polled_requests
-                .remove(&req_id)
-                .or_else(|| self.requests.remove(&req_id));
+            for (req_offset, req_id) in self.coalesce_keys.drain(..) {
+                self.requests_by_offset.remove(&(req_offset, req_id));
+                self.polled_requests
+                    .remove(&req_id)
+                    .or_else(|| self.requests.remove(&req_id));
+            }
         }
 
         // Sort requests by offset for correct slicing in resolve
@@ -339,9 +360,11 @@ mod tests {
     use futures::channel::mpsc;
     use futures::channel::oneshot;
     use futures::stream;
+    use rstest::rstest;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_error::vortex_panic;
     use vortex_metrics::DefaultMetricsRegistry;
     use vortex_metrics::MetricValue;
@@ -749,6 +772,105 @@ mod tests {
     async fn test_empty_stream() {
         let outputs = collect_outputs(vec![], None).await;
         assert_eq!(outputs.len(), 0);
+    }
+
+    #[test]
+    fn coalescing_expands_in_multiple_passes_and_removes_cancelled_neighbors() -> VortexResult<()> {
+        let registry = DefaultMetricsRegistry::default();
+        let mut state = State::new(RequestMetrics::new(&registry, vec![]), Alignment::none());
+        let mut receivers = Vec::new();
+        for (id, offset) in (0..=100).step_by(10).enumerate() {
+            let (request, receiver) = create_request(id, offset, 1);
+            state.on_event(ReadEvent::Request(request));
+            receivers.push(receiver);
+        }
+        let (cancelled, receiver) = create_request(11, 45, 1);
+        state.on_event(ReadEvent::Request(cancelled));
+        drop(receiver);
+        let (separate, receiver) = create_request(12, 150, 1);
+        state.on_event(ReadEvent::Request(separate));
+        receivers.push(receiver);
+        state.on_event(ReadEvent::Polled(5));
+        state.on_event(ReadEvent::Polled(12));
+        let window = CoalesceConfig::new(10, 512);
+        let first = state
+            .next_coalesced(&window)
+            .ok_or_else(|| vortex_err!("missing first read"))?;
+        assert_eq!(*first.range(), 0..101);
+        assert_eq!(
+            first
+                .requests()
+                .iter()
+                .map(|request| request.offset)
+                .collect::<Vec<_>>(),
+            (0u64..=100).step_by(10).collect::<Vec<_>>()
+        );
+        let second = state
+            .next_coalesced(&window)
+            .ok_or_else(|| vortex_err!("missing second read"))?;
+        assert_eq!(*second.range(), 150..151);
+        assert!(state.requests_by_offset.is_empty());
+        assert!(state.requests.is_empty());
+        assert!(state.polled_requests.is_empty());
+        drop(receivers);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(true, Alignment::none())]
+    #[case(false, Alignment::none())]
+    #[case(true, Alignment::new(8))]
+    #[case(false, Alignment::new(8))]
+    fn optional_coalescing_preserves_unread_interests(
+        #[case] optional: bool,
+        #[case] alignment: Alignment,
+    ) -> VortexResult<()> {
+        let registry = DefaultMetricsRegistry::default();
+        let mut state = State::new(RequestMetrics::new(&registry, vec![]), alignment);
+        state.coalesce_optional = optional;
+        let mut receivers = Vec::new();
+        for (id, offset, length) in [
+            (1, 0, 10),
+            (2, 10, 10),
+            (3, 12, 4),
+            (4, 20, 10),
+            (5, 30, 10),
+            (6, 9, 1),
+        ] {
+            let (request, receiver) = create_request(id, offset, length);
+            state.on_event(ReadEvent::Request(request));
+            receivers.push(receiver);
+        }
+        state.on_event(ReadEvent::Polled(2));
+        state.on_event(ReadEvent::Polled(4));
+        let window = CoalesceConfig::new(100, 512);
+        let first = state
+            .next_coalesced(&window)
+            .ok_or_else(|| vortex_err!("missing demanded read"))?;
+        let start = 10 - (10 % alignment.as_usize() as u64);
+        assert_eq!(*first.range(), if optional { 0..40 } else { start..30 });
+        assert!(first.requests().iter().any(|request| request.id == 3));
+        if alignment.as_usize() == 8 || optional {
+            assert!(first.requests().iter().any(|request| request.id == 6));
+        }
+        assert!(state.next_coalesced(&window).is_none());
+
+        state.on_event(ReadEvent::Polled(1));
+        if optional {
+            assert!(state.next_coalesced(&window).is_none());
+        } else {
+            let next = state
+                .next_coalesced(&window)
+                .ok_or_else(|| vortex_err!("missing later demand"))?;
+            assert_eq!(*next.range(), 0..10);
+            assert!(state.requests.contains_key(&5));
+            state.on_event(ReadEvent::Dropped(5));
+        }
+        assert!(state.requests.is_empty());
+        assert!(state.polled_requests.is_empty());
+        assert!(state.requests_by_offset.is_empty());
+        drop(receivers);
+        Ok(())
     }
 
     #[tokio::test]

@@ -101,6 +101,7 @@ jobs:
     timeout-minutes: 120
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+      VORTEX_SCAN_V2: "1"
       # Makes python output nicer
       COLUMNS: 120
     strategy:

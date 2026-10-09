@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -27,6 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -37,7 +39,13 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::PackNode;
+use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 /// Assembles a struct from one child per field, plus an optional trailing validity child.
 #[derive(Clone, Debug)]
@@ -203,6 +211,27 @@ impl PlanVTable for Pack {
             return Cow::Borrowed(name.as_ref());
         }
         Cow::Borrowed("validity")
+    }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        _ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(PackNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+        )))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::pack(plan, rows, mask, cx)
     }
 }
 

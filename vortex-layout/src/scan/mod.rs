@@ -5,6 +5,7 @@ pub mod arrow;
 mod filter;
 pub mod layout;
 pub mod multi;
+pub mod planning;
 pub mod repeated_scan;
 pub mod scan_builder;
 pub mod split_by;
@@ -12,6 +13,7 @@ mod splits;
 mod tasks;
 #[cfg(test)]
 mod test;
+pub mod v2;
 
 /// A heuristic for an ideal split size.
 ///

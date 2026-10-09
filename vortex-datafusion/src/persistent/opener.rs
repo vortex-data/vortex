@@ -44,8 +44,10 @@ use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::planning;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
@@ -62,6 +64,7 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::diagnostics::benchmark_segment_cache;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
 
@@ -200,6 +203,11 @@ impl FileOpener for VortexOpener {
                 .with_metrics_registry(Arc::clone(&metrics_registry))
                 .with_labels(labels);
 
+            let benchmark_cache = benchmark_segment_cache(&reader, &file)?;
+            if let Some(cache) = &benchmark_cache {
+                open_opts = open_opts.with_segment_cache(Arc::clone(&cache.segments));
+            }
+
             let cached_footer = file_metadata_cache
                 .as_ref()
                 .and_then(|cache| cache.get(file.path()))
@@ -221,6 +229,10 @@ impl FileOpener for VortexOpener {
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+            if let Some(cache) = benchmark_cache {
+                cache.preload(&vxf).await?;
+            }
 
             // On a miss, cache the parsed footer so other partitions and later executions
             // skip the footer fetch and parse. `infer_schema`/`infer_stats` also populate
@@ -442,7 +454,7 @@ impl FileOpener for VortexOpener {
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
-            let stream = scan_builder
+            let scan_builder = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
@@ -454,8 +466,13 @@ impl FileOpener for VortexOpener {
                         &mut ctx,
                     )?;
                     Ok(RecordBatch::from(arrow.as_struct().clone()))
-                })
-                .into_stream()
+                });
+            let batches = if scan::v2::enabled() {
+                scan::v2::into_stream(scan_builder, planning::scan_file(&vxf)).map(|s| s.boxed())
+            } else {
+                scan_builder.into_stream().map(|s| s.boxed())
+            };
+            let stream = batches
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
                 .map_err(move |e: VortexError| {
                     DataFusionError::External(Box::new(e.with_context(format!(

@@ -27,6 +27,7 @@ use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 use crate::random_access::parquet_to_arrow_file;
 use crate::random_access::random_access_writer_properties;
+use crate::utils::file::IdempotentPath;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "feature_vectors";
@@ -126,14 +127,22 @@ pub async fn feature_vectors_parquet() -> Result<PathBuf> {
 
 /// Get the path to the feature vectors vortex file, converting from parquet if needed.
 pub async fn feature_vectors_vortex() -> Result<PathBuf> {
-    let parquet_path = feature_vectors_parquet().await?;
     let path = data_path(DATASET, Format::OnDiskVortex);
+    let prepared = path.to_data_path();
+    if prepared.exists() {
+        return Ok(prepared);
+    }
+    let parquet_path = feature_vectors_parquet().await?;
     write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Default).await
 }
 
 /// Get the path to the feature vectors compact vortex file, converting from parquet if needed.
 pub async fn feature_vectors_vortex_compact() -> Result<PathBuf> {
-    let parquet_path = feature_vectors_parquet().await?;
     let path = data_path(DATASET, Format::VortexCompact);
+    let prepared = path.to_data_path();
+    if prepared.exists() {
+        return Ok(prepared);
+    }
+    let parquet_path = feature_vectors_parquet().await?;
     write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
 }

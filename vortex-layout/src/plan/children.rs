@@ -46,24 +46,37 @@ impl PlanChildren {
 
     /// Returns a child, initializing and caching its slot on first access.
     pub fn get(&self, index: usize) -> VortexResult<Option<PlanRef>> {
+        self.get_ref(index).map(|child| child.cloned())
+    }
+
+    /// Borrows a child, initializing and caching its slot on first access.
+    pub(crate) fn get_ref(&self, index: usize) -> VortexResult<Option<&PlanRef>> {
         let Some(cell) = self.cache.get(index) else {
             return Ok(None);
         };
         if let Some(child) = cell.get() {
-            return Ok(Some(child.clone()));
+            return Ok(Some(child));
         }
 
         let initializer = self
             .initializer
             .as_ref()
             .ok_or_else(|| vortex_err!("Plan child {index} was not initialized"))?;
-        Ok(Some(cell.get_or_try_init(|| initializer(index))?.clone()))
+        Ok(Some(cell.get_or_try_init(|| initializer(index))?))
     }
 
     /// Iterates over the children in logical order, initializing slots as they are visited.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = VortexResult<PlanRef>> + '_ {
         (0..self.len()).map(|index| {
             self.get(index)?
+                .ok_or_else(|| vortex_err!("Plan child {index} is absent"))
+        })
+    }
+
+    /// Borrows the children in logical order, initializing slots as they are visited.
+    pub(crate) fn iter_refs(&self) -> impl ExactSizeIterator<Item = VortexResult<&PlanRef>> + '_ {
+        (0..self.len()).map(|index| {
+            self.get_ref(index)?
                 .ok_or_else(|| vortex_err!("Plan child {index} is absent"))
         })
     }

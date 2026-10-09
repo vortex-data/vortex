@@ -3,11 +3,29 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::ops::Range;
 
+use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::SharedArray;
+use vortex_array::arrays::Slice;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::slice::SliceArraySlotsExt;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
+use vortex_pco::Pco;
+use vortex_runend::RunEnd;
+use vortex_runend::RunEndArrayExt;
+use vortex_runend::RunEndArraySlotsExt;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Plan;
@@ -17,7 +35,14 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::EvalNode;
+use crate::plan::exec::ExecContext;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::Selection;
+use crate::plan::exec::fuse_dictionary_predicate;
 use crate::plan::optimizer::PlanReduceRule;
+use crate::plan::pipeline::GraphBuilder;
+use crate::plan::pipeline::ops;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -27,6 +52,7 @@ pub struct Eval;
 #[derive(Clone, Debug)]
 pub struct EvalData {
     expression: BoundExpression,
+    encoded_predicate: bool,
 }
 
 /// A plan that applies an expression to its child.
@@ -52,7 +78,13 @@ impl EvalPlan {
             dtype: expression.dtype().clone(),
             row_count: child.row_count(),
             children: vec![child].into(),
-            data: EvalData { expression },
+            data: EvalData {
+                encoded_predicate: matches!(
+                    expression.as_opt::<Binary>(),
+                    Some(Operator::And | Operator::Or)
+                ) && is_infallible(&expression),
+                expression,
+            },
         }
         .into_typed()
     }
@@ -60,6 +92,53 @@ impl EvalPlan {
     /// Returns the expression evaluated by this plan.
     pub fn expression(&self) -> &BoundExpression {
         &self.data().expression
+    }
+
+    /// Applies the whole predicate to encoded values before expanding row results. Layout
+    /// planning cannot push into encodings discovered only when a segment is decoded.
+    pub(crate) fn apply(
+        &self,
+        mut array: ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        if !self.data().encoded_predicate {
+            return array.apply_bound(self.expression());
+        }
+        if let Some(dict) = array.as_opt::<Dict>()
+            && !dict.codes().dtype().is_nullable()
+            && dict.values().len() <= dict.codes().len()
+        {
+            let values = dict.values().clone().apply_bound(self.expression())?;
+            return Ok(DictArray::try_new(dict.codes().clone(), values)?.into_array());
+        }
+        let mut ctx = ExecutionCtx::new(session.clone());
+        if array
+            .as_opt::<Slice>()
+            .is_some_and(|slice| slice.child().is::<RunEnd>() || slice.child().is::<Pco>())
+        {
+            array = array.execute::<ArrayRef>(&mut ctx)?;
+        }
+        if let Some(runend) = array.as_opt::<RunEnd>() {
+            // Each comparison otherwise decompresses the values and expands its own boolean
+            // runs. Share the values across the compound predicate and expand only its result.
+            let values = SharedArray::new(runend.values().clone())
+                .into_array()
+                .apply_bound(self.expression())?;
+            return Ok(RunEnd::try_new_offset_length(
+                runend.ends().clone(),
+                values,
+                runend.offset(),
+                array.len(),
+                &mut ctx,
+            )?
+            .into_array());
+        }
+        if array.is::<Pco>() {
+            // PCO has no comparison kernel; each branch would decompress the same values.
+            array = SharedArray::new(array).into_array();
+        }
+        let result = array.apply_bound(self.expression())?;
+        fuse_dictionary_predicate(result, &mut ctx)
     }
 
     /// Returns the child plan supplying the expression root.
@@ -113,6 +192,28 @@ impl PlanVTable for Eval {
             Cow::Owned(format!("child[{index}]"))
         }
     }
+
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(EvalNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+            ctx.session().clone(),
+        )))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        cx: &mut GraphBuilder<'_>,
+    ) -> VortexResult<()> {
+        ops::eval(plan, rows, mask, cx)
+    }
 }
 
 fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> VortexResult<()> {
@@ -137,4 +238,11 @@ impl PlanReduceRule<Eval> for EvalIdentityRule {
             Ok(None)
         }
     }
+}
+
+fn is_infallible(expression: &BoundExpression) -> bool {
+    expression
+        .as_scalar()
+        .is_none_or(|scalar| scalar.signature().is_infallible())
+        && expression.children().iter().all(is_infallible)
 }

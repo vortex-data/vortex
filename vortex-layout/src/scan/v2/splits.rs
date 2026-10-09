@@ -1,0 +1,343 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Splits a scan from its plans rather than from the layout reader.
+//!
+//! A scan splits twice. The filter runs over filter splits, cut where the chunks of the columns the
+//! filter reads start, or of those the projection reads when the scan has no filter, and cut
+//! further at other columns' chunk starts when too large to give every thread several splits. Under each filter split, the projection runs
+//! over one or more projection splits, cut where the chunks of the columns the projection reads
+//! start, so each projection split reads at most one chunk of every column.
+
+use std::iter;
+use std::ops::Range;
+
+use itertools::Itertools;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+
+use crate::LayoutRef;
+use crate::layouts::chunked::Chunked;
+use crate::layouts::dict::Dict;
+use crate::layouts::struct_::Struct;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
+use crate::plan::Concat;
+use crate::plan::Eval;
+use crate::plan::Filter;
+use crate::plan::Pack;
+use crate::plan::PlanRef;
+use crate::plan::Take;
+
+/// Bounds the selected output retained by a sparse projection graph.
+pub(crate) const MAX_SPARSE_ROWS: usize = 1024;
+
+/// The most rows a filter split has, which amortises a split's fixed cost over a large scan.
+const MAX_SPLIT_ROWS: u64 = 1 << 16;
+
+/// The fewest rows the cap on a filter split goes down to for a small scan.
+const MIN_SPLIT_ROWS: u64 = 1 << 13;
+
+/// How many filter splits a scan aims to give each thread, so threads that finish early find more
+/// work.
+const SPLITS_PER_THREAD: u64 = 4;
+
+/// The most rows a filter split of a scan over `rows` rows has when `threads` threads run it.
+pub(super) fn max_split_rows(rows: u64, threads: usize) -> u64 {
+    let splits = SPLITS_PER_THREAD * u64::try_from(threads.max(1)).unwrap_or(u64::MAX);
+    (rows / splits).clamp(MIN_SPLIT_ROWS, MAX_SPLIT_ROWS)
+}
+
+/// Identity scans retain natural chunk boundaries without materializing the full physical plan.
+/// Dictionary values and list elements are separate row domains, as in [`chunk_starts`].
+/// Sparse indices restrict the walk to selected chunks; their end boundaries separate empty gaps.
+pub(super) fn layout_chunk_starts(
+    layout: &LayoutRef,
+    indices: Option<&[u64]>,
+) -> VortexResult<Vec<u64>> {
+    let mut starts = Vec::new();
+    collect_layout_starts(layout, 0, indices, &mut starts)?;
+    starts.sort_unstable();
+    starts.dedup();
+    Ok(starts)
+}
+
+fn collect_layout_starts(
+    layout: &LayoutRef,
+    offset: u64,
+    indices: Option<&[u64]>,
+    starts: &mut Vec<u64>,
+) -> VortexResult<()> {
+    if let Some(chunked) = layout.as_opt::<Chunked>() {
+        if let Some(mut indices) = indices {
+            let offsets = chunked.chunk_offsets();
+            while let Some(&row) = indices.first() {
+                let index = offsets
+                    .partition_point(|&start| start <= row.saturating_sub(offset))
+                    .saturating_sub(1);
+                if index >= chunked.nchildren() {
+                    break;
+                }
+                let start = offset
+                    .checked_add(offsets[index])
+                    .ok_or_else(|| vortex_err!("Chunked row offset overflow"))?;
+                let end = offset
+                    .checked_add(offsets[index + 1])
+                    .ok_or_else(|| vortex_err!("Chunked row offset overflow"))?;
+                let count = indices.partition_point(|&row| row < end);
+                // Both edges are needed: the gap before the next selected chunk must remain
+                // an empty projection split, so IO planning does not announce its segments.
+                starts.extend([start, end]);
+                if !chunked.children().child_is_indivisible(index) {
+                    let child = layout
+                        .slot(index)?
+                        .ok_or_else(|| vortex_err!("Missing chunk {index}"))?;
+                    collect_layout_starts(&child, start, Some(&indices[..count]), starts)?;
+                }
+                indices = &indices[count..];
+            }
+            return Ok(());
+        }
+        for (index, &child_offset) in chunked.chunk_offsets()[..chunked.nchildren()]
+            .iter()
+            .enumerate()
+        {
+            let offset = offset
+                .checked_add(child_offset)
+                .ok_or_else(|| vortex_err!("Chunked row offset overflow"))?;
+            starts.push(offset);
+            if !chunked.children().child_is_indivisible(index) {
+                let child = layout
+                    .slot(index)?
+                    .ok_or_else(|| vortex_err!("Missing chunk {index}"))?;
+                collect_layout_starts(&child, offset, None, starts)?;
+            }
+        }
+    } else if layout.is::<Dict>() || layout.is::<Zoned>() || layout.is::<LegacyStats>() {
+        let slot = usize::from(layout.is::<Dict>());
+        let child = layout
+            .slot(slot)?
+            .ok_or_else(|| vortex_err!("Missing layout child {slot}"))?;
+        collect_layout_starts(&child, offset, indices, starts)?;
+    } else if layout.is::<Struct>() {
+        for child in layout.children()? {
+            collect_layout_starts(&child, offset, indices, starts)?;
+        }
+    }
+    Ok(())
+}
+
+/// The row positions where the chunks of `plans` start, over their shared row domain, sorted and
+/// without duplicates.
+///
+/// This follows plans whose children cover the same rows, or known parts of them, and stops at any
+/// other plan: a take's values or a list's elements cover other rows.
+pub(super) fn chunk_starts<'a>(
+    plans: impl IntoIterator<Item = &'a PlanRef>,
+) -> VortexResult<Vec<u64>> {
+    let mut starts = Vec::new();
+    for plan in plans {
+        collect_starts(plan, 0, &mut starts)?;
+    }
+    starts.sort_unstable();
+    starts.dedup();
+    Ok(starts)
+}
+
+fn collect_starts(plan: &PlanRef, offset: u64, starts: &mut Vec<u64>) -> VortexResult<()> {
+    if let Some(concat) = plan.as_opt::<Concat>() {
+        for (index, &child_offset) in concat.row_offsets().iter().enumerate() {
+            starts.push(offset + child_offset);
+            collect_starts(
+                plan.child_ref_required(index)?,
+                offset + child_offset,
+                starts,
+            )?;
+        }
+    } else if plan.is::<Take>() {
+        collect_starts(plan.child_ref_required(0)?, offset, starts)?;
+    } else if plan.is::<Pack>() || plan.is::<Filter>() || plan.is::<Eval>() {
+        for child in plan.children().iter_refs() {
+            collect_starts(child?, offset, starts)?;
+        }
+    }
+    Ok(())
+}
+
+/// The filter splits of `rows`, as every cut including `rows.start` and `rows.end`.
+///
+/// Rows are cut at `filter_starts`, the chunk starts of the columns the filter reads. A split
+/// longer than `max_rows` is cut further at `finer_starts`, the chunk starts of every column the
+/// scan reads, so a scan with coarse filter chunks still gives every thread several splits. No
+/// split is cut inside a chunk, which every split reading it would decode again. A cut closer than
+/// a quarter of `max_rows` to its neighbour is dropped, so misaligned chunks of different columns
+/// do not leave slivers.
+pub(super) fn filter_split_boundaries(
+    filter_starts: &[u64],
+    finer_starts: &[u64],
+    rows: Range<u64>,
+    max_rows: u64,
+) -> Vec<u64> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let min_rows = max_rows / 4;
+    let cuts = cut_at(filter_starts, rows.clone(), min_rows);
+    let mut boundaries = vec![rows.start];
+    for (start, end) in cuts.into_iter().tuple_windows() {
+        if end - start > max_rows {
+            let finer = cut_at(finer_starts, start..end, min_rows);
+            boundaries.extend(&finer[1..]);
+        } else {
+            boundaries.push(end);
+        }
+    }
+    boundaries
+}
+
+/// Coarsens sparse identity scans only when their selected rows would otherwise occupy many
+/// small tasks. Keep two active splits per worker, with a minimum budget of eight, so small
+/// scans do not become one large nested assembly on machines with few workers.
+pub(super) fn sparse_filter_split_boundaries(
+    filter_starts: &[u64],
+    finer_starts: &[u64],
+    row_count: u64,
+    indices: &[u64],
+    threads: usize,
+) -> Vec<u64> {
+    let threads = threads.max(1);
+    let boundaries = filter_split_boundaries(
+        filter_starts,
+        finer_starts,
+        0..row_count,
+        max_split_rows(row_count, threads),
+    );
+    let active = indices
+        .iter()
+        .map(|row| boundaries.partition_point(|boundary| boundary <= row))
+        .dedup()
+        .count();
+    if active <= threads.saturating_mul(2).max(8) {
+        return boundaries;
+    }
+    // The minimum split length is a quarter of max_rows. Aim for roughly one task per worker;
+    // retaining chunk boundaries avoids introducing additional partial-chunk decodes.
+    filter_split_boundaries(
+        filter_starts,
+        finer_starts,
+        0..row_count,
+        row_count.div_ceil(threads as u64).saturating_mul(4),
+    )
+}
+
+/// `rows` cut at every one of `starts` inside it that is at least `min_rows` from the cut before
+/// and from `rows.end`, as every cut including `rows.start` and `rows.end`.
+fn cut_at(starts: &[u64], rows: Range<u64>, min_rows: u64) -> Vec<u64> {
+    let mut cuts = vec![rows.start];
+    for &start in starts {
+        let previous = cuts[cuts.len() - 1];
+        if rows.start < start && start < rows.end && start - previous >= min_rows {
+            cuts.push(start);
+        }
+    }
+    // The last split may be a sliver; fold it into the one before.
+    if cuts.len() > 1 && rows.end - cuts[cuts.len() - 1] < min_rows {
+        cuts.pop();
+    }
+    cuts.push(rows.end);
+    cuts
+}
+
+/// The projection splits of `rows`: cut at every one of `starts` inside it.
+pub(crate) fn projection_splits(starts: &[u64], rows: Range<u64>) -> Vec<Range<u64>> {
+    let first = starts.partition_point(|&start| start <= rows.start);
+    let last = starts.partition_point(|&start| start < rows.end);
+    iter::once(rows.start)
+        .chain(starts[first..last].iter().copied())
+        .chain(iter::once(rows.end))
+        .tuple_windows()
+        .map(|(start, end)| start..end)
+        .filter(|range| !range.is_empty())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::few_active(8, 2, 32)]
+    #[case::two_per_worker(8, 16, 32)]
+    #[case::many_active(8, 32, 8)]
+    #[case::few_single_worker(1, 8, 32)]
+    #[case::many_single_worker(1, 32, 1)]
+    fn sparse_splits_preserve_parallelism(
+        #[case] threads: usize,
+        #[case] active: u64,
+        #[case] expected: usize,
+    ) {
+        let starts = (0..32).map(|i| i * 32_768).collect::<Vec<_>>();
+        let indices = (0..active).map(|i| i * 32_768 + 1).collect::<Vec<_>>();
+        let boundaries =
+            sparse_filter_split_boundaries(&starts, &starts, 1_048_576, &indices, threads);
+        assert_eq!(boundaries.len() - 1, expected);
+    }
+
+    #[rstest]
+    fn sparse_splits_do_not_merge_an_already_parallel_short_tail(#[values(1, 8)] threads: usize) {
+        let starts = (0..8).map(|i| i * 131_072).collect::<Vec<_>>();
+        let indices = starts.iter().map(|i| i + 1).collect::<Vec<_>>();
+        let mut expected = starts.clone();
+        expected.push(1_000_000);
+        assert_eq!(
+            sparse_filter_split_boundaries(&starts, &starts, 1_000_000, &indices, threads),
+            expected,
+        );
+    }
+
+    #[rstest]
+    #[case::whole_when_no_starts(&[], &[], 0..150_000, 65_536, vec![0, 150_000])]
+    #[case::at_starts(&[40_000, 80_000], &[], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
+    #[case::drops_slivers(&[40_000, 41_000, 80_000], &[], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
+    #[case::folds_short_tail(&[40_000, 115_000], &[], 0..120_000, 131_072, vec![0, 40_000, 120_000])]
+    #[case::long_split_cut_at_finer_starts(&[40_000], &[40_000, 60_000, 80_000, 100_000], 0..120_000, 65_536, vec![0, 40_000, 60_000, 80_000, 100_000, 120_000])]
+    #[case::short_split_ignores_finer_starts(&[60_000], &[30_000, 60_000, 90_000], 0..120_000, 65_536, vec![0, 60_000, 120_000])]
+    #[case::never_inside_a_chunk(&[], &[], 0..1_000_000, 65_536, vec![0, 1_000_000])]
+    #[case::only_inside_rows(&[10_000, 50_000, 200_000], &[], 20_000..100_000, 65_536, vec![20_000, 50_000, 100_000])]
+    #[case::empty(&[10], &[], 5..5, 65_536, vec![])]
+    fn filter_splits(
+        #[case] filter_starts: &[u64],
+        #[case] finer_starts: &[u64],
+        #[case] rows: Range<u64>,
+        #[case] max_rows: u64,
+        #[case] expected: Vec<u64>,
+    ) {
+        assert_eq!(
+            filter_split_boundaries(filter_starts, finer_starts, rows, max_rows),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case::small_scan_floors(150_000, 14, 8_192)]
+    #[case::medium_scan(1_500_000, 14, 26_785)]
+    #[case::large_scan_caps(6_000_000, 14, 65_536)]
+    #[case::no_threads(100_000, 0, 25_000)]
+    fn split_rows(#[case] rows: u64, #[case] threads: usize, #[case] expected: u64) {
+        assert_eq!(max_split_rows(rows, threads), expected);
+    }
+
+    #[rstest]
+    #[case::whole(&[], 10..20, vec![10..20])]
+    #[case::cut(&[0, 12, 15, 30], 10..20, vec![10..12, 12..15, 15..20])]
+    #[case::start_on_boundary(&[10, 15], 10..20, vec![10..15, 15..20])]
+    fn projection(
+        #[case] starts: &[u64],
+        #[case] rows: Range<u64>,
+        #[case] expected: Vec<Range<u64>>,
+    ) {
+        assert_eq!(projection_splits(starts, rows), expected);
+    }
+}
