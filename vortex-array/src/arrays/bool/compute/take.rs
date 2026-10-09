@@ -55,7 +55,10 @@ impl TakeExecute for Bool {
             if count == 0 || count == source.len() {
                 return Ok(Some(
                     ConstantArray::new(
-                        Scalar::bool(count != 0, array.dtype().nullability()),
+                        Scalar::bool(
+                            count != 0,
+                            array.dtype().nullability() | indices.dtype().nullability(),
+                        ),
                         indices.len(),
                     )
                     .into_array(),
@@ -177,11 +180,14 @@ where
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
+    use crate::Canonical;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
@@ -271,6 +277,29 @@ mod test {
         );
         let actual = values.take(indices.into_array()).unwrap();
         assert_arrays_eq!(actual, BoolArray::from_iter([None, None, None]), &mut ctx);
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn test_non_null_constant_bool_take_with_nullable_indices(
+        #[case] value: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = BoolArray::from_iter([value]);
+        let codes = PrimitiveArray::new(buffer![0i64, 0, 0], Validity::AllValid);
+
+        let actual = DictArray::try_new(codes.into_array(), values.into_array())?
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([Some(value), Some(value), Some(value)]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[rstest]
