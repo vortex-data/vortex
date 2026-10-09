@@ -166,6 +166,7 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
                     referenced,
                     codes_primitive.as_slice::<P>(),
                     mask,
+                    codes_validity.true_count(),
                 )
             }),
         };
@@ -183,7 +184,17 @@ const EARLY_EXIT_CHUNK: usize = 2048;
 
 /// Sets `values[code]` to `referenced` for every code, returning `true` early once every entry
 /// of `values` is `referenced`, since further codes cannot change the result.
+///
+/// With fewer codes than values not every value can be referenced, so the saturation checks are
+/// skipped entirely.
 fn mark_codes<P: AsPrimitive<usize>>(values: &mut [bool], referenced: bool, codes: &[P]) -> bool {
+    if codes.len() < values.len() {
+        for code in codes {
+            values[code.as_()] = referenced;
+        }
+        return false;
+    }
+
     let mut cursor = 0;
     for chunk in codes.chunks(EARLY_EXIT_CHUNK) {
         for code in chunk {
@@ -196,13 +207,21 @@ fn mark_codes<P: AsPrimitive<usize>>(values: &mut [bool], referenced: bool, code
     false
 }
 
-/// Like [`mark_codes`], but only for the codes at the set positions of `mask`.
+/// Like [`mark_codes`], but only for the codes at the `valid_count` set positions of `mask`.
 fn mark_masked_codes<P: AsPrimitive<usize>>(
     values: &mut [bool],
     referenced: bool,
     codes: &[P],
     mask: &BitBuffer,
+    valid_count: usize,
 ) -> bool {
+    if valid_count < values.len() {
+        mask.set_indices().for_each(|idx| {
+            values[codes[idx].as_()] = referenced;
+        });
+        return false;
+    }
+
     let mut cursor = 0;
     for start in (0..codes.len()).step_by(EARLY_EXIT_CHUNK) {
         let end = (start + EARLY_EXIT_CHUNK).min(codes.len());
@@ -575,6 +594,8 @@ mod test {
     #[case::saturates_in_later_chunk(4096, 60_000, 4096, None)]
     #[case::saturates_unaligned_to_scan_block(4001, 60_000, 4001, None)]
     #[case::never_saturates(1024, 10_000, 1000, None)]
+    #[case::fewer_codes_than_values(1024, 1000, 1024, None)]
+    #[case::fewer_valid_codes_than_values(1024, 1500, 1024, Some(0.5))]
     #[case::saturates_with_nulls(64, 10_000, 64, Some(0.5))]
     #[case::never_saturates_with_nulls(64, 10_000, 63, Some(0.5))]
     fn referenced_values_mask_matches_reference(
