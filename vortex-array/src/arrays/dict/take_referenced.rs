@@ -20,6 +20,14 @@ use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+/// With at least this many indices per value, all but about `e^-4` of the values are referenced
+/// for uniformly random indices, so the take decodes every value without finding which.
+const DENSE_INDICES_PER_VALUE: usize = 4;
+
+/// Once at least `1 / DENSE_REFERENCED_DENOMINATOR` of the values are referenced, filtering the
+/// encoded values costs more than decoding the unreferenced ones, so the take decodes them all.
+const DENSE_REFERENCED_DENOMINATOR: usize = 5;
+
 /// Takes `indices` from `values` by decoding each referenced value once.
 ///
 /// For encodings that decode row by row, such as string compressors, gathering the encoded rows
@@ -38,6 +46,10 @@ pub fn take_referenced_canonical(
         return Ok(Canonical::empty(&dtype).into_array());
     }
 
+    if indices.len() >= values.len().saturating_mul(DENSE_INDICES_PER_VALUE) {
+        return take_decoded(values, indices.clone(), ctx);
+    }
+
     let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
     let dict = DictArray::try_new(indices.clone().into_array(), values.clone())?;
     let referenced = dict.compute_referenced_values_mask(true, ctx)?;
@@ -51,13 +63,11 @@ pub fn take_referenced_canonical(
         );
     }
 
-    // Remapped indices are `u32`, so a larger referenced set takes from all of `values`.
-    if referenced_count == values.len() || u32::try_from(referenced_count).is_err() {
-        let canonical = values.clone().execute::<Canonical>(ctx)?.into_array();
-        return canonical
-            .take(indices.into_array())?
-            .execute::<Canonical>(ctx)
-            .map(Canonical::into_array);
+    // Remapped indices are `u32`, so a larger referenced set also takes from all of `values`.
+    if referenced_count.saturating_mul(DENSE_REFERENCED_DENOMINATOR) >= values.len()
+        || u32::try_from(referenced_count).is_err()
+    {
+        return take_decoded(values, indices.into_array(), ctx);
     }
 
     let indices_validity = indices
@@ -78,6 +88,21 @@ pub fn take_referenced_canonical(
         .into_array();
     referenced_values
         .take(remapped.into_array())?
+        .execute::<Canonical>(ctx)
+        .map(Canonical::into_array)
+}
+
+/// Decodes every value, then gathers from the decoded array.
+fn take_decoded(
+    values: &ArrayRef,
+    indices: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    values
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_array()
+        .take(indices)?
         .execute::<Canonical>(ctx)
         .map(Canonical::into_array)
 }

@@ -684,6 +684,8 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
 #[case::dense_repeated((0..4_000).map(|i| Some(i % 50)).collect())]
 #[case::every_row((0..2_000).rev().map(Some).collect())]
 #[case::all_null(vec![None, None, None])]
+#[case::all_null_dense(vec![None; 1_000])]
+#[case::many_per_row((0..8_000).map(|i| Some(i % 2_000)).collect())]
 fn test_onpair_take_decodes_referenced(
     #[case] indices: Vec<Option<u32>>,
 ) -> vortex_error::VortexResult<()> {

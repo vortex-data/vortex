@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
@@ -36,7 +37,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// `(values_len, indices_len, index_range)`: indices are drawn uniformly from `0..index_range`.
+/// `(values_len, indices_len, index_range)`: indices are drawn uniformly from `index_range` of the
+/// values, scattered across them.
 const CASES: &[(&str, usize, usize, usize)] = &[
     // 1%, 2%, 5%, 10% and 20% of the rows, mostly distinct.
     ("sparse_1pct", 65_536, 655, 65_536),
@@ -49,8 +51,11 @@ const CASES: &[(&str, usize, usize, usize)] = &[
     ("random_100pct", 65_536, 65_536, 65_536),
     // Every value referenced, each about 16 times.
     ("repeated_all", 4_096, 65_536, 4_096),
-    // A quarter of the values referenced, each about 4 times.
+    // As many indices as values, drawn from an eighth, a quarter or half of them: about 12%, 25%
+    // and 43% of the values referenced.
+    ("repeated_12pct", 65_536, 65_536, 8_192),
     ("repeated_partial", 65_536, 65_536, 16_384),
+    ("repeated_43pct", 65_536, 65_536, 32_768),
     // Every value referenced once, in reverse.
     ("permutation", 65_536, 65_536, 0),
 ];
@@ -87,8 +92,12 @@ fn indices(values_len: usize, len: usize, range: usize) -> ArrayRef {
     if range == 0 {
         return PrimitiveArray::from_iter((0..values_len as u32).rev()).into_array();
     }
+    // An odd multiplier permutes the power-of-two `values_len`, scattering the referenced values.
     let mut next = lcg(42);
-    PrimitiveArray::from_iter((0..len).map(|_| (next() % range as u64) as u32)).into_array()
+    PrimitiveArray::from_iter(
+        (0..len).map(|_| ((next() % range as u64) * 0x9e37_79b1 % values_len as u64) as u32),
+    )
+    .into_array()
 }
 
 #[divan::bench(args = CASES.iter().map(|c| c.0))]
@@ -101,4 +110,29 @@ fn dict_execute(bencher: Bencher, case: &str) {
     bencher
         .with_inputs(|| (dict.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(dict, mut ctx)| dict.execute::<VarBinViewArray>(&mut ctx).unwrap());
+}
+
+/// The path without a take kernel: decode every value, then gather views.
+#[divan::bench(args = CASES.iter().map(|c| c.0))]
+fn decode_all_then_take(bencher: Bencher, case: &str) {
+    let &(_, values_len, indices_len, range) = CASES.iter().find(|c| c.0 == case).unwrap();
+    let indices = indices(values_len, indices_len, range);
+    let values = values(values_len);
+
+    bencher
+        .with_inputs(|| {
+            (
+                values.clone(),
+                indices.clone(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(values, indices, mut ctx)| {
+            let decoded = values.execute::<Canonical>(&mut ctx).unwrap().into_array();
+            DictArray::try_new(indices, decoded)
+                .unwrap()
+                .into_array()
+                .execute::<VarBinViewArray>(&mut ctx)
+                .unwrap()
+        });
 }
