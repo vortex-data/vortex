@@ -3,7 +3,7 @@
 
 import math
 import os
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -23,21 +23,24 @@ from vortex.polars_ import polars_to_vortex
         (pl.col("AdvEngineID") != 0, ve.column("AdvEngineID") != 0),
         (pl.col("MobilePhoneModel") != "", ve.column("MobilePhoneModel") != ""),
         (pl.col("UserID") == 435090932899640449, ve.column("UserID") == 435090932899640449),
-        # (pl.col("URL").str.contains("google"), ve.column("URL").str.contains("google")),
-        # (
-        #     (
-        #         (pl.col("Title").str.contains("Google"))
-        #         & (~pl.col("URL").str.contains(".google."))
-        #         & (pl.col("SearchPhrase") != "")
-        #     ),
-        #     (
-        #         (ve.column("Title").str.contains("Google"))
-        #         & (~ve.column("URL").str.contains(".google."))
-        #         & (ve.column("SearchPhrase") != "")
-        #     ),
-        # ),
+        (pl.col("URL").str.contains("google", literal=True), ve.like(ve.column("URL"), "%google%")),
+        (
+            (
+                (pl.col("Title").str.contains("Google", literal=True))
+                & (~pl.col("URL").str.contains(".google.", literal=True))
+                & (pl.col("SearchPhrase") != "")
+            ),
+            (
+                ve.like(ve.column("Title"), "%Google%")
+                & ve.not_(ve.like(ve.column("URL"), "%.google.%"))
+                & (ve.column("SearchPhrase") != "")
+            ),
+        ),
         (pl.col("c") > 10000, ve.column("c") > 10000),
-        #        (pl.col("EventDate") >= date(2013, 7, 1), ve.column("EventDate") >= date(2013, 7, 1)),
+        (
+            pl.col("EventDate") >= date(2013, 7, 1),
+            ve.column("EventDate") >= ve.literal(vx.date("days"), (date(2013, 7, 1) - date(1970, 1, 1)).days),
+        ),
     ],
 )
 def test_exprs(polars: pl.Expr, vortex: ve.Expr) -> None:
@@ -369,3 +372,104 @@ def _time_zone_scan(tmp_path, values, policy=None) -> tuple[pl.LazyFrame, pl.Laz
     table = pa.table(columns)
     vx.io.write(vx.array(table), str(path))
     return pl.DataFrame(table).lazy(), vx.open(str(path)).to_polars()
+
+
+# To unify operand types, Polars' optimizer adds widening casts with `NonStrict` or `Overflowing`
+# options. Telling those apart from a lossy user `cast(strict=False)` needs the column types,
+# which `polars_to_vortex` does not have, so such casts are not translated yet.
+_COERCION_CAST_GAP = pytest.mark.xfail(strict=True, reason="coercion casts need the file schema")
+
+
+def _assert_pushdown(tmp_path, frame: pl.DataFrame, expr: pl.Expr) -> pl.DataFrame:
+    """Filter `frame` through a Vortex file and check the result matches Polars' own filter."""
+    path = tmp_path / "pushdown.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected)
+    return actual
+
+
+@pytest.mark.parametrize(
+    "expr, expected",
+    [
+        (pl.col("x") + 1 > 3, [2, 3]),
+        (pl.col("x") - 1 > 1, [2, 3]),
+        (pl.col("x") * 2 > 4, [2, 3]),
+        # True division: integer division would make 3 / 2 == 1 and drop id 2.
+        (pl.col("x") / 2 > 1, [2, 3]),
+        (pl.col("x32") + 1 > 3, [2, 3]),
+        pytest.param((pl.col("x") + pl.col("x32")) * 2 > 8, [2, 3], marks=_COERCION_CAST_GAP),
+    ],
+)
+def test_polars_arithmetic(tmp_path, expr, expected):
+    frame = pl.DataFrame(
+        {"id": [0, 1, 2, 3, 4], "x": [1, 2, 3, 4, None], "x32": pl.Series([1, 2, 3, 4, None], dtype=pl.Int32)}
+    )
+    assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == expected
+
+
+@pytest.mark.parametrize(
+    "expr, expected",
+    [
+        (pl.col("s").str.contains("bob", literal=True), [1, 6]),
+        (pl.col("s").str.starts_with("bob"), [1, 6]),
+        (pl.col("s").str.ends_with("e"), [0, 3, 4]),
+        # `%` and `_` in the needle must match literally, not as LIKE wildcards.
+        (pl.col("s").str.contains("%_", literal=True), [7]),
+        (pl.col("s").str.starts_with("a_"), [8]),
+        (~pl.col("s").str.contains("o", literal=True), [0, 3, 4, 7, 8, 9]),
+    ],
+)
+def test_polars_string_matching(tmp_path, expr, expected):
+    names = ["alice", "bob", "carol", "dave", "eve", None, "bobby", "100%_legit", "a_b", "axb"]
+    frame = pl.DataFrame({"id": list(range(len(names))), "s": names})
+    # "axb" must not match `starts_with("a_")`, which it would if `_` were a wildcard.
+    assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == expected
+
+
+@pytest.mark.parametrize(
+    "expr, expected",
+    [
+        (pl.col("x").is_in([2, 4, 99]), [1, 3]),
+        pytest.param(pl.col("x32").is_in([2, 4]), [1, 3], marks=_COERCION_CAST_GAP),
+        (pl.col("s").is_in(["a", "c"]), [0, 2]),
+        (pl.col("x").is_in([]), []),
+    ],
+)
+def test_polars_is_in(tmp_path, expr, expected):
+    frame = pl.DataFrame(
+        {
+            "id": [0, 1, 2, 3, 4],
+            "x": [1, 2, 3, 4, None],
+            "x32": pl.Series([1, 2, 3, 4, None], dtype=pl.Int32),
+            "s": ["a", "b", "c", None, "d"],
+        }
+    )
+    assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == expected
+
+
+def test_polars_naive_datetime_literal(tmp_path):
+    # A naive datetime literal is serialized as a UTC literal cast to a naive datetime.
+    frame = pl.DataFrame({"id": [0, 1, 2], "ts": [datetime(2020, 1, 1), datetime(2020, 1, 2), None]})
+    assert _assert_pushdown(tmp_path, frame, pl.col("ts") > datetime(2020, 1, 1))["id"].to_list() == [1]
+
+
+def test_polars_cast(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [1, 2, None, 3]})
+    expr = pl.col("x").cast(pl.Float64) > 1.5
+    assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == [1, 3]
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param(pl.col("s").str.contains("goo.*"), id="regex-contains"),
+        pytest.param(pl.col("d") > timedelta(days=1), id="duration-literal"),
+        pytest.param(pl.col("x").is_in([1, None]), id="null-in-is-in"),
+        pytest.param(pl.col("x").cast(pl.Int8, strict=False) > 1, id="non-strict-cast"),
+    ],
+)
+def test_unsupported_exprs(expr):
+    with pytest.raises(NotImplementedError):
+        polars_to_vortex(expr)
