@@ -38,8 +38,15 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// `(values_len, indices_len, index_range)`: indices are drawn uniformly from `0..index_range`.
 const CASES: &[(&str, usize, usize, usize)] = &[
-    // 1% of the rows, mostly distinct.
-    ("sparse", 65_536, 655, 65_536),
+    // 1%, 2%, 5%, 10% and 20% of the rows, mostly distinct.
+    ("sparse_1pct", 65_536, 655, 65_536),
+    ("sparse_2pct", 65_536, 1_311, 65_536),
+    ("sparse_5pct", 65_536, 3_277, 65_536),
+    ("sparse_10pct", 65_536, 6_554, 65_536),
+    ("sparse_20pct", 65_536, 13_107, 65_536),
+    // Uniform over every row: about 21% and 37% of the indices repeat a value.
+    ("random_50pct", 65_536, 32_768, 65_536),
+    ("random_100pct", 65_536, 65_536, 65_536),
     // Every value referenced, each about 16 times.
     ("repeated_all", 4_096, 65_536, 4_096),
     // A quarter of the values referenced, each about 4 times.

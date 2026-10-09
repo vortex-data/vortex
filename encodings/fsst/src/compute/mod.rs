@@ -10,23 +10,58 @@ mod like;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::take_referenced_canonical;
+use vortex_array::arrays::varbin::take_varbin;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
+
+/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers
+/// compressed rows instead of decoding the referenced rows. Uniformly random indices that sparse
+/// repeat too rarely for decoding each referenced row once to pay for finding them; see
+/// `benches/`.
+const SPARSE_TAKE_DENOMINATOR: usize = 2;
 
 impl TakeExecute for FSST {
-    /// Decodes each referenced row once and gathers the decoded strings.
+    /// Gathers compressed rows for a sparse take, and otherwise decodes each referenced row once
+    /// and gathers the decoded strings.
     ///
-    /// Gathering compressed rows instead would decode a row again for every index that repeats
-    /// it, which is far slower when the indices are dense, as in a dictionary over FSST values.
+    /// Gathering compressed rows decodes a row again for every index that repeats it, which is
+    /// far slower when the indices are dense, as in a dictionary over FSST values. A sparse take
+    /// has few repeats to save, so there the cost of finding the referenced rows dominates.
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_referenced_canonical(array.array(), indices, ctx).map(Some)
+        if indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) >= array.len() {
+            return take_referenced_canonical(array.array(), indices, ctx).map(Some);
+        }
+
+        Ok(Some(
+            FSST::try_new_with_symbol_table(
+                array
+                    .dtype()
+                    .clone()
+                    .union_nullability(indices.dtype().nullability()),
+                array.symbol_table(),
+                take_varbin(array.codes().as_view(), indices, ctx)?,
+                array
+                    .uncompressed_lengths()
+                    .take(indices.clone())?
+                    .fill_null(Scalar::zero_value(
+                        &array.uncompressed_lengths_dtype().clone(),
+                    ))?,
+                ctx,
+            )?
+            .into_array(),
+        ))
     }
 }
 

@@ -678,7 +678,7 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
-/// Take decodes the referenced rows once and gathers them, including repeated and null indices.
+/// Take returns the right rows on both the sparse gather path and the decode-referenced path.
 #[rstest]
 #[case::sparse_repeated(vec![Some(1999u32), None, Some(0), Some(7), Some(7)])]
 #[case::dense_repeated((0..4_000).map(|i| Some(i % 50)).collect())]
