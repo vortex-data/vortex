@@ -259,6 +259,66 @@ fn filter_share_dict(bencher: Bencher, case: (Shape, usize)) {
         });
 }
 
+/// Filter at a range of densities with a random mask, which places the crossover between
+/// gathering token runs and filtering them.
+#[divan::bench(args = [0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 0.8])]
+fn filter_density(bencher: Bencher, density: f64) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let n = 100_000;
+    let arr = compress(n, Shape::UrlLog, &mut ctx);
+    let mut state = 0x2545_f491_4f6c_dd1d_u64;
+    let mask = Mask::from_iter((0..n).map(|_| {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((state >> 11) as f64 / (1u64 << 53) as f64) < density
+    }));
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| {
+            let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
+                .unwrap()
+                .unwrap();
+            divan::black_box(result);
+        });
+}
+
+/// Filter keeping one contiguous run of rows, the friendliest mask for filtering token runs.
+#[divan::bench(args = [0.05, 0.2, 0.5, 0.8])]
+fn filter_contiguous(bencher: Bencher, density: f64) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let n = 100_000;
+    let arr = compress(n, Shape::UrlLog, &mut ctx);
+    let kept = (n as f64 * density) as usize;
+    let mask = Mask::from_iter((0..n).map(|i| (n / 10..n / 10 + kept).contains(&i)));
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| {
+            let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
+                .unwrap()
+                .unwrap();
+            divan::black_box(result);
+        });
+}
+
+/// Filter keeping alternating runs of `run_len` rows, which places the crossover between gathering
+/// and filtering token runs by run length.
+#[divan::bench(args = [1, 2, 4, 8, 16, 32, 64])]
+fn filter_runs(bencher: Bencher, run_len: usize) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let n = 100_000;
+    let arr = compress(n, Shape::UrlLog, &mut ctx);
+    let mask = Mask::from_iter((0..n).map(|i| (i / run_len).is_multiple_of(2)));
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| {
+            let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
+                .unwrap()
+                .unwrap();
+            divan::black_box(result);
+        });
+}
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 

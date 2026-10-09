@@ -15,7 +15,6 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
@@ -678,27 +677,62 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
-/// Take returns the right rows on both the sparse gather path and the decode-referenced path.
+/// A dictionary over OnPair values returns the right rows whichever way the take kernel goes:
+/// gathering token runs, decoding the referenced rows, or decoding every row.
 #[rstest]
 #[case::sparse_repeated(vec![Some(1999u32), None, Some(0), Some(7), Some(7)])]
 #[case::dense_repeated((0..4_000).map(|i| Some(i % 50)).collect())]
 #[case::every_row((0..2_000).rev().map(Some).collect())]
 #[case::all_null(vec![None, None, None])]
 #[case::all_null_dense(vec![None; 1_000])]
+#[case::partial_nulls((0..1_500).map(|i| (i % 3 != 0).then_some(i % 40)).collect())]
 #[case::many_per_row((0..8_000).map(|i| Some(i % 2_000)).collect())]
-fn test_onpair_take_decodes_referenced(
-    #[case] indices: Vec<Option<u32>>,
-) -> vortex_error::VortexResult<()> {
+fn test_dict_over_onpair_take(#[case] indices: Vec<Option<u32>>) -> vortex_error::VortexResult<()> {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
     let input = take_input();
-    let mut ctx = SESSION.create_execution_ctx();
     let arr = compress_onpair(&input.clone().into_array(), &mut ctx)?;
     let indices = PrimitiveArray::from_option_iter(indices).into_array();
-
-    let taken = <OnPair as TakeExecute>::take(arr.as_view(), &indices, &mut ctx)?
-        .expect("OnPair take must return Some");
+    let dict = DictArray::try_new(indices.clone(), arr.into_array())?.into_array();
 
     let expected = input.into_array().take(indices)?;
-    assert_arrays_eq!(taken, expected, &mut ctx);
+    assert_arrays_eq!(dict, expected, &mut ctx);
+    Ok(())
+}
+
+/// The take kernel ignores null indices, so their values may be anything, even out of bounds.
+#[rstest]
+#[case::gather(500, 2_000)]
+#[case::filter(1_500, 40)]
+#[case::decode_all(1_500, 2_000)]
+fn test_dict_over_onpair_null_indices_out_of_bounds(
+    #[case] len: u32,
+    #[case] range: u32,
+) -> vortex_error::VortexResult<()> {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let input = take_input();
+    let arr = compress_onpair(&input.clone().into_array(), &mut ctx)?;
+    let valid = (0..len).map(|i| i % 3 != 0).collect::<Vec<_>>();
+    let values = (0..len)
+        .zip(&valid)
+        .map(|(i, &valid)| if valid { i % range } else { u32::MAX })
+        .collect::<BufferMut<u32>>();
+    let indices = PrimitiveArray::new(values.freeze(), Validity::from_iter(valid.iter().copied()))
+        .into_array();
+    let dict = DictArray::try_new(indices, arr.into_array())?.into_array();
+
+    let in_bounds = (0..len)
+        .zip(&valid)
+        .map(|(i, &valid)| valid.then_some(i % range));
+    let expected = input
+        .into_array()
+        .take(PrimitiveArray::from_option_iter(in_bounds).into_array())?;
+    assert_arrays_eq!(dict, expected, &mut ctx);
     Ok(())
 }
 

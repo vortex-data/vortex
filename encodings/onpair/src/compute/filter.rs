@@ -32,8 +32,9 @@ use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 
-/// Below this mask density, filter gathers token runs by index instead of filtering them.
-const SPARSE_FILTER_DENSITY: f64 = 0.05;
+/// When the kept rows average fewer than this many per run, filter gathers their token runs by
+/// index instead of filtering them.
+const MIN_FILTER_RUN_LEN: usize = 6;
 
 impl FilterKernel for OnPair {
     fn filter(
@@ -51,10 +52,10 @@ impl FilterKernel for OnPair {
                 Validity::NonNullable,
             )
         };
-        // The List filter builds a mask over every code, so a sparse mask instead gathers the
-        // selected token runs.
+        // The List filter builds a mask over every code, run by run of kept rows, so short runs
+        // instead gather the kept token runs.
         let filtered_codes_ref = match mask.values() {
-            Some(values) if values.density() < SPARSE_FILTER_DENSITY => {
+            Some(values) if values.true_count() < MIN_FILTER_RUN_LEN * values.slices().len() => {
                 let indices = values
                     .indices()
                     .iter()

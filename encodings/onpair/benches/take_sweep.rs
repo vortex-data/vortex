@@ -94,15 +94,30 @@ fn time(mut f: impl FnMut(), budget: Duration) -> Duration {
     best
 }
 
+/// Reads a comma-separated grid axis from the environment, e.g. `SWEEP_N=1024,65536`.
+fn axis<T: std::str::FromStr + Clone>(name: &str, default: &[T]) -> Vec<T> {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.split(',').map(|x| x.parse().ok().unwrap()).collect())
+        .unwrap_or_else(|| default.to_vec())
+}
+
 fn main() {
     let budget = Duration::from_millis(60);
     println!("shape n k range null% kernel_us nokernel_us ratio");
-    for shape in ["short", "url", "long"] {
-        for n in [64usize, 1024, 65_536] {
+    for shape in axis::<String>(
+        "SWEEP_SHAPE",
+        &["short".into(), "url".into(), "long".into()],
+    ) {
+        let shape = shape.as_str();
+        for n in axis::<usize>("SWEEP_N", &[64, 256, 1024, 65_536]) {
             let values = onpair(&strings(n, shape).into_array());
-            for kf in [0.1, 0.3, 0.45, 0.49, 0.5, 0.75, 1.0, 2.0, 3.9, 8.0] {
-                for rf in [0.02, 0.1, 0.19, 0.21, 0.5, 1.0] {
-                    for null_pct in [0u64, 50] {
+            for kf in axis::<f64>(
+                "SWEEP_K",
+                &[0.1, 0.3, 0.45, 0.49, 0.5, 0.75, 1.0, 2.0, 3.9, 8.0],
+            ) {
+                for rf in axis::<f64>("SWEEP_RANGE", &[0.02, 0.1, 0.19, 0.21, 0.5, 1.0]) {
+                    for null_pct in axis::<u64>("SWEEP_NULL", &[0, 50]) {
                         let k = ((n as f64 * kf) as usize).max(1);
                         let range = ((n as f64 * rf) as usize).max(1);
                         let idx = indices(n, k, range, null_pct);

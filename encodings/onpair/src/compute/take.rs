@@ -20,29 +20,17 @@ use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 
-/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers
-/// token runs instead of decoding the referenced rows. Uniformly random indices that sparse
-/// repeat too rarely for decoding each referenced row once to pay for finding them; see
-/// `benches/`.
-const SPARSE_TAKE_DENOMINATOR: usize = 2;
-
 impl TakeExecute for OnPair {
-    /// Gathers token runs for a sparse take, and otherwise decodes each referenced row once and
-    /// gathers the decoded strings.
-    ///
-    /// Gathering token runs decodes a row again for every index that repeats it, which is far
-    /// slower when the indices are dense, as in a dictionary over OnPair values. A sparse take has
-    /// few repeats to save, so there the cost of finding the referenced rows dominates.
+    /// Gathers token runs for a sparse take, decodes each referenced row once for a repetitive
+    /// one, and otherwise leaves execution to decode every row and gather the decoded strings.
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) < array.len() {
-            take_token_runs(array, indices, ctx).map(Some)
-        } else {
-            take_referenced_canonical(array.array(), indices, ctx).map(Some)
-        }
+        take_referenced_canonical(array.array(), indices, ctx, |ctx| {
+            take_token_runs(array, indices, ctx)
+        })
     }
 }
 

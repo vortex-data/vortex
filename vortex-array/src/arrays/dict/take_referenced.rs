@@ -5,82 +5,69 @@ use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::dict::DictArrayExt;
 use crate::match_each_integer_ptype;
-use crate::scalar::Scalar;
-use crate::validity::Validity;
+
+/// Below this many values, decoding all of them costs less than any take kernel's setup.
+const MIN_VALUES_LEN: usize = 1024;
+
+/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the values gathers the encoded
+/// values: uniformly random indices that sparse repeat too rarely to pay for finding the
+/// referenced values.
+const SPARSE_TAKE_DENOMINATOR: usize = 2;
 
 /// With at least this many indices per value, all but about `e^-4` of the values are referenced
-/// for uniformly random indices, so the take decodes every value without finding which.
+/// for uniformly random indices, so finding which is wasted work.
 const DENSE_INDICES_PER_VALUE: usize = 4;
 
 /// Once at least `1 / DENSE_REFERENCED_DENOMINATOR` of the values are referenced, filtering the
-/// encoded values costs more than decoding the unreferenced ones, so the take decodes them all.
+/// encoded values costs more than decoding the unreferenced ones.
 const DENSE_REFERENCED_DENOMINATOR: usize = 5;
 
-/// Takes `indices` from `values` by decoding each referenced value once.
+/// Takes `indices` from `values`, an encoding that decodes row by row, such as a string
+/// compressor, choosing the cheapest of three strategies:
 ///
-/// For encodings that decode row by row, such as string compressors, gathering the encoded rows
-/// and decoding the result decodes a value again for every index that repeats it. This instead
-/// filters `values` down to the rows `indices` reference, executes those to canonical once, and
-/// gathers from that canonical array with the indices remapped into it.
+/// - For a sparse take, `gather` takes the encoded values, which are decoded afterwards. Repeated
+///   indices decode again, but a sparse take has few to repeat.
+/// - When most values are referenced, or `values` is small, decodes every value once and gathers
+///   from the decoded array, returning `None` to leave that to execution where it is known
+///   without reading the indices.
+/// - Otherwise, filters `values` down to the referenced values, decodes those once, and gathers
+///   from them with the indices remapped. This avoids both decoding every repeat and decoding the
+///   unreferenced values.
 pub fn take_referenced_canonical(
     values: &ArrayRef,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    if indices.is_empty() {
-        let dtype = values
-            .dtype()
-            .union_nullability(indices.dtype().nullability());
-        return Ok(Canonical::empty(&dtype).into_array());
+    gather: impl FnOnce(&mut ExecutionCtx) -> VortexResult<ArrayRef>,
+) -> VortexResult<Option<ArrayRef>> {
+    let len = values.len();
+    // Ranks are `u32`, so a larger array decodes every value.
+    if len < MIN_VALUES_LEN
+        || u32::try_from(len).is_err()
+        || indices.len() >= len.saturating_mul(DENSE_INDICES_PER_VALUE)
+    {
+        return Ok(None);
     }
-
-    if indices.len() >= values.len().saturating_mul(DENSE_INDICES_PER_VALUE) {
-        return take_decoded(values, indices.clone(), ctx);
+    if indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) < len {
+        return gather(ctx).map(Some);
     }
 
     let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-    let dict = DictArray::try_new(indices.clone().into_array(), values.clone())?;
-    let referenced = dict.compute_referenced_values_mask(true, ctx)?;
-    let referenced_count = referenced.true_count();
-
-    if referenced_count == 0 {
-        // Every index is null.
-        return Ok(
-            ConstantArray::new(Scalar::null(values.dtype().as_nullable()), indices.len())
-                .into_array(),
-        );
-    }
-
-    // Remapped indices are `u32`, so a larger referenced set also takes from all of `values`.
-    if referenced_count.saturating_mul(DENSE_REFERENCED_DENOMINATOR) >= values.len()
-        || u32::try_from(referenced_count).is_err()
-    {
-        return take_decoded(values, indices.into_array(), ctx);
-    }
-
-    let indices_validity = indices
-        .as_ref()
-        .validity()?
-        .execute_mask(indices.len(), ctx)?;
-    let remapped = match_each_integer_ptype!(indices.ptype(), |P| {
-        remap_indices(indices.as_slice::<P>(), &indices_validity, &referenced)
-    });
-    let remapped = PrimitiveArray::new(
-        remapped,
-        Validity::from_mask(indices_validity, indices.dtype().nullability()),
-    );
+    let Some((referenced, remapped)) = match_each_integer_ptype!(indices.ptype(), |P| {
+        remap_referenced(indices.as_slice::<P>(), len)
+    }) else {
+        // Not `None`: execution would call this kernel again before decoding the values,
+        // repeating the marking.
+        return take_decoded(values, indices.into_array(), ctx).map(Some);
+    };
+    let remapped = PrimitiveArray::new(remapped, indices.validity()?);
 
     let referenced_values = values
         .filter(Mask::from_buffer(referenced))?
@@ -89,7 +76,7 @@ pub fn take_referenced_canonical(
     referenced_values
         .take(remapped.into_array())?
         .execute::<Canonical>(ctx)
-        .map(Canonical::into_array)
+        .map(|taken| Some(taken.into_array()))
 }
 
 /// Decodes every value, then gathers from the decoded array.
@@ -107,36 +94,45 @@ fn take_decoded(
         .map(Canonical::into_array)
 }
 
-/// Maps each valid index to its position among the set bits of `referenced`, and each null index
-/// to zero.
-fn remap_indices<P: AsPrimitive<usize>>(
+/// Marks the values `indices` reference and maps each index to its position among them, or
+/// returns `None` when too many values are referenced to be worth filtering.
+///
+/// Null indices are treated like valid ones: the taken validity hides whatever they gather, so
+/// they only cost marking an extra value. Their arbitrary, possibly out-of-bounds, values are
+/// clamped into bounds.
+fn remap_referenced<P: AsPrimitive<usize>>(
     indices: &[P],
-    validity: &Mask,
-    referenced: &BitBuffer,
-) -> Buffer<u32> {
-    // `words[w]` holds bits `64 * w..64 * (w + 1)` of `referenced`, and `ranks[w]` counts the set
-    // bits before them, so a rank is one lookup plus one popcount.
-    let words: Vec<u64> = referenced.chunks().iter_padded().collect();
-    let ranks: Vec<u32> = words
-        .iter()
-        .scan(0u32, |rank, word| {
-            let before = *rank;
-            *rank += word.count_ones();
-            Some(before)
-        })
-        .collect();
-    let rank = |idx: usize| {
-        let (word, bit) = (idx / 64, idx % 64);
-        ranks[word] + (words[word] & ((1u64 << bit) - 1)).count_ones()
-    };
-
-    match validity.bit_buffer() {
-        AllOr::All => indices.iter().map(|&idx| rank(idx.as_())).collect(),
-        AllOr::None => Buffer::zeroed(indices.len()),
-        AllOr::Some(valid) => indices
-            .iter()
-            .zip(valid.iter())
-            .map(|(&idx, is_valid)| if is_valid { rank(idx.as_()) } else { 0 })
-            .collect(),
+    len: usize,
+) -> Option<(BitBuffer, Buffer<u32>)> {
+    let last = len - 1;
+    let dense_count = len.div_ceil(DENSE_REFERENCED_DENOMINATOR);
+    // First a mark per value, then each value's rank among the referenced values. Marking stops
+    // as soon as enough values are referenced to decode them all, which for dense indices is long
+    // before the last index.
+    let mut ranks = vec![0u32; len];
+    let mut referenced_count = 0usize;
+    for chunk in indices.chunks(256) {
+        for &idx in chunk {
+            let mark = &mut ranks[idx.as_().min(last)];
+            referenced_count += (1 - *mark) as usize;
+            *mark = 1;
+        }
+        if referenced_count >= dense_count {
+            return None;
+        }
     }
+
+    let referenced = BitBuffer::collect_bool(len, |idx| ranks[idx] != 0);
+    let mut rank = 0u32;
+    for value_rank in &mut ranks {
+        let is_referenced = *value_rank;
+        *value_rank = rank;
+        rank += is_referenced;
+    }
+
+    let remapped = indices
+        .iter()
+        .map(|&idx| ranks[idx.as_().min(last)])
+        .collect();
+    Some((referenced, remapped))
 }
