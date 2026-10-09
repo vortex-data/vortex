@@ -299,6 +299,10 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
+        if !FillNull::supports_dtype(x.dtype()) {
+            return Ok(None);
+        }
+
         Ok(Some(FillNull.try_new_bound_expr(
             EmptyOptions,
             [x.clone(), fill.clone()],
@@ -460,6 +464,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -1481,6 +1486,71 @@ mod tests {
             evaluate_bound_expr(&optimized, &array),
             buffer![1i64, 0, 3].into_array(),
             &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_utf8_coalesce_remains_executable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = VarBinViewArray::from_iter_nullable_str([Some("a"), None]).into_array();
+
+        for expr in [
+            case_when(is_null(root()), lit("fallback"), root()),
+            case_when(is_not_null(root()), root(), lit("fallback")),
+        ] {
+            let optimized = expr.bind(input.dtype())?.optimize_recursive()?;
+            assert!(optimized.is::<FillNull>(), "{optimized}");
+            let result = input
+                .clone()
+                .apply_bound(&optimized)?
+                .execute::<Canonical>(&mut ctx)?
+                .into_array();
+            assert_arrays_eq!(
+                result,
+                VarBinViewArray::from_iter_str(["a", "fallback"]),
+                &mut ctx
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_list_coalesce_keeps_case_when() -> VortexResult<()> {
+        // Lists have no fill_null kernel, so the COALESCE shape must stay a CASE WHEN.
+        let mut ctx = SESSION.create_execution_ctx();
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let input_dtype = DType::List(Arc::clone(&element_dtype), Nullability::Nullable);
+        let mut builder = builder_with_capacity_in(&input_dtype, 2, ctx.allocator());
+        builder.append_scalar(&Scalar::list(
+            Arc::clone(&element_dtype),
+            vec![Scalar::from(1i32)],
+            Nullability::Nullable,
+        ))?;
+        builder.append_scalar(&Scalar::null(input_dtype))?;
+        let input = builder.finish();
+        let fill = Scalar::list(
+            element_dtype,
+            vec![Scalar::from(2i32)],
+            Nullability::NonNullable,
+        );
+
+        let optimized = case_when(is_null(root()), lit(fill.clone()), root())
+            .bind(input.dtype())?
+            .optimize_recursive()?;
+        assert!(optimized.is::<CaseWhen>(), "{optimized}");
+        let result = input
+            .clone()
+            .apply_bound(&optimized)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            input.execute_scalar(0, &mut ctx)?
+        );
+        assert_eq!(
+            result.execute_scalar(1, &mut ctx)?,
+            fill.cast(result.dtype())?
         );
         Ok(())
     }

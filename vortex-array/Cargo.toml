@@ -258,6 +258,10 @@ name = "varbinview_try_new"
 harness = false
 
 [[bench]]
+name = "varbinview_fill_null"
+harness = false
+
+[[bench]]
 name = "bool_zip"
 harness = false
 
