@@ -8,6 +8,7 @@ mod pack;
 mod row_idx;
 mod segment_scan;
 mod take;
+mod zoned;
 
 pub use concat::Concat;
 pub use concat::ConcatData;
@@ -35,3 +36,7 @@ pub use segment_scan::SegmentScanPlan;
 pub(crate) use take::ExpressionTakeRule;
 pub use take::Take;
 pub use take::TakePlan;
+pub(crate) use zoned::ExpressionZonedRule;
+pub use zoned::Zoned;
+pub use zoned::ZonedData;
+pub use zoned::ZonedPlan;
