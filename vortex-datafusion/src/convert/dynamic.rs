@@ -244,10 +244,10 @@ impl LiveBounds {
                     .filter(|(c, ..)| *c == idx)
                     .map(|(_, op, value)| Some((*op, scalar(value)?)))
                     .collect::<Option<_>>()?;
-                let column_members: Option<Vec<Scalar>> = members
-                    .iter()
-                    .find(|(c, _)| *c == idx)
-                    .map(|(_, values)| values.iter().map(scalar).collect::<Option<_>>())?;
+                let column_members = match members.iter().find(|(c, _)| *c == idx) {
+                    Some((_, values)) => Some(values.iter().map(scalar).collect::<Option<Vec<_>>>()?),
+                    None => None,
+                };
                 if column_bounds.is_empty() && column_members.is_none() {
                     return None;
                 }
