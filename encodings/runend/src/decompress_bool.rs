@@ -21,7 +21,9 @@ use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::iter::trimmed_ends_iter;
@@ -59,6 +61,22 @@ pub fn runend_decode_bools(
         }));
     }
 
+    if matches!(&validity, Mask::AllTrue(_)) {
+        let coalesced_runs = count_bool_runs_wordwise(&values_buf);
+        if coalesced_runs <= num_runs / 2 {
+            return Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+                decode_coalesced_bool_non_nullable(
+                    ends.as_slice::<E>(),
+                    &values_buf,
+                    offset,
+                    length,
+                    nullability,
+                    coalesced_runs,
+                )
+            }));
+        }
+    }
+
     Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
@@ -68,6 +86,96 @@ pub fn runend_decode_bools(
             length,
         )
     }))
+}
+
+fn count_bool_runs_wordwise(values: &BitBuffer) -> usize {
+    if values.is_empty() {
+        return 0;
+    }
+
+    let mut transitions = 0usize;
+    let mut previous_value = values.value(0);
+    let word_count = values.len().div_ceil(64);
+    for (word_index, word) in values.chunks().iter_padded().take(word_count).enumerate() {
+        let word_start = word_index * 64;
+        let valid_bits = (values.len() - word_start).min(64);
+        let preceding_bits = (word << 1) | u64::from(previous_value);
+        let mut transition_word = word ^ preceding_bits;
+        if valid_bits < 64 {
+            transition_word &= (1_u64 << valid_bits) - 1;
+        }
+        if word_index == 0 {
+            transition_word &= !1;
+        }
+        transitions += transition_word.count_ones() as usize;
+        previous_value = ((word >> (valid_bits - 1)) & 1) != 0;
+    }
+    transitions + 1
+}
+
+fn decode_coalesced_bool_non_nullable<E: vortex_array::dtype::IntegerPType>(
+    source_ends: &[E],
+    source_values: &BitBuffer,
+    offset: usize,
+    length: usize,
+    nullability: Nullability,
+    coalesced_run_count: usize,
+) -> ArrayRef {
+    let mut coalesced_ends = BufferMut::<usize>::with_capacity(coalesced_run_count);
+    let first_value = source_values.value(0);
+    let mut previous_value = first_value;
+    let word_count = source_values.len().div_ceil(64);
+
+    for (word_index, word) in source_values
+        .chunks()
+        .iter_padded()
+        .take(word_count)
+        .enumerate()
+    {
+        let word_start = word_index * 64;
+        let valid_bits = (source_values.len() - word_start).min(64);
+        let preceding_bits = (word << 1) | u64::from(previous_value);
+        let mut transitions = word ^ preceding_bits;
+        if valid_bits < 64 {
+            transitions &= (1_u64 << valid_bits) - 1;
+        }
+        if word_index == 0 {
+            transitions &= !1;
+        }
+
+        while transitions != 0 {
+            let bit_index = transitions.trailing_zeros() as usize;
+            let source_end = source_ends[word_start + bit_index - 1].as_();
+            coalesced_ends.push(
+                source_end
+                    .checked_sub(offset)
+                    .unwrap_or_else(|| vortex_panic!("run end {source_end} before offset {offset}"))
+                    .min(length),
+            );
+            transitions &= transitions - 1;
+        }
+
+        previous_value = ((word >> (valid_bits - 1)) & 1) != 0;
+    }
+
+    let source_end = source_ends[source_ends.len() - 1].as_();
+    coalesced_ends.push(
+        source_end
+            .checked_sub(offset)
+            .unwrap_or_else(|| vortex_panic!("run end {source_end} before offset {offset}"))
+            .min(length),
+    );
+    let coalesced_values = BitBuffer::collect_bool(coalesced_run_count, |index| {
+        first_value ^ !index.is_multiple_of(2)
+    });
+
+    decode_bool_non_nullable(
+        coalesced_ends.iter().copied(),
+        &coalesced_values,
+        nullability,
+        length,
+    )
+    .into_array()
 }
 
 /// Decodes run-end encoded boolean values using an adaptive strategy.
@@ -101,7 +209,6 @@ pub fn runend_decode_typed_bool(
 /// Fast path for few runs with no offset. Uses direct slice access to minimize overhead.
 /// This avoids the `trimmed_ends_iter` iterator chain which adds significant overhead
 /// for small numbers of runs.
-#[allow(clippy::inline_always)]
 #[inline(always)]
 fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
     ends: &[E],
@@ -221,7 +328,6 @@ fn decode_bool_nullable(
 }
 
 /// Sequential decode for few runs - avoids prefill overhead.
-#[allow(clippy::inline_always)]
 #[inline(always)]
 fn decode_nullable_sequential(
     run_ends: impl Iterator<Item = usize>,
@@ -351,6 +457,36 @@ mod tests {
 
         let expected =
             BoolArray::from(BitBuffer::from(vec![false, false, false, true, true, true]));
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn decode_coalesced_bools_wordwise() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source_values: Vec<_> = (0usize..128)
+            .map(|index| (index / 7).is_multiple_of(2))
+            .collect();
+        let ends = PrimitiveArray::from_iter(1u32..=128);
+        let values = BoolArray::from(BitBuffer::from(source_values.clone()));
+
+        let decoded = runend_decode_bools(ends, values, 0, 128, &mut ctx)?;
+        let expected = BoolArray::from(BitBuffer::from(source_values));
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn decode_coalesced_bools_wordwise_with_offset() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source_values: Vec<_> = (0usize..128)
+            .map(|index| (index / 7).is_multiple_of(2))
+            .collect();
+        let ends = PrimitiveArray::from_iter(12u32..=128);
+        let values = BoolArray::from(BitBuffer::from(source_values[11..].to_vec()));
+
+        let decoded = runend_decode_bools(ends, values, 11, 91, &mut ctx)?;
+        let expected = BoolArray::from(BitBuffer::from(source_values[11..102].to_vec()));
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
