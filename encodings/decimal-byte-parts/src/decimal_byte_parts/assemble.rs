@@ -87,8 +87,9 @@ fn assemble_narrow_decimal(
 ) -> VortexResult<ArrayRef> {
     // TODO(mk): Broadcast a constant MSP directly instead of materializing its buffer.
     let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
+    // Parts written before storage was bounded by precision may be wider than it allows.
     Ok(match_each_signed_integer_ptype!(msp.ptype(), |P| {
-        DecimalArray::new(msp.to_buffer::<P>(), decimal_dtype, validity).into_array()
+        DecimalArray::try_new_narrowed(msp.to_buffer::<P>(), decimal_dtype, validity)?.into_array()
     }))
 }
 
@@ -118,16 +119,16 @@ fn assemble_wide_decimal_from_arrays(
     Ok(match_each_signed_integer_ptype!(msp.ptype(), |Msp| {
         let msp = msp.as_slice::<Msp>();
         match lower.as_slice() {
-            [first] => DecimalArray::new(
+            [first] => DecimalArray::try_new_narrowed(
                 assemble_wide_decimal::<i128, Msp, 1>(
                     msp,
                     first.as_slice::<u64>().iter().map(|&word| [word]),
                 ),
                 decimal_dtype,
                 validity,
-            )
+            )?
             .into_array(),
-            [first, second] => DecimalArray::new(
+            [first, second] => DecimalArray::try_new_narrowed(
                 assemble_wide_decimal::<i256, Msp, 2>(
                     msp,
                     first
@@ -138,9 +139,9 @@ fn assemble_wide_decimal_from_arrays(
                 ),
                 decimal_dtype,
                 validity,
-            )
+            )?
             .into_array(),
-            [first, second, third] => DecimalArray::new(
+            [first, second, third] => DecimalArray::try_new_narrowed(
                 assemble_wide_decimal::<i256, Msp, 3>(
                     msp,
                     first
@@ -152,7 +153,7 @@ fn assemble_wide_decimal_from_arrays(
                 ),
                 decimal_dtype,
                 validity,
-            )
+            )?
             .into_array(),
             _ => vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts"),
         }

@@ -58,11 +58,14 @@ impl CudaExecute for DecimalBytePartsExecutor {
             .into_primitive()
             .into_data_parts();
 
-        // SAFETY: The primitive array's buffer is already validated with correct type.
-        // The decimal dtype matches the array's dtype, and validity is preserved.
-        Ok(Canonical::Decimal(unsafe {
-            DecimalArray::new_unchecked_handle(buffer, ptype.try_into()?, decimal_dtype, validity)
-        }))
+        // Device storage cannot be narrowed, so parts wider than the precision allows are
+        // rejected rather than assembled.
+        Ok(Canonical::Decimal(DecimalArray::try_new_handle(
+            buffer,
+            ptype.try_into()?,
+            decimal_dtype,
+            validity,
+        )?))
     }
 }
 
