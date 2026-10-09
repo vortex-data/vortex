@@ -255,6 +255,9 @@ fn runend_decode_slice<T: Copy + Default>(
     }
 }
 
+// Inlining both nullable variants into `runend_decode_slice` slows its non-nullable loop by up
+// to 2x in the `run_end_decode` benchmarks.
+#[inline(never)]
 fn runend_decode_nullable_slice<T: Copy + Default, const PREFILL: bool>(
     run_ends: impl Iterator<Item = usize>,
     values: &[T],
