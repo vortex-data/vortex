@@ -20,8 +20,8 @@ use vortex_error::vortex_bail;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitWidths;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
+use vortex_fastlanes::bitpack_compress::bitpack_blocked_to_best_bit_widths;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
-use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_widths;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_fastlanes::bitpacked_v1_id;
 use vortex_fastlanes::bitpacked_v2_id;
@@ -217,7 +217,7 @@ impl BitPackingScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let primitive_array = data.array_as_primitive().into_owned();
-        let packed = bitpack_to_best_bit_widths(&primitive_array, exec_ctx)?;
+        let packed = bitpack_blocked_to_best_bit_widths(&primitive_array, exec_ctx)?;
 
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
