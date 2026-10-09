@@ -209,7 +209,31 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
         return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
     };
 
-    fn.statistics = MultiFileFunction<VortexReaderInterface>::MultiFileScanStats;
+    // DuckDB only pushes a struct extract into a scan when the table function has
+    // no `statistics` callback (RemoveUnusedColumns::CheckPushdownExtract), so use
+    // the extended variant: it sees the whole column index, and can report no
+    // statistics for an extracted path, since Vortex has no nested statistics.
+    fn.statistics_extended = [](ClientContext &context, TableFunctionGetStatisticsInput &input) {
+        if (input.column_index.IsPushdownExtract()) {
+            return unique_ptr<BaseStatistics>();
+        }
+        return MultiFileFunction<VortexReaderInterface>::MultiFileScanStats(
+            context, input.bind_data.get(), input.column_index.GetPrimaryIndex());
+    };
+
+    // Only a struct column can be read as an extracted path, and never when
+    // DuckDB bound aggregates to this scan: the aggregate pushdown binds column
+    // indexes itself and cannot express an extracted path.
+    fn.supports_pushdown_extract = [](const FunctionData &bind_data, const LogicalIndex &col_idx) {
+        if (duckdb_reader_is_aggregate(get_ffi_bind(&bind_data))) {
+            return false;
+        }
+        const auto &bind = bind_data.Cast<MultiFileBindData>();
+        if (col_idx.index >= bind.types.size()) {
+            return false;
+        }
+        return bind.types[col_idx.index].id() == LogicalTypeId::STRUCT;
+    };
     fn.get_partition_stats = get_partition_stats;
     fn.get_multi_file_reader = get_multi_file_reader;
 

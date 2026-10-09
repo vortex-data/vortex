@@ -1034,6 +1034,54 @@ fn test_geometry() {
     assert_eq!(area, 1000.0);
 }
 
+/// `SELECT s.x.a` is pushed down as a struct extract: DuckDB asks the scan to read
+/// the field at that child path instead of the whole `s` struct, and the scan
+/// emits the extracted field directly.
+///
+/// Ignored until DuckDB's `MultiFileColumnMapper` stops rebuilding the struct for a
+/// `PUSHDOWN_EXTRACT` column: `MultiFileReader::FinalizeChunk` currently applies a
+/// struct expression to a vector DuckDB typed as the extracted field.
+#[test]
+#[ignore = "needs a DuckDB patch in MultiFileColumnMapper"]
+fn test_vortex_scan_struct_extract_projection() {
+    let file = RUNTIME.block_on(async {
+        let inner = StructArray::try_from_iter([
+            ("a", PrimitiveArray::from_iter([1i32, 2, 3]).into_array()),
+            ("b", PrimitiveArray::from_iter([4i32, 5, 6]).into_array()),
+        ])
+        .unwrap();
+        let top = StructArray::try_from_iter([
+            ("x", inner.into_array()),
+            ("y", PrimitiveArray::from_iter([7i32, 8, 9]).into_array()),
+        ])
+        .unwrap();
+
+        write_single_column_vortex_file("s", top).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // One level down, and two levels down, both requested by child index.
+    let result = conn
+        .query(&format!("SELECT s.y, s.x.b, s.x.a FROM '{file_path}'"))
+        .unwrap();
+
+    let mut y = Vec::new();
+    let mut xb = Vec::new();
+    let mut xa = Vec::new();
+    for chunk in result {
+        let len = chunk.len().as_();
+        y.extend_from_slice(chunk.get_vector(0).as_slice_with_len::<i32>(len));
+        xb.extend_from_slice(chunk.get_vector(1).as_slice_with_len::<i32>(len));
+        xa.extend_from_slice(chunk.get_vector(2).as_slice_with_len::<i32>(len));
+    }
+
+    assert_eq!(y, vec![7, 8, 9], "s.y mismatch");
+    assert_eq!(xb, vec![4, 5, 6], "s.x.b mismatch");
+    assert_eq!(xa, vec![1, 2, 3], "s.x.a mismatch");
+}
+
 /// `SELECT array_length(list)` / `len(list)` / `length(list)` should push the list-length
 /// computation into the Vortex scan (computed from offsets, without materializing the list
 /// elements) and return the per-row element counts.

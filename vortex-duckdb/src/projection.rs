@@ -8,10 +8,12 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
 use vortex::expr::lit;
@@ -23,9 +25,12 @@ use vortex::scalar::Scalar;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::convert::FromLogicalType;
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
+use crate::duckdb::StructExtract;
+use crate::duckdb::StructExtracts;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
 use crate::table_function::ColumnAggregate;
@@ -71,14 +76,14 @@ pub struct ProjectionInput<'a> {
 }
 
 impl Projection {
-    pub fn new(input: ProjectionInput) -> Self {
+    pub fn new(input: ProjectionInput, struct_extracts: &StructExtracts<'_>) -> VortexResult<Self> {
         let projection_ids: HashSet<u64> = input.projection_ids.iter().copied().collect();
         // If projection ids are empty, use column_ids.
         // See duckdb/src/planner/operator/logical_get.cpp#L168
         let is_projected =
             |pos: usize| projection_ids.is_empty() || projection_ids.contains(&(pos as u64));
 
-        let mut exprs = Vec::with_capacity(input.column_ids.len() + 1);
+        let mut exprs: Vec<(String, Expression)> = Vec::with_capacity(input.column_ids.len() + 1);
         let mut file_row_number_column_pos = None;
         let mut is_star = true;
         let mut real_column_count = 0;
@@ -93,7 +98,7 @@ impl Projection {
                     // filter-only column needs to be emitted only for output
                     // vector position match, it will never be read
                     let dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-                    exprs.push(("file_row_number", lit(Scalar::null(dtype))));
+                    exprs.push(("file_row_number".to_owned(), lit(Scalar::null(dtype))));
                 }
                 continue;
             }
@@ -110,7 +115,10 @@ impl Projection {
                 is_star = false;
                 // filter-only column needs to be emitted only for output
                 // vector position match, it will never be read
-                exprs.push((name, lit(Scalar::null(column_field.dtype.as_nullable()))));
+                exprs.push((
+                    name.to_owned(),
+                    lit(Scalar::null(column_field.dtype.as_nullable())),
+                ));
                 continue;
             }
 
@@ -121,12 +129,21 @@ impl Projection {
 
             // Example: if we SELECT len(str), we can't use root() as we try to
             // pushdown scalar functions.
-            let expr = match &column_field.projection_expr {
-                None => get_item(name, root()),
-                Some(func) => {
+            let (name, expr) = match (&column_field.projection_expr, struct_extracts.get(column_pos)) {
+                (Some(_), Some(_)) => vortex_bail!(
+                    "column '{name}' has both a scalar function and a struct extract pushed into the scan"
+                ),
+                (Some(func), None) => {
                     is_star = false;
-                    func.clone()
+                    (name.to_owned(), func.clone())
                 }
+                // DuckDB asked for a field of this struct column only, so read
+                // and emit that field instead of the whole struct.
+                (None, Some(extract)) => {
+                    is_star = false;
+                    struct_extract_expression(name, &extract, &column_field.dtype)?
+                }
+                (None, None) => (name.to_owned(), get_item(name, root())),
             };
             exprs.push((name, expr));
             real_column_count += 1;
@@ -136,19 +153,19 @@ impl Projection {
         is_star &= real_column_count == input.column_fields.len() as u64;
 
         if is_star {
-            return Projection {
+            return Ok(Projection {
                 projection: root(),
                 file_row_number_column_pos: None,
-            };
+            });
         }
         if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
-            exprs.insert(0, ("file_row_number", row_idx()));
+            exprs.insert(0, ("file_row_number".to_owned(), row_idx()));
         }
-        Self {
+        Ok(Self {
             projection: pack(exprs, false.into()),
             file_row_number_column_pos,
-        }
+        })
     }
 
     // Create a projection for aggregate scan
@@ -185,6 +202,49 @@ impl Projection {
             file_row_number_column_pos: None,
         }
     }
+}
+
+/// Builds the expression reading a struct field DuckDB pushed into the scan, and
+/// the name to give its output column.
+///
+/// The names of the output columns are not read back by DuckDB, but they have to
+/// stay distinct: DuckDB binds one output column per extracted path, so two
+/// extracts of the same column would otherwise pack two fields with one name.
+fn struct_extract_expression(
+    column_name: &str,
+    extract: &StructExtract<'_>,
+    dtype: &DType,
+) -> VortexResult<(String, Expression)> {
+    let mut expr = col(column_name);
+    let mut dtype = dtype.clone();
+    let mut name = column_name.to_owned();
+
+    for index in extract.indexes {
+        let index = usize::try_from(*index)
+            .map_err(|_| vortex_err!("struct extract index {index} does not fit in usize"))?;
+        let fields = dtype
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("'{name}' is not a struct, cannot extract field {index}"))?;
+        let field_name = fields
+            .field_name(index)
+            .ok_or_else(|| vortex_err!("'{name}' has no field at index {index}"))?
+            .clone();
+        dtype = fields
+            .field_by_index(index)
+            .ok_or_else(|| vortex_err!("'{name}' has no field at index {index}"))?;
+
+        expr = get_item(field_name.clone(), expr);
+        name = format!("{name}.{field_name}");
+    }
+
+    // DuckDB passes the type it expects the scan to emit for this field, which is
+    // the cast target when the query casts the extracted field itself.
+    let expected = DType::from_logical_type(extract.datatype, Nullability::Nullable)?;
+    if expected != dtype.as_nullable() {
+        expr = cast(expr, expected);
+    }
+
+    Ok((name, expr))
 }
 
 pub struct Filter {
@@ -307,12 +367,12 @@ mod tests {
             projection_ids: &[],
             column_fields: &fields,
         };
-        assert_eq!(Projection::new(input.clone()).projection, root());
+        assert_eq!(Projection::new(input.clone(), &StructExtracts::default()).unwrap().projection, root());
 
         // file_row_number turns star into an explicit pack with row_idx first
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, 2];
         input.column_ids = &ids;
-        let result = Projection::new(input.clone());
+        let result = Projection::new(input.clone(), &StructExtracts::default()).unwrap();
         let expected = pack(
             [
                 ("file_row_number", row_idx()),
@@ -326,13 +386,13 @@ mod tests {
         assert_eq!(result.file_row_number_column_pos, Some(0));
 
         input.column_ids = &[0, 1];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_ne!(Projection::new(input.clone(), &StructExtracts::default()).unwrap().projection, root());
 
         input.column_ids = &[0, 2, 2];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_ne!(Projection::new(input.clone(), &StructExtracts::default()).unwrap().projection, root());
 
         input.column_ids = &[2, 1, 0];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_ne!(Projection::new(input.clone(), &StructExtracts::default()).unwrap().projection, root());
 
         // If any column has a projection expression, we can't use SELECT *
         let mut fields = [field("a"), field("b"), field("c")];
@@ -342,7 +402,7 @@ mod tests {
             projection_ids: &[],
             column_fields: &fields,
         };
-        assert_ne!(Projection::new(input).projection, root());
+        assert_ne!(Projection::new(input, &StructExtracts::default()).unwrap().projection, root());
     }
 
     #[test]
@@ -354,7 +414,7 @@ mod tests {
             projection_ids: &[0, 2],
             column_fields: &fields,
         };
-        let projection = Projection::new(input).projection;
+        let projection = Projection::new(input, &StructExtracts::default()).unwrap().projection;
         let expected = pack(
             [
                 ("a", get_item("a", root())),
@@ -370,7 +430,7 @@ mod tests {
             projection_ids: &[1],
             column_fields: &fields,
         };
-        let result = Projection::new(input);
+        let result = Projection::new(input, &StructExtracts::default()).unwrap();
         let frn_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
         let expected = pack(
             [
@@ -387,7 +447,7 @@ mod tests {
             projection_ids: &[0, 1],
             column_fields: &fields,
         };
-        let result = Projection::new(input);
+        let result = Projection::new(input, &StructExtracts::default()).unwrap();
         let expected = pack(
             [
                 ("file_row_number", row_idx()),
@@ -398,6 +458,83 @@ mod tests {
         );
         assert_eq!(result.projection, expected);
         assert_eq!(result.file_row_number_column_pos, Some(1));
+    }
+
+    #[test]
+    fn test_struct_extract() {
+        let fields = [DuckdbField {
+            name: "s".to_owned(),
+            logical_type: LogicalType::null(),
+            dtype: DType::struct_(
+                [("a", DType::Primitive(PType::I32, Nullability::NonNullable))],
+                Nullability::NonNullable,
+            ),
+            projection_expr: None,
+        }];
+
+        // DuckDB hands us the type it expects for the extracted field.
+        let expected_type =
+            LogicalType::try_from(&DType::Primitive(PType::I32, Nullability::Nullable))
+                .vortex_expect("logical type");
+        let datatypes = [expected_type.as_ptr()];
+        let extracts = StructExtracts {
+            indexes: &[0],
+            offsets: &[0, 1],
+            datatypes: &datatypes,
+        };
+
+        let input = ProjectionInput {
+            column_ids: &[0],
+            projection_ids: &[],
+            column_fields: &fields,
+        };
+        let result = Projection::new(input, &extracts).vortex_expect("projection");
+        let expected = pack(
+            [("s.a", get_item("a", get_item("s", root())))],
+            false.into(),
+        );
+        assert_eq!(result.projection, expected);
+
+        // A cast target is emitted as a cast expression.
+        let cast_type = LogicalType::try_from(&DType::Primitive(PType::I64, Nullability::Nullable))
+            .vortex_expect("logical type");
+        let datatypes = [cast_type.as_ptr()];
+        let extracts = StructExtracts {
+            indexes: &[0],
+            offsets: &[0, 1],
+            datatypes: &datatypes,
+        };
+        let input = ProjectionInput {
+            column_ids: &[0],
+            projection_ids: &[],
+            column_fields: &fields,
+        };
+        let result = Projection::new(input, &extracts).vortex_expect("projection");
+        let expected = pack(
+            [(
+                "s.a",
+                cast(
+                    get_item("a", get_item("s", root())),
+                    DType::Primitive(PType::I64, Nullability::Nullable),
+                ),
+            )],
+            false.into(),
+        );
+        assert_eq!(result.projection, expected);
+
+        // Without an extract the whole column is read, and the extract still has
+        // to be an error when the path does not exist.
+        let input = ProjectionInput {
+            column_ids: &[0],
+            projection_ids: &[],
+            column_fields: &fields,
+        };
+        let bad = StructExtracts {
+            indexes: &[1],
+            offsets: &[0, 1],
+            datatypes: &datatypes,
+        };
+        assert!(Projection::new(input, &bad).is_err());
     }
 
     #[test]

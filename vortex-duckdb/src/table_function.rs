@@ -262,7 +262,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
             projection_ids,
             column_fields: &bind_data.columns,
         };
-        Projection::new(input)
+        Projection::new(input, &init_input.struct_extracts())?
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };

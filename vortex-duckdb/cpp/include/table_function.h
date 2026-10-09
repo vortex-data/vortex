@@ -50,6 +50,32 @@ typedef struct {
 
     duckdb_vx_table_filter_set filters;
     duckdb_client_context client_context;
+
+    /**
+     * Struct extract paths pushed down by DuckDB for the entries in
+     * `column_ids` where DuckDB only needs a struct field
+     * (`ColumnIndex::IsPushdownExtract()`).
+     *
+     * `column_extract_indexes` holds every path concatenated, in the order of
+     * `column_ids`, and `column_extract_offsets` has `column_ids_count + 1`
+     * entries giving each column the slice `[offsets[i], offsets[i + 1])`.
+     * A column that is read whole has an empty slice. The indexes are struct
+     * child positions, outermost first: `SELECT s.a.b` on `s = {a: {b: …}}`
+     * yields `[0, 0]`.
+     */
+    const idx_t *column_extract_indexes;
+    size_t column_extract_indexes_count;
+    const size_t *column_extract_offsets;
+
+    /**
+     * For each entry in `column_ids`, the type DuckDB expects the scan to emit
+     * (`ColumnIndex::GetScanType()`, which is the cast target when the query
+     * casts the extracted field), or NULL when the column is read whole.
+     * The types are borrowed from the bind data and only valid for the duration
+     * of the init_global call.
+     */
+    const duckdb_logical_type *column_extract_types;
+    size_t column_extract_types_count;
 } duckdb_vx_tfunc_init_input;
 
 // Result data returned from the cardinality callback.
