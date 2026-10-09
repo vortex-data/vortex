@@ -23,6 +23,7 @@ use vortex_session::VortexSession;
 
 use super::Blocked;
 use super::Cx;
+use super::DEFAULT_CAPACITY;
 use super::Input;
 use super::Operator;
 use super::Source;
@@ -33,6 +34,7 @@ use super::port::Arena;
 use super::port::PipelineId;
 use super::port::PortId;
 use super::port::Reader;
+use super::port::Slab;
 use crate::plan::PlanRef;
 use crate::segments::SegmentId;
 
@@ -96,8 +98,10 @@ pub(crate) struct Pipeline {
     inlets: Vec<PortId>,
     outlets: SmallVec<[PortId; 1]>,
     bytes: Option<BufferHandle>,
-    /// The inlets the last run read.
-    touched: SmallVec<[usize; 4]>,
+    /// The inlets the last run read, each once.
+    touched: Vec<usize>,
+    /// For each inlet, whether it is in `touched`.
+    listed: Vec<bool>,
     state: State,
     queued: bool,
 }
@@ -128,6 +132,7 @@ fn drive(
         outlets,
         bytes,
         touched,
+        listed,
         ..
     } = pipe;
     let mut cx = Cx {
@@ -137,6 +142,7 @@ fn drive(
         session,
         exec,
         touched,
+        listed,
     };
     loop {
         if !outlets.iter().all(|&outlet| cx.arena.has_room(outlet)) {
@@ -229,7 +235,7 @@ pub(crate) struct Core {
     /// The global row index of plan row zero.
     pub(crate) row_offset: u64,
     pub(crate) arena: Arena,
-    pipelines: Vec<Option<Pipeline>>,
+    pipelines: Slab<Option<Pipeline>>,
     free_pipelines: Vec<PipelineId>,
     /// Runnable pipelines, last in first out, so data a pipeline just produced is consumed
     /// before more is produced.
@@ -254,7 +260,7 @@ impl Core {
             session,
             row_offset,
             arena: Arena::default(),
-            pipelines: Vec::new(),
+            pipelines: Slab::default(),
             free_pipelines: Vec::new(),
             ready: Vec::new(),
             reads: FxHashMap::default(),
@@ -273,22 +279,22 @@ impl Core {
         chain: Chain,
         outlets: SmallVec<[PortId; 1]>,
     ) -> PipelineId {
+        let listed = vec![false; chain.inlets.len()];
+        let touched = Vec::with_capacity(chain.inlets.len());
         let pipeline = Pipeline {
             source: chain.source,
             stages: chain.stages,
             inlets: chain.inlets,
             outlets,
             bytes: None,
-            touched: SmallVec::new(),
+            touched,
+            listed,
             state: State::Runnable,
             queued: true,
         };
         let id = match self.free_pipelines.pop() {
             Some(id) => id,
-            None => {
-                self.pipelines.push(None);
-                self.pipelines.len() - 1
-            }
+            None => self.pipelines.push(None),
         };
         for &inlet in &pipeline.inlets {
             self.arena.get_mut(inlet).reader = Reader::Pipeline(id);
@@ -317,7 +323,9 @@ impl Core {
         let Some(chain) = chain? else {
             return Ok(None);
         };
-        let port = self.arena.create(usize::MAX, None, Reader::Split(slot));
+        let port = self
+            .arena
+            .create(DEFAULT_CAPACITY, None, Reader::Split(slot));
         self.add_pipeline(chain, smallvec::smallvec![port]);
         Ok(Some(port))
     }
@@ -376,52 +384,51 @@ impl Core {
 
     /// Wakes the readers of what pipeline `id` wrote and the writers of what it took.
     fn wake_neighbours(&mut self, id: PipelineId) {
-        let mut wake: SmallVec<[PipelineId; 4]> = SmallVec::new();
-        let mut dirty: SmallVec<[usize; 1]> = SmallVec::new();
-        let pipe = self.pipeline(id);
-        for &outlet in &pipe.outlets {
-            let queue = self.arena.get(outlet);
+        for index in 0..self.pipeline(id).outlets.len() {
+            let queue = self.arena.get(self.pipeline(id).outlets[index]);
+            if !queue.readable() {
+                continue;
+            }
+            let port = self.pipeline(id).outlets[index];
             match queue.reader {
                 Reader::Pipeline(reader) => {
-                    if queue.readable()
-                        && matches!(
-                            self.pipeline(reader).state,
-                            State::Blocked(Blocked::Inlet(_))
-                        )
+                    // A reader waits on one inlet, so a batch on any other cannot unblock it.
+                    let reader_pipe = self.pipeline(reader);
+                    if let State::Blocked(Blocked::Inlet(waiting)) = reader_pipe.state
+                        && reader_pipe.inlets[waiting] == port
                     {
-                        wake.push(reader);
+                        self.make_runnable(reader);
                     }
                 }
-                Reader::Split(slot) => {
-                    if queue.readable() {
-                        dirty.push(slot);
-                    }
-                }
+                Reader::Split(slot) => self.mark_dirty(slot),
                 Reader::Unclaimed => {}
             }
         }
         // Only an inlet the run read can have gained room, so a source with many inlets, as a
         // concatenation of many chunks, pays for the inlets it read, not for all of them.
-        for &index in &pipe.touched {
-            if let Some(writer) = self.arena.get(pipe.inlets[index]).writer
+        let touched = std::mem::take(&mut self.pipeline_mut(id).touched);
+        for &index in &touched {
+            if let Some(writer) = self.arena.get(self.pipeline(id).inlets[index]).writer
                 && writer != id
                 && self.writer_has_room(writer)
             {
-                wake.push(writer);
+                self.make_runnable(writer);
             }
         }
-        for id in wake {
-            self.make_runnable(id);
+        let mut touched = touched;
+        let pipe = self.pipeline_mut(id);
+        for &index in &touched {
+            pipe.listed[index] = false;
         }
-        self.pipeline_mut(id).touched.clear();
-        for slot in dirty {
-            if slot >= self.dirty_flags.len() {
-                self.dirty_flags.resize(slot + 1, false);
-            }
-            if !self.dirty_flags[slot] {
-                self.dirty_flags[slot] = true;
-                self.dirty.push(slot);
-            }
+        touched.clear();
+        pipe.touched = touched;
+    }
+
+    /// Queues split slot `slot` for the scan to read its stage's output.
+    fn mark_dirty(&mut self, slot: usize) {
+        if !self.dirty_flags[slot] {
+            self.dirty_flags[slot] = true;
+            self.dirty.push(slot);
         }
     }
 
@@ -547,6 +554,7 @@ impl Scan {
             Root::Plan(plan) => core.shares.add(plan, 0..plan.row_count())?,
         }
         core.shares.retain_shared();
+        core.dirty_flags = vec![false; 1];
         Ok(Self {
             core,
             root,
@@ -561,6 +569,8 @@ impl Scan {
     /// Runs up to `max_active` splits at once.
     pub fn with_max_active(mut self, max_active: usize) -> Self {
         self.active.resize_with(max_active.max(1), || None);
+        self.core.dirty_flags = vec![false; self.active.len()];
+        self.core.dirty = Vec::with_capacity(self.active.len());
         self
     }
 
