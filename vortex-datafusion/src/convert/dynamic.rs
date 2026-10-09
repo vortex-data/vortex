@@ -1089,6 +1089,21 @@ mod tests {
         )
     }
 
+    /// `CASE a WHEN 0 THEN thens[0] WHEN 1 THEN thens[1] ... ELSE else_expr END`.
+    fn case_on_a(
+        thens: Vec<PhysicalExprRef>,
+        else_expr: Option<PhysicalExprRef>,
+    ) -> PhysicalExprRef {
+        let when_then = thens
+            .into_iter()
+            .enumerate()
+            .map(|(i, then)| (lit_i32(i32::try_from(i).expect("small index")), then))
+            .collect();
+        Arc::new(
+            df_expr::CaseExpr::try_new(Some(col_a()), when_then, else_expr).expect("valid CASE"),
+        )
+    }
+
     fn stats_1_to_10(input: &ArrayRef) -> FileStatistics {
         let stats = StatsSet::from_iter([
             (Stat::Min, Precision::exact(VxScalarValue::from(1i32))),
@@ -1104,24 +1119,19 @@ mod tests {
     #[case(range(1, 10), in_list_a(&[1, 10]), Some([true, false, true]))]
     // Partitioned joins route keys through a CASE; the union of the partition lists applies.
     #[case(
-        Arc::new(df_expr::CaseExpr::try_new(
-            Some(col_a()),
+        case_on_a(
             vec![
-                (lit_i32(0), binary(range(1, 1), DFOperator::And, in_list_a(&[1]))),
-                (lit_i32(1), binary(range(5, 5), DFOperator::And, in_list_a(&[5]))),
+                binary(range(1, 1), DFOperator::And, in_list_a(&[1])),
+                binary(range(5, 5), DFOperator::And, in_list_a(&[5])),
             ],
             Some(lit_bool(false)),
-        ).expect("valid CASE")),
+        ),
         lit_bool(true),
         Some([true, true, false]),
     )]
     // A partition without a list leaves the column unconstrained.
     #[case(
-        Arc::new(df_expr::CaseExpr::try_new(
-            Some(col_a()),
-            vec![(lit_i32(0), in_list_a(&[1])), (lit_i32(1), lit_bool(true))],
-            None,
-        ).expect("valid CASE")),
+        case_on_a(vec![in_list_a(&[1]), lit_bool(true)], None),
         lit_bool(true),
         None,
     )]
