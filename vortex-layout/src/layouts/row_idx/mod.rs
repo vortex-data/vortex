@@ -213,6 +213,14 @@ impl LayoutReader for RowIdxLayoutReader {
         self.pruning_mask::<true>(row_range, expr, mask)
     }
 
+    fn split_pruning_is_statistics(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        match self.partition_expr(expr)? {
+            Partitioning::RowIdx(_) => Ok(false),
+            Partitioning::Child(expr) => self.child.split_pruning_is_statistics(&expr),
+            Partitioning::Partitioned(..) => Ok(true),
+        }
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],

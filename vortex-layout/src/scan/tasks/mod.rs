@@ -197,8 +197,15 @@ async fn prune_conjunct<A, const TRACK_COUNTERS: bool>(
         .split_pruning_evaluation(row_range, &filter.conjuncts()[idx], mask.clone())?
         .await?;
     let mask = mask.bitand(&conjunct_mask);
-    if mask.all_false() {
-        ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_split);
+    if TRACK_COUNTERS && mask.all_false() {
+        if ctx
+            .reader
+            .split_pruning_is_statistics(&filter.conjuncts()[idx])?
+        {
+            ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_split);
+        } else {
+            ctx.count::<TRACK_COUNTERS>(ScanCounters::filter_split);
+        }
     }
     Ok(mask)
 }

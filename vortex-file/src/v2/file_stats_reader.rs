@@ -124,6 +124,10 @@ impl LayoutReader for FileStatsLayoutReader {
         self.child.split_pruning_evaluation(row_range, expr, mask)
     }
 
+    fn split_pruning_is_statistics(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        self.child.split_pruning_is_statistics(expr)
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],

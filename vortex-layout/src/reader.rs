@@ -224,6 +224,13 @@ pub trait LayoutReader: 'static + Send + Sync {
         self.pruning_evaluation(row_range, expr, mask)
     }
 
+    /// Returns whether split rejection for this expression comes from statistics.
+    ///
+    /// Readers that evaluate a predicate during split pruning must return `false` for that expression.
+    fn split_pruning_is_statistics(&self, _expr: &BoundExpression) -> VortexResult<bool> {
+        Ok(true)
+    }
+
     /// Register natural split boundaries for this reader.
     ///
     /// `field_mask` contains the projected and filtered field paths needed by the scan.

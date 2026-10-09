@@ -11,6 +11,7 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::col;
 use vortex_array::expr::dynamic;
@@ -25,6 +26,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::row_idx::row_idx;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
@@ -143,6 +145,44 @@ async fn test_scan_rejection_counters(
         }
         previous = Some(counters);
     }
+    Ok(())
+}
+
+#[rstest]
+#[case::row_index(eq(row_idx(), lit(20u64)), [4, 0, 4, 0], 0)]
+#[case::partial(eq(row_idx(), lit(3u64)), [4, 0, 3, 0], 1)]
+#[case::row_index_first(
+    and(eq(row_idx(), lit(20u64)), eq(col("value"), lit(50i32))),
+    [4, 0, 4, 0],
+    0,
+)]
+#[case::statistics_first(
+    and(eq(col("value"), lit(50i32)), eq(row_idx(), lit(20u64))),
+    [4, 4, 0, 0],
+    0,
+)]
+#[tokio::test]
+async fn test_scan_row_index_rejection_counters(
+    #[case] predicate: Expression,
+    #[case] expected: [u64; 4],
+    #[case] expected_rows: usize,
+) -> VortexResult<()> {
+    let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
+    let registry = Arc::new(DefaultMetricsRegistry::default());
+    let (stream, counters) = file
+        .scan()?
+        .with_split_by(SplitBy::RowCount(2))
+        .with_filter(predicate.bind(file.dtype())?)
+        .with_metrics_registry(registry.clone())
+        .into_stream_with_counters()?;
+    futures::pin_mut!(stream);
+    let mut rows = 0;
+    while let Some(array) = stream.next().await {
+        rows += array?.len();
+    }
+    assert_eq!(rows, expected_rows);
+    assert_execution(&counters, expected);
+    assert_registry(&registry, expected);
     Ok(())
 }
 
