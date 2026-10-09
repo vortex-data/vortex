@@ -390,7 +390,7 @@ mod test {
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
         assert_eq!(encoded.as_slice::<u8>(), expected_unsigned.as_slice::<u8>());
 
-        let decompressed = decompress(&compressed, &mut ctx)?;
+        let decompressed = decompress(compressed.clone(), &mut ctx)?;
         array
             .as_slice::<i8>()
             .iter()
