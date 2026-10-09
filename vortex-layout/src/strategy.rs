@@ -115,8 +115,7 @@ impl LayoutWriterContext {
     /// Container writers store their children unmasked: a field holds a value even in rows where
     /// the containing struct is null, and the struct's validity is written separately. Statistics
     /// computed over such a child therefore see values the logical column does not contain, so
-    /// writers that record statistics must only keep those that remain sound as bounds (such as
-    /// min and max) and omit the rest.
+    /// writers that record statistics must omit them rather than record inexact values.
     pub fn with_nullable_ancestor(mut self) -> Self {
         self.nullable_ancestor = true;
         self
