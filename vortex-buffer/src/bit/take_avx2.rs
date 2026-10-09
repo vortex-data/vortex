@@ -134,7 +134,7 @@ unsafe fn take_group<I: AsPrimitive<usize>>(
         let window = lo | (hi << 8);
         let valid = ((window >> validity_shift) & 0xFF) as u8;
 
-        // all ones if element is valid, all 0 otherwise
+        // all 1 if element is valid, all 0 otherwise
         let valid_vector = _mm256_set1_epi32(i32::from(valid));
         // valid_vector & lane_bits
         let selected = _mm256_and_si256(valid_vector, lane_bits);
