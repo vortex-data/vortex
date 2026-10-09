@@ -779,25 +779,6 @@ fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
     Ok(())
 }
 
-/// A valid value too large for the dtype-derived key width must fail loudly instead of
-/// silently encoding a corrupt key.
-#[test]
-fn decimal_value_not_fitting_key_width_errors() {
-    let mut ctx = array_session().create_execution_ctx();
-    let dtype = DecimalDType::new(7, 5);
-    let field = RowSortField::new(false, true);
-
-    let chunk = DecimalArray::new(buffer![10_000_000_000_000i64], dtype, Validity::NonNullable)
-        .into_array();
-
-    let err = convert_columns(&[chunk], &[field], &mut ctx)
-        .expect_err("a valid value wider than the key width must be rejected");
-    assert!(
-        err.to_string().contains("does not fit"),
-        "expected a does-not-fit error, got: {err}"
-    );
-}
-
 #[test]
 fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();

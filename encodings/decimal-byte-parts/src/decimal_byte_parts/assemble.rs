@@ -368,14 +368,14 @@ mod tests {
         validity: Validity,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let decimal = DecimalArray::new(buffer![1i32, 2, 3], DecimalDType::new(2, 0), validity);
+        let decimal = DecimalArray::new(buffer![1i8, 2, 3], DecimalDType::new(2, 0), validity);
         let parts = split_decimal(&decimal, &mut ctx)?;
         assert!(parts.lower_parts.is_empty());
-        assert_eq!(parts.msp.dtype().as_ptype(), PType::I32);
+        assert_eq!(parts.msp.dtype().as_ptype(), PType::I8);
         let msp = parts.msp.execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(
-            msp.as_slice::<i32>().as_ptr(),
-            decimal.buffer::<i32>().as_ptr()
+            msp.as_slice::<i8>().as_ptr(),
+            decimal.buffer::<i8>().as_ptr()
         );
         assert_arrays_eq!(decimal.clone(), round_trip(decimal)?, &mut ctx);
         Ok(())

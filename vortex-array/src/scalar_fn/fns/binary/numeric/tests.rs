@@ -452,10 +452,12 @@ fn test_decimal_max_precision_overflow_on_valid_lane_errors() {
 
 #[test]
 fn test_decimal_value_outside_working_width_errors() {
-    let dtype = DecimalDType::new(2, 0);
-    let value = i256::from_i128(1_000_000);
-    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
-    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    // Storage is bounded by precision, so an out-of-precision value can only overflow the
+    // working width when the result precision shares the input storage width: decimal(3, 0) and
+    // its decimal(4, 0) Add result are both i16, and 32_000 + 32_000 overflows it.
+    let dtype = DecimalDType::new(3, 0);
+    let lhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
 
     assert!(decimal_binary(lhs, rhs, Operator::Add).is_err());
 }
@@ -482,22 +484,24 @@ fn test_decimal_div_negative_result_scale() -> VortexResult<()> {
 #[test]
 fn test_decimal_mul_value_outside_precision_errors() {
     // `DecimalArray::new` does not validate stored values against the declared precision, so Mul
-    // cannot assume its inputs are in-precision: 500 * 500 is 250_000, well past the 99_999 that
-    // the decimal(5, 0) result can represent.
-    let dtype = DecimalDType::new(2, 0);
-    let value = i256::from_i128(500);
-    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
-    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    // cannot assume its inputs are in-precision: 32_000 fits the i16 storage of decimal(3, 0),
+    // and 32_000 * 32_000 is 1_024_000_000, well past the 9_999_999 that the decimal(7, 0) result
+    // can represent while still fitting its i32 working width.
+    let dtype = DecimalDType::new(3, 0);
+    let lhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
 
     assert!(decimal_binary(lhs, rhs, Operator::Mul).is_err());
 }
 
 #[test]
 fn test_decimal_mul_value_outside_working_width_errors() {
-    // 50_000 * 50_000 overflows the i32 working width chosen for a decimal(5, 0) result, which
-    // an unchecked multiply would wrap in release and panic on in debug.
-    let dtype = DecimalDType::new(2, 0);
-    let value = i256::from_i128(50_000);
+    // Below i256 the working width always holds the product of two in-storage values, so only an
+    // i256 input can overflow it: 2^228 squared exceeds the i256 working width chosen for the
+    // decimal(76, 0) result, which an unchecked multiply would wrap in release and panic on in
+    // debug.
+    let dtype = DecimalDType::new(39, 0);
+    let value = i256::from_parts(0, 1 << 100);
     let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
     let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
 
