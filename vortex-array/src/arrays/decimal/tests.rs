@@ -98,14 +98,12 @@ fn unchecked_construction_asserts_storage_bound() {
 #[test]
 fn parts_cannot_override_the_precision_bound() {
     let data = DecimalData::new(buffer![1i64], DecimalDType::new(18, 0));
-    let result = DecimalArray::try_from_parts(
-        ArrayParts::new(
-            Decimal,
-            DType::Decimal(DecimalDType::new(2, 0), Nullability::NonNullable),
-            1,
-            data,
-        )
-        .with_slots(DecimalData::make_slots(&Validity::NonNullable, 1)),
-    );
+    let result = DecimalArray::try_from_parts(ArrayParts::new(
+        Decimal,
+        DType::Decimal(DecimalDType::new(2, 0), Nullability::NonNullable),
+        1,
+        data,
+        DecimalData::make_slots(&Validity::NonNullable, 1),
+    ));
     assert!(result.is_err());
 }
