@@ -10,7 +10,6 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
@@ -21,10 +20,12 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
+    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
 ]);
@@ -81,24 +82,25 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
             }
         }
 
+        let mut offset = 0;
         let new_chunks: Vec<_> = array
             .iter_chunks()
             .map(|chunk| {
+                let range = offset..offset + chunk.len();
+                offset += chunk.len();
+                // Each sibling is sliced to the chunk's rows, so that every chunk shares what the
+                // sibling shares rather than getting its own copy of the constant.
                 let new_children: Vec<_> = parent
                     .iter_children()
                     .enumerate()
                     .map(|(idx, child)| {
                         if idx == child_idx {
-                            chunk.clone()
+                            Ok(chunk.clone())
                         } else {
-                            ConstantArray::new(
-                                child.as_::<Constant>().scalar().clone(),
-                                chunk.len(),
-                            )
-                            .into_array()
+                            child.slice(range.clone())
                         }
                     })
-                    .collect();
+                    .try_collect()?;
 
                 ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
                     .into_array()

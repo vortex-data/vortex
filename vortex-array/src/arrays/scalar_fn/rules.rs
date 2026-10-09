@@ -21,11 +21,15 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::fns::list_contains::PreparedSetLiteralRule;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFn> =
-    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
+pub(super) const RULES: ReduceRuleSet<ScalarFn> = ReduceRuleSet::new(&[
+    &ScalarFnPackToStructRule,
+    &PreparedSetLiteralRule,
+    &ScalarFnAbstractReduceRule,
+]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ScalarFilterPushdownRule),
