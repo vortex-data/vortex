@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 
 use vortex_array::ArrayRef;
 
+use crate::plan::pipeline::DEFAULT_CAPACITY;
+
 /// Identifies a port in the scan's arena.
 pub(crate) type PortId = usize;
 
@@ -27,6 +29,9 @@ pub(crate) enum Reader {
 }
 
 /// A queue of batches with one writer and one reader.
+///
+/// Its buffer is allocated once, for the capacity. Only an unbounded port, a share's waiting for a
+/// reader compiled later, grows past the default.
 pub(crate) struct Queue {
     batches: VecDeque<ArrayRef>,
     /// Batches the queue may hold before its writer is blocked.
@@ -44,7 +49,7 @@ pub(crate) struct Queue {
 impl Queue {
     fn new(capacity: usize, writer: Option<PipelineId>, reader: Reader) -> Self {
         Self {
-            batches: VecDeque::new(),
+            batches: VecDeque::with_capacity(capacity.clamp(1, DEFAULT_CAPACITY)),
             capacity: capacity.max(1),
             closed: false,
             writer,
@@ -103,9 +108,74 @@ impl Inlet<'_> {
         self.queue.batches.len()
     }
 
+    /// Whether the writer can push no more until the reader takes a batch. An unbounded inlet
+    /// counts as full at the default capacity, so a reader waiting for it to fill still runs.
+    pub fn full(&self) -> bool {
+        self.queue.batches.len() >= self.queue.capacity.min(DEFAULT_CAPACITY)
+    }
+
+    /// Rows queued, over every batch.
+    pub fn rows(&self) -> usize {
+        self.queue.batches.iter().map(|batch| batch.len()).sum()
+    }
+
     /// Whether the inlet has ended: closed with nothing queued.
     pub fn finished(&self) -> bool {
         self.queue.closed && self.queue.batches.is_empty()
+    }
+}
+
+/// A growable table that never moves its entries: entries live in blocks of fixed size, so
+/// adding one never copies the others, as a vector's growth does.
+pub(crate) struct Slab<T> {
+    blocks: Vec<Vec<T>>,
+    len: usize,
+}
+
+const BLOCK: usize = 64;
+
+impl<T> Default for Slab<T> {
+    fn default() -> Self {
+        Self {
+            blocks: Vec::new(),
+            len: 0,
+        }
+    }
+}
+
+impl<T> Slab<T> {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Adds `value`, returning its index.
+    pub(crate) fn push(&mut self, value: T) -> usize {
+        if self.len.is_multiple_of(BLOCK) {
+            self.blocks.push(Vec::with_capacity(BLOCK));
+        }
+        let index = self.len;
+        self.blocks[index / BLOCK].push(value);
+        self.len += 1;
+        index
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
+        self.blocks.iter().flatten()
+    }
+}
+
+impl<T> std::ops::Index<usize> for Slab<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &T {
+        &self.blocks[index / BLOCK][index % BLOCK]
+    }
+}
+
+impl<T> std::ops::IndexMut<usize> for Slab<T> {
+    fn index_mut(&mut self, index: usize) -> &mut T {
+        &mut self.blocks[index / BLOCK][index % BLOCK]
     }
 }
 
@@ -113,7 +183,7 @@ impl Inlet<'_> {
 /// gone, so no pipeline still refers to it.
 #[derive(Default)]
 pub(crate) struct Arena {
-    queues: Vec<Queue>,
+    queues: Slab<Queue>,
     free: Vec<PortId>,
 }
 
@@ -124,16 +194,21 @@ impl Arena {
         writer: Option<PipelineId>,
         reader: Reader,
     ) -> PortId {
-        let queue = Queue::new(capacity, writer, reader);
         match self.free.pop() {
             Some(id) => {
-                self.queues[id] = queue;
+                // A freed slot keeps its buffer, so reusing it allocates only for a larger port.
+                let queue = &mut self.queues[id];
+                let capacity = capacity.max(1);
+                queue.batches.reserve_exact(capacity.min(DEFAULT_CAPACITY));
+                queue.capacity = capacity;
+                queue.closed = false;
+                queue.writer = writer;
+                queue.reader = reader;
+                queue.reader_gone = false;
+                queue.free = false;
                 id
             }
-            None => {
-                self.queues.push(queue);
-                self.queues.len() - 1
-            }
+            None => self.queues.push(Queue::new(capacity, writer, reader)),
         }
     }
 
@@ -184,7 +259,7 @@ impl Arena {
         let queue = &mut self.queues[id];
         if queue.closed && queue.reader_gone && !queue.free {
             queue.free = true;
-            queue.batches = VecDeque::new();
+            queue.batches.clear();
             self.free.push(id);
         }
     }
