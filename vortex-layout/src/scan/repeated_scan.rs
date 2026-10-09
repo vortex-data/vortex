@@ -21,15 +21,21 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
+use crate::scan::metrics::ScanCounters;
+use crate::scan::metrics::ScanMetrics;
 use crate::scan::splits::Splits;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
+
+/// Split tasks for one scan execution.
+pub type ScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///
@@ -51,6 +57,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
     /// The dtype of the projected arrays.
@@ -100,6 +107,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         splits: Splits,
         concurrency: usize,
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+        metrics_registry: Option<Arc<dyn MetricsRegistry>>,
         limit: Option<u64>,
         dtype: DType,
     ) -> Self {
@@ -114,15 +122,39 @@ impl<A: 'static + Send> RepeatedScan<A> {
             splits,
             concurrency,
             map_fn,
+            metrics: metrics_registry.as_deref().map(ScanMetrics::new),
             limit,
             dtype,
         }
     }
 
-    pub fn execute(
+    /// Creates split tasks with fresh counters for this execution.
+    ///
+    /// Counter names and cancellation behavior follow [`ScanBuilder::with_metrics_registry`](crate::scan::scan_builder::ScanBuilder::with_metrics_registry).
+    pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
+        self.execute_inner(row_range, None)
+    }
+
+    /// Creates split tasks and returns fresh counters for this execution.
+    pub fn execute_with_counters(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    ) -> VortexResult<(ScanTasks<A>, Arc<ScanCounters>)> {
+        let counters = Arc::new(ScanCounters::default());
+        let tasks = self.execute_inner(row_range, Some(Arc::clone(&counters)))?;
+        Ok((tasks, counters))
+    }
+
+    /// Without `counters`, uses fresh counters only when a metrics registry needs them.
+    pub(super) fn execute_inner(
+        &self,
+        row_range: Option<Range<u64>>,
+        counters: Option<Arc<ScanCounters>>,
+    ) -> VortexResult<ScanTasks<A>> {
+        if self.limit == Some(0) {
+            return Ok(Vec::new());
+        }
+        let counters = counters.or_else(|| self.metrics.is_some().then(Arc::default));
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -178,14 +210,25 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),
+            counters,
+            metrics: self.metrics.clone(),
         });
 
-        for range in ranges {
-            let row_mask = self.selection.row_mask(&range);
-            if row_mask.mask().all_false() {
-                continue;
-            }
+        let mut row_masks = ranges
+            .map(|range| self.selection.row_mask(&range))
+            .filter(|row_mask| !row_mask.mask().all_false())
+            .peekable();
 
+        // Whole-file statistics apply only when the selection reaches at least one split.
+        if row_masks.peek().is_some()
+            && let Some(filter) = &ctx.filter
+            && filter.can_prune_file_any(ctx.reader.as_ref())?
+        {
+            ctx.count::<true>(ScanCounters::prune_file);
+            return Ok(Vec::new());
+        }
+
+        for row_mask in row_masks {
             tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
             if limit.is_some_and(|l| l == 0) {
                 break;
@@ -199,13 +242,31 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+        Ok(self.stream_from_tasks(self.execute(row_range)?))
+    }
+
+    /// Returns a stream and fresh counters for this execution.
+    pub fn execute_stream_with_counters(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<(
+        impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>,
+        Arc<ScanCounters>,
+    )> {
+        let (tasks, counters) = self.execute_with_counters(row_range)?;
+        Ok((self.stream_from_tasks(tasks), counters))
+    }
+
+    fn stream_from_tasks(
+        &self,
+        tasks: ScanTasks<A>,
+    ) -> impl Stream<Item = VortexResult<A>> + Send + 'static + use<A> {
         use futures::StreamExt;
         let num_workers = get_available_parallelism().unwrap_or(1);
         let concurrency = self.concurrency * num_workers;
         let handle = self.session.handle();
 
-        let stream =
-            futures::stream::iter(self.execute(row_range)?).map(move |task| handle.spawn(task));
+        let stream = futures::stream::iter(tasks).map(move |task| handle.spawn(task));
 
         let stream = if self.ordered {
             stream.buffered(concurrency).boxed()
@@ -213,7 +274,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             stream.buffer_unordered(concurrency).boxed()
         };
 
-        Ok(stream.filter_map(|chunk| async move { chunk.transpose() }))
+        stream.filter_map(|chunk| async move { chunk.transpose() })
     }
 }
 

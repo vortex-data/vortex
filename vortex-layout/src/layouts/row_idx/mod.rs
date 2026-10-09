@@ -65,6 +65,31 @@ impl RowIdxLayoutReader {
         }
     }
 
+    fn pruning_mask<const SPLIT_ONLY: bool>(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        Ok(match &self.partition_expr(expr)? {
+            Partitioning::RowIdx(expr) => row_idx_mask_future(
+                self.row_offset,
+                row_range,
+                expr.clone(),
+                MaskFuture::ready(mask),
+                self.session.clone(),
+            ),
+            Partitioning::Child(expr) => {
+                if SPLIT_ONLY {
+                    self.child.split_pruning_evaluation(row_range, expr, mask)?
+                } else {
+                    self.child.pruning_evaluation(row_range, expr, mask)?
+                }
+            }
+            Partitioning::Partitioned(..) => MaskFuture::ready(mask),
+        })
+    }
+
     fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioning> {
         let key = ExactBoundExpr(expr.clone());
 
@@ -172,6 +197,30 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
+    fn can_prune_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        match self.partition_expr(expr)? {
+            Partitioning::Child(expr) => self.child.can_prune_file(&expr),
+            _ => Ok(false),
+        }
+    }
+
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.pruning_mask::<true>(row_range, expr, mask)
+    }
+
+    fn split_pruning_is_statistics(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        match self.partition_expr(expr)? {
+            Partitioning::RowIdx(_) => Ok(false),
+            Partitioning::Child(expr) => self.child.split_pruning_is_statistics(&expr),
+            Partitioning::Partitioned(..) => Ok(true),
+        }
+    }
+
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
@@ -187,17 +236,7 @@ impl LayoutReader for RowIdxLayoutReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        Ok(match &self.partition_expr(expr)? {
-            Partitioning::RowIdx(expr) => row_idx_mask_future(
-                self.row_offset,
-                row_range,
-                expr.clone(),
-                MaskFuture::ready(mask),
-                self.session.clone(),
-            ),
-            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr, mask)?,
-            Partitioning::Partitioned(..) => MaskFuture::ready(mask),
-        })
+        self.pruning_mask::<false>(row_range, expr, mask)
     }
 
     fn filter_evaluation(
