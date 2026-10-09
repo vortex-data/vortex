@@ -4,6 +4,8 @@
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
 use vortex_array::ArrayId;
+use vortex_array::VTable;
+use vortex_array::arrays::Narrow;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
@@ -94,9 +96,8 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays and FoR arrays with per-chunk references have no
-            // CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id()],
+            // Multi-part DecimalByteParts, per-chunk FoR, and Narrow arrays have no CUDA decoder.
+            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), Narrow.id()],
         }
     }
 }
@@ -153,7 +154,8 @@ impl BtrBlocksCompressorBuilder {
     /// Creates a builder with no schemes registered.
     ///
     /// Useful when the caller wants explicit, scheme-by-scheme control over the compressor.
-    /// Every added scheme and every serialized ID is allowed.
+    /// Every added scheme and every serialized ID is allowed. Automatic Narrow wrappers are
+    /// disabled for this preset.
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
@@ -226,8 +228,16 @@ impl BtrBlocksCompressorBuilder {
 
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
+    ///
+    /// Session presets also narrow integer leaves when `vortex.narrow` is allowed. The CUDA and
+    /// empty presets leave this disabled.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
+        let narrow_integers = self.mode != CompressionMode::All
+            && self.allowed.is_allowed(&Narrow.id())
+            && !self.mode.excluded_encodings().contains(&Narrow.id());
+        BtrBlocksCompressor(
+            CascadingCompressor::new(self.allowed_schemes()).with_narrow_integers(narrow_integers),
+        )
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {

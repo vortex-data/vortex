@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compression selection, cascades, and logical dtype preservation.
+//!
+//! Scheme fixtures isolate selection and exclusion rules. Narrow cases separately check the
+//! optional width reduction before codec selection.
+
+mod narrow;
+
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;

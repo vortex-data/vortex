@@ -9,8 +9,8 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::SchemeId;
@@ -139,11 +139,9 @@ fn compress_primitive_child(
     child_idx: usize,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let narrowed = child
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?
-        .into_array();
+    let narrowed =
+        NarrowArray::encode_values(child.clone().execute::<PrimitiveArray>(exec_ctx)?, exec_ctx)?
+            .into_array();
     compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)
 }
 

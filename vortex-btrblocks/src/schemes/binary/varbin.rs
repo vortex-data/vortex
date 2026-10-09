@@ -15,10 +15,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::builders::VarBinBuilder;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -80,12 +80,14 @@ impl Scheme for VarBinScheme {
         array.append_to_builder(&mut builder, exec_ctx)?;
         let varbin = builder.finish_into_varbin();
 
-        let offsets = varbin
-            .offsets()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
+        let offsets = NarrowArray::encode_values(
+            varbin
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?
+        .into_array();
         let compressed_offsets =
             compressor.compress_child(&offsets, &compress_ctx, self.id(), 0, exec_ctx)?;
 

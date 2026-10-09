@@ -15,11 +15,11 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -132,12 +132,11 @@ impl Scheme for FloatDictScheme {
             compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         // Codes = child 1.
-        let narrowed_codes = dict
-            .codes()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
+        let narrowed_codes = NarrowArray::encode_values(
+            dict.codes().clone().execute::<PrimitiveArray>(exec_ctx)?,
+            exec_ctx,
+        )?
+        .into_array();
         let compressed_codes =
             compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
 

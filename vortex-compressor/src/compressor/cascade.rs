@@ -13,6 +13,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Masked;
+use vortex_array::arrays::NarrowArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::Variant;
@@ -85,6 +87,13 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         if parent_ctx.finished_cascading() {
             trace::cascade_exhausted(parent_id, child_index);
+            if self.narrow_integers
+                && let Some(primitive) = child.as_opt::<Primitive>()
+                && primitive.ptype().is_int()
+            {
+                return NarrowArray::encode(primitive.into_owned(), exec_ctx);
+            }
+
             return Ok(child.clone());
         }
 
@@ -114,7 +123,26 @@ impl CascadingCompressor {
                 self.choose_and_compress(Canonical::Bool(bool_array), compress_ctx, exec_ctx)
             }
             Canonical::Primitive(primitive) => {
-                self.choose_and_compress(Canonical::Primitive(primitive), compress_ctx, exec_ctx)
+                let dtype = primitive.dtype().clone();
+                let len = primitive.len();
+                let values = if self.narrow_integers {
+                    NarrowArray::encode_values(primitive, exec_ctx)?
+                } else {
+                    primitive
+                };
+                let compressed =
+                    self.choose_and_compress(Canonical::Primitive(values), compress_ctx, exec_ctx)?;
+                if compressed.dtype() == &dtype {
+                    return Ok(compressed);
+                }
+
+                if let Some(constant) = compressed.as_opt::<Constant>() {
+                    return Ok(
+                        ConstantArray::new(constant.scalar().cast(&dtype)?, len).into_array()
+                    );
+                }
+
+                Ok(NarrowArray::try_new(compressed, dtype)?.into_array())
             }
             Canonical::Decimal(decimal) => {
                 self.choose_and_compress(Canonical::Decimal(decimal), compress_ctx, exec_ctx)

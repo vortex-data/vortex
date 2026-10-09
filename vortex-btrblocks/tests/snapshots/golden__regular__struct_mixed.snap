@@ -13,10 +13,10 @@ root: vortex.struct({id=i64, category=utf8, value=f64}, len=16384) nbytes=57525
       metadata: bit_width: 4, offset: 0
     values: vortex.fsst(utf8, len=12) nbytes=181
       metadata: len: 12, nsymbols: 9
-      uncompressed_lengths: vortex.primitive(u8, len=12) nbytes=12
-        metadata: ptype: u8
-      codes_offsets: vortex.primitive(u8, len=13) nbytes=13
-        metadata: ptype: u8
+      uncompressed_lengths: vortex.primitive(i8, len=12) nbytes=12
+        metadata: ptype: i8
+      codes_offsets: vortex.primitive(i8, len=13) nbytes=13
+        metadata: ptype: i8
   value: vortex.alp(f64, len=16384) nbytes=49152
     metadata: exponents: e: 14, f: 12
     encoded: fastlanes.bitpacked(i64, len=16384) nbytes=49152

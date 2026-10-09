@@ -12,6 +12,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::DictArray;
+use crate::arrays::NarrowArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
@@ -84,7 +85,7 @@ pub fn dict_encode_with_constraints(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder_in(array, constraints, ctx.allocator().clone());
-    let codes = encoder.encode(array, ctx)?.narrow(ctx)?;
+    let codes = NarrowArray::encode_values(encoder.encode(array, ctx)?, ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding

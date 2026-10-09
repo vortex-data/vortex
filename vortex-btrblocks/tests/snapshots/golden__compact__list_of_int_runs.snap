@@ -9,5 +9,5 @@ root: vortex.list(list(i32), len=4066) nbytes=4434
     metadata: 
     encoded: vortex.pco(u32, len=16384) nbytes=2969
       metadata: ptype: u32, nrows: 16384, slice: 0..16384
-  offsets: vortex.pco(u16, len=4067) nbytes=1465
-    metadata: ptype: u16, nrows: 4067, slice: 0..4067
+  offsets: vortex.pco(i16, len=4067) nbytes=1465
+    metadata: ptype: i16, nrows: 4067, slice: 0..4067

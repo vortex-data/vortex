@@ -74,6 +74,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -1596,13 +1597,22 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     values.extend(iter::repeat_n(1, num_vals / 2));
 
     let array = PrimitiveArray::from_iter(values).into_array();
+
+    // Keep dictionary encoding in the fixture so this tests repeated encoding, independent of
+    // the default compressor's codec and integer-width choices.
+    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+        .with_btrblocks_builder(BtrBlocksCompressorBuilder::empty().with_new_scheme(&IntDictScheme))
+        .build();
     let mut buf = Vec::new();
     SESSION
         .write_options()
-        .write(&mut buf, array.to_array_stream())
+        .with_strategy(strategy)
+        .write(&mut buf, array.clone().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
     let read_array = file.scan()?.into_array_stream()?.read_all().await?;
+
+    assert_arrays_eq!(&read_array, &array, &mut SESSION.create_execution_ctx());
 
     let dict = read_array
         .as_opt::<Dict>()

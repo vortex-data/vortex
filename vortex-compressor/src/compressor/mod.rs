@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Cascading array compression implementation.
+//!
+//! [`CascadingCompressor`] selects schemes for leaf arrays and recurses through structural children.
+//! Optional integer narrowing changes the stored width before selection while retaining the logical
+//! dtype. Scheme-specific encoding belongs to the registered [`Scheme`] implementations.
 
 mod cascade;
 mod constant;
@@ -33,6 +37,10 @@ pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
 /// 3. Evaluating each matching scheme's compression estimate and resolving deferred work.
 /// 4. Compressing with the best scheme and verifying the result is smaller.
 ///
+/// When [`with_narrow_integers`](Self::with_narrow_integers) is enabled, integer leaves first store
+/// their values at the smallest fitting width of the same signedness. Codec selection then uses
+/// that stored dtype, and a Narrow wrapper retains the original logical dtype.
+///
 /// No scheme may appear twice in a cascade chain. The compressor enforces this automatically
 /// along with push/pull exclusion rules declared by each scheme.
 ///
@@ -46,6 +54,9 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// Whether integer leaves retain a Narrow wrapper before other schemes compress their values.
+    narrow_integers: bool,
 }
 
 impl CascadingCompressor {
@@ -63,7 +74,19 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            narrow_integers: false,
         }
+    }
+
+    /// Enables or disables narrowing integer leaves before applying compression schemes.
+    ///
+    /// The logical dtype is retained by a [`NarrowArray`](vortex_array::arrays::NarrowArray).
+    /// Callers that write files must permit `vortex.narrow` in their enabled editions. This is
+    /// disabled by default and does not consume a level of the codec cascade budget.
+    pub fn with_narrow_integers(mut self, enabled: bool) -> Self {
+        self.narrow_integers = enabled;
+
+        self
     }
 }
 

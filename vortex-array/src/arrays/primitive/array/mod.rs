@@ -39,14 +39,11 @@ pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 use crate::ArrayRef;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
-use crate::builtins::ArrayBuiltins;
 
 #[array_slots(Primitive)]
 pub struct PrimitiveSlots {
@@ -151,93 +148,6 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             ptype,
             PrimitiveArrayExt::validity(self),
         )
-    }
-
-    /// Narrow the array to the smallest possible integer type that can represent all values.
-    fn narrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-        if !self.ptype().is_int() {
-            return Ok(self.to_owned());
-        }
-
-        let Some(min_max) = min_max(self.as_ref(), ctx, NumericalAggregateOpts::default())? else {
-            return Ok(PrimitiveArray::new(
-                Buffer::<u8>::zeroed(self.len()),
-                PrimitiveArrayExt::validity(self),
-            ));
-        };
-
-        // If we can't cast to i64, then leave the array as its original type.
-        // It's too big to downcast anyway.
-        let Ok(min) = min_max
-            .min
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
-            return Ok(self.to_owned());
-        };
-        let Ok(max) = min_max
-            .max
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
-            return Ok(self.to_owned());
-        };
-
-        let nullability = self.as_ref().dtype().nullability();
-
-        if min < 0 || max < 0 {
-            // Signed
-            if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                let result = self
-                    .as_ref()
-                    .cast(DType::Primitive(PType::I8, nullability))?
-                    .execute::<PrimitiveArray>(ctx)?;
-                return Ok(result);
-            }
-
-            if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                let result = self
-                    .as_ref()
-                    .cast(DType::Primitive(PType::I16, nullability))?
-                    .execute::<PrimitiveArray>(ctx)?;
-                return Ok(result);
-            }
-
-            if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                let result = self
-                    .as_ref()
-                    .cast(DType::Primitive(PType::I32, nullability))?
-                    .execute::<PrimitiveArray>(ctx)?;
-                return Ok(result);
-            }
-        } else {
-            // Unsigned
-            if max <= u8::MAX as i64 {
-                let result = self
-                    .as_ref()
-                    .cast(DType::Primitive(PType::U8, nullability))?
-                    .execute::<PrimitiveArray>(ctx)?;
-                return Ok(result);
-            }
-
-            if max <= u16::MAX as i64 {
-                let result = self
-                    .as_ref()
-                    .cast(DType::Primitive(PType::U16, nullability))?
-                    .execute::<PrimitiveArray>(ctx)?;
-                return Ok(result);
-            }
-
-            if max <= u32::MAX as i64 {
-                let result = self
-                    .as_ref()
-                    .cast(DType::Primitive(PType::U32, nullability))?
-                    .execute::<PrimitiveArray>(ctx)?;
-                return Ok(result);
-            }
-        }
-
-        Ok(self.to_owned())
     }
 }
 impl<T: TypedArrayRef<Primitive>> PrimitiveArrayExt for T {}
