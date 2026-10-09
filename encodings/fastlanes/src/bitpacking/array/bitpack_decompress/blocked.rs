@@ -46,7 +46,8 @@ pub fn unpack_array_blocked(
     })
 }
 
-pub fn unpack_primitive_array_blocked<T: BitPackedUnpack>(
+/// Unpacks a bit-packed array of `T` values with block `offsets` into a primitive array.
+fn unpack_primitive_array_blocked<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
     offsets: &ArrayRef,
     ctx: &mut ExecutionCtx,
