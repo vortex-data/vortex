@@ -141,22 +141,37 @@ fn test_sum_signed_unambiguous(
 #[case(DecimalType::I128)]
 #[case(DecimalType::I256)]
 fn test_sum_decimal_storage(#[case] values_type: DecimalType) -> VortexResult<()> {
+    // Storage is bounded by precision, so each width is exercised at the widest precision it
+    // may back.
+    let precision = match values_type {
+        DecimalType::I8 => 2,
+        DecimalType::I16 => 4,
+        DecimalType::I32 => 9,
+        DecimalType::I64 => 18,
+        DecimalType::I128 => 38,
+        DecimalType::I256 => 76,
+    };
     let array = match_each_decimal_value_type!(values_type, |D| {
         let value = DecimalValue::I8(99)
             .cast::<D>()
             .ok_or_else(|| vortex_err!("99 fits in every decimal storage type"))?;
         DecimalArray::new(
             buffer![value, value, -value],
-            DecimalDType::new(2, 0),
+            DecimalDType::new(precision, 0),
             Validity::NonNullable,
         )
         .into_array()
     });
-    let expected = Scalar::decimal(
-        DecimalValue::I64(99),
-        DecimalDType::new(12, 0),
-        Nullability::Nullable,
-    );
+    let sum_dtype = DecimalDType::new(u8::min(76, precision + 10), 0);
+    let expected_value =
+        match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&sum_dtype), |R| {
+            DecimalValue::from(
+                DecimalValue::I8(99)
+                    .cast::<R>()
+                    .ok_or_else(|| vortex_err!("99 fits in every decimal storage type"))?,
+            )
+        });
+    let expected = Scalar::decimal(expected_value, sum_dtype, Nullability::Nullable);
     let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(
         sum_canonical_array(&array, &mut ctx)?,

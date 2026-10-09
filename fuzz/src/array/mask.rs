@@ -253,16 +253,14 @@ mod tests {
     fn test_mask_decimal_array() {
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DecimalDType::new(10, 2);
-        let array = DecimalArray::from_option_iter(
-            [Some(1i128), Some(2), Some(3), Some(4), Some(5)],
-            dtype,
-        );
+        let array =
+            DecimalArray::from_option_iter([Some(1i64), Some(2), Some(3), Some(4), Some(5)], dtype);
         let mask = Mask::from_iter([true, true, false, true, true]);
 
         let result = mask_canonical_array(canonical(array, &mut ctx), &mask, &mut ctx).unwrap();
 
         let expected =
-            DecimalArray::from_option_iter([Some(1i128), Some(2), None, Some(4), Some(5)], dtype);
+            DecimalArray::from_option_iter([Some(1i64), Some(2), None, Some(4), Some(5)], dtype);
         assert_arrays_eq!(result, expected, &mut ctx);
     }
 

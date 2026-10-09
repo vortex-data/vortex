@@ -39,18 +39,18 @@ use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 #[case::one_lower_part(DecimalByteParts::try_new_with_lower_parts(
     msp(), vec![lower_part()], DecimalDType::new(38, 2),
 ))]
-#[case::wider_i64_storage(DecimalByteParts::encode(
-    &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+#[case::i64_storage(DecimalByteParts::encode(
+    &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(18, 0), Validity::NonNullable),
     &mut array_session().create_execution_ctx(),
 ))]
-#[case::wider_i128_storage(DecimalByteParts::encode(
-    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+#[case::i128_storage(DecimalByteParts::encode(
+    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(38, 0), Validity::NonNullable),
     &mut array_session().create_execution_ctx(),
 ))]
-#[case::wider_i256_storage(DecimalByteParts::encode(
+#[case::i256_storage(DecimalByteParts::encode(
     &DecimalArray::new(
         buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
-        DecimalDType::new(2, 0), Validity::NonNullable,
+        DecimalDType::new(76, 0), Validity::NonNullable,
     ),
     &mut array_session().create_execution_ctx(),
 ))]

@@ -758,8 +758,8 @@ fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> Vort
     Ok(())
 }
 
-/// A null slot's backing value is unspecified and might not fit the dtype-derived key width;
-/// encoding must ignore it rather than report a spurious overflow.
+/// A null slot's backing value is unspecified and may lie outside the declared precision;
+/// encoding must ignore it rather than let it affect the keys.
 #[test]
 fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
@@ -767,7 +767,7 @@ fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
     let field = RowSortField::new(false, true);
 
     let chunk = DecimalArray::new(
-        buffer![484i64, 10_000_000_000_000, 91],
+        buffer![484i32, i32::MIN, 91],
         dtype,
         Validity::from_iter([true, false, true]),
     )
