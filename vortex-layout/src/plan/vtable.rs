@@ -14,9 +14,11 @@ use vortex_mask::Mask;
 use vortex_session::registry::Id;
 
 use crate::plan::PlanChildren;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
 use crate::plan::typed::Plan;
+use crate::segments::SegmentId;
 
 /// A unique identifier for a plan operator.
 pub type PlanId = Id;
@@ -74,19 +76,36 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
         Cow::Owned(format!("child[{index}]"))
     }
 
-    /// Builds the push-based exec node that runs this plan over `rows` of its row domain,
-    /// restricted to `mask`, with the graph's `ctx`. `rows` lies within the plan's row domain
-    /// and `mask` is as long as `rows`.
+    /// Compiles this plan over `rows` of its row domain, restricted to `mask`, into a chain:
+    /// a source and the stages after it, producing the rows `mask` selects in row order, or
+    /// `None` when that is no row. `rows` lies within the plan's row domain and `mask` is as long
+    /// as `rows`.
     ///
-    /// Construction does no IO. Children are spawned and requests published when the graph
-    /// starts the node. [`ExecNode`] says what the node must then do.
-    fn exec(
+    /// A plan compiles its children through `compiler` and either adds stages to a child's
+    /// chain or joins several children's chains with a source of its own. Compiling does no IO.
+    fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        drop((rows, mask, ctx));
-        vortex_bail!("Plan {} has no exec implementation", plan.vtable().id())
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let _ = (rows, mask, compiler);
+        vortex_bail!("Plan {} has no pipeline implementation", plan.vtable().id())
+    }
+
+    /// Visits every segment compiling this plan over `rows` could read, under any mask, with
+    /// the rows of the scanned plan it is read for, so a segment more than one reader reads is
+    /// decoded once. `at` maps this plan's rows to the scanned plan's.
+    ///
+    /// The default visits nothing, so the segments under a plan that does not override it are
+    /// read by each reader alone.
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        let _ = (plan, rows, at, visit);
+        Ok(())
     }
 }
