@@ -294,7 +294,7 @@ def _cast_to_vortex(cast_expr: dict[str, Any]) -> ve.Expr:
 
 def _like_needle(expr: dict[str, Any]) -> str:
     """Escape LIKE wildcards in a Polars string literal so that it matches literally."""
-    value = expr.get("Literal", {}).get("Scalar", {}).get("String")
+    value: object = expr.get("Literal", {}).get("Scalar", {}).get("String")
     if not isinstance(value, str):
         raise NotImplementedError(f"Expected a Polars string literal, got: {expr}")
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
