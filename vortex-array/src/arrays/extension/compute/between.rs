@@ -10,7 +10,11 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::extension::datetime::AnyTemporal;
+use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ExtVTable;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::Timestamp;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
 
@@ -18,16 +22,17 @@ impl BetweenReduce for Extension {
     /// Evaluates between on the storage array, so a date or timestamp keeps its compressed
     /// storage and reaches that encoding's between kernel instead of being decompressed.
     ///
-    /// Only the datetime types are known to order like their storage. Any other extension type,
-    /// such as JSON text, UUIDs, WKB geometry or a foreign type, may order differently from its
-    /// storage, so the rule declines it.
+    /// Whether the pushdown is allowed is decided by the extension id: only the datetime ids
+    /// (`vortex.date`, `vortex.time`, `vortex.timestamp`) are known to order like their storage.
+    /// Any other extension type, such as JSON text, UUIDs or WKB geometry, may order differently
+    /// from its storage, so the rule declines it.
     fn between(
         array: ArrayView<'_, Extension>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !array.ext_dtype().is::<AnyTemporal>() {
+        if !is_storage_ordered(array.ext_dtype().id()) {
             return Ok(None);
         }
 
@@ -49,6 +54,11 @@ impl BetweenReduce for Extension {
             .between(lower, upper, options.clone())
             .map(Some)
     }
+}
+
+/// Whether values of the extension type with this id order the same as their storage values.
+fn is_storage_ordered(id: ExtId) -> bool {
+    id == Date.id() || id == Time.id() || id == Timestamp.id()
 }
 
 /// The storage of a bound: a constant extension scalar becomes a constant storage scalar, and an
@@ -120,7 +130,9 @@ mod tests {
             .clone()
             .binary(array.clone(), options.lower_strict.to_operator())?
             .binary(
-                array.clone().binary(upper.clone(), options.upper_strict.to_operator())?,
+                array
+                    .clone()
+                    .binary(upper.clone(), options.upper_strict.to_operator())?,
                 Operator::And,
             )?
             .execute::<Canonical>(ctx)?
@@ -189,7 +201,10 @@ mod tests {
     fn timestamps() -> VortexResult<()> {
         let dtype = Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased();
         let ts = |v: i64| {
-            Scalar::extension_ref(dtype.clone(), Scalar::primitive(v, Nullability::NonNullable))
+            Scalar::extension_ref(
+                dtype.clone(),
+                Scalar::primitive(v, Nullability::NonNullable),
+            )
         };
         let storage = buffer![10i64, 20, 30, 40].into_array();
         let array = ExtensionArray::new(dtype.clone(), storage).into_array();
