@@ -81,7 +81,7 @@ mod tests {
         Mask::from_iter([false, true, false, true, false])
     )]
     #[case::i256_values(
-        DecimalArray::from_iter([i256::from_i128(1), i256::from_i128(2), i256::from_i128(3), i256::from_i128(4), i256::from_i128(5)], DecimalDType::new(19, 5)),
+        DecimalArray::from_iter([i256::from_i128(1), i256::from_i128(2), i256::from_i128(3), i256::from_i128(4), i256::from_i128(5)], DecimalDType::new(39, 5)),
         Mask::from_iter([false, true, false, true, false])
     )]
     #[crate::test]
