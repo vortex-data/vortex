@@ -20,6 +20,10 @@
 //! build side has finished) can never change again. Their bounds are read once and only applied
 //! when the file's statistics suggest they will skip a meaningful share of rows, because
 //! evaluating a non-selective filter costs more than it saves.
+//! When range bounds are too broad, a small, completed integer membership filter can still skip
+//! most rows. Such filters are retained when their size is small relative to the file's range.
+//! Completed, null-rejecting comparisons also discard nulls; live filters retain them because a
+//! later generation may admit them.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -30,6 +34,7 @@ use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_plan::expressions as df_expr;
 use vortex::dtype::DType;
 use vortex::dtype::StructFields;
@@ -49,11 +54,20 @@ use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::session::VortexSession;
 
+use crate::convert::exprs::DefaultExpressionConvertor;
+use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::scalar_from_df;
 
 /// Complete filters are only applied when they are estimated to keep at most this fraction of a
 /// file's value range for some column.
 const MAX_KEPT_FRACTION: f64 = 0.5;
+
+// Constant IN lists currently expand into a disjunction of comparisons. Bound that work while
+// retaining the small dimension-key sets whose broad min/max bounds miss most of their pruning.
+const MAX_MEMBERSHIP_VALUES: usize = 16;
+// Each comparison can decode the same compressed column again. Require more pruning than a
+// range filter to offset that work, including for compact encodings such as PCO.
+const MAX_MEMBERSHIP_KEPT_FRACTION: f64 = 0.1;
 
 const TEMPLATE_OPS: [CompareOperator; 4] = [
     CompareOperator::Lt,
@@ -188,7 +202,12 @@ impl LiveBounds {
         file_fields: &StructFields,
         file_stats: &FileStatistics,
     ) -> Option<Expression> {
-        let bounds = self.extract_bounds();
+        let current = self
+            .filter
+            .downcast_ref::<DynamicFilterPhysicalExpr>()?
+            .current()
+            .ok()?;
+        let bounds = self.bounds_of(&current).unwrap_or_default();
         let per_column = self
             .columns
             .iter()
@@ -202,15 +221,13 @@ impl LiveBounds {
                     })
                     .map(|(op, scalar)| Some((op, scalar.ok()?)))
                     .collect::<Option<_>>()?;
-                if column_bounds.is_empty() {
-                    return None;
-                }
-
                 let (stats, _) = file_stats.get(file_fields.find(name)?);
                 let stat = |stat| Scalar::try_new(dtype.clone(), stats.get(stat).into_inner()).ok();
-                let kept = kept_fraction(&column_bounds, &stat(Stat::Min)?, &stat(Stat::Max)?)?;
+                let min = stat(Stat::Min)?;
+                let max = stat(Stat::Max)?;
+                let kept = kept_fraction(&column_bounds, &min, &max)?;
                 if kept > MAX_KEPT_FRACTION {
-                    return None;
+                    return self.selective_membership(&current, name, dtype, &min, &max);
                 }
 
                 let lhs = get_item(name.clone(), root());
@@ -219,13 +236,56 @@ impl LiveBounds {
                         .into_iter()
                         .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
                 )?;
-                Some(if dtype.is_nullable() {
+                // A top-level comparison cannot keep a null column. Bounds extracted from an
+                // OR or CASE may still admit nulls, so retain the escape for those filters.
+                let rejects_null = split_conjunction(&current).into_iter().any(|expr| {
+                    expr.downcast_ref::<df_expr::BinaryExpr>()
+                        .is_some_and(|binary| {
+                            compare_op(binary.op()).is_some()
+                                && [binary.left(), binary.right()].into_iter().any(|child| {
+                                    column_of(child).is_some_and(|column| column.name() == name)
+                                })
+                        })
+                });
+                Some(if dtype.is_nullable() && !rejects_null {
                     or(is_null(lhs), comparisons)
                 } else {
                     comparisons
                 })
             });
         and_collect(per_column)
+    }
+
+    /// A sparse key set can be selective even when its min/max covers the entire file. Only
+    /// inspect conjuncts: an IN list inside an OR or CASE need not hold for every matching row.
+    fn selective_membership(
+        &self,
+        current: &Arc<dyn PhysicalExpr>,
+        name: &str,
+        dtype: &DType,
+        min: &Scalar,
+        max: &Scalar,
+    ) -> Option<Expression> {
+        if !dtype.is_int() {
+            return None;
+        }
+        let range =
+            max.as_primitive_opt()?.as_::<f64>()? - min.as_primitive_opt()?.as_::<f64>()? + 1.0;
+        let convertor = DefaultExpressionConvertor::new(self.session.clone());
+        split_conjunction(current)
+            .into_iter()
+            .filter_map(|expr| expr.downcast_ref::<df_expr::InListExpr>())
+            .filter(|list| {
+                !list.negated()
+                    && !list.list().is_empty()
+                    && list.list().len() <= MAX_MEMBERSHIP_VALUES
+                    && list
+                        .expr()
+                        .downcast_ref::<df_expr::Column>()
+                        .is_some_and(|column| column.name() == name)
+                    && list.list().len() as f64 / range <= MAX_MEMBERSHIP_KEPT_FRACTION
+            })
+            .find_map(|list| convertor.convert(list).ok())
     }
 
     fn value(&self, column: usize, op: CompareOperator) -> Option<ScalarValue> {
@@ -497,6 +557,8 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
     use datafusion_common::ScalarValue;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_physical_expr::PhysicalExpr;
@@ -874,6 +936,102 @@ mod tests {
         let filter = complete_filter(binary(col_a(), DFOperator::Lt, lit_i32(5)));
         let fields = input.dtype().as_struct_fields_opt().expect("struct input");
         assert!(dynamic_filter_to_vortex(&filter, fields, None, &session).is_none());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::comparison(false, None)]
+    #[case::null_escape(true, Some(true))]
+    fn completed_range_nulls(
+        #[case] allow_null: bool,
+        #[case] expected_null: Option<bool>,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input = StructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_option_iter([Some(1i32), Some(5), Some(10), None]).into_array(),
+        )])?
+        .into_array();
+        let range = binary(col_a(), DFOperator::LtEq, lit_i32(5));
+        let current = if allow_null {
+            binary(
+                Arc::new(df_expr::IsNullExpr::new(col_a())),
+                DFOperator::Or,
+                range,
+            )
+        } else {
+            range
+        };
+        let filter = complete_filter(current);
+        let stats = StatsSet::from_iter([
+            (Stat::Min, Precision::exact(VxScalarValue::from(1i32))),
+            (Stat::Max, Precision::exact(VxScalarValue::from(10i32))),
+        ]);
+        let file_stats = FileStatistics::new_with_dtype(Arc::from([stats]), input.dtype());
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+        let converted = dynamic_filter_to_vortex(&filter, fields, Some(&file_stats), &session)
+            .expect("selective range should be applied");
+        assert_arrays_eq!(
+            input.apply(&converted)?,
+            BoolArray::from_iter([Some(true), Some(true), Some(false), expected_null]),
+            &mut session.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::sparse(vec![1, 100], false, false, 100, true)]
+    #[case::moderately_selective(vec![1, 10], false, false, 10, false)]
+    #[case::dense((1..=10).collect(), false, false, 10, false)]
+    #[case::large_sparse((1..=17).collect(), false, false, 1000, false)]
+    #[case::negated(vec![1, 100], true, false, 100, false)]
+    #[case::disjunction(vec![1, 100], false, true, 100, false)]
+    fn completed_membership_filter(
+        #[case] values: Vec<i32>,
+        #[case] negated: bool,
+        #[case] disjunction: bool,
+        #[case] max: i32,
+        #[case] applied: bool,
+    ) -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let input = StructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_option_iter([Some(1i32), Some(5), Some(max), None]).into_array(),
+        )])?
+        .into_array();
+        let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+        let membership: PhysicalExprRef = Arc::new(df_expr::InListExpr::try_new(
+            col_a(),
+            values.into_iter().map(lit_i32).collect(),
+            negated,
+            &schema,
+        )?);
+        let current = if disjunction {
+            binary(
+                membership,
+                DFOperator::Or,
+                binary(col_a(), DFOperator::Eq, lit_i32(5)),
+            )
+        } else {
+            membership
+        };
+        let filter = complete_filter(current);
+        let stats = StatsSet::from_iter([
+            (Stat::Min, Precision::exact(VxScalarValue::from(1i32))),
+            (Stat::Max, Precision::exact(VxScalarValue::from(max))),
+        ]);
+        let file_stats = FileStatistics::new_with_dtype(Arc::from([stats]), input.dtype());
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+        let converted = dynamic_filter_to_vortex(&filter, fields, Some(&file_stats), &session);
+        if applied {
+            assert_arrays_eq!(
+                input.apply(&converted.expect("sparse membership should be applied"))?,
+                BoolArray::from_iter([Some(true), Some(false), Some(true), None]),
+                &mut session.create_execution_ctx()
+            );
+        } else {
+            assert!(converted.is_none());
+        }
         Ok(())
     }
 
