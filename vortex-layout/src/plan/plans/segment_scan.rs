@@ -17,10 +17,9 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::SegmentScanNode;
-use crate::plan::exec::Selection;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -100,18 +99,24 @@ impl PlanVTable for SegmentScan {
         Ok(())
     }
 
-    fn exec(
+    fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        // A bare scan returns every row; a Filter over it runs the same node with a filter.
-        Ok(Box::new(SegmentScanNode::try_new(
-            plan.clone(),
-            Selection::try_new(rows, mask)?,
-            None,
-            ctx.clone(),
-        )?))
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let _ = mask;
+        // A bare scan produces every row of its range; a filter over it keeps the selected ones.
+        compiler.scan(plan, rows, None)
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        visit(plan.segment_id(), at.root(&rows));
+        Ok(())
     }
 }

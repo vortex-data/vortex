@@ -822,3 +822,40 @@ interleaving; measure before adding locking.
    `ZonePruneNode`, `QueryNode`.
 9. Benchmark against V1 and the current V2 with `query_profile` (interleaved A/B) and
    `query_exec`; profile with callgrind on `run_exec`.
+
+## 13. As implemented
+
+The implementation in `vortex-layout/src/plan/pipeline` follows this design with these
+differences, each made for cost or simplicity:
+
+- **Compiling is a plan hook.** `PlanVTable::compile` builds a plan's chain through a
+  `Compiler`, adding stages to a child's chain or joining children's chains with a source of its
+  own. `PlanVTable::reach` reports the segments a plan reads and the scanned rows it reads them
+  for. There is no separate compile table.
+- **Every mask is known when its stage compiles.** The split's selection, zone pruning (run as
+  the first stage of a query) and earlier conjuncts all produce masks before the next stage is
+  compiled, so a mask is placed directly in the stage that reads the rows (`MaskStage`, or the
+  segment scan's own filter). No plan needs the streamed `Filter` join of §6.2, so it is not
+  built.
+- **Sharing is per segment, keyed by segment id.** A shared subtree in practice is a shared
+  decoded segment: a column a conjunct and the projection both read, a segment wider than a
+  split, a zone table, or dictionary values. No `Share` plan node is inserted: inserting one
+  would force lowering the whole lazily lowered plan and reset per-plan caches. A shared
+  segment's readers read the whole decoded segment from their port and slice and filter it
+  themselves (D1 option (b)).
+- **Reader counts come from one pass over the plans, not one per split.** Before a scan starts,
+  `reach` is run once over each plan a stage runs, over the whole domain, recording the scanned
+  rows each segment is read for. A segment's readers are the splits overlapping those rows,
+  found by binary search over the splits. A segment with one reader is read by it alone.
+- **Ports are tagged by split, so no reader is released by walking the plan.** The first
+  reader of a shared segment builds its decoding pipeline with one port per reader per split
+  not yet finished. A split claims its own ports as it compiles. When a split finishes, the
+  ports it never claimed, for chunks its masks ruled out or stages it never ran, are dropped.
+- **Lists compile their elements mid-run.** A list's element range is known only from its
+  offsets, so `ListPackSource` asks for the elements to be compiled into a new inlet once the
+  offsets are whole (`Cx::spawn`). Its segments are never shared.
+- **The scheduler checks only what a run touched.** After a run, only the readers of the
+  pipeline's outlets and the writers of the inlets it read are checked for waking. That keeps a
+  concatenation of many chunks linear in its chunks. A source that produced a batch is asked
+  again in the same run rather than requeued, so a source finishes or blocks without a trip
+  through the scheduler.

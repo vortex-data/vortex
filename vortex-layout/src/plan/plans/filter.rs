@@ -19,11 +19,11 @@ use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::SegmentScan;
 use crate::plan::check_child_count;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::FilterNode;
-use crate::plan::exec::SegmentScanNode;
-use crate::plan::exec::Selection;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::MaskStage;
+use crate::segments::SegmentId;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -95,28 +95,39 @@ impl PlanVTable for Filter {
         }
     }
 
-    /// Runs fused with a segment-scan child, as one node that keeps the selected rows itself;
-    /// over any other child, as a filter node that filters the child's whole pieces.
-    fn exec(
+    /// Fuses with a segment-scan child, whose source keeps the selected rows itself; over any
+    /// other child, compiles the child over every row and keeps the selected rows of each batch.
+    fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
         let child = plan.child_plan()?;
-        let Some(scan) = child.as_opt::<SegmentScan>() else {
-            return Ok(Box::new(FilterNode::new(
-                plan.clone(),
-                Selection::try_new(rows, mask)?,
-                ctx.session().clone(),
-            )));
-        };
-        let filter = Some(mask.clone());
-        Ok(Box::new(SegmentScanNode::try_new(
-            scan.clone(),
-            Selection::try_new(rows, mask)?,
-            filter,
-            ctx.clone(),
-        )?))
+        if let Some(scan) = child.as_opt::<SegmentScan>() {
+            return compiler.scan(scan, rows, Some(mask.clone()));
+        }
+        if mask.all_false() {
+            return Ok(None);
+        }
+        let len = usize::try_from(rows.end - rows.start)?;
+        let predicate = plan.dtype().is_boolean();
+        let chain = compiler.compile(&child, rows, &Mask::new_true(len))?;
+        Ok(chain.map(|chain| {
+            if mask.all_true() {
+                chain
+            } else {
+                chain.with(MaskStage::new(mask.clone(), predicate))
+            }
+        }))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        plan.child_plan()?.reach(rows, at, visit)
     }
 }

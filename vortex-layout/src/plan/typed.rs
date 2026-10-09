@@ -24,8 +24,10 @@ use crate::plan::PlanChildren;
 use crate::plan::PlanId;
 use crate::plan::PlanVTable;
 use crate::plan::display::PlanTreeDisplay;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::segments::SegmentId;
 
 /// The combined allocation behind [`PlanRef`].
 ///
@@ -137,25 +139,39 @@ impl PlanRef {
         Some(unsafe { &*(std::ptr::from_ref(self).cast::<Plan<V>>()) })
     }
 
-    /// Builds the exec node that runs this plan over `rows` of its row domain, restricted to
-    /// `mask`, with the graph's `ctx`.
-    pub fn exec(
+    /// Compiles this plan over `rows` of its row domain, restricted to `mask`. See
+    /// [`PlanVTable::compile`].
+    pub fn compile(
         &self,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
         vortex_ensure!(
             rows.start <= rows.end && rows.end <= self.row_count(),
-            "Exec rows {rows:?} exceed plan row count {}",
+            "Compile rows {rows:?} exceed plan row count {}",
             self.row_count()
         );
         vortex_ensure!(
             mask.len() as u64 == rows.end - rows.start,
-            "Exec mask length {} does not match rows {rows:?}",
+            "Compile mask length {} does not match rows {rows:?}",
             mask.len()
         );
-        self.dyn_plan().dyn_exec(self, rows, mask, ctx)
+        self.dyn_plan().dyn_compile(self, rows, mask, compiler)
+    }
+
+    /// Visits the segments compiling this plan over `rows` could read. See
+    /// [`PlanVTable::reach`].
+    pub fn reach(
+        &self,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        if rows.start >= rows.end {
+            return Ok(());
+        }
+        self.dyn_plan().dyn_reach(self, rows, at, visit)
     }
 
     /// Displays this plan and its descendants with the default plan extractors.
@@ -370,14 +386,23 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
     /// Serializes operator-specific metadata, or `None` when the operator is not serializable.
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>>;
 
-    /// Builds the exec node for this operator.
-    fn dyn_exec(
+    /// Compiles this operator. See [`PlanVTable::compile`].
+    fn dyn_compile(
         &self,
         plan: &PlanRef,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>>;
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>>;
+
+    /// Visits this operator's segments. See [`PlanVTable::reach`].
+    fn dyn_reach(
+        &self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()>;
 }
 
 impl<V: PlanVTable> DynPlan for PlanData<V> {
@@ -410,13 +435,23 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
         V::metadata(plan.as_::<V>()).map(SerializeMetadata::serialize)
     }
 
-    fn dyn_exec(
+    fn dyn_compile(
         &self,
         plan: &PlanRef,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        V::exec(plan.as_::<V>(), rows, mask, ctx)
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        V::compile(plan.as_::<V>(), rows, mask, compiler)
+    }
+
+    fn dyn_reach(
+        &self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        V::reach(plan.as_::<V>(), rows, at, visit)
     }
 }

@@ -6,6 +6,7 @@
 
 use std::num::NonZeroUsize;
 use std::ops::Range;
+use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::TryStreamExt;
@@ -62,13 +63,14 @@ use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::plan::EvalPlan;
 use crate::plan::Filter;
+use crate::plan::PlanRef;
 use crate::plan::QueryPlan;
 use crate::plan::SegmentScan;
 use crate::plan::Take;
-use crate::plan::exec::selection::join;
 use crate::plan::lower;
 use crate::plan::optimize;
 use crate::segments::SegmentFuture;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -178,84 +180,106 @@ fn fixture(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
     Ok((lower(&layout)?, expected))
 }
 
-/// Which outstanding request the scripted IO service completes next.
+/// Which outstanding read the scripted IO service completes next.
 #[derive(Clone, Copy, Debug)]
 enum Delivery {
-    /// Oldest request first.
+    /// Oldest read first.
     Fifo,
-    /// Newest request first.
+    /// Newest read first.
     Lifo,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum Event {
-    /// A batch returned by `compute`, as segment ids.
+    /// Reads the scan asked for before it next waited, as segment ids.
     Io(Vec<u32>),
-    /// A result delivered for this segment.
+    /// A read delivered for this segment.
     Delivered(u32),
-    /// An array of this many rows reached the root.
+    /// An array of this many rows came out.
     Piece(usize),
 }
 
 struct Run {
+    /// Every array, in the order it came out.
     arrays: Vec<ArrayRef>,
+    /// The arrays of each split, in order.
+    splits: Vec<Vec<ArrayRef>>,
     events: Vec<Event>,
+    /// Ports and shared readers still held once the scan finished.
+    leftover: (usize, usize),
 }
 
-/// Drives a graph the way an owner does, completing reads only while the graph waits.
+/// Drives a scan the way an owner does, completing reads only while the scan waits.
+fn drive(
+    store: &Store,
+    mut scan: Scan,
+    mut pick: impl FnMut(&[ReadRequest]) -> usize,
+) -> VortexResult<Run> {
+    let mut inflight: Vec<ReadRequest> = Vec::new();
+    let mut batch: Vec<u32> = Vec::new();
+    let mut arrays = Vec::new();
+    let mut splits: Vec<Vec<ArrayRef>> = Vec::new();
+    let mut events = Vec::new();
+    loop {
+        match scan.step()? {
+            Turn::Read(read) => {
+                batch.push(*read.segment_id);
+                inflight.push(read);
+            }
+            Turn::Output(split, array) => {
+                if !batch.is_empty() {
+                    events.push(Event::Io(std::mem::take(&mut batch)));
+                }
+                assert!(!array.is_empty(), "a scan never emits an empty array");
+                events.push(Event::Piece(array.len()));
+                if split >= splits.len() {
+                    splits.resize_with(split + 1, Vec::new);
+                }
+                splits[split].push(array.clone());
+                arrays.push(array);
+            }
+            Turn::Waiting => {
+                if !batch.is_empty() {
+                    events.push(Event::Io(std::mem::take(&mut batch)));
+                }
+                if inflight.is_empty() {
+                    return Err(vortex_err!("scan waits with no reads in flight"));
+                }
+                let read = inflight.remove(pick(&inflight));
+                events.push(Event::Delivered(*read.segment_id));
+                scan.deliver(read.id, store.read(read.segment_id))?;
+            }
+            Turn::Done => break,
+        }
+    }
+    assert!(
+        batch.is_empty() && inflight.is_empty(),
+        "scan finished with reads in flight"
+    );
+    let leftover = (scan.live_ports(), scan.pending_shares());
+    Ok(Run {
+        arrays,
+        splits,
+        events,
+        leftover,
+    })
+}
+
+/// Runs `plan` over one split.
 fn run(
     store: &Store,
     plan: &PlanRef,
     rows: Range<u64>,
     mask: Mask,
-    pick: impl FnMut(&[IoRequest]) -> usize,
+    pick: impl FnMut(&[ReadRequest]) -> usize,
 ) -> VortexResult<Run> {
-    run_with(store, plan, rows, mask, pick, DecodeCache::default())
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?;
+    let run = drive(store, scan, pick)?;
+    assert_eq!(run.leftover, (0, 0), "a finished scan holds no port");
+    Ok(run)
 }
 
-/// Like [`run`], sharing `decoded` with other graphs.
-fn run_with(
-    store: &Store,
-    plan: &PlanRef,
-    rows: Range<u64>,
-    mask: Mask,
-    mut pick: impl FnMut(&[IoRequest]) -> usize,
-    decoded: DecodeCache,
-) -> VortexResult<Run> {
-    let mut graph = ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0, decoded)?;
-    let mut inflight: Vec<IoRequest> = Vec::new();
-    let mut arrays = Vec::new();
-    let mut events = Vec::new();
-    loop {
-        match graph.state() {
-            ExecState::Done => break,
-            ExecState::NeedsCompute => match graph.compute()? {
-                ExecOutput::Piece(array) => {
-                    assert!(!array.is_empty(), "the root never emits an empty array");
-                    events.push(Event::Piece(array.len()));
-                    arrays.push(array);
-                }
-                ExecOutput::NeedsIO(batch) => {
-                    events.push(Event::Io(batch.iter().map(|r| *r.segment_id).collect()));
-                    inflight.extend(batch);
-                }
-                ExecOutput::Yield => {}
-            },
-            ExecState::Waiting => {
-                if inflight.is_empty() {
-                    return Err(vortex_err!("graph waits with no reads in flight"));
-                }
-                let request = inflight.remove(pick(&inflight));
-                events.push(Event::Delivered(*request.segment_id));
-                graph.set_io_result(request.id, store.read(request.segment_id))?;
-            }
-        }
-    }
-    assert!(inflight.is_empty(), "graph finished with reads in flight");
-    Ok(Run { arrays, events })
-}
-
-fn delivery(order: Delivery) -> impl FnMut(&[IoRequest]) -> usize {
+fn delivery(order: Delivery) -> impl FnMut(&[ReadRequest]) -> usize {
     move |inflight| match order {
         Delivery::Fifo => 0,
         Delivery::Lifo => inflight.len() - 1,
@@ -263,7 +287,7 @@ fn delivery(order: Delivery) -> impl FnMut(&[IoRequest]) -> usize {
 }
 
 /// Delivers segments in the given order.
-fn scripted(order: &[u32]) -> impl FnMut(&[IoRequest]) -> usize + '_ {
+fn scripted(order: &[u32]) -> impl FnMut(&[ReadRequest]) -> usize + '_ {
     let mut next = order.iter();
     move |inflight| {
         let segment = *next.next().expect("script covers every read");
@@ -282,6 +306,19 @@ fn reads(events: &[Event]) -> usize {
             _ => 0,
         })
         .sum()
+}
+
+/// Every segment read, sorted.
+fn segments_read(events: &[Event]) -> Vec<u32> {
+    let mut read: Vec<u32> = events
+        .iter()
+        .flat_map(|event| match event {
+            Event::Io(batch) => batch.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    read.sort_unstable();
+    read
 }
 
 fn pieces(events: &[Event]) -> Vec<usize> {
@@ -313,6 +350,11 @@ impl Sel {
             Sel::Rows(rows) => Mask::from_indices(len, rows.iter().copied()),
         }
     }
+}
+
+/// Joins arrays covering consecutive rows into one.
+fn join(dtype: &vortex_array::dtype::DType, arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+    Ok(ChunkedArray::try_new(arrays, dtype.clone())?.into_array())
 }
 
 /// Checks that the arrays, in the order they came out, are the selected rows of the view.
@@ -353,31 +395,43 @@ fn views_of_one_plan(
     assert_view(&expected, &rows, &mask, run.arrays)
 }
 
-#[test]
-fn many_views_share_one_plan() -> VortexResult<()> {
+/// Splits cutting every column at different places, run as one scan, each produce their own
+/// rows, and a segment several splits read is read and decoded once, then dropped.
+#[rstest]
+fn splits_of_one_scan_read_each_segment_once(
+    #[values([0, 4, 11, 20], [0, 9, 13, 20], [0, 1, 2, 20])] cuts: [u64; 4],
+    #[values(1, 3)] active: usize,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
     let mut store = Store::default();
     let (plan, expected) = fixture(&mut store)?;
-
-    // Split the row domain into views that cut through every column at different places.
-    for split in [[0, 4, 11, 20], [0, 9, 13, 20], [0, 1, 2, 20]] {
-        for window in split.windows(2) {
-            let rows = window[0]..window[1];
-            let mask = Sel::EveryOther.mask((rows.end - rows.start) as usize);
-            let run = run(
-                &store,
-                &plan,
-                rows.clone(),
-                mask.clone(),
-                delivery(Delivery::Lifo),
-            )?;
-            assert_view(&expected, &rows, &mask, run.arrays)?;
-        }
+    let splits: Vec<Split> = cuts
+        .windows(2)
+        .map(|w| Split {
+            rows: w[0]..w[1],
+            mask: Sel::EveryOther.mask((w[1] - w[0]) as usize),
+        })
+        .collect();
+    let scan = Scan::try_new(SESSION.clone(), plan, splits.clone())?.with_max_active(active);
+    let run = drive(&store, scan, delivery(order))?;
+    assert_eq!(run.leftover, (0, 0), "every shared segment was dropped");
+    assert_eq!(
+        segments_read(&run.events),
+        (0..store.segments.len() as u32).collect::<Vec<_>>()
+    );
+    for (index, split) in splits.iter().enumerate() {
+        assert_view(
+            &expected,
+            &split.rows,
+            &split.mask,
+            run.splits.get(index).cloned().unwrap_or_default(),
+        )?;
     }
     Ok(())
 }
 
 #[test]
-fn first_compute_publishes_every_read_in_one_batch() -> VortexResult<()> {
+fn every_read_is_issued_before_any_is_delivered() -> VortexResult<()> {
     let mut store = Store::default();
     let (plan, _) = fixture(&mut store)?;
 
@@ -441,26 +495,36 @@ fn two_columns(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
 }
 
 /// Pack emits a struct as soon as every field has rows, however the reads complete, and the
-/// structs come out in row order.
+/// structs come out in row order, one per chunk of `a`.
 ///
 /// Segments: a0=0, a1=1, a2=2, b=3.
 #[rstest]
-// `b` arrives last: nothing can be emitted before it, then everything at once.
-#[case::b_last(&[1, 0, 2, 3], &[20])]
-// `b` and `a0` first: rows 0..7 go out; `a2` arrives before `a1` and waits in its port.
-#[case::a_chunk_last(&[3, 0, 2, 1], &[7, 13])]
-// Chunks in order: one struct per chunk of `a`.
-#[case::in_order(&[3, 0, 1, 2], &[7, 5, 8])]
+// `b` arrives last: nothing can be emitted before it.
+#[case::b_last(&[1, 0, 2, 3], 4)]
+// `b` and `a0` first: rows 0..7 go out before `a2` and `a1` arrive.
+#[case::a_chunk_last(&[3, 0, 2, 1], 2)]
+// Chunks in order: each chunk's struct goes out as it lands.
+#[case::in_order(&[3, 0, 1, 2], 2)]
 fn pack_streams_in_row_order(
     #[case] order: &[u32],
-    #[case] expected_pieces: &[usize],
+    #[case] deliveries_before_first_piece: usize,
 ) -> VortexResult<()> {
     let mut store = Store::default();
     let (plan, expected) = two_columns(&mut store)?;
     let mask = Mask::new_true(ROWS as usize);
 
     let run = run(&store, &plan, 0..ROWS, mask.clone(), scripted(order))?;
-    assert_eq!(pieces(&run.events), expected_pieces);
+    assert_eq!(pieces(&run.events), [7, 5, 8]);
+    let first_piece = run
+        .events
+        .iter()
+        .position(|e| matches!(e, Event::Piece(_)))
+        .vortex_expect("a piece");
+    let delivered = run.events[..first_piece]
+        .iter()
+        .filter(|e| matches!(e, Event::Delivered(_)))
+        .count();
+    assert_eq!(delivered, deliveries_before_first_piece);
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 
@@ -492,24 +556,6 @@ fn aligned_fields_stream_one_struct_per_chunk() -> VortexResult<()> {
     )?;
     assert_eq!(pieces(&run.events), [7, 5, 8]);
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
-}
-
-#[test]
-fn state_is_side_effect_free() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, _) = two_columns(&mut store)?;
-    let graph = ExecGraph::try_new(
-        SESSION.clone(),
-        &plan,
-        0..ROWS,
-        Mask::new_true(ROWS as usize),
-        0,
-        DecodeCache::default(),
-    )?;
-    for _ in 0..3 {
-        assert_eq!(graph.state(), ExecState::NeedsCompute);
-    }
-    Ok(())
 }
 
 /// A bare segment scan returns every row of its range whatever it is told to care about, and a
@@ -553,7 +599,7 @@ fn bare_scan_is_dense_and_filter_keeps_the_selection(#[case] sel: Sel) -> Vortex
 
 /// A take reads its values over their whole domain and its codes over the selection, including
 /// when a predicate has been pushed onto the values, and emits nothing before the values are
-/// whole. Later executions of the plan reuse the values and read only the codes.
+/// whole. Later scans of the plan reuse the values and read only the codes.
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]
@@ -577,54 +623,23 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
     // Codes (segment 1) land first; nothing comes out until the values (segment 0) do.
     let first = run(&store, &plan, 0..10, mask.clone(), scripted(&[1, 0]))?;
     assert_eq!(reads(&first.events), 2);
-    assert_eq!(
-        first
-            .events
+    let first_piece = first
+        .events
+        .iter()
+        .position(|e| matches!(e, Event::Piece(_)))
+        .vortex_expect("a piece");
+    assert!(
+        first.events[first_piece..]
             .iter()
-            .position(|e| matches!(e, Event::Piece(_))),
-        Some(3),
+            .all(|e| !matches!(e, Event::Delivered(_))),
         "the only array must follow both deliveries"
     );
     assert_view(&expected, &(0..10), &mask, first.arrays)?;
 
-    // The values are kept on the plan, so the next execution reads only its codes.
+    // The values are kept on the plan, so the next scan reads only its codes.
     let second = run(&store, &plan, 10..ROWS, mask.clone(), scripted(&[1]))?;
     assert_eq!(reads(&second.events), 1);
     assert_view(&expected, &(10..ROWS), &mask, second.arrays)?;
-    Ok(())
-}
-
-/// A graph sharing a decode cache with one that already ran over the same plan reads nothing and
-/// returns the same rows, even under a different selection.
-#[test]
-fn shared_decode_cache_skips_reads() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, expected) = fixture(&mut store)?;
-    let decoded = DecodeCache::default();
-
-    let rows = 0..ROWS;
-    let all = Mask::new_true(ROWS as usize);
-    let first = run_with(
-        &store,
-        &plan,
-        rows.clone(),
-        all,
-        delivery(Delivery::Fifo),
-        decoded.clone(),
-    )?;
-    assert!(reads(&first.events) > 0);
-
-    let mask = Sel::EveryOther.mask(ROWS as usize);
-    let second = run_with(
-        &store,
-        &plan,
-        rows.clone(),
-        mask.clone(),
-        delivery(Delivery::Fifo),
-        decoded,
-    )?;
-    assert_eq!(reads(&second.events), 0);
-    assert_view(&expected, &rows, &mask, second.arrays)?;
     Ok(())
 }
 
@@ -648,6 +663,39 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     assert_view(&expected, &rows, &mask, run.arrays)
 }
 
+/// A column read by two fields of one struct is read and decoded once, and both fields get it.
+#[test]
+fn a_segment_two_readers_need_is_read_once() -> VortexResult<()> {
+    let mut store = Store::default();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let column = lower(&store.chunked(&a, &[7, 13])?)?;
+    let expected = StructArray::from_fields(&[("x", a.clone()), ("y", a)])?.into_array();
+    let fields = expected
+        .dtype()
+        .as_struct_fields_opt()
+        .vortex_expect("struct")
+        .clone();
+    let plan = crate::plan::PackPlan::try_new(
+        fields,
+        vortex_array::dtype::Nullability::NonNullable,
+        ROWS,
+        vec![column.clone(), column],
+        None,
+    )?
+    .into_plan();
+    let rows = 3..17;
+    let mask = Sel::EveryOther.mask(14);
+
+    let run = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Lifo),
+    )?;
+    assert_eq!(segments_read(&run.events), [0, 1]);
+    assert_view(&expected, &rows, &mask, run.arrays)
+}
 #[rstest]
 #[case::full(0..6, Sel::All)]
 #[case::range(1..5, Sel::All)]
@@ -928,6 +976,37 @@ fn query_stops_reading_once_nothing_is_selected() -> VortexResult<()> {
     Ok(())
 }
 
+/// A column both a conjunct and the projection read is read once per split, and a split the
+/// conjuncts rule out releases what its projection would have read.
+#[rstest]
+fn query_reads_a_shared_column_once(
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+    #[values(1, 2)] active: usize,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (source, expected) = fixture(&mut store)?;
+    // `c` is both filtered on and projected.
+    let filter = gt(get_item("c", root()), lit("row-12"));
+    let (plan, check) = query_over(&source, Some(filter))?;
+    let splits = vec![Split::all(0..10), Split::all(10..ROWS)];
+    let scan = Scan::try_new(SESSION.clone(), plan, splits.clone())?.with_max_active(active);
+    let run = drive(&store, scan, delivery(order))?;
+    assert_eq!(run.leftover, (0, 0));
+    // `c` is one flat segment; every other column read is read once too.
+    let read = segments_read(&run.events);
+    let mut distinct = read.clone();
+    distinct.dedup();
+    assert_eq!(read, distinct, "no segment is read twice");
+    for (index, split) in splits.iter().enumerate() {
+        check.assert_view(
+            &expected,
+            &split.rows,
+            &split.mask,
+            run.splits.get(index).cloned().unwrap_or_default(),
+        )?;
+    }
+    Ok(())
+}
 /// One `i32` column `1..=9`, written as three chunks of three rows with a zone map of
 /// three-row zones, lowered to a plan over a store of its segments.
 ///
@@ -1038,36 +1117,5 @@ fn query_over_pruned_zones_returns_the_passing_rows() -> VortexResult<()> {
     assert_eq!(reads(&run.events), 3);
     let expected = buffer![3_i32].into_array();
     assert_arrays_eq!(join(expected.dtype(), run.arrays)?, expected, &mut ctx);
-    Ok(())
-}
-
-/// A cache advanced a generation between graphs keeps a segment for the next generation and
-/// drops it after a generation that did not use it.
-#[test]
-fn decode_cache_drops_segments_unused_for_a_generation() -> VortexResult<()> {
-    let mut store = Store::default();
-    let (plan, _) = two_columns(&mut store)?;
-    let decoded = DecodeCache::default();
-    let all = Mask::new_true(ROWS as usize);
-    let run_shared = |decoded: &DecodeCache| {
-        run_with(
-            &store,
-            &plan,
-            0..ROWS,
-            all.clone(),
-            delivery(Delivery::Fifo),
-            decoded.clone(),
-        )
-    };
-
-    let first = run_shared(&decoded)?;
-    assert_eq!(reads(&first.events), 4);
-    decoded.next_generation();
-    assert_eq!(reads(&run_shared(&decoded)?.events), 0);
-
-    // Two generations with no graph touching the segments drop them.
-    decoded.next_generation();
-    decoded.next_generation();
-    assert_eq!(reads(&run_shared(&decoded)?.events), 4);
     Ok(())
 }

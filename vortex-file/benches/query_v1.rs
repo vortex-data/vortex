@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The V1 scan (`ScanBuilder` over a `LayoutReader`) on queries over a lineitem-like file, for
-//! comparison with the same queries on the exec graph in `query_exec.rs`.
+//! comparison with the same queries on the pipeline executor in `query_exec.rs`.
 //!
 //! Both benchmarks write the same table through the default write strategy (BtrBlocks
 //! compression, dictionary encoding, zoned statistics, 8K row blocks coalesced to 1MB segments)

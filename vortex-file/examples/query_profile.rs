@@ -1,37 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The exec graph (`vortex_layout::plan::exec`) on queries over a lineitem-like file, for
-//! comparison with the same queries on the V1 scan in `query_v1.rs`.
+//! The pipeline executor (`vortex_layout::plan::pipeline`) on queries over a lineitem-like
+//! file, for comparison with the same queries on the V1 scan in `query_v1.rs`.
 //!
 //! Both benchmarks write the same table through the default write strategy (BtrBlocks
 //! compression, dictionary encoding, zoned statistics, 8K row blocks coalesced to 1MB segments)
-//! into an in-memory buffer, open it as a `VortexFile`, and run the same filter and projection
-//! over the file's natural splits. Only the executor differs. The table and the queries are
-//! defined by the same code in both files.
+//! into an in-memory buffer or a file on disk, open it as a `VortexFile`, and run the same filter
+//! and projection over the same splits. Only the executor differs. The table and the queries
+//! are defined by the same code in both files.
 //!
-//! Here the file's layout is lowered to a plan, the filter and the projection are each pushed
-//! into it by the plan optimizer, and every split runs the filter plan over all its rows to a
-//! mask, then the projection plan over the rows the mask keeps, as the V1 scan does. Reads go
-//! through the file's own segment source and are awaited as the graph publishes them. Zone
-//! statistics are not used: the plan reads a zoned layout's data child whole.
+//! Here each run lowers nothing: the file's layout is lowered to a plan once and shared, as the
+//! V1 scan shares the file's reader tree. Each run builds a `QueryPlan` and its splits, then one
+//! `Scan` runs every split as stages: zone pruning, each conjunct under the rows the earlier
+//! ones kept, then the projection. Reads go through the file's own segment source and are
+//! awaited as the scan asks for them.
 
 #![expect(clippy::expect_used)]
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::print_stdout)]
 #![allow(dead_code)]
 
-use std::ops::BitAnd;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::StreamExt;
-use futures::future::BoxFuture;
-use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use mimalloc::MiMalloc;
 use rand::RngExt;
@@ -39,13 +35,10 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::expr::BoundExpression;
@@ -61,29 +54,22 @@ use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_btrblocks::CompressionSession;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexResult;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::plan::EvalPlan;
 use vortex_layout::plan::PlanRef;
 use vortex_layout::plan::QueryPlan;
-use vortex_layout::plan::exec::DecodeCache;
-use vortex_layout::plan::exec::ExecGraph;
-use vortex_layout::plan::exec::ExecOutput;
-use vortex_layout::plan::exec::ExecState;
-use vortex_layout::plan::exec::IoRequestId;
 use vortex_layout::plan::lower;
-use vortex_layout::plan::optimize;
-use vortex_layout::scan::filter::FilterExpr;
+use vortex_layout::plan::pipeline::Scan;
+use vortex_layout::plan::pipeline::Split;
+use vortex_layout::plan::pipeline::Turn;
 use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -149,7 +135,7 @@ fn report(who: &str, rows: usize, elapsed: std::time::Duration) {
     );
 }
 
-/// Segment reads the exec graph issued in the current run.
+/// Segment reads the run issued.
 static READS: AtomicUsize = AtomicUsize::new(0);
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
@@ -494,47 +480,19 @@ fn queries(t: &Table, dtype: &DType) -> Vec<Query> {
     ]
 }
 
-/// A query lowered to plans: one plan per filter conjunct, the whole filter as one plan, and
-/// the projection plan, with the splits the V1 scan would use for it.
+/// A query, with the splits the V1 scan would use for it.
 struct Planned {
     name: &'static str,
     filter: Option<BoundExpression>,
-    conjuncts: Vec<PlanRef>,
-    whole_filter: Option<PlanRef>,
-    projection: PlanRef,
     projection_expr: BoundExpression,
     expected: usize,
     splits: Vec<std::ops::Range<u64>>,
 }
 
-fn optimized(expression: BoundExpression, plan: &PlanRef) -> PlanRef {
-    optimize(
-        EvalPlan::try_new(expression, plan.clone())
-            .expect("eval plan")
-            .into_plan(),
-    )
-    .expect("optimize")
-}
-
 fn plan(file: &VortexFile, query: &Query) -> Planned {
-    let plan = lower(file.footer().layout()).expect("lower");
-    let conjuncts = query
-        .filter
-        .as_ref()
-        .map(|filter| {
-            FilterExpr::new(filter.clone())
-                .conjuncts()
-                .iter()
-                .map(|conjunct| optimized(conjunct.clone(), &plan))
-                .collect()
-        })
-        .unwrap_or_default();
     Planned {
         name: query.name,
         filter: query.filter.clone(),
-        conjuncts,
-        whole_filter: query.filter.clone().map(|f| optimized(f, &plan)),
-        projection: optimized(query.projection.clone(), &plan),
         projection_expr: query.projection.clone(),
         expected: query.expected,
         splits: splits(file, query),
@@ -658,44 +616,6 @@ fn lookup(case: &str) -> (&'static Fixture, &'static Planned) {
     )
 }
 
-/// Drives one graph over `rows` of `plan` to completion, awaiting reads from `source` as the
-/// graph publishes them, and hands each root array to `sink`. Segments decoded by earlier
-/// graphs sharing `decoded` are reused.
-fn drive(
-    source: &Arc<dyn SegmentSource>,
-    plan: &PlanRef,
-    rows: std::ops::Range<u64>,
-    mask: Mask,
-    decoded: &DecodeCache,
-    mut sink: impl FnMut(ArrayRef),
-) {
-    let mut graph =
-        ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0, decoded.clone()).expect("graph");
-    loop {
-        match graph.state() {
-            ExecState::Done => return,
-            ExecState::NeedsCompute => match graph.compute().expect("compute") {
-                ExecOutput::Piece(array) => sink(array),
-                ExecOutput::NeedsIO(batch) => {
-                    READS.fetch_add(batch.len(), Ordering::Relaxed);
-                    let reads = batch
-                        .iter()
-                        .map(|request| source.request(request.segment_id))
-                        .collect::<Vec<_>>();
-                    let results = RUNTIME.block_on(join_all(reads));
-                    for (request, result) in batch.into_iter().zip(results) {
-                        graph
-                            .set_io_result(request.id, result.expect("read"))
-                            .expect("deliver");
-                    }
-                }
-                ExecOutput::Yield => {}
-            },
-            ExecState::Waiting => unreachable!("every read is answered as it is published"),
-        }
-    }
-}
-
 /// Splits in flight at once for a file read through real IO: four per core, as the V1 scan's
 /// default concurrency, so reads overlap compute. A file in memory answers reads at once, so
 /// nothing is gained by holding more than one split's graph alive.
@@ -713,245 +633,46 @@ fn in_flight(variant: Variant) -> usize {
     }
 }
 
-/// Runs `plan` over `splits` with up to `in_flight` graphs at once, so the reads of later splits
-/// are in flight while earlier ones compute, as the V1 scan buffers its split tasks. Each graph
-/// gets the cache `cache` returns, and advances it a generation when it finishes. Returns the
-/// rows produced.
-fn drive_splits(
+/// Runs `plan` over `splits` on the pipeline executor, with up to `in_flight` splits compiled
+/// at once, answering its reads from `source`. Returns the rows produced.
+fn drive_scan(
     source: &Arc<dyn SegmentSource>,
-    plan: &PlanRef,
-    splits: &[std::ops::Range<u64>],
-    cache: &dyn Fn() -> DecodeCache,
+    plan: PlanRef,
+    splits: Vec<std::ops::Range<u64>>,
     in_flight: usize,
 ) -> usize {
-    type Delivery = (usize, IoRequestId, VortexResult<BufferHandle>);
+    let splits = splits.into_iter().map(Split::all).collect();
+    let mut scan = Scan::try_new(SESSION.clone(), plan, splits)
+        .expect("scan")
+        .with_max_active(in_flight);
     RUNTIME.block_on(async {
-        let mut pending: FuturesUnordered<BoxFuture<'static, Delivery>> = FuturesUnordered::new();
-        let mut slots: Vec<Option<(ExecGraph, DecodeCache)>> =
-            (0..in_flight.max(1)).map(|_| None).collect();
-        let mut next = 0;
-        let mut live = 0;
+        let mut pending = FuturesUnordered::new();
         let mut rows = 0;
         loop {
-            for slot in 0..slots.len() {
-                loop {
-                    let Some((graph, decoded)) = slots[slot].as_mut() else {
-                        if next == splits.len() {
-                            break;
-                        }
-                        let split = splits[next].clone();
-                        next += 1;
-                        let len = (split.end - split.start) as usize;
-                        let decoded = cache();
-                        let graph = ExecGraph::try_new(
-                            SESSION.clone(),
-                            plan,
-                            split,
-                            Mask::new_true(len),
-                            0,
-                            decoded.clone(),
-                        )
-                        .expect("graph");
-                        slots[slot] = Some((graph, decoded));
-                        live += 1;
-                        continue;
-                    };
-                    match graph.state() {
-                        ExecState::Done => {
-                            decoded.next_generation();
-                            slots[slot] = None;
-                            live -= 1;
-                        }
-                        ExecState::NeedsCompute => match graph.compute().expect("compute") {
-                            ExecOutput::Piece(array) => rows += array.len(),
-                            ExecOutput::NeedsIO(batch) => {
-                                READS.fetch_add(batch.len(), Ordering::Relaxed);
-                                for request in batch {
-                                    let read = source.request(request.segment_id);
-                                    pending.push(
-                                        async move { (slot, request.id, read.await) }.boxed(),
-                                    );
-                                }
-                            }
-                            ExecOutput::Yield => {}
-                        },
-                        ExecState::Waiting => break,
+            match scan.step().expect("step") {
+                Turn::Read(read) => {
+                    let bytes = source.request(read.segment_id);
+                    pending.push(async move { (read.id, bytes.await) }.boxed());
+                }
+                Turn::Output(_, array) => rows += array.len(),
+                Turn::Waiting => {
+                    let mut delivery = pending.next().await;
+                    // Deliver everything that has completed before computing again.
+                    while let Some((id, bytes)) = delivery {
+                        scan.deliver(id, bytes.expect("read")).expect("deliver");
+                        delivery = pending.next().now_or_never().flatten();
                     }
                 }
-            }
-            if live == 0 && next == splits.len() {
-                return rows;
-            }
-            let mut delivery = pending.next().await;
-            // Deliver everything that has completed before computing again.
-            while let Some((slot, id, result)) = delivery {
-                slots[slot]
-                    .as_mut()
-                    .expect("a delivery is for a live graph")
-                    .0
-                    .set_io_result(id, result.expect("read"))
-                    .expect("deliver");
-                delivery = pending.next().now_or_never().flatten();
+                Turn::Done => return rows,
             }
         }
     })
 }
 
-/// Runs `plan`, a boolean plan, over every row of `rows`, and returns what it produces: one lazy
-/// array per piece, in row order.
-fn predicate(
-    source: &Arc<dyn SegmentSource>,
-    plan: &PlanRef,
-    rows: std::ops::Range<u64>,
-    decoded: &DecodeCache,
-) -> Vec<ArrayRef> {
-    let len = (rows.end - rows.start) as usize;
-    let mut pieces = Vec::new();
-    drive(source, plan, rows, Mask::new_true(len), decoded, |array| {
-        pieces.push(array)
-    });
-    pieces
-}
-
-/// The selected fraction at or above which a conjunct runs over the whole piece, as the V1
-/// flat reader's threshold.
-const EXPR_EVAL_THRESHOLD: f64 = 0.2;
-
-/// Evaluates one conjunct under `mask` exactly as the V1 readers do: the predicate is applied
-/// to every row of each flat piece, then either filtered to the selected rows before it is
-/// executed, when few are selected, or executed whole and intersected with the mask, and the
-/// pieces' masks are concatenated as the V1 chunked reader concatenates its chunks'.
-fn evaluate_conjunct(
-    source: &Arc<dyn SegmentSource>,
-    plan: &PlanRef,
-    rows: std::ops::Range<u64>,
-    mask: &Mask,
-    decoded: &DecodeCache,
-    ctx: &mut vortex_array::ExecutionCtx,
-) -> Mask {
-    let mut offset = 0;
-    let mut masks = Vec::new();
-    for piece in predicate(source, plan, rows, decoded) {
-        let mask = mask.slice(offset..offset + piece.len());
-        offset += piece.len();
-        masks.push(if mask.density() < EXPR_EVAL_THRESHOLD {
-            let conjunct = piece
-                .filter(mask.clone())
-                .expect("filter")
-                .fill_null(false)
-                .expect("fill_null")
-                .execute::<Mask>(ctx)
-                .expect("mask");
-            mask.intersect_by_rank(&conjunct)
-        } else {
-            let conjunct = piece
-                .fill_null(false)
-                .expect("fill_null")
-                .execute::<Mask>(ctx)
-                .expect("mask");
-            mask.bitand(&conjunct)
-        });
-    }
-    assert_eq!(offset, mask.len(), "the pieces tile the split");
-    if masks.len() == 1 {
-        return masks.remove(0);
-    }
-    Mask::from_iter(masks)
-}
-
-/// How the exec graph evaluates a query's filter.
-#[derive(Clone, Copy)]
-enum Algorithm {
-    /// The whole predicate as one plan over every row of the split, then one mask. Segments
-    /// decoded once per query.
-    Whole,
-    /// The V1 scan's algorithm: conjuncts one at a time in the order V1's own `FilterExpr`
-    /// chooses, each narrowing the mask as the V1 flat reader does. Segments decoded once per
-    /// query.
-    Conjuncts,
-    /// `Conjuncts`, with segments decoded once per graph, as the V1 reader decodes them once
-    /// per split and per expression that reads them.
-    ConjunctsRedecode,
-    /// One `Query` plan per split: conjuncts and projection as one graph.
-    Query,
-    /// `Query` with one decode cache for the run, advanced a generation per split, so a segment
-    /// spanning consecutive splits is decoded once and dropped once the splits have passed it.
-    /// The V1 scan decodes such a segment once per split.
-    QueryStreaming,
-}
-
-fn run(
-    file: &VortexFile,
-    query: &Planned,
-    algorithm: Algorithm,
-    source: &PlanRef,
-    variant: Variant,
-    ctx: &mut vortex_array::ExecutionCtx,
-) -> usize {
-    let segments = file.segment_source();
-    let shared = DecodeCache::with_window(in_flight(variant) as u64);
-    let cache = || match algorithm {
-        Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
-        Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
-        Algorithm::QueryStreaming => shared.clone(),
-    };
-    // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
-    let scheduler = query.filter.clone().map(FilterExpr::new);
-    let mut rows = 0;
-    if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
-        let (plan, splits) = query.build(file, source);
-        return drive_splits(&segments, &plan, &splits, &cache, in_flight(variant));
-    }
-    for split in &query.splits {
-        let len = (split.end - split.start) as usize;
-        let mut mask = Mask::new_true(len);
-        match algorithm {
-            Algorithm::Query | Algorithm::QueryStreaming => unreachable!("handled above"),
-            Algorithm::Whole => {
-                if let Some(filter) = &query.whole_filter {
-                    let pieces = predicate(&segments, filter, split.clone(), &cache());
-                    mask = ChunkedArray::try_new(pieces, filter.dtype().clone())
-                        .expect("predicate")
-                        .into_array()
-                        .execute::<Mask>(ctx)
-                        .expect("mask");
-                }
-            }
-            Algorithm::Conjuncts | Algorithm::ConjunctsRedecode => {
-                if let Some(scheduler) = &scheduler {
-                    let mut remaining = BitVec::from_elem(query.conjuncts.len(), true);
-                    while let Some(idx) = scheduler.next_conjunct(&remaining) {
-                        remaining.set(idx, false);
-                        if mask.all_false() {
-                            break;
-                        }
-                        let input = mask.true_count();
-                        mask = evaluate_conjunct(
-                            &segments,
-                            &query.conjuncts[idx],
-                            split.clone(),
-                            &mask,
-                            &cache(),
-                            ctx,
-                        );
-                        scheduler.report_selectivity(idx, mask.true_count() as f64 / input as f64);
-                    }
-                }
-            }
-        }
-        if mask.all_false() {
-            continue;
-        }
-        drive(
-            &segments,
-            &query.projection,
-            split.clone(),
-            mask,
-            &cache(),
-            |array| rows += array.len(),
-        );
-    }
-    rows
+/// Plans the query and runs it on the pipeline executor over the query's splits.
+fn run(file: &VortexFile, query: &Planned, source: &PlanRef, variant: Variant) -> usize {
+    let (plan, splits) = query.build(file, source);
+    drive_scan(&file.segment_source(), plan, splits, in_flight(variant))
 }
 
 #[inline(never)]
@@ -974,27 +695,13 @@ fn run_v1(file: &VortexFile, query: &Planned) -> usize {
 }
 
 #[inline(never)]
-fn run_exec(
-    file: &VortexFile,
-    query: &Planned,
-    algorithm: Algorithm,
-    source: &PlanRef,
-    variant: Variant,
-) -> usize {
-    let mut ctx = SESSION.create_execution_ctx();
-    run(file, query, algorithm, source, variant, &mut ctx)
+fn run_exec(file: &VortexFile, query: &Planned, source: &PlanRef, variant: Variant) -> usize {
+    run(file, query, source, variant)
 }
 
 fn main() {
     let only = std::env::var("ONLY").unwrap_or_else(|_| "both".to_string());
     let wanted = std::env::var("QUERY").unwrap_or_else(|_| "project".to_string());
-    let algorithm = match std::env::var("ALGO").as_deref() {
-        Ok("whole") => Algorithm::Whole,
-        Ok("redecode") => Algorithm::ConjunctsRedecode,
-        Ok("query") => Algorithm::Query,
-        Ok("stream") => Algorithm::QueryStreaming,
-        _ => Algorithm::Conjuncts,
-    };
     let Fixture {
         name,
         variant,
@@ -1030,7 +737,7 @@ fn main() {
             ALLOC_BYTES.store(0, Ordering::Relaxed);
             SEGMENT_READS.store(0, Ordering::Relaxed);
             let start = std::time::Instant::now();
-            let rows = run_exec(file, query, algorithm, source, *variant);
+            let rows = run_exec(file, query, source, *variant);
             let elapsed = start.elapsed();
             exec_times.push(elapsed);
             if verbose {

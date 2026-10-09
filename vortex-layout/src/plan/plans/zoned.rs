@@ -33,11 +33,11 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::Selection;
-use crate::plan::exec::ZonePruneNode;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::segments::SegmentId;
 
 const DATA: usize = 0;
 const ZONES: usize = 1;
@@ -344,20 +344,28 @@ impl PlanVTable for Zoned {
         }
     }
 
-    fn exec(
+    fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        if plan.is_pruning() {
-            return Ok(Box::new(ZonePruneNode::try_new(
-                plan.clone(),
-                Selection::try_new(rows, mask)?,
-                ctx.session().clone(),
-            )?));
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let Some(data) = plan.data_plan()? else {
+            vortex_bail!("A zone pruning plan runs only inside a Query");
+        };
+        compiler.compile(&data, rows, mask)
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        match plan.data_plan()? {
+            Some(data) => data.reach(rows, at, visit),
+            None => Ok(()),
         }
-        plan.child_required(DATA)?.exec(rows, mask, ctx)
     }
 }
 

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Microbenchmarks for driving a plan through the exec graph.
+//! Microbenchmarks for running a plan as pipelines.
 //!
 //! A struct of chunked columns is written to in-memory segments once, as setup. Each iteration
-//! builds a graph over the lowered plan, answers its reads synchronously from memory, and drains
-//! the root. That measures everything the graph does per split (node construction, scheduling,
-//! port hand-offs, decoding, struct assembly) with no IO latency in the way.
+//! scans the lowered plan, answers its reads synchronously from memory, and drains the output.
+//! That measures everything a scan does per split (compiling pipelines, scheduling, port
+//! hand-offs, decoding, struct assembly) with no IO latency in the way.
 //!
-//! The shapes vary the two things that drive the graph's cost: how many nodes it has (columns
-//! times chunks) and how much of the data is selected. A second group runs the same shapes over
-//! hand-built sources that decode nothing, so what is left is the graph's own scheduling.
+//! The shapes vary the two things that drive a scan's cost: how many pipelines it builds
+//! (columns times chunks) and how much of the data is selected. A second group runs the same
+//! shapes over hand-built sources that decode nothing, so what is left is the scheduling.
 
 #![expect(clippy::expect_used)]
 #![expect(clippy::cast_possible_truncation)]
@@ -24,8 +24,6 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
@@ -50,18 +48,16 @@ use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::plan::ConcatPlan;
-use vortex_layout::plan::EvalPlan;
 use vortex_layout::plan::PackPlan;
 use vortex_layout::plan::PlanRef;
-use vortex_layout::plan::exec::DecodeCache;
-use vortex_layout::plan::exec::ExecGraph;
-use vortex_layout::plan::exec::ExecOutput;
-use vortex_layout::plan::exec::ExecState;
-use vortex_layout::plan::exec::synthetic::RowSource;
-use vortex_layout::plan::exec::synthetic::empty_segment;
-use vortex_layout::plan::exec::synthetic::row_dtype;
+use vortex_layout::plan::QueryPlan;
 use vortex_layout::plan::lower;
-use vortex_layout::plan::optimize;
+use vortex_layout::plan::pipeline::Scan;
+use vortex_layout::plan::pipeline::Split;
+use vortex_layout::plan::pipeline::Turn;
+use vortex_layout::plan::pipeline::synthetic::RowSource;
+use vortex_layout::plan::pipeline::synthetic::empty_segment;
+use vortex_layout::plan::pipeline::synthetic::row_dtype;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::session::LayoutSession;
 use vortex_mask::Mask;
@@ -155,37 +151,19 @@ fn fixture(columns: usize, chunks: usize) -> (Arc<Store>, PlanRef) {
     (Arc::new(store), plan)
 }
 
-/// Drives one graph over `plan` to completion, answering reads from `store` at once, and
-/// returns the rows that reached the root.
-fn drive(store: &Store, plan: &PlanRef, mask: Mask) -> usize {
-    let mut graph = ExecGraph::try_new(
-        SESSION.clone(),
-        plan,
-        0..ROWS as u64,
-        mask,
-        0,
-        DecodeCache::default(),
-    )
-    .expect("graph");
+/// Scans `splits` of `plan` to completion, answering each read with `answer` at once, and
+/// returns the rows produced.
+fn drive(plan: &PlanRef, splits: Vec<Split>, answer: impl Fn(usize) -> BufferHandle) -> usize {
+    let mut scan = Scan::try_new(SESSION.clone(), plan.clone(), splits).expect("scan");
     let mut rows = 0;
     loop {
-        match graph.state() {
-            ExecState::Done => return rows,
-            ExecState::NeedsCompute => match graph.compute().expect("compute") {
-                ExecOutput::Piece(array) => rows += array.len(),
-                ExecOutput::NeedsIO(batch) => {
-                    for request in batch {
-                        graph
-                            .set_io_result(
-                                request.id,
-                                store.segments[*request.segment_id as usize].clone(),
-                            )
-                            .expect("deliver");
-                    }
-                }
-                ExecOutput::Yield => {}
-            },
-            ExecState::Waiting => unreachable!("every read is answered as it is published"),
+        match scan.step().expect("step") {
+            Turn::Read(read) => scan
+                .deliver(read.id, answer(*read.segment_id as usize))
+                .expect("deliver"),
+            Turn::Output(_, array) => rows += array.len(),
+            Turn::Waiting => unreachable!("every read is answered as it is asked for"),
+            Turn::Done => return rows,
         }
     }
 }
@@ -228,7 +206,11 @@ fn split<const SEL: usize>(bencher: Bencher, shape: (usize, usize)) {
     bencher
         .counter(ItemsCount::new(selected * columns))
         .bench_local(|| {
-            let rows = drive(&store, &plan, mask.clone());
+            let splits = vec![Split {
+                rows: 0..ROWS as u64,
+                mask: mask.clone(),
+            }];
+            let rows = drive(&plan, splits, |segment| store.segments[segment].clone());
             assert_eq!(rows, selected);
         });
 }
@@ -236,11 +218,11 @@ fn split<const SEL: usize>(bencher: Bencher, shape: (usize, usize)) {
 /// Rows per hand-built source. Small, so the cost per node, not per row, is what is measured.
 const SOURCE_ROWS: u64 = 16;
 
-/// The graph's own overhead, isolated: a tree of hand-built sources that emit tiny arrays
+/// The runtime's own overhead, isolated: a tree of hand-built sources that emit tiny arrays
 /// without decoding anything, under the real Concat and Pack operators. With IO, every source
-/// publishes a read that is answered from memory as soon as it is returned, so the request
-/// routing and delivery wakeups are measured too; without, sources emit at start. Items are
-/// nodes, so the rate is nodes scheduled per second.
+/// requests a read that is answered from memory as soon as it is asked for, so read routing
+/// and delivery wakeups are measured too. Items are sources, so the rate is pipelines run per
+/// second.
 #[divan::bench(args = SHAPES, consts = [false, true])]
 fn scheduling<const IO: bool>(bencher: Bencher, shape: (usize, usize)) {
     let (columns, chunks) = shape;
@@ -256,7 +238,7 @@ fn scheduling<const IO: bool>(bencher: Bencher, shape: (usize, usize)) {
                 let sources = (0..chunks)
                     .map(|chunk| {
                         let segment = IO.then(|| SegmentId::from((column * chunks + chunk) as u32));
-                        RowSource::plan(chunk_rows, Vec::new(), segment, false, false)
+                        RowSource::plan(chunk_rows, Vec::new(), segment, false)
                     })
                     .collect();
                 ConcatPlan::try_new(row_dtype(), sources)
@@ -268,38 +250,11 @@ fn scheduling<const IO: bool>(bencher: Bencher, shape: (usize, usize)) {
     )
     .expect("pack")
     .into_plan();
-    let mask = Mask::new_true(rows);
     let segment = empty_segment();
     bencher
         .counter(ItemsCount::new(columns * chunks))
         .bench_local(|| {
-            let mut graph = ExecGraph::try_new(
-                SESSION.clone(),
-                &plan,
-                0..rows as u64,
-                mask.clone(),
-                0,
-                DecodeCache::default(),
-            )
-            .expect("graph");
-            let mut produced = 0;
-            loop {
-                match graph.state() {
-                    ExecState::Done => break,
-                    ExecState::NeedsCompute => match graph.compute().expect("compute") {
-                        ExecOutput::Piece(array) => produced += array.len(),
-                        ExecOutput::NeedsIO(batch) => {
-                            for request in batch {
-                                graph
-                                    .set_io_result(request.id, segment.clone())
-                                    .expect("deliver");
-                            }
-                        }
-                        ExecOutput::Yield => {}
-                    },
-                    ExecState::Waiting => unreachable!(),
-                }
-            }
+            let produced = drive(&plan, vec![Split::all(0..rows as u64)], |_| segment.clone());
             assert_eq!(produced, rows);
         });
 }
@@ -317,9 +272,9 @@ const QUERY_CHUNKS: usize = 16;
 const QUERY_COLUMNS: usize = 8;
 
 /// The query fixture: the same struct of chunked columns `scan_v1.rs` builds, lowered to a
-/// filter plan over the two filter columns and a projection plan over the three projected
-/// columns, with the rows the filter keeps.
-fn query_fixture() -> (Arc<Store>, PlanRef, PlanRef, usize) {
+/// query of the filter over two columns and the projection of three, with the rows the filter
+/// keeps.
+fn query_fixture() -> (Arc<Store>, PlanRef, usize) {
     let mut store = Store::default();
     let mut layouts = Vec::with_capacity(QUERY_COLUMNS);
     for column in 0..QUERY_COLUMNS {
@@ -347,90 +302,29 @@ fn query_fixture() -> (Arc<Store>, PlanRef, PlanRef, usize) {
     let projection = select(FieldNames::from(["c2", "c3", "c4"]), root())
         .bind(&dtype)
         .expect("bind projection");
-    let filter_plan = optimize(
-        EvalPlan::try_new(filter, plan.clone())
-            .expect("filter")
-            .into_plan(),
-    )
-    .expect("optimize filter");
-    let projection_plan = optimize(
-        EvalPlan::try_new(projection, plan)
-            .expect("projection")
-            .into_plan(),
-    )
-    .expect("optimize projection");
+    let query = QueryPlan::try_new(Some(filter), projection, plan)
+        .expect("query")
+        .into_plan();
     let expected = (0..QUERY_ROWS)
         .filter(|&row| value(0, row) < 200 && value(1, row) > 499)
         .count();
-    (Arc::new(store), filter_plan, projection_plan, expected)
+    (Arc::new(store), query, expected)
 }
 
-/// Drives one graph over `rows` of `plan` to completion, answering reads from `store` at once,
-/// and hands each root array to `sink`.
-fn drive_split(
-    store: &Store,
-    plan: &PlanRef,
-    rows: std::ops::Range<u64>,
-    mask: Mask,
-    mut sink: impl FnMut(ArrayRef),
-) {
-    let mut graph =
-        ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0, DecodeCache::default())
-            .expect("graph");
-    loop {
-        match graph.state() {
-            ExecState::Done => return,
-            ExecState::NeedsCompute => match graph.compute().expect("compute") {
-                ExecOutput::Piece(array) => sink(array),
-                ExecOutput::NeedsIO(batch) => {
-                    for request in batch {
-                        graph
-                            .set_io_result(
-                                request.id,
-                                store.segments[*request.segment_id as usize].clone(),
-                            )
-                            .expect("deliver");
-                    }
-                }
-                ExecOutput::Yield => {}
-            },
-            ExecState::Waiting => unreachable!("every read is answered as it is published"),
-        }
-    }
-}
-
-/// The filter-and-project query of `scan_v1.rs` on the exec graph: one split per chunk, each
-/// running the filter plan over every row to a mask, then the projection plan over the rows
-/// the mask keeps, as the V1 scan does.
+/// The filter-and-project query of `scan_v1.rs` as pipelines: one split per chunk, each
+/// running the filter's conjuncts as stages under the rows the earlier ones kept, then the
+/// projection under the rows they all kept, as the V1 scan does.
 #[divan::bench]
 fn query(bencher: Bencher) {
-    let (store, filter_plan, projection_plan, expected) = query_fixture();
+    let (store, query, expected) = query_fixture();
     let split_rows = (QUERY_ROWS / QUERY_CHUNKS) as u64;
-    let mut ctx = SESSION.create_execution_ctx();
+    let splits: Vec<Split> = (0..QUERY_CHUNKS as u64)
+        .map(|split| Split::all(split * split_rows..(split + 1) * split_rows))
+        .collect();
     bencher.counter(ItemsCount::new(expected)).bench_local(|| {
-        let mut rows = 0;
-        for split in 0..QUERY_CHUNKS as u64 {
-            let range = split * split_rows..(split + 1) * split_rows;
-            let mut predicate = Vec::new();
-            drive_split(
-                &store,
-                &filter_plan,
-                range.clone(),
-                Mask::new_true(split_rows as usize),
-                |array| predicate.push(array),
-            );
-            let mask = ChunkedArray::try_new(predicate, filter_plan.dtype().clone())
-                .expect("predicate")
-                .into_array()
-                .execute::<Mask>(&mut ctx)
-                .expect("mask");
-            if mask.all_false() {
-                continue;
-            }
-            drive_split(&store, &projection_plan, range, mask, |array| {
-                rows += array.len()
-            });
-        }
+        let rows = drive(&query, splits.clone(), |segment| {
+            store.segments[segment].clone()
+        });
         assert_eq!(rows, expected);
     });
 }

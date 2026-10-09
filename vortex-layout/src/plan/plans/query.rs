@@ -24,12 +24,12 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::Zoned;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::QueryNode;
-use crate::plan::exec::Selection;
 use crate::plan::optimize;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
 use crate::scan::filter::FilterExpr;
+use crate::segments::SegmentId;
 
 /// A filter and a projection over one source, evaluated the way a scan evaluates them.
 ///
@@ -237,16 +237,23 @@ impl PlanVTable for Query {
         }
     }
 
-    fn exec(
+    fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        Ok(Box::new(QueryNode::new(
-            plan.clone(),
-            Selection::try_new(rows, mask)?,
-            ctx.session().clone(),
-        )))
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let _ = (plan, rows, mask, compiler);
+        vortex_bail!("A Query plan runs only at the root of a scan, as stages")
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        let _ = (plan, rows, at, visit);
+        Ok(())
     }
 }

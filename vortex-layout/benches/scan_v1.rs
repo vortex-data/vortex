@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The V1 scan (`ScanBuilder` over a `LayoutReader`) on a filter-and-project query, for
-//! comparison with the same query on the exec graph in `exec_graph.rs`.
+//! comparison with the same query on the pipeline executor in `pipeline.rs`.
 //!
 //! Both benchmarks build the same struct of chunked `i64` columns in in-memory segments, answer
 //! every read from memory, split the scan at the chunk boundaries, evaluate the same predicate
