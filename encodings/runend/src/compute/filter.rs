@@ -68,8 +68,12 @@ impl FilterKernel for RunEnd {
         let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
         if source_run_count == array.len()
             && match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |E| {
-                trimmed_ends_iter(primitive_run_ends.as_slice::<E>(), array.offset(), array.len())
-                    .eq(1..=array.len())
+                trimmed_ends_iter(
+                    primitive_run_ends.as_slice::<E>(),
+                    array.offset(),
+                    array.len(),
+                )
+                .eq(1..=array.len())
             })
         {
             // Each logical row is already a run value. Filtering the values directly
@@ -171,11 +175,10 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::filter_run_end_primitive;
     use crate::RunEnd;
     use crate::RunEndArray;
     use crate::tests::SESSION;
-
-    use super::filter_run_end_primitive;
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(

@@ -1378,7 +1378,9 @@ mod tests {
     #[case::sql(SQL)]
     fn large_integer_set_preserves_null_semantics(
         #[case] options: ListContainsOptions,
-        #[values(PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, PType::I32, PType::I64)]
+        #[values(
+            PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, I32, PType::I64
+        )]
         ptype: PType,
         #[values(4, 16)] set_len: i32,
         #[values(false, true)] has_null: bool,
@@ -1396,10 +1398,12 @@ mod tests {
         // The null needle deliberately has the physical value of a member.
         let needles = PrimitiveArray::new(
             buffer![99i32, 99, 99, 7, 7, 22, 1],
-            Validity::from(BitBuffer::from_iter([true, true, true, true, false, true, true])),
+            Validity::from(BitBuffer::from_iter([
+                true, true, true, true, false, true, true,
+            ])),
         )
         .into_array()
-        .slice(offset..)?
+        .slice(offset..7)?
         .cast(dtype)?;
         let result = needles.apply(&list_contains_opts(lit(set), root(), options))?;
         assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
@@ -1421,7 +1425,11 @@ mod tests {
     ) -> VortexResult<()> {
         let needles = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
         assert_result(
-            needles.apply(&list_contains_opts(lit(i32_set(vec![None; 16])), root(), options)),
+            needles.apply(&list_contains_opts(
+                lit(i32_set(vec![None; 16])),
+                root(),
+                options,
+            )),
             [non_null_result, None],
         )
     }
@@ -1431,7 +1439,9 @@ mod tests {
     #[case::sql(SQL)]
     fn consecutive_integer_set_preserves_null_semantics(
         #[case] options: ListContainsOptions,
-        #[values(PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, PType::I32, PType::I64)]
+        #[values(
+            PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, I32, PType::I64
+        )]
         ptype: PType,
         #[values(false, true)] has_null: bool,
     ) -> VortexResult<()> {
@@ -1445,7 +1455,12 @@ mod tests {
         }
         let set = Scalar::list(Arc::new(dtype.clone()), elements, Nullability::NonNullable);
         let needles = PrimitiveArray::from_option_iter([
-            Some(6i32), Some(7), Some(8), Some(10), Some(11), None,
+            Some(6i32),
+            Some(7),
+            Some(8),
+            Some(10),
+            Some(11),
+            None,
         ])
         .into_array()
         .cast(dtype)?;
@@ -1456,7 +1471,10 @@ mod tests {
         } else {
             Some(false)
         };
-        assert_result(Ok(result), [miss, Some(true), Some(true), Some(true), miss, None])
+        assert_result(
+            Ok(result),
+            [miss, Some(true), Some(true), Some(true), miss, None],
+        )
     }
 
     #[rstest]
@@ -1466,7 +1484,18 @@ mod tests {
     #[case::duplicates(vec![7, 7, 7, 7])]
     #[case::wide(vec![i64::MIN, -1, 0, i64::MAX])]
     fn integer_set_range_boundaries(#[case] elements: Vec<i64>) -> VortexResult<()> {
-        let needles = [i64::MIN, i64::MIN + 1, -5, -4, 0, 1, 7, 8, i64::MAX - 1, i64::MAX];
+        let needles = [
+            i64::MIN,
+            i64::MIN + 1,
+            -5,
+            -4,
+            0,
+            1,
+            7,
+            8,
+            i64::MAX - 1,
+            i64::MAX,
+        ];
         let expected = needles.map(|value| Some(elements.contains(&value)));
         let set = Scalar::list(
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),

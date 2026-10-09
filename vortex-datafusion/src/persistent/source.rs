@@ -589,7 +589,10 @@ impl FileSource for VortexSource {
 
 /// Runtime filters keep their original column names when their bounds change. Only accept them
 /// when the scan returns those columns directly; computed or renamed projections stay in DF.
-fn dynamic_filter_matches_projection(filter: &PhysicalExprRef, projection: &ProjectionExprs) -> bool {
+fn dynamic_filter_matches_projection(
+    filter: &PhysicalExprRef,
+    projection: &ProjectionExprs,
+) -> bool {
     projection.iter().all(|expr| {
         expr.expr
             .downcast_ref::<Column>()
@@ -777,8 +780,8 @@ mod tests {
         #[values(false, true)] predicate_pushdown: bool,
     ) -> anyhow::Result<()> {
         let schema = sort_test_schema();
-        let mut source = sort_test_source(Arc::clone(&schema))
-            .with_predicate_pushdown(predicate_pushdown);
+        let mut source =
+            sort_test_source(Arc::clone(&schema)).with_predicate_pushdown(predicate_pushdown);
         source.projection = ProjectionExprs::from_indices(&indices, &schema);
         let column = Arc::new(Column::new("a", 0)) as PhysicalExprRef;
         let filter = Arc::new(DynamicFilterPhysicalExpr::new(
