@@ -256,9 +256,9 @@ mod tests {
     use crate::BitWidthsView;
     use crate::FL_CHUNK_SIZE;
     use crate::FoR;
+    use crate::bitpack_compress::bitpack_blocked_to_best_bit_widths;
     use crate::bitpack_compress::bitpack_encode_blocked;
     use crate::bitpack_compress::bitpack_primitive;
-    use crate::bitpack_compress::bitpack_to_best_bit_widths;
     use crate::test::SESSION;
 
     fn variable(
@@ -557,7 +557,7 @@ mod tests {
                 PrimitiveArray::from_iter(values)
             }
         });
-        let encoded = bitpack_to_best_bit_widths(&array, &mut ctx)?;
+        let encoded = bitpack_blocked_to_best_bit_widths(&array, &mut ctx)?;
         assert!(matches!(encoded.bit_widths(), BitWidthsView::Blocked(_)));
         assert_arrays_eq!(encoded, array, &mut ctx);
         for index in [0, len / 2, len - 1] {
@@ -588,8 +588,10 @@ mod tests {
     fn for_decodes_blocked_child() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = blocked_values::<u32>(4000);
-        let encoded =
-            bitpack_to_best_bit_widths(&PrimitiveArray::from_iter(values.clone()), &mut ctx)?;
+        let encoded = bitpack_blocked_to_best_bit_widths(
+            &PrimitiveArray::from_iter(values.clone()),
+            &mut ctx,
+        )?;
         let array = FoR::try_new(encoded.into_array(), 1000u32.into())?;
         let expected =
             PrimitiveArray::from_iter(values.into_iter().map(|value| value.wrapping_add(1000)));
