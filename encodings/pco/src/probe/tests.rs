@@ -37,7 +37,7 @@ fn search_sorted_across_pages(
     let range = if sliced { 17..3333 } else { 0..4096 };
     let source = encoded.slice(range.clone())?;
     let expected = &expected[range];
-    let searcher = SearchSortedPrimitiveArray::<u32>::new(&source, &mut ctx);
+    let searcher = SearchSortedPrimitiveArray::<u32>::new_repeated(&source, &mut ctx);
     for needle in [None, Some(0), Some(511), Some(1365), Some(100), Some(2048)] {
         for side in [SearchSortedSide::Left, SearchSortedSide::Right] {
             let index = expected.partition_point(|value| match side {
