@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
@@ -107,7 +108,7 @@ pub(crate) fn validate_block_offsets(
 
 /// Check that each block between `boundaries` is a whole number of 128-byte rows of at most
 /// `max_bit_width` bits, and that the boundaries span `packed_len` bytes.
-fn validate_primitive_offsets<T: Copy + Display>(
+fn validate_primitive_offsets<T: Copy>(
     boundaries: &[T],
     max_bit_width: u64,
     packed_len: usize,
@@ -115,14 +116,15 @@ fn validate_primitive_offsets<T: Copy + Display>(
 where
     u64: From<T>,
 {
+    let base = boundaries.first().map_or(0, |&first| u64::from(first));
     for pair in boundaries.windows(2) {
-        let size = u64::from(pair[1]).checked_sub(u64::from(pair[0]));
-        vortex_ensure!(
-            size.is_some_and(|size| size % 128 == 0 && size / 128 <= max_bit_width),
-            "Block boundaries {} and {} do not hold a supported bit width (at most {max_bit_width} bits)",
-            pair[0],
-            pair[1]
-        );
+        block_range(
+            base,
+            u64::from(pair[0]),
+            u64::from(pair[1]),
+            max_bit_width,
+            packed_len,
+        )?;
     }
     let span = match boundaries {
         [first, .., last] => u64::from(*last) - u64::from(*first),
@@ -133,6 +135,41 @@ where
         "Block offsets span {span} bytes, but the packed buffer has {packed_len}"
     );
     Ok(())
+}
+
+/// Return the bytes of the block between boundaries `start` and `end`, relative to the first
+/// boundary `base`.
+///
+/// The block must lie within `packed_len` bytes and be a whole number of 128-byte rows of at most
+/// `max_bit_width` bits.
+fn block_range(
+    base: u64,
+    start: u64,
+    end: u64,
+    max_bit_width: u64,
+    packed_len: usize,
+) -> VortexResult<Range<usize>> {
+    vortex_ensure!(
+        base <= start,
+        "Block boundary {start} is below the first boundary {base}"
+    );
+    vortex_ensure!(
+        start <= end,
+        "Block boundaries {start} and {end} are decreasing"
+    );
+    vortex_ensure!(
+        end - base <= packed_len as u64,
+        "Block boundaries {start} and {end} are outside the packed buffer (base {base})"
+    );
+    let size = end - start;
+    vortex_ensure!(
+        (start - base).is_multiple_of(128)
+            && size.is_multiple_of(128)
+            && size / 128 <= max_bit_width,
+        "Block boundaries {start} and {end} do not hold a supported bit width (at most {max_bit_width} bits)"
+    );
+    // Both differences are at most `packed_len`, so they fit in `usize`.
+    Ok((start - base) as usize..(end - base) as usize)
 }
 
 /// How the blocks of a [`BitPackedArray`] are packed, borrowing block offsets if present.

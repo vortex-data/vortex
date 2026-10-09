@@ -16,6 +16,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -23,6 +24,7 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
+use vortex_array::require_opt_child;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
@@ -42,9 +44,12 @@ use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::BitWidths;
+use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
+use crate::bitpack_decompress::unpack_array_blocked;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpack_decompress::unpack_into_primitive_builder_blocked;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
@@ -186,15 +191,18 @@ impl VTable for BitPacked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let bit_widths = array.bit_widths();
         match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
-            unpack_into_primitive_builder::<T>(
-                array,
-                builder
-                    .as_any_mut()
-                    .downcast_mut()
-                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
-                ctx,
-            )
+            let builder = builder
+                .as_any_mut()
+                .downcast_mut()
+                .vortex_expect("bit packed array must canonicalize into a primitive array");
+            match bit_widths {
+                BitWidthsView::Global(_) => unpack_into_primitive_builder::<T>(array, builder, ctx),
+                BitWidthsView::Blocked(offsets) => {
+                    unpack_into_primitive_builder_blocked::<T>(array, offsets, builder, ctx)
+                }
+            }
         })
     }
 
@@ -210,10 +218,17 @@ impl VTable for BitPacked {
             BitPackedSlots::PATCH_CHUNK_OFFSETS
         );
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
+        require_opt_child!(
+            array,
+            array.slots()[BitPackedSlots::BLOCK_OFFSETS].as_ref(),
+            BitPackedSlots::BLOCK_OFFSETS => Primitive
+        );
 
-        Ok(ExecutionResult::done(
-            unpack_array(array.as_view(), ctx)?.into_array(),
-        ))
+        let decoded = match array.bit_widths() {
+            BitWidthsView::Global(_) => unpack_array(array.as_view(), ctx)?,
+            BitWidthsView::Blocked(offsets) => unpack_array_blocked(array.as_view(), offsets, ctx)?,
+        };
+        Ok(ExecutionResult::done(decoded.into_array()))
     }
 
     fn reduce_parent(

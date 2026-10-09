@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests for the global bit width and block offsets of bit-packed arrays.
+//! Tests for construction and validation of the global bit width and block offsets.
 
 use std::sync::LazyLock;
 
@@ -37,6 +37,7 @@ use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitWidths;
 use crate::BitWidthsView;
+use crate::FoR;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_bit_width;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -120,6 +121,11 @@ fn unsigned_block_offsets_are_supported(
             .block_offsets()
             .is_some_and(|block_offsets| ArrayRef::ptr_eq(&offsets, block_offsets))
     );
+    assert_arrays_eq!(
+        array,
+        PrimitiveArray::from_iter([0u32; 1024]),
+        &mut SESSION.create_execution_ctx()
+    );
     Ok(())
 }
 
@@ -156,13 +162,15 @@ fn block_offsets_have_no_constant_width(
 ) -> VortexResult<()> {
     let array = with_block_offsets(&uniform()?, offsets.into_array())?;
     assert!(matches!(array.bit_widths(), BitWidthsView::Blocked(_)));
-    // Decoding per-block widths is not supported yet.
-    assert!(
-        array
-            .into_array()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .is_err()
-    );
+    Ok(())
+}
+
+#[test]
+fn equal_block_offsets_decode() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let original = uniform()?;
+    let blocked = with_block_offsets(&original, buffer![128u64, 1024, 1920, 2816].into_array())?;
+    assert_arrays_eq!(original, blocked, &mut ctx);
     Ok(())
 }
 
@@ -275,18 +283,22 @@ fn too_wide_block_panics_in_debug(
 }
 
 #[rstest]
-#[case::equal_steps(buffer![0u64, 512, 1024])]
-#[case::different_widths(buffer![0u64, 384, 1024])]
-fn unsupported_offsets_leave_builder_unchanged(
+#[case::unaligned(buffer![0u64, 384, 1023], 1024, "supported bit width")]
+#[case::decreasing(buffer![0u64, 640, 128], 1024, "decreasing")]
+#[case::wrong_span(buffer![0u64, 512, 896], 1024, "span")]
+#[case::too_wide(buffer![0u64, 4224, 4352], 4352, "supported bit width")]
+fn invalid_encoded_offsets_leave_builder_unchanged(
     #[case] offsets: vortex_buffer::Buffer<u64>,
+    #[case] packed_len: usize,
+    #[case] error: &str,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = BitPacked::try_new_with_block_offsets(
-        BufferHandle::new_host(ByteBuffer::zeroed(1024)),
+        BufferHandle::new_host(ByteBuffer::zeroed(packed_len)),
         PType::U32,
         Validity::AllValid,
         None,
-        offsets.into_array(),
+        FoR::try_new(offsets.into_array(), 0u64.into())?.into_array(),
         2048,
         0,
     )?;
@@ -296,7 +308,11 @@ fn unsupported_offsets_leave_builder_unchanged(
         ctx.allocator(),
     );
     builder.append_null();
-    assert!(array.append_to_builder(&mut builder, &mut ctx).is_err());
+    let err = array
+        .append_to_builder(&mut builder, &mut ctx)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains(error), "{err}");
     builder.append_value(7);
     assert_arrays_eq!(
         builder.finish_into_primitive(),
