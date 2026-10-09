@@ -116,7 +116,7 @@ jobs:
           steps.dedup.outputs.duplicate != 'true' ||
           steps.dedup.outputs.confidence != 'exact'
         continue-on-error: true
-        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790  # v1
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
         with:
           # A called workflow sees the caller's OIDC subject, so `vortex-claude-ci`
           # matches here too and no secret needs passing down.

@@ -196,7 +196,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@fbda2eb1bdc90d319b8d853f5deb53bca199a7c1  # v1.0.140
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
         with:
           # The environment puts `environment:claude-automation` in the OIDC subject,
           # which is all the `vortex-claude-write` rule matches. Unreachable elsewhere.
