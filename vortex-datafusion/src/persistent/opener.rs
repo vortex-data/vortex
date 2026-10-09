@@ -1245,7 +1245,7 @@ mod tests {
             &and(membership.clone(), comparison.clone()).bind(&dtype)?,
             &mut conjuncts,
         );
-        assert_eq!(conjuncts, [comparison.clone().bind(&dtype)?]);
+        assert_eq!(conjuncts, [comparison.bind(&dtype)?]);
         conjuncts.clear();
         collect_dynamic_conjuncts(&or(membership, comparison).bind(&dtype)?, &mut conjuncts);
         assert!(conjuncts.is_empty());
