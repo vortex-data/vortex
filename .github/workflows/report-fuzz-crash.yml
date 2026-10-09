@@ -31,6 +31,9 @@ on:
       issue_number:
         description: "The issue number that was created or commented on"
         value: ${{ jobs.report.outputs.issue_number }}
+      issue_created:
+        description: "Whether this run created a new issue, rather than matching an existing one"
+        value: ${{ jobs.report.outputs.issue_created }}
     secrets:
       gh_token:
         required: true
@@ -44,6 +47,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       issue_number: ${{ steps.report.outputs.issue_number }}
+      issue_created: ${{ steps.report.outputs.issue_created }}
 
     steps:
       - name: Checkout repository
@@ -126,17 +130,17 @@ jobs:
           github_token: ${{ secrets.gh_token }}
           show_full_output: true
           prompt: |
-            Read crash_info.json — it has all extracted fields (panic_location, crash_location,
-            panic_message, error_variant, stack_frames, stack_trace_raw, debug_output).
-            If you need more context, read the first 200 lines of logs/fuzz_output.log
-            (use offset=0, limit=200 — the file may be very large).
+            `crash_info.json` has the fields extracted from a fuzzer crash: panic_location,
+            crash_location, panic_message, error_variant, stack_frames, stack_trace_raw
+            and debug_output. If you need more context, read the start of
+            `logs/fuzz_output.log`. The file can be very large, so read only the first
+            200 lines.
 
-            Provide a brief (2-4 sentence) root cause analysis of the crash. Focus on:
-            - What the crash is (the error type and location)
-            - Why it likely happens (the root cause)
-            - A suggested fix direction if obvious
-
-            Write ONLY the analysis text (no headers, no markdown formatting) to the file claude_analysis.txt.
+            Write a short root cause analysis to `claude_analysis.txt`. Tell what the
+            crash is, with its error type and location, and why it probably occurs.
+            If a fix direction is clear, include it. The text goes into a section of a
+            GitHub issue template, so write only plain prose, without headers or other
+            Markdown.
           claude_args: |
             --model claude-opus-5-5
             --max-turns 5
