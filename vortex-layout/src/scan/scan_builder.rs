@@ -10,7 +10,6 @@ use std::task::ready;
 
 use futures::Stream;
 use futures::StreamExt;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -42,6 +41,7 @@ use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::metrics::ScanCounters;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::repeated_scan::ScanTasks;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
@@ -373,26 +373,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<ScanTasks<A>> {
         self.build_inner(None)
     }
 
     /// Creates split tasks and returns fresh counters for this execution.
-    pub fn build_with_counters(
-        self,
-    ) -> VortexResult<(
-        Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
-        Arc<ScanCounters>,
-    )> {
+    pub fn build_with_counters(self) -> VortexResult<(ScanTasks<A>, Arc<ScanCounters>)> {
         let counters = Arc::new(ScanCounters::default());
         let tasks = self.build_inner(Some(Arc::clone(&counters)))?;
         Ok((tasks, counters))
     }
 
-    fn build_inner(
-        self,
-        counters: Option<Arc<ScanCounters>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    fn build_inner(self, counters: Option<Arc<ScanCounters>>) -> VortexResult<ScanTasks<A>> {
         // A zero limit still registers the counter names.
         if self.limit == Some(0) {
             let _metrics = self.metrics_registry.as_deref().map(ScanMetrics::new);
@@ -437,13 +429,11 @@ enum LazyScanState<A: 'static + Send> {
     Error(Option<vortex_error::VortexError>),
 }
 
-type PreparedScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
-
 struct PreparingScan<A: 'static + Send> {
     ordered: bool,
     concurrency: usize,
     handle: Handle,
-    task: Task<VortexResult<PreparedScanTasks<A>>>,
+    task: Task<VortexResult<ScanTasks<A>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {

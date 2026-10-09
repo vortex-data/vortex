@@ -128,7 +128,7 @@ async fn test_scan_rejection_counters(
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(predicate.bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .map(|_| -> VortexResult<()> { panic!("rejected splits must not reach the mapper") })
         .prepare()?;
 
@@ -173,7 +173,7 @@ async fn test_scan_row_index_rejection_counters(
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(predicate.bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .into_stream_with_counters()?;
     futures::pin_mut!(stream);
     let mut rows = 0;
@@ -196,7 +196,7 @@ async fn test_scan_whole_file_rejection() -> VortexResult<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(predicate.bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .prepare()?;
     let (tasks, first) = scan.execute_with_counters(None)?;
     assert!(tasks.is_empty());
@@ -215,7 +215,7 @@ async fn test_scan_lazy_whole_file_rejection() -> VortexResult<()> {
     let (stream, counters) = file
         .scan()?
         .with_filter(eq(col("value"), lit(200i32)).bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .into_stream_with_counters()?;
     assert!(registry.snapshot().is_empty());
     assert_execution(&counters, [0, 0, 0, 0]);
@@ -242,7 +242,7 @@ async fn test_scan_limit_counters(
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_limit(limit)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .prepare()?;
     let mut actual_rows = 0;
     let (tasks, counters) = scan.execute_with_counters(None)?;
@@ -263,7 +263,7 @@ async fn test_scan_unpolled_tasks() -> VortexResult<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(eq(col("value"), lit(50i32)).bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .build_with_counters()?;
     assert_eq!(tasks.len(), 4);
     assert_registry(&registry, [0, 0, 0, 0]);
@@ -280,7 +280,7 @@ async fn test_scan_dynamic_file_rejection() -> VortexResult<()> {
     let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
     let registry = Arc::new(DefaultMetricsRegistry::default());
     let bound = Arc::new(AtomicI32::new(50));
-    let value = bound.clone();
+    let value = Arc::clone(&bound);
     let predicate = dynamic(
         CompareOperator::Gt,
         move || Some(value.load(Ordering::Relaxed).into()),
@@ -292,7 +292,7 @@ async fn test_scan_dynamic_file_rejection() -> VortexResult<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(and(predicate.clone(), predicate).bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .prepare()?;
     let (tasks, first) = scan.execute_with_counters(None)?;
     assert_eq!(tasks.len(), 4);
@@ -331,7 +331,7 @@ async fn test_scan_registry_size_is_constant() -> VortexResult<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(eq(col("value"), lit(50i32)).bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .prepare()?;
     for _ in 0..100 {
         for task in scan.execute(None)? {
@@ -351,7 +351,7 @@ async fn test_scan_execution_counters_are_independent() -> VortexResult<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(2))
         .with_filter(eq(col("value"), lit(50i32)).bind(file.dtype())?)
-        .with_metrics_registry(registry.clone())
+        .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry))
         .prepare()?;
     let (mut tasks, first) = scan.execute_with_counters(None)?;
     let (second_tasks, second) = scan.execute_with_counters(None)?;

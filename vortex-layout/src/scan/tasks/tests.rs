@@ -85,7 +85,7 @@ impl LayoutReader for DeferredReader {
             return Ok(MaskFuture::new(mask.len(), futures::future::pending()));
         }
         let reject = self.bound.load(Ordering::Relaxed) > 100;
-        let bound = self.bound.clone();
+        let bound = Arc::clone(&self.bound);
         Ok(MaskFuture::new(mask.len(), async move {
             bound.store(200, Ordering::Relaxed);
             Ok(if reject {
@@ -125,7 +125,7 @@ fn dynamic_fixture(
     file_pruning_update: Option<i32>,
 ) -> VortexResult<(BoundExpression, DeferredReader)> {
     let bound = Arc::new(AtomicI32::new(50));
-    let value = bound.clone();
+    let value = Arc::clone(&bound);
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let predicate = dynamic(
         CompareOperator::Gt,
@@ -160,10 +160,10 @@ fn scan_counters_after_deferred_pruning(
     let counters = Arc::new(ScanCounters::default());
     let ctx = Arc::new(TaskContext {
         filter: Some(Arc::new(FilterExpr::new(predicate))),
-        reader: reader.clone(),
+        reader: Arc::<DeferredReader>::clone(&reader),
         projection: BoundExpression::new_root(reader.dtype.clone()),
         mapper: Arc::new(Ok::<ArrayRef, _>),
-        counters: Some(counters.clone()),
+        counters: Some(Arc::clone(&counters)),
         metrics: None,
     });
     let task = split_exec(ctx, RowMask::new(0, Mask::new_true(1)), None)?;
@@ -187,7 +187,7 @@ fn scan_counters_after_deferred_pruning(
 #[test]
 fn unchanged_dynamic_predicates_reuse_file_statistics() -> VortexResult<()> {
     let (predicate, reader) = dynamic_fixture(false, None)?;
-    let bound = reader.bound.clone();
+    let bound = Arc::clone(&reader.bound);
     let filter = FilterExpr::new(predicate.clone());
     for expected_calls in 1..=2 {
         std::thread::scope(|scope| {

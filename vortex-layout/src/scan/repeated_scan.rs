@@ -34,6 +34,9 @@ use crate::scan::splits::Splits;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
 
+/// Split tasks for one scan execution.
+pub type ScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
+
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///
 /// The method of this struct enable, possibly concurrent, scanning of multiple row ranges of this
@@ -128,10 +131,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     /// Creates split tasks with fresh counters for this execution.
     ///
     /// Counter names and cancellation behavior follow [`ScanBuilder::with_metrics_registry`](crate::scan::scan_builder::ScanBuilder::with_metrics_registry).
-    pub fn execute(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
         self.execute_inner(row_range, None)
     }
 
@@ -139,10 +139,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn execute_with_counters(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<(
-        Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
-        Arc<ScanCounters>,
-    )> {
+    ) -> VortexResult<(ScanTasks<A>, Arc<ScanCounters>)> {
         let counters = Arc::new(ScanCounters::default());
         let tasks = self.execute_inner(row_range, Some(Arc::clone(&counters)))?;
         Ok((tasks, counters))
@@ -153,7 +150,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
         counters: Option<Arc<ScanCounters>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    ) -> VortexResult<ScanTasks<A>> {
         if self.limit == Some(0) {
             return Ok(Vec::new());
         }
@@ -262,7 +259,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
     fn stream_from_tasks(
         &self,
-        tasks: Vec<BoxFuture<'static, VortexResult<Option<A>>>>,
+        tasks: ScanTasks<A>,
     ) -> impl Stream<Item = VortexResult<A>> + Send + 'static + use<A> {
         use futures::StreamExt;
         let num_workers = get_available_parallelism().unwrap_or(1);
