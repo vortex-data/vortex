@@ -467,37 +467,55 @@ fn two_columns(store: &mut Store) -> VortexResult<(PlanRef, ArrayRef)> {
     Ok((lower(&layout)?, expected))
 }
 
-/// Pack emits a struct as soon as every field has rows, however the reads complete, and the
-/// structs come out in row order, one per chunk of `a`.
+/// Fields chunked differently are joined, not cut at each other's boundaries: Pack waits for the
+/// field with the fewest rows to fill or close, then emits every row all fields hold, in row
+/// order, however the reads complete.
 ///
 /// Segments: a0=0, a1=1, a2=2, b=3.
 #[rstest]
-// `b` arrives last: nothing can be emitted before it.
-#[case::b_last(&[1, 0, 2, 3], 4)]
-// `b` and `a0` first: rows 0..7 go out before `a2` and `a1` arrive.
-#[case::a_chunk_last(&[3, 0, 2, 1], 2)]
-// Chunks in order: each chunk's struct goes out as it lands.
-#[case::in_order(&[3, 0, 1, 2], 2)]
-fn pack_streams_in_row_order(
-    #[case] order: &[u32],
-    #[case] deliveries_before_first_piece: usize,
-) -> VortexResult<()> {
+#[case::b_last(&[1, 0, 2, 3])]
+#[case::a_chunk_last(&[3, 0, 2, 1])]
+#[case::in_order(&[3, 0, 1, 2])]
+fn pack_joins_misaligned_fields(#[case] order: &[u32]) -> VortexResult<()> {
     let mut store = Store::default();
     let (plan, expected) = two_columns(&mut store)?;
     let mask = Mask::new_true(ROWS as usize);
 
     let run = run(&store, &plan, 0..ROWS, mask.clone(), scripted(order))?;
-    assert_eq!(pieces(&run.events), [7, 5, 8]);
-    let first_piece = run
-        .events
-        .iter()
-        .position(|e| matches!(e, Event::Piece(_)))
-        .vortex_expect("a piece");
-    let delivered = run.events[..first_piece]
-        .iter()
-        .filter(|e| matches!(e, Event::Delivered(_)))
-        .count();
-    assert_eq!(delivered, deliveries_before_first_piece);
+    assert_eq!(pieces(&run.events), [ROWS as usize]);
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
+}
+
+/// A misaligned field that fills its inlet makes Pack emit what every field holds, so a struct
+/// never waits for more rows than the inlets can queue.
+#[test]
+fn pack_emits_when_the_shortest_field_fills() -> VortexResult<()> {
+    let mut store = Store::default();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
+    let expected = StructArray::from_fields(&[("a", a.clone()), ("b", b.clone())])?.into_array();
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![store.chunked(&a, &[1; ROWS as usize])?, store.flat(&b)?],
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let mask = Mask::new_true(ROWS as usize);
+
+    let run = run(
+        &store,
+        &plan,
+        0..ROWS,
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    let pieces = pieces(&run.events);
+    assert!(pieces.len() > 1, "{pieces:?}");
+    assert!(
+        pieces.iter().all(|&piece| piece <= DEFAULT_CAPACITY),
+        "{pieces:?}"
+    );
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 
