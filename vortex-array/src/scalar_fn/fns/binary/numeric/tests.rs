@@ -406,7 +406,7 @@ fn test_decimal_mixed_storage_widths() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let lhs = DecimalArray::from_iter::<i32, _>([100, 250], dtype).into_array();
-    let rhs = DecimalArray::from_iter::<i128, _>([200, 250], dtype).into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([200, 250], dtype).into_array();
 
     let result = decimal_binary(lhs, rhs, Operator::Add)?;
     assert_arrays_eq!(
@@ -511,15 +511,17 @@ fn test_decimal_mul_value_outside_working_width_errors() {
 #[test]
 fn test_decimal_value_outside_working_width_on_null_lane_ignored() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
-    let dtype = DecimalDType::new(2, 0);
+    // The null lane holds a payload whose sum would overflow the i16 working width shared by
+    // decimal(3, 0) and its decimal(4, 0) result; invalid lanes never error.
+    let dtype = DecimalDType::new(3, 0);
     let result_dtype = result_decimal_dtype(dtype, NumericOperator::Add)?;
     let lhs = DecimalArray::new(
-        buffer![i256::from_i128(1_000_000), i256::from_i128(1)],
+        buffer![i16::MAX, 1],
         dtype,
         Validity::from_iter([false, true]),
     )
     .into_array();
-    let rhs = decimal_constant(i256::from_i128(1), dtype, 2);
+    let rhs = decimal_constant(1i16, dtype, 2);
 
     let result = decimal_binary(lhs, rhs, Operator::Add)?;
     assert_arrays_eq!(
@@ -791,7 +793,7 @@ fn test_decimal_null_constant_yields_all_null(
     assert!(matches!(&result, Columnar::Constant(_)));
     assert_arrays_eq!(
         result.into_array(),
-        DecimalArray::from_option_iter::<i256, _>([None, None], result_decimal_dtype(dtype, op)?,),
+        DecimalArray::from_option_iter::<i64, _>([None, None], result_decimal_dtype(dtype, op)?,),
         &mut ctx
     );
     Ok(())
@@ -831,7 +833,7 @@ fn test_decimal_empty(#[case] op: NumericOperator) -> VortexResult<()> {
     let result = decimal_binary(empty.clone(), empty, op.into())?;
     assert_arrays_eq!(
         result,
-        DecimalArray::from_iter::<i256, _>([], result_decimal_dtype(dtype, op)?,),
+        DecimalArray::from_iter::<i64, _>([], result_decimal_dtype(dtype, op)?,),
         &mut ctx
     );
     Ok(())
@@ -844,7 +846,7 @@ fn test_decimal_empty(#[case] op: NumericOperator) -> VortexResult<()> {
 #[case::div(NumericOperator::Div, 3_000_000)]
 fn test_decimal_constant_constant_folds(
     #[case] op: NumericOperator,
-    #[case] expected: i128,
+    #[case] expected: i64,
 ) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
@@ -854,10 +856,7 @@ fn test_decimal_constant_constant_folds(
     let result = decimal_binary(lhs, rhs, op.into())?;
     assert_arrays_eq!(
         result,
-        DecimalArray::from_iter::<i256, _>(
-            [i256::from_i128(expected); 3],
-            result_decimal_dtype(dtype, op)?,
-        ),
+        DecimalArray::from_iter::<i64, _>([expected; 3], result_decimal_dtype(dtype, op)?),
         &mut ctx
     );
     Ok(())

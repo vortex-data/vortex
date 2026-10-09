@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn test_decimal_array_validation_success() {
         // Valid case: buffer and validity have matching lengths.
-        let buffer = Buffer::from_iter([100i128, 200, 300]);
+        let buffer = Buffer::from_iter([100i64, 200, 300]);
         let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
         let result = DecimalArray::try_new(buffer, decimal_dtype, Validity::NonNullable);
         assert!(result.is_ok());

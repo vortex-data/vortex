@@ -257,7 +257,7 @@ mod tests {
     fn test_array_serde() {
         let session = array_session();
         let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 400i128, 500i128],
+            buffer![100i64, 200i64, 300i64, 400i64, 500i64],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );

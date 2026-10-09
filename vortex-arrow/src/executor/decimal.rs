@@ -234,6 +234,7 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::DecimalBuilder;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::DecimalType;
     use vortex_array::dtype::NativeDecimalType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -241,6 +242,19 @@ mod tests {
 
     use crate::ArrowArrayExecutor;
     use crate::executor::decimal::DecimalArray;
+
+    /// The widest precision each storage type may back, so every case stays within the storage
+    /// bound while exercising that width.
+    fn precision_for<T: NativeDecimalType>() -> u8 {
+        match T::DECIMAL_TYPE {
+            DecimalType::I8 => 2,
+            DecimalType::I16 => 4,
+            DecimalType::I32 => 9,
+            DecimalType::I64 => 18,
+            DecimalType::I128 => 38,
+            DecimalType::I256 => 76,
+        }
+    }
 
     #[test]
     fn decimal_to_arrow() -> VortexResult<()> {
@@ -269,13 +283,12 @@ mod tests {
     #[case(0i32)]
     #[case(0i64)]
     #[case(0i128)]
-    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal128<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
-            DecimalDType::new(2, 1),
+            DecimalDType::new(precision_for::<T>(), 1),
             false.into(),
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
@@ -284,7 +297,10 @@ mod tests {
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal128(2, 1)), &mut ctx)?;
+        let arrow_array = decimal.execute_arrow(
+            Some(&DataType::Decimal128(precision_for::<T>(), 1)),
+            &mut ctx,
+        )?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal128Array>()
@@ -299,15 +315,12 @@ mod tests {
     #[case(0i8)]
     #[case(0i16)]
     #[case(0i32)]
-    #[case(0i64)]
-    #[case(0i128)]
-    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal32Array;
 
         let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
-            DecimalDType::new(2, 1),
+            DecimalDType::new(precision_for::<T>(), 1),
             false.into(),
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
@@ -316,7 +329,10 @@ mod tests {
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal32(2, 1)), &mut ctx)?;
+        let arrow_array = decimal.execute_arrow(
+            Some(&DataType::Decimal32(precision_for::<T>(), 1)),
+            &mut ctx,
+        )?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal32Array>()
@@ -332,14 +348,12 @@ mod tests {
     #[case(0i16)]
     #[case(0i32)]
     #[case(0i64)]
-    #[case(0i128)]
-    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal64Array;
 
         let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
-            DecimalDType::new(2, 1),
+            DecimalDType::new(precision_for::<T>(), 1),
             false.into(),
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
@@ -348,7 +362,10 @@ mod tests {
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal64(2, 1)), &mut ctx)?;
+        let arrow_array = decimal.execute_arrow(
+            Some(&DataType::Decimal64(precision_for::<T>(), 1)),
+            &mut ctx,
+        )?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal64Array>()
@@ -371,7 +388,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
-            DecimalDType::new(2, 1),
+            DecimalDType::new(precision_for::<T>(), 1),
             false.into(),
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
@@ -380,7 +397,10 @@ mod tests {
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let arrow_array = decimal.execute_arrow(Some(&DataType::Decimal256(2, 1)), &mut ctx)?;
+        let arrow_array = decimal.execute_arrow(
+            Some(&DataType::Decimal256(precision_for::<T>(), 1)),
+            &mut ctx,
+        )?;
         let arrow_decimal = arrow_array
             .as_any()
             .downcast_ref::<Decimal256Array>()

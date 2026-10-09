@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn test_slice() {
         let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 4000i128],
+            buffer![100i16, 200i16, 300i16, 4000i16],
             DecimalDType::new(4, 2),
             Validity::NonNullable,
         )
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn test_slice_nullable() {
         let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 4000i128],
+            buffer![100i16, 200i16, 300i16, 4000i16],
             DecimalDType::new(4, 2),
             Validity::from_iter([false, true, false, true]),
         )
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn test_scalar_at() {
         let array = DecimalArray::new(
-            buffer![100i128],
+            buffer![100i16],
             DecimalDType::new(3, 2),
             Validity::NonNullable,
         );

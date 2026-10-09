@@ -585,10 +585,20 @@ mod tests {
         target: PType,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let decimal_dtype = DecimalDType::new(3, 1);
+        // The widest precision each storage type may back keeps every case within the storage
+        // bound while exercising that width.
+        let precision = match storage {
+            DecimalType::I8 => 2,
+            DecimalType::I16 => 4,
+            DecimalType::I32 => 9,
+            DecimalType::I64 => 18,
+            DecimalType::I128 => 38,
+            DecimalType::I256 => 76,
+        };
+        let decimal_dtype = DecimalDType::new(precision, 1);
         let array = match_each_decimal_value_type!(storage, |F| {
             DecimalArray::from_option_iter(
-                [Some(19i8), None, Some(123)].map(|value| value.and_then(<F as BigCast>::from)),
+                [Some(19i8), None, Some(99)].map(|value| value.and_then(<F as BigCast>::from)),
                 decimal_dtype,
             )
         });
@@ -600,10 +610,10 @@ mod tests {
         match_each_integer_ptype!(target, |T| {
             assert_arrays_eq!(
                 casted,
-                PrimitiveArray::from_option_iter([Some(1 as T), None, Some(12 as T)]),
+                PrimitiveArray::from_option_iter([Some(1 as T), None, Some(9 as T)]),
                 &mut ctx
             );
-            for (value, expected) in [(19i8, 1 as T), (123, 12 as T)] {
+            for (value, expected) in [(19i8, 1 as T), (99, 9 as T)] {
                 let scalar = Scalar::decimal(value.into(), decimal_dtype, Nullability::Nullable);
                 assert_eq!(
                     scalar.cast(&dtype)?,
@@ -729,7 +739,7 @@ mod tests {
         }
         let huge = DecimalArray::new(
             buffer![i256::ONE],
-            DecimalDType::new(1, -128),
+            DecimalDType::new(39, -128),
             Validity::NonNullable,
         );
         assert!(

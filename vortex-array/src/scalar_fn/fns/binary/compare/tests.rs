@@ -555,7 +555,7 @@ fn decimal_compare_mixed_storage_widths() {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let lhs = DecimalArray::from_iter::<i32, _>([100, 250, 300], dtype).into_array();
-    let rhs = DecimalArray::from_iter::<i128, _>([200, 250, 100], dtype).into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([200, 250, 100], dtype).into_array();
 
     let result = execute_compare_test(lhs, rhs, Operator::Lte);
     assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);

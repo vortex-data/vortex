@@ -341,7 +341,7 @@ mod tests {
         let values = 42i8;
 
         let mut i8s = DecimalBuilder::new_in::<i8>(
-            DecimalDType::new(2, 1),
+            DecimalDType::new(20, 1),
             false.into(),
             BufferAllocatorRef::static_ref(),
         );
@@ -351,7 +351,7 @@ mod tests {
         let i8s = i8s.finish();
 
         let mut i128s = DecimalBuilder::new_in::<i128>(
-            DecimalDType::new(2, 1),
+            DecimalDType::new(20, 1),
             false.into(),
             BufferAllocatorRef::static_ref(),
         );
