@@ -11,6 +11,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::i256;
@@ -39,6 +40,8 @@ impl BetweenKernel for Decimal {
         let nullability =
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
+        let materialized = arr.materialize_values(ctx)?;
+        let arr = materialized.as_view();
         match_each_decimal_value_type!(arr.values_type(), |D| {
             between_unpack::<D>(arr, lower, upper, nullability, options, ctx)
         })

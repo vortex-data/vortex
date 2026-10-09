@@ -230,7 +230,11 @@ async fn execute_dict_decimal(
     let codes_ptype = codes_prim.ptype();
 
     // For decimal values, execute recursively to handle any nested encodings
-    let values_decimal = values.execute_cuda(ctx).await?.into_decimal();
+    let values_decimal = values
+        .execute_cuda(ctx)
+        .await?
+        .into_decimal()
+        .materialize_values(ctx.execution_ctx())?;
     let decimal_type = values_decimal.values_type();
 
     match_each_decimal_value_type!(decimal_type, |V| {

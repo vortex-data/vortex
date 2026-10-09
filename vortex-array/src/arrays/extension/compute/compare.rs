@@ -11,6 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::extension::integer::WideInteger;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -22,6 +23,9 @@ impl CompareKernel for Extension {
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if WideInteger::width(lhs.dtype()).is_some() {
+            return Ok(None);
+        }
         // Storage values are only comparable when both sides share the same extension dtype
         // (e.g. timestamps in different units must not compare their raw storage).
         if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {

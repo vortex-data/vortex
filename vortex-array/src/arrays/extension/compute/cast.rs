@@ -11,10 +11,15 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::integer::is_wide_integer_cast;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: ArrayView<'_, Extension>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        if is_wide_integer_cast(array.dtype(), dtype) {
+            return Ok(None);
+        }
+
         if !array.dtype().eq_ignore_nullability(dtype) {
             // Target is not the same extension type.
             // Delegate to the storage array's cast.

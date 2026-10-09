@@ -76,6 +76,7 @@ impl CudaExecute for FilterExecutor {
                         })
                     }
                     Canonical::Decimal(decimal) => {
+                        let decimal = decimal.materialize_values(ctx.execution_ctx())?;
                         match_each_decimal_value_type!(decimal.values_type(), |D| {
                             filter_decimal::<D>(decimal, m, ctx).await
                         })

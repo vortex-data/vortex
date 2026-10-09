@@ -1,35 +1,60 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Reduce decimal parents to operations on their integer children.
+//!
+//! Rewrapping retains precision and scale while the child operation determines result validity
+//! and logical nullability.
+
 use std::ops::Range;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
+use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::decimal::DecimalArraySlotsExt;
+use crate::arrays::dict::TakeExecute;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::filter::FilterReduce;
+use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::match_each_decimal_value_type;
+use crate::builtins::ArrayBuiltins;
+use crate::integer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullReduce;
+use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
     ParentRuleSet::lift(&CastReduceAdaptor(Decimal)),
+    ParentRuleSet::lift(&FillNullReduceAdaptor(Decimal)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(Decimal)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Decimal)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Decimal)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(Decimal)),
 ]);
 
-/// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
-///
-/// When a DecimalArray is wrapped by a MaskedArray, this rule merges the mask's validity
-/// with the DecimalArray's existing validity, eliminating the need for the MaskedArray wrapper.
+fn rewrap(array: ArrayView<'_, Decimal>, values: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    Ok(Some(
+        DecimalArray::try_new_values(values, array.decimal_dtype())?.into_array(),
+    ))
+}
+
+/// Pushes a Masked parent's validity into the decimal's integer child.
 #[derive(Default, Debug)]
 pub struct DecimalMaskedValidityRule;
 
@@ -42,44 +67,58 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
         parent: ArrayView<'_, Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Merge the parent's validity mask into the child's validity
-        // TODO(joe): make this lazy
-        let masked_array = match_each_decimal_value_type!(array.values_type(), |D| {
-            // SAFETY: Since we are only flipping some bits in the validity, all invariants that
-            // were upheld are still upheld.
-            unsafe {
-                DecimalArray::new_unchecked(
-                    array.buffer::<D>(),
-                    array.decimal_dtype(),
-                    array.validity()?.and(parent.validity()?)?,
-                )
-            }
-            .into_array()
-        });
-
-        Ok(Some(masked_array))
+        rewrap(
+            array,
+            array
+                .values()
+                .clone()
+                .mask(parent.validity()?.to_array(array.len()))?,
+        )
     }
 }
 
 impl SliceReduce for Decimal {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let byte_width = array.values_type().byte_width();
-        let byte_range = range.start * byte_width..range.end * byte_width;
-        let values = array.buffer_handle().slice(byte_range);
-        let validity = array.validity()?.slice(range)?;
+        rewrap(array, array.values().slice(range)?)
+    }
+}
 
-        // SAFETY: Slicing on element boundaries preserves the buffer alignment, values type,
-        // decimal precision and scale, and validity length invariants.
-        let result = unsafe {
-            DecimalArray::new_unchecked_handle(
-                values,
-                array.values_type(),
-                array.decimal_dtype(),
-                validity,
-            )
-            .into_array()
-        };
-        Ok(Some(result))
+impl FilterReduce for Decimal {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        rewrap(array, array.values().filter(mask.clone())?)
+    }
+}
+
+impl TakeReduce for Decimal {
+    fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        rewrap(array, array.values().take(indices.clone())?)
+    }
+}
+
+impl TakeExecute for Decimal {
+    fn take(
+        array: ArrayView<'_, Self>,
+        indices: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rewrap(array, array.values().take(indices.clone())?)
+    }
+}
+
+impl FillNullReduce for Decimal {
+    fn fill_null(
+        array: ArrayView<'_, Self>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let value = fill_value
+            .as_decimal()
+            .decimal_value()
+            .vortex_expect("FillNull requires a non-null fill value");
+        let dtype = array
+            .values_dtype()
+            .with_nullability(fill_value.dtype().nullability());
+        let value = integer::scalar_from_integer(value, &dtype)?;
+        rewrap(array, array.values().fill_null(value)?)
     }
 }
 
@@ -104,6 +143,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArrayExt;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
     use crate::buffer::DeviceBuffer;
@@ -173,7 +213,17 @@ mod tests {
         let array = DecimalArray::try_new_handle(
             handle,
             values_type,
-            DecimalDType::new(3, 1),
+            DecimalDType::new(
+                match values_type {
+                    DecimalType::I8 => 2,
+                    DecimalType::I16 => 4,
+                    DecimalType::I32 => 9,
+                    DecimalType::I64 => 18,
+                    DecimalType::I128 => 38,
+                    DecimalType::I256 => 76,
+                },
+                1,
+            ),
             validity.clone(),
         )?
         .into_array();

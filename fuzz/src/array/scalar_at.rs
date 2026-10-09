@@ -47,6 +47,7 @@ pub fn scalar_at_canonical_array(
             })
         }
         Canonical::Decimal(array) => {
+            let array = array.materialize_values(ctx)?;
             match_each_decimal_value_type!(array.values_type(), |D| {
                 Scalar::decimal(
                     DecimalValue::from(array.buffer::<D>()[index]),

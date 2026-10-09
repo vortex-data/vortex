@@ -6,6 +6,7 @@
 //! Bounds exclude null payloads. Narrowing changes the physical representation while preserving
 //! the logical dtype and validity.
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -18,7 +19,13 @@ use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::DecimalType;
 use crate::dtype::PType;
+use crate::dtype::integer::integer_dtype;
+use crate::dtype::integer::signed_integer_type;
+use crate::integer;
+use crate::match_each_decimal_value_type;
+use crate::scalar::DecimalValue;
 
 impl NarrowArray {
     /// Stores an integer array at the smallest fitting width while retaining its logical dtype.
@@ -89,6 +96,56 @@ impl NarrowArray {
             .as_ref()
             .cast(DType::Primitive(storage_type, array.dtype().nullability()))?
             .execute(ctx)
+    }
+
+    /// Narrows signed primitive or wide integer values without changing their logical dtype.
+    ///
+    /// Bounds exclude null payloads. Empty and all-null arrays use i8 storage, and arrays whose
+    /// values need the full logical width are returned unchanged. The input may be encoded.
+    pub fn encode_signed(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let logical = signed_integer_type(array.dtype());
+        vortex_ensure!(
+            logical.is_some(),
+            "Expected signed integers, got {}",
+            array.dtype()
+        );
+        let logical = logical.vortex_expect("Signed integer dtype checked above");
+        let storage = integer::storage_child(&array);
+        let bounds = min_max(storage, ctx, NumericalAggregateOpts::default())?
+            .map(|bounds| {
+                Ok::<_, vortex_error::VortexError>((
+                    integer::scalar_value(&bounds.min)?.as_i256(),
+                    integer::scalar_value(&bounds.max)?.as_i256(),
+                ))
+            })
+            .transpose()?;
+
+        for candidate in [
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+        ] {
+            if candidate >= logical {
+                break;
+            }
+
+            let fits = match_each_decimal_value_type!(candidate, |T| {
+                bounds.is_none_or(|(min, max)| {
+                    DecimalValue::I256(min).cast::<T>().is_some()
+                        && DecimalValue::I256(max).cast::<T>().is_some()
+                })
+            });
+
+            if fits {
+                let dtype = integer_dtype(candidate, array.dtype().nullability());
+                let values = integer::cast_array(storage, &dtype, ctx)?;
+                return Ok(Self::try_new(values, array.dtype().clone())?.into_array());
+            }
+        }
+
+        Ok(array)
     }
 }
 

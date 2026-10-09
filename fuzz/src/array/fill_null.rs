@@ -13,15 +13,15 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_decimal_value_type;
+use vortex_array::dtype::i256;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -155,48 +155,28 @@ fn fill_decimal_array(
     result_nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
-    let decimal_dtype = array.decimal_dtype();
-    let decimal_scalar = fill_value.as_decimal();
+    let array = array
+        .materialize_values(ctx)
+        .vortex_expect("Decimal reference values must materialize");
+    let mask = array
+        .validity()
+        .and_then(|validity| validity.execute_mask(array.len(), ctx))
+        .vortex_expect("Decimal reference validity must execute");
+    let values =
+        converted_buffer::<i256>(&array, &mask).vortex_expect("Every decimal integer fits i256");
+    let fill_value = fill_value
+        .as_decimal()
+        .decimal_value()
+        .vortex_expect("Fill null requires a non-null decimal")
+        .as_i256();
+    let values = values
+        .iter()
+        .copied()
+        .zip(mask.iter())
+        .map(|(value, valid)| if valid { value } else { fill_value })
+        .collect::<Buffer<_>>();
 
-    match_each_decimal_value_type!(array.values_type(), |D| {
-        let fill_val = D::try_from(decimal_scalar)
-            .vortex_expect("decimal fill value conversion should succeed in fuzz test");
-
-        match array
-            .validity()
-            .vortex_expect("decimal validity should be derivable in fuzz baseline")
-        {
-            Validity::NonNullable | Validity::AllValid => DecimalArray::new(
-                array.buffer::<D>(),
-                decimal_dtype,
-                result_nullability.into(),
-            )
-            .into_array(),
-            Validity::AllInvalid => {
-                ConstantArray::new(fill_value.clone(), array.len()).into_array()
-            }
-            Validity::Array(validity_array) => {
-                let validity_bool_array = validity_array
-                    .execute::<BoolArray>(ctx)
-                    .vortex_expect("validity to bool");
-                let validity_bits = validity_bool_array.to_bit_buffer();
-                let data_buffer = array.buffer::<D>();
-
-                let mut new_data = BufferMut::with_capacity(array.len());
-                for i in 0..array.len() {
-                    if validity_bits.value(i) {
-                        new_data.push(data_buffer[i]);
-                    } else {
-                        new_data.push(fill_val);
-                    }
-                }
-
-                DecimalArray::try_new(new_data.freeze(), decimal_dtype, result_nullability.into())
-                    .vortex_expect("DecimalArray creation should succeed in fuzz test")
-                    .into_array()
-            }
-        }
-    })
+    DecimalArray::new(values, array.decimal_dtype(), result_nullability.into()).into_array()
 }
 
 fn fill_varbinview_array(

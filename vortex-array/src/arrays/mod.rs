@@ -17,6 +17,8 @@
 //! traits document the stable contract; avoid depending on undocumented slot order or metadata
 //! details.
 
+use vortex_session::VortexSession;
+
 #[cfg(any(test, feature = "_test-harness"))]
 mod assertions;
 
@@ -137,7 +139,10 @@ pub use varbinview::VarBinViewArray;
 pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
-use vortex_session::VortexSession;
+
+pub mod wide_integer;
+pub use wide_integer::WideIntegerArray;
+pub use wide_integer::WideIntegerEncoding;
 
 pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
@@ -157,6 +162,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     varbin::initialize(session);
     varbinview::initialize(session);
     variant::initialize(session);
+    wide_integer::initialize(session);
 }
 
 #[cfg(feature = "arbitrary")]

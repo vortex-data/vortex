@@ -24,6 +24,8 @@ pub(super) fn accumulate_decimal(
     array: &DecimalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    let materialized = array.materialize_values(ctx)?;
+    let array = &materialized;
     match_each_decimal_value_type!(array.values_type(), |T| {
         let local = compute_min_max_with_validity::<T>(array, ctx)?;
         partial.merge(args, local);

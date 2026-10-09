@@ -9,10 +9,11 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_decimal_value_type;
+use vortex_array::dtype::i256;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::scalar_cmp;
@@ -21,7 +22,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_panic;
 
 pub fn compare_canonical_array(
     array: &ArrayRef,
@@ -97,37 +97,33 @@ pub fn compare_canonical_array(
             })
         }
         DType::Decimal(..) => {
-            let decimal = value.as_decimal();
             let decimal_array = array
                 .clone()
                 .execute::<DecimalArray>(ctx)
-                .vortex_expect("to decimal");
-            match_each_decimal_value_type!(decimal_array.values_type(), |D| {
-                let dval = decimal
-                    .decimal_value()
-                    .vortex_expect("nulls handled before")
-                    .cast::<D>()
-                    .unwrap_or_else(|| vortex_panic!("todo: handle upcast of decimal array"));
-                let buf = decimal_array.buffer::<D>();
-                compare_to(
-                    buf.as_slice()
-                        .iter()
-                        .copied()
-                        .zip(
-                            array
-                                .validity()
-                                .vortex_expect("validity_mask")
-                                .execute_mask(array.len(), ctx)
-                                .vortex_expect("Failed to compute validity mask")
-                                .to_bit_buffer()
-                                .iter(),
-                        )
-                        .map(|(b, v)| v.then_some(b)),
-                    dval,
-                    operator,
-                    result_nullability,
-                )
-            })
+                .and_then(|array| array.materialize_values(ctx))
+                .vortex_expect("Decimal reference values must materialize");
+            let mask = decimal_array
+                .validity()
+                .and_then(|validity| validity.execute_mask(array.len(), ctx))
+                .vortex_expect("Decimal reference validity must execute");
+            let values = converted_buffer::<i256>(&decimal_array, &mask)
+                .vortex_expect("Every decimal integer fits i256");
+            let value = value
+                .as_decimal()
+                .decimal_value()
+                .vortex_expect("Null comparison constants were handled above")
+                .as_i256();
+
+            compare_to(
+                values
+                    .iter()
+                    .copied()
+                    .zip(mask.iter())
+                    .map(|(value, valid)| valid.then_some(value)),
+                value,
+                operator,
+                result_nullability,
+            )
         }
         DType::Utf8(_) => {
             let varbinview = array

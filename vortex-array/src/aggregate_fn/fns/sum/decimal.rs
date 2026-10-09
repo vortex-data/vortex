@@ -30,6 +30,8 @@ pub(crate) fn accumulate_decimal(
     d: &DecimalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
+    let materialized = d.materialize_values(ctx)?;
+    let d = &materialized;
     let mask = d.as_ref().validity()?.execute_mask(d.as_ref().len(), ctx)?;
     let validity = match &mask {
         Mask::AllTrue(_) => None,

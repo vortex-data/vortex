@@ -35,6 +35,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::integer::is_wide_integer_cast;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
@@ -128,6 +129,10 @@ impl ScalarFnVTable for Cast {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+
+        if is_wide_integer_cast(input.dtype(), target_dtype) {
+            return crate::integer::cast_array(&input, target_dtype, ctx);
+        }
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());

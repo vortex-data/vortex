@@ -38,7 +38,9 @@ pub(super) fn to_arrow_decimal(
     );
 
     // Execute the array as a DecimalArray.
-    let decimal_array = array.execute::<DecimalArray>(ctx)?;
+    let decimal_array = array
+        .execute::<DecimalArray>(ctx)?
+        .materialize_values(ctx)?;
 
     match data_type {
         DataType::Decimal32(..) => to_arrow_decimal32(decimal_array, ctx),

@@ -89,7 +89,10 @@ pub fn take_canonical_array(
             })
         }
         DType::Decimal(d, _) => {
-            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
+            let decimal_array = array
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
 
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 Ok(take_decimal::<D>(

@@ -36,7 +36,6 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -827,25 +826,26 @@ fn encode_decimal(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    let arr = arr.materialize_values(ctx)?;
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     match decimal_key_type(&arr.decimal_dtype()) {
         DecimalType::I8 => {
-            encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_typed::<i8>(&arr, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I16 => {
-            encode_decimal_typed::<i16>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_typed::<i16>(&arr, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I32 => {
-            encode_decimal_typed::<i32>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_typed::<i32>(&arr, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I64 => {
-            encode_decimal_typed::<i64>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_typed::<i64>(&arr, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I128 => {
-            encode_decimal_typed::<i128>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_typed::<i128>(&arr, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I256 => {
-            encode_decimal_typed::<i256>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_typed::<i256>(&arr, &mask, field, row_offsets, col_offset, out)
         }
     }
 }

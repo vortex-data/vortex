@@ -96,6 +96,8 @@ impl DecimalParts {
 ///
 /// Returns an error if the array's validity cannot be derived or executed.
 pub fn split_decimal(decimal: &DecimalArray, ctx: &mut ExecutionCtx) -> VortexResult<DecimalParts> {
+    let materialized = decimal.materialize_values(ctx)?;
+    let decimal = &materialized;
     let validity = decimal.validity()?;
     let len = decimal.len();
     let mask = validity.execute_mask(len, ctx)?;

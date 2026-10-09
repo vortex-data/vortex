@@ -43,6 +43,7 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
+use crate::extension::integer::WideInteger;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
@@ -153,6 +154,17 @@ fn build_values_comparator(
         );
     }
 
+    if WideInteger::width(lhs.dtype()).is_some() {
+        let lhs = crate::integer::materialize(lhs, ctx)?;
+        let rhs = crate::integer::materialize(rhs, ctx)?;
+        let common = lhs.values_type.max(rhs.values_type);
+        return Ok(crate::match_each_decimal_value_type!(common, |T| {
+            let lhs = crate::integer::widened_buffer::<T>(&lhs);
+            let rhs = crate::integer::widened_buffer::<T>(&rhs);
+            Box::new(move |i: usize, j: usize| lhs[i].cmp(&rhs[j])) as RowComparator
+        }));
+    }
+
     Ok(match lhs.dtype() {
         // Null values compare through the validity wrapper; the value comparator is trivial.
         DType::Null => Box::new(|_, _| Ordering::Equal),
@@ -165,8 +177,14 @@ fn build_values_comparator(
             match_each_native_ptype!(*ptype, |T| { primitive_comparator::<T>(lhs, rhs, ctx)? })
         }
         DType::Decimal(..) => {
-            let lhs = lhs.clone().execute::<DecimalArray>(ctx)?;
-            let rhs = rhs.clone().execute::<DecimalArray>(ctx)?;
+            let lhs = lhs
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
+            let rhs = rhs
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
             let common = lhs.values_type().max(rhs.values_type());
             crate::match_each_decimal_value_type!(common, |W| {
                 let lhs = widened_buffer::<W>(&lhs);

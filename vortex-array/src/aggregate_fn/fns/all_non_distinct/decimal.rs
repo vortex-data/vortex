@@ -4,8 +4,8 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
-use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::match_each_decimal_value_type;
 
@@ -16,7 +16,10 @@ use crate::match_each_decimal_value_type;
 pub(super) fn check_decimal_identical(
     lhs: &DecimalArray,
     rhs: &DecimalArray,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
+    let lhs = lhs.materialize_values(ctx)?;
+    let rhs = rhs.materialize_values(ctx)?;
     if lhs.values_type() == rhs.values_type() {
         return match_each_decimal_value_type!(lhs.values_type(), |S| {
             Ok(lhs.buffer::<S>().as_ref() == rhs.buffer::<S>().as_ref())

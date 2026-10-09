@@ -17,6 +17,7 @@ use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
+use crate::extension::integer::WideInteger;
 
 /// Registry for extension dtypes.
 pub type ExtDTypeRegistry = ArcSwapMap<Id, ExtDTypePluginRef>;
@@ -37,6 +38,7 @@ impl Default for DTypeSession {
         this.register(Date);
         this.register(Time);
         this.register(Timestamp);
+        this.register(WideInteger);
 
         this
     }

@@ -975,6 +975,7 @@ mod tests {
     use vortex_array::arrays::Primitive;
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::VarBinView;
+    use vortex_array::arrays::decimal::DecimalArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use vortex_array::arrays::list::ListArraySlotsExt;

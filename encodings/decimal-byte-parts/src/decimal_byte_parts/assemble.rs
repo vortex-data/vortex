@@ -10,11 +10,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::i256;
+use vortex_array::dtype::integer::integer_dtype;
 use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -34,7 +37,7 @@ use super::MAX_LOWER_PARTS;
 /// The MSP must have a signed integer dtype, and every lower part must have a non-nullable
 /// unsigned integer dtype. All parts must have the same length.
 ///
-/// With no lower parts, the MSP buffer is reused as the decimal values. One lower part
+/// With no lower parts, the MSP encoding is retained as the integer child. One lower part
 /// assembles into `i128`. Two or three lower parts assemble into `i256`.
 ///
 /// If there are lower parts, each part (including the MSP) is widened into a 64 bit array.
@@ -55,11 +58,10 @@ pub fn assemble_decimal(
         "MSP must have a signed integer dtype"
     );
 
-    let validity = msp.validity()?;
-
     if lower_parts.is_empty() {
-        return assemble_narrow_decimal(msp, validity, decimal_dtype, exec_ctx);
+        return assemble_narrow_decimal(msp, decimal_dtype);
     }
+    let validity = msp.validity()?;
 
     vortex_ensure!(
         lower_parts.len() <= MAX_LOWER_PARTS,
@@ -79,17 +81,15 @@ pub fn assemble_decimal(
     assemble_wide_decimal_from_arrays(msp, lower_parts, validity, decimal_dtype, exec_ctx)
 }
 
-fn assemble_narrow_decimal(
-    msp: &ArrayRef,
-    validity: Validity,
-    decimal_dtype: DecimalDType,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // TODO(mk): Broadcast a constant MSP directly instead of materializing its buffer.
-    let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
-    Ok(match_each_signed_integer_ptype!(msp.ptype(), |P| {
-        DecimalArray::new(msp.to_buffer::<P>(), decimal_dtype, validity).into_array()
-    }))
+fn assemble_narrow_decimal(msp: &ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<ArrayRef> {
+    let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+    let dtype = integer_dtype(values_type, msp.dtype().nullability());
+    let values = if msp.dtype().as_ptype().byte_width() < values_type.byte_width() {
+        NarrowArray::try_new(msp.clone(), dtype)?.into_array()
+    } else {
+        msp.cast(dtype)?
+    };
+    Ok(DecimalArray::try_new_values(values, decimal_dtype)?.into_array())
 }
 
 /// Execute the MSP at its signed integer width and cast lower parts to `u64` before assembly.
@@ -200,13 +200,17 @@ where
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::Narrow;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::narrow::NarrowArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -319,6 +323,7 @@ mod tests {
             &mut ctx,
         )?
         .execute::<DecimalArray>(&mut ctx)
+        .and_then(|array| array.materialize_values(&mut ctx))
     }
 
     #[rstest]
@@ -368,7 +373,7 @@ mod tests {
         validity: Validity,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let decimal = DecimalArray::new(buffer![1i32, 2, 3], DecimalDType::new(2, 0), validity);
+        let decimal = DecimalArray::new(buffer![1i32, 2, 3], DecimalDType::new(9, 0), validity);
         let parts = split_decimal(&decimal, &mut ctx)?;
         assert!(parts.lower_parts.is_empty());
         assert_eq!(parts.msp.dtype().as_ptype(), PType::I32);
@@ -378,6 +383,33 @@ mod tests {
             decimal.buffer::<i32>().as_ptr()
         );
         assert_arrays_eq!(decimal.clone(), round_trip(decimal)?, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_single_part_keeps_dictionary_child() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DecimalDType::new(76, 2);
+        let msp = DictArray::try_new(
+            buffer![1u8, 0, 1].into_array(),
+            buffer![-10i32, 20].into_array(),
+        )?
+        .into_array();
+        let decimal =
+            assemble_decimal(&msp, &[], dtype, &mut ctx)?.execute::<DecimalArray>(&mut ctx)?;
+
+        assert!(ArrayRef::ptr_eq(
+            decimal.values().as_::<Narrow>().values(),
+            &msp,
+        ));
+        assert_eq!(decimal.values_type(), DecimalType::I32);
+        assert!(decimal.as_ref().buffer_handles().is_empty());
+        assert_arrays_eq!(
+            decimal,
+            DecimalArray::from_iter([20i32, -10, 20], dtype),
+            &mut ctx
+        );
+
         Ok(())
     }
 
