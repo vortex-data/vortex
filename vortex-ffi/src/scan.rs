@@ -452,7 +452,9 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::arrays::struct_::StructArraySlotsExt;
     use vortex_array::assert_arrays_eq;
 
     use crate::array::vx_array;
@@ -465,7 +467,9 @@ mod tests {
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
     use crate::expression::vx_expression_literal;
+    use crate::expression::vx_expression_pack;
     use crate::expression::vx_expression_root;
+    use crate::expression::vx_expression_row_idx;
     use crate::scalar::vx_scalar_free;
     use crate::scalar::vx_scalar_new_u64;
     use crate::scan::vx_data_source_scan;
@@ -758,6 +762,112 @@ mod tests {
             vx_scan_free(scan_ptr);
             vx_data_source_free(ds);
             vx_session_free(session);
+        }
+    }
+
+    /// `row_idx` is only meaningful inside a scan: executed directly it errors,
+    /// and the scan substitutes it for the row's position in the file.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_project_row_idx() {
+        let mut ctx = array_session().create_execution_ctx();
+        unsafe {
+            let root = vx_expression_root();
+            let idx = vx_expression_row_idx();
+            let age = vx_expression_get_item(vx_view::from_str("age"), root);
+
+            let names = [vx_view::from_str("idx"), vx_view::from_str("age")];
+            let parts = [idx.cast_const(), age.cast_const()];
+            let projection = vx_expression_pack(names.as_ptr(), parts.as_ptr(), 2, false);
+            assert!(!projection.is_null());
+
+            let opts = vx_scan_options {
+                projection,
+                ..Default::default()
+            };
+            let (array, _) = scan(&raw const opts);
+            {
+                let array = vx_array::as_ref(array)
+                    .clone()
+                    .execute::<StructArray>(&mut ctx)
+                    .unwrap();
+                let idx = array
+                    .fields()
+                    .get(0)
+                    .unwrap()
+                    .clone()
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .unwrap();
+                assert_eq!(
+                    idx.to_buffer::<u64>().as_slice(),
+                    (0..SAMPLE_ROWS as u64).collect::<Vec<_>>().as_slice()
+                );
+            }
+            vx_array_free(array);
+
+            vx_expression_free(projection);
+            vx_expression_free(age);
+            vx_expression_free(idx);
+            vx_expression_free(root);
+        }
+    }
+
+    /// The point of projecting `row_idx`: a filter drops the rows around a
+    /// match, and the surviving rows still carry their original position.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_row_idx_survives_filter() {
+        let mut ctx = array_session().create_execution_ctx();
+        unsafe {
+            let root = vx_expression_root();
+            let idx = vx_expression_row_idx();
+
+            let names = [vx_view::from_str("idx")];
+            let parts = [idx.cast_const()];
+            let projection = vx_expression_pack(names.as_ptr(), parts.as_ptr(), 1, false);
+
+            let age_expr = vx_expression_get_item(vx_view::from_str("age"), root);
+            let value = vx_scalar_new_u64(100, false);
+            let mut error = ptr::null_mut();
+            let lit_100 = vx_expression_literal(value, &raw mut error);
+            assert_no_error(error);
+            vx_scalar_free(value);
+            let filter =
+                vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
+
+            let opts = vx_scan_options {
+                projection,
+                filter,
+                ..Default::default()
+            };
+            let (array, _) = scan(&raw const opts);
+            {
+                let array = vx_array::as_ref(array)
+                    .clone()
+                    .execute::<StructArray>(&mut ctx)
+                    .unwrap();
+                let idx = array
+                    .fields()
+                    .get(0)
+                    .unwrap()
+                    .clone()
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .unwrap();
+                // age == row position in write_sample, so the filter keeps
+                // exactly rows 100..SAMPLE_ROWS, at their original positions.
+                assert_eq!(
+                    idx.to_buffer::<u64>().as_slice(),
+                    (100..SAMPLE_ROWS as u64).collect::<Vec<_>>().as_slice()
+                );
+            }
+            vx_array_free(array);
+
+            vx_expression_free(filter);
+            vx_expression_free(lit_100);
+            vx_expression_free(age_expr);
+            vx_expression_free(projection);
+            vx_expression_free(idx);
+            vx_expression_free(root);
         }
     }
 }

@@ -52,6 +52,14 @@ impl CurrentThreadRuntime {
         CurrentThreadWorkerPool::new(Arc::clone(&self.executor))
     }
 
+    /// Run already-queued tasks until none is immediately runnable.
+    ///
+    /// Spawned tasks only advance inside `block_on`, so one holding the last
+    /// reference to a resource keeps it alive until the runtime is driven again.
+    pub fn drain(&self) {
+        while self.executor.async_executor().try_tick() {}
+    }
+
     /// Returns an iterator wrapper around a stream, blocking the current thread for each item.
     ///
     /// ## Multi-threaded Usage
