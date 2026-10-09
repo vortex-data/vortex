@@ -38,13 +38,7 @@ impl NarrowArray {
         }
 
         let bounds = min_max(array.as_ref(), ctx, NumericalAggregateOpts::default())?;
-        let candidates = if ptype.is_signed_int() {
-            [PType::I8, PType::I16, PType::I32]
-        } else {
-            [PType::U8, PType::U16, PType::U32]
-        };
-
-        for candidate in candidates {
+        for candidate in integer_types(ptype) {
             if candidate.byte_width() >= ptype.byte_width() {
                 break;
             }
@@ -65,5 +59,14 @@ impl NarrowArray {
         }
 
         Ok(array.into_array())
+    }
+}
+
+/// Integer widths in increasing order with the input's signedness.
+pub(super) fn integer_types(ptype: PType) -> [PType; 4] {
+    if ptype.is_signed_int() {
+        [PType::I8, PType::I16, PType::I32, PType::I64]
+    } else {
+        [PType::U8, PType::U16, PType::U32, PType::U64]
     }
 }
