@@ -152,6 +152,29 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         column_ids[i] = storage_index;
     }
 
+    // DuckDB asks for a struct field instead of the whole column when it knows
+    // the scan can extract it. Pass the path and the type it expects back, so
+    // Rust can build the extract expression: one flattened path per column, with
+    // offsets, and the leaf type to cast to when the query asked for one.
+    vector<idx_t> extract_indexes;
+    vector<size_t> extract_offsets;
+    vector<duckdb_logical_type> extract_types(input.column_indexes.size(), nullptr);
+    extract_offsets.reserve(input.column_indexes.size() + 1);
+    extract_offsets.push_back(0);
+    for (size_t i = 0; i < input.column_indexes.size(); ++i) {
+        const ColumnIndex *level = &input.column_indexes[i];
+        if (level->IsPushdownExtract()) {
+            while (level->HasChildren()) {
+                level = &level->GetChildIndex(0);
+                extract_indexes.push_back(level->GetPrimaryIndex());
+            }
+            // Borrowed from the bind data, valid for this call.
+            extract_types[i] = reinterpret_cast<duckdb_logical_type>(
+                const_cast<LogicalType *>(&level->GetScanType()));
+        }
+        extract_offsets.push_back(extract_indexes.size());
+    }
+
     // MultiFileGlobalState projection_ids are filled only when this call
     // returns. Take these from a physical operator.
     const idx_t *projection_ids = nullptr;
@@ -173,6 +196,11 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         .projection_ids_count = projection_ids_count,
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
         .client_context = reinterpret_cast<duckdb_client_context>(&context),
+        .column_extract_indexes = extract_indexes.empty() ? nullptr : extract_indexes.data(),
+        .column_extract_indexes_count = extract_indexes.size(),
+        .column_extract_offsets = extract_offsets.data(),
+        .column_extract_types = extract_types.data(),
+        .column_extract_types_count = extract_types.size(),
     };
 
     duckdb_vx_error error_out = nullptr;
