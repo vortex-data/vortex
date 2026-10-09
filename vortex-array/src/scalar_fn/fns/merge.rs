@@ -190,11 +190,11 @@ impl ScalarFnVTable for Merge {
                 .vortex_expect("expected struct");
 
             for name in child_dtype.names().iter() {
-                // `project_node` reads straight out of a `pack` child, so this reduction leaves
+                // `apply_now` reads straight out of a `pack` child, so this reduction leaves
                 // behind no `get_item` for a later pass to simplify. The child is non-nullable,
                 // so the read cannot intersect a struct validity into the field, which is the
                 // only way it could change the field dtype.
-                let field = GetItem::project_node(&child, name)?;
+                let field = GetItem::apply_now(&child, name)?;
 
                 if let Some(idx) = names.iter().position(|n| n == name) {
                     duplicate_names.insert(name.clone());

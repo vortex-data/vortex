@@ -60,11 +60,11 @@ impl GetItem {
     /// `get_item` node themselves. The optimizer visits children before their parent, so a
     /// `get_item` that a rule introduces is never simplified again. Removing it here keeps the
     /// output of the rule a fixed point.
-    pub(crate) fn project_node<T: ReduceNode>(
+    pub(crate) fn apply_now<T: ReduceNode>(
         struct_node: &T,
         field_name: &FieldName,
     ) -> VortexResult<T> {
-        if let Some(field) = Self::project_pack_node(struct_node, field_name)? {
+        if let Some(field) = Self::maybe_apply_now(struct_node, field_name)? {
             return Ok(field);
         }
 
@@ -77,7 +77,7 @@ impl GetItem {
     /// Read `field_name` straight out of a `pack` node, which holds each field as a child.
     ///
     /// Returns `None` if `struct_node` is not a `pack`, or does not hold `field_name`.
-    fn project_pack_node<T: ReduceNode>(
+    fn maybe_apply_now<T: ReduceNode>(
         struct_node: &T,
         field_name: &FieldName,
     ) -> VortexResult<Option<T>> {
@@ -211,7 +211,7 @@ impl ScalarFnVTable for GetItem {
     }
 
     fn reduce<T: ReduceNode>(&self, field_name: &FieldName, node: &T) -> VortexResult<Option<T>> {
-        Self::project_pack_node(&node.child(0), field_name)
+        Self::maybe_apply_now(&node.child(0), field_name)
     }
 
     fn is_strict(&self, _field_name: &FieldName) -> bool {
