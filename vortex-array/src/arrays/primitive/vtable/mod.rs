@@ -64,6 +64,7 @@ impl VTable for Primitive {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.primitive");
         *ID

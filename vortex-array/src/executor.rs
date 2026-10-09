@@ -44,6 +44,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
+use crate::optimizer::kernels::execute_parent_marker_key;
 use crate::stats::StatsSet;
 use crate::trace_op;
 
@@ -141,13 +142,14 @@ impl ArrayRef {
     ///     - yes -> skip Step 2a / 2b
     ///     - no  -> try parent kernels
     ///
-    ///   Step 2a: if stack.top exists:
+    ///   Step 2a: if stack.top exists and parent's encoding has any registered kernel:
     ///               parent = stack.top.parent_array
     ///               child = current_array
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, stack.top.slot_idx)
     ///
-    ///   Step 2b: for child in current_array.children():
+    ///   Step 2b: if current_array's encoding has any registered kernel,
+    ///            for child in current_array.children():
     ///               parent = current_array
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, child.slot_idx)
@@ -158,6 +160,10 @@ impl ArrayRef {
     ///                             keep parent as current_array
     ///     Done                 -> finish current_builder if present, else use returned array
     /// ```
+    ///
+    /// Both steps first check whether the parent's encoding owns any execute-parent kernel at
+    /// all (a marker entry in the same kernel snapshot), so a pure compression encoding never
+    /// probes the registry for each of its children.
     ///
     /// Step 2a and Step 2b are skipped while `current_builder` is active. `AppendChild`
     /// partially consumes `current_array`: some slots already live in the builder, so a
@@ -223,6 +229,7 @@ impl ArrayRef {
             // would be lost when we restore frame.parent_builder.
             if current_builder.is_none()
                 && let Some(frame) = stack.last()
+                && has_execute_parent_kernels(kernels, &frame.parent_array)
                 && let Some(result) = {
                     execute_parent_for_child(
                         "stack_execute_parent",
@@ -250,6 +257,7 @@ impl ArrayRef {
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
+                && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
                 let optimized = rewritten.optimize_ctx(ctx.session())?;
@@ -489,17 +497,20 @@ impl Executable for ArrayRef {
 
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
         let kernels = execute_parent_kernels.as_ref();
+        let has_parent_kernels = has_execute_parent_kernels(kernels, &array);
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(executed_parent) = execute_parent_for_child(
-                "single_step_execute_parent",
-                &array,
-                child,
-                slot_idx,
-                kernels,
-                ctx,
-            )? {
+            if has_parent_kernels
+                && let Some(executed_parent) = execute_parent_for_child(
+                    "single_step_execute_parent",
+                    &array,
+                    child,
+                    slot_idx,
+                    kernels,
+                    ctx,
+                )?
+            {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -663,6 +674,12 @@ fn execute_parent_for_child(
     }
 
     Ok(None)
+}
+
+/// Whether any execute-parent kernel is registered with `parent`'s encoding as the parent.
+#[inline]
+fn has_execute_parent_kernels(kernels: &ParentExecutionKernels, parent: &ArrayRef) -> bool {
+    kernels.contains_key(&execute_parent_marker_key(parent.encoding_id()))
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -943,6 +960,7 @@ mod tests {
     use crate::VTable as _;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
     use crate::arrays::Primitive;
     use crate::memory::BufferAllocatorRef;
     use crate::memory::MemorySession;
@@ -989,6 +1007,35 @@ mod tests {
 
         let after_registration = session.create_execution_ctx();
         assert!(after_registration.execute_parent_kernels.contains_key(&key));
+    }
+
+    #[test]
+    fn execution_ctx_snapshot_marks_parents_with_kernels() {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let bool_array = BoolArray::from_iter([true, false]).into_array();
+        let primitive = vortex_buffer::buffer![1i32, 2].into_array();
+
+        let before = session.create_execution_ctx();
+        assert!(!has_execute_parent_kernels(
+            &before.execute_parent_kernels,
+            &bool_array
+        ));
+
+        session.kernels().register_execute_parent(
+            Bool.id(),
+            Primitive.id(),
+            &[noop_execute_parent as ExecuteParentFn],
+        );
+
+        let after = session.create_execution_ctx();
+        assert!(has_execute_parent_kernels(
+            &after.execute_parent_kernels,
+            &bool_array
+        ));
+        assert!(!has_execute_parent_kernels(
+            &after.execute_parent_kernels,
+            &primitive
+        ));
     }
 
     #[test]
