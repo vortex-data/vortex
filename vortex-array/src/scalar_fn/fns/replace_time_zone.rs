@@ -195,8 +195,8 @@ impl ScalarFnVTable for ReplaceTimeZone {
         {
             output.push(if valid && policy_valid {
                 let bytes = policies.bytes_at(i);
-                let policy = std::str::from_utf8(&bytes)
-                    .map_err(|e| vortex_err!("Invalid ambiguity policy: {e}"))?;
+                // SAFETY: policies has Utf8 dtype and this row is valid.
+                let policy = unsafe { std::str::from_utf8_unchecked(&bytes) };
                 convert(*value, policy)?
             } else {
                 None
