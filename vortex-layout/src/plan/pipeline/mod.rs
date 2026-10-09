@@ -46,7 +46,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 pub use self::compile::Chain;
@@ -61,7 +60,6 @@ pub use self::scan::ReadRequest;
 pub use self::scan::Scan;
 pub use self::scan::Split;
 pub use self::scan::Turn;
-use crate::plan::PlanRef;
 use crate::segments::SegmentId;
 
 /// Batches an inlet holds before its writer is blocked, unless its reader says otherwise.
@@ -140,13 +138,6 @@ pub trait Source: Operator {
     }
 }
 
-/// A plan a source asks to have compiled into a new inlet.
-pub(crate) struct Spawn {
-    plan: PlanRef,
-    rows: std::ops::Range<u64>,
-    mask: Mask,
-}
-
 /// What a stage may touch during one call: its pipeline's inlets, the bytes it asked for, and
 /// the session.
 pub struct Cx<'a> {
@@ -155,7 +146,6 @@ pub struct Cx<'a> {
     bytes: &'a mut Option<BufferHandle>,
     session: &'a VortexSession,
     exec: &'a mut ExecutionCtx,
-    spawns: &'a mut Vec<Spawn>,
     /// The inlets read during this run, so only their writers are checked for room after it.
     touched: &'a mut SmallVec<[usize; 4]>,
 }
@@ -182,16 +172,6 @@ impl Cx<'_> {
     /// The execution context for executing arrays.
     pub fn exec(&mut self) -> &mut ExecutionCtx {
         self.exec
-    }
-
-    /// Asks for `plan` over `rows`, restricted to `mask`, to be compiled into a new inlet of this
-    /// source once the call returns, and returns the inlet's index.
-    ///
-    /// For a source that learns what it must read only from what it has read, as a list learns
-    /// its elements' range from its offsets.
-    pub fn spawn(&mut self, plan: PlanRef, rows: std::ops::Range<u64>, mask: Mask) -> usize {
-        self.spawns.push(Spawn { plan, rows, mask });
-        self.inlets.len() + self.spawns.len() - 1
     }
 }
 
