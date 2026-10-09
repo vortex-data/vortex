@@ -204,20 +204,17 @@ fn mark_masked_codes<P: AsPrimitive<usize>>(
     mask: &BitBuffer,
 ) -> bool {
     let mut cursor = 0;
-    let mut indices = mask.set_indices();
-    loop {
-        let mut visited = 0;
-        for idx in indices.by_ref().take(EARLY_EXIT_CHUNK) {
+    for start in (0..codes.len()).step_by(EARLY_EXIT_CHUNK) {
+        let end = (start + EARLY_EXIT_CHUNK).min(codes.len());
+        let codes = &codes[start..end];
+        mask.slice(start..end).set_indices().for_each(|idx| {
             values[codes[idx].as_()] = referenced;
-            visited += 1;
-        }
-        if visited == 0 {
-            return false;
-        }
+        });
         if is_saturated(values, &mut cursor, referenced) {
             return true;
         }
     }
+    false
 }
 
 /// Advances `cursor` past the entries of `values` equal to `referenced` and returns whether that
@@ -225,6 +222,17 @@ fn mark_masked_codes<P: AsPrimitive<usize>>(
 /// `O(values.len())` in total.
 #[inline]
 fn is_saturated(values: &[bool], cursor: &mut usize, referenced: bool) -> bool {
+    // Skip whole blocks with a branch-free comparison the compiler can vectorize, then find the
+    // exact stopping point within the first block that is not fully marked.
+    const BLOCK: usize = 32;
+    let rest = &values[*cursor..];
+    let full_blocks = rest
+        .as_chunks::<BLOCK>()
+        .0
+        .iter()
+        .take_while(|block| block.iter().fold(true, |acc, &v| acc & (v == referenced)))
+        .count();
+    *cursor += full_blocks * BLOCK;
     *cursor += values[*cursor..]
         .iter()
         .take_while(|&&v| v == referenced)
@@ -565,6 +573,7 @@ mod test {
     #[rstest::rstest]
     #[case::saturates_in_first_chunk(16, 5000, 16, None)]
     #[case::saturates_in_later_chunk(4096, 60_000, 4096, None)]
+    #[case::saturates_unaligned_to_scan_block(4001, 60_000, 4001, None)]
     #[case::never_saturates(1024, 10_000, 1000, None)]
     #[case::saturates_with_nulls(64, 10_000, 64, Some(0.5))]
     #[case::never_saturates_with_nulls(64, 10_000, 63, Some(0.5))]
