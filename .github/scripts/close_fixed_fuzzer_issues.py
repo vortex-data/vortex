@@ -162,8 +162,9 @@ def build_fuzz_target(target: str) -> bool:
     """Build the fuzz target once. Returns True on success."""
     print(f"\nBuilding fuzz target: {target}")
     env = os.environ.copy()
+    toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
     result = run(
-        ["cargo", "+nightly", "fuzz", "build", "--dev", "--sanitizer=none", target],
+        ["cargo", f"+{toolchain}", "fuzz", "build", "--dev", "--sanitizer=none", target],
         env=env,
     )
     return result.returncode == 0
@@ -172,11 +173,12 @@ def build_fuzz_target(target: str) -> bool:
 def retest_crash(target: str, crash_path: str, timeout_secs: int = 120) -> str:
     """Run the fuzz target with the crash file. Returns 'fixed', 'reproduces', or 'timeout'."""
     env = os.environ.copy()
+    toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
     try:
         result = run(
             [
                 "cargo",
-                "+nightly",
+                f"+{toolchain}",
                 "fuzz",
                 "run",
                 "--dev",

@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
@@ -68,10 +69,22 @@ impl Scalar {
     /// # Errors
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
+    #[inline]
     pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
-        Self::validate(&dtype, value.as_ref())?;
+        if !Self::is_compatible(&dtype, value.as_ref()) {
+            return Err(Self::try_new_failed(dtype, value));
+        }
 
         Ok(Self { dtype, value })
+    }
+
+    /// The error path of [`Self::try_new`].
+    ///
+    /// It takes ownership of the parts so that their drop code is also out of line.
+    #[cold]
+    #[inline(never)]
+    fn try_new_failed(dtype: DType, value: Option<ScalarValue>) -> VortexError {
+        Self::incompatible_error(&dtype, value.as_ref())
     }
 
     /// Creates a new [`Scalar`] with the given [`DType`] and potentially null [`ScalarValue`]
@@ -486,8 +499,8 @@ fn partial_cmp_struct_values(
         return None;
     }
 
-    for ((field_dtype, lhs), rhs) in fields.fields().zip(lhs.iter()).zip(rhs.iter()) {
-        match partial_cmp_scalar_values(&field_dtype, lhs.as_ref(), rhs.as_ref())? {
+    for ((field_dtype, lhs), rhs) in fields.field_dtypes().zip(lhs.iter()).zip(rhs.iter()) {
+        match partial_cmp_scalar_values(field_dtype, lhs.as_ref(), rhs.as_ref())? {
             Ordering::Equal => continue,
             ordering => return Some(ordering),
         }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
+mod fill_null;
 mod mask;
 pub(crate) mod rules;
 mod slice;

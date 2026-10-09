@@ -42,6 +42,8 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "AGENTS.md"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
+    # `typing_extensions.Buffer` backs `collections.abc.Buffer` on Python 3.11, which the docs build uses.
+    "typing_extensions": ("https://typing-extensions.readthedocs.io/en/latest/", None),
     "pyarrow": ("https://arrow.apache.org/docs", None),
     "pandas": ("https://pandas.pydata.org/pandas-docs/version/2.3/", None),
     "numpy": ("https://numpy.org/doc/stable", None),

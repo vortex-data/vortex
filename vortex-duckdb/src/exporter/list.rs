@@ -14,7 +14,6 @@ use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::mask::Mask;
 
 use super::ConversionCache;
 use super::all_invalid;
@@ -57,7 +56,6 @@ pub(crate) fn new_exporter(
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
-    let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
 
     let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.
@@ -90,7 +88,7 @@ pub(crate) fn new_exporter(
 
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
 
-    let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
+    let exporter = match_each_integer_ptype!(offsets.ptype(), |O| {
         Box::new(ListExporter {
             duckdb_elements: shared_elements,
             offsets,
@@ -99,7 +97,7 @@ pub(crate) fn new_exporter(
         }) as Box<dyn ColumnExporter>
     });
 
-    Ok(validity::new_exporter(validity, boxed))
+    validity::new_exporter(validity, array_len, exporter, ctx)
 }
 
 impl<O: IntegerPType> ColumnExporter for ListExporter<O> {

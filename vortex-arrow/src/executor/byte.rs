@@ -108,8 +108,12 @@ where
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
         .execute::<Canonical>(ctx)?
         .into_primitive()
-        .to_buffer::<T::Offset>()
-        .into_arrow_offset_buffer();
+        .to_buffer::<T::Offset>();
+
+    // SAFETY: `VarBinArray` guarantees its offsets are non-empty, non-negative and
+    // monotonically non-decreasing. The checked cast keeps every value, so the order stays the
+    // same.
+    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
     let data = array.bytes().clone().into_arrow_buffer();
 

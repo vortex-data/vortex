@@ -6,7 +6,6 @@ use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -21,19 +20,14 @@ pub(crate) fn new_exporter(
     array: BoolArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let len = array.len();
     let bits = array.to_bit_buffer();
 
     let validity = array.validity()?;
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
-
-    Ok(validity::new_exporter(
-        validity,
-        Box::new(BoolExporter { bit_buffer: bits }),
-    ))
+    let bool_exporter = Box::new(BoolExporter { bit_buffer: bits });
+    validity::new_exporter(validity, array.len(), bool_exporter, ctx)
 }
 
 impl ColumnExporter for BoolExporter {

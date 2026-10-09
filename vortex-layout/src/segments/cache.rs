@@ -26,6 +26,26 @@ use crate::segments::SegmentSource;
 ///
 /// Caches are optional and operate above a [`SegmentSource`]. They should only store host buffers:
 /// device buffers and other non-host handles should be passed through uncached.
+///
+/// To bring your own cache, implement this trait and give it to the file with
+/// `VortexOpenOptions::with_segment_cache`. A [`SegmentId`] is unique only within one file, so a
+/// cache that many files share must also key its entries by file. Give each file its own
+/// implementation of this trait that holds the [`SegmentSourceId`] of that file and adds it to
+/// the key, as [`MokaSegmentCache::for_file`] does with [`FileSegmentCache`].
+///
+/// The Python bindings accept only a [`MokaSegmentCache`]. A cache written in Python can use the
+/// same design as `PyReadable` in `vortex-python`:
+///
+/// - The Python object has the methods `get(key: str, segment_id: int) -> Buffer | None` and
+///   `put(key: str, segment_id: int, data: Buffer) -> None`. `vortex.open` and
+///   `vortex.open_readable` accept it with the `cache_key` that they accept now, and the stubs
+///   declare it as a `typing.Protocol`. Then users can use `cachetools`, `diskcache`, Redis, or a
+///   cache that many processes share.
+/// - A Rust adapter holds the Python object and the [`SegmentSourceId`] of one file, and
+///   implements this trait. `get` calls Python through `spawn_blocking` and `Python::attach`, as
+///   `PyReadable::read_at` does, and wraps the buffer that Python returns without a copy.
+///   `put` gives Python a read-only object that owns a clone of the [`ByteBuffer`] and exports
+///   it through `__getbuffer__`, as `ReadBuffer` does, so Python can keep it without a copy.
 #[async_trait]
 pub trait SegmentCache: Send + Sync {
     /// Return a cached segment, or `None` on cache miss.
@@ -48,12 +68,68 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
-/// A [`SegmentCache`] based around an in-memory Moka cache.
-pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
+/// Which segments a [`MokaSegmentCache`] evicts when it is full.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SegmentEviction {
+    /// Admit every new segment and evict the least recently used. Suits a cache shared by readers
+    /// that move from file to file, where a newly opened file's segments must displace older ones.
+    #[default]
+    Lru,
+    /// Admit a new segment only if it is likely to be used more often than the one it would
+    /// evict. Suits repeated scans of one file larger than the cache, which LRU would evict
+    /// entirely on every pass, but rejects a new file's segments while older ones are popular.
+    TinyLfu,
+}
+
+/// Identifies the contents of one segment source, usually a file, in a cache that many sources
+/// share.
+///
+/// Sources with the same ID share cached segments, so an ID must identify the contents of the
+/// source, not only its location. A file that has changed must get a new ID.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SegmentSourceId(Arc<str>);
+
+impl SegmentSourceId {
+    /// Construct an ID from a string that identifies the contents of a source.
+    pub fn new(id: impl Into<Arc<str>>) -> Self {
+        Self(id.into())
+    }
+}
+
+impl From<&str> for SegmentSourceId {
+    fn from(id: &str) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<String> for SegmentSourceId {
+    fn from(id: String) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<Arc<str>> for SegmentSourceId {
+    fn from(id: Arc<str>) -> Self {
+        Self(id)
+    }
+}
+
+/// An in-memory Moka cache of segments, capped by total buffer bytes, that any number of files can
+/// share.
+///
+/// A [`SegmentId`] is unique only within one file, so files use the cache through a
+/// [`FileSegmentCache`] from [`Self::for_file`], which adds a [`SegmentSourceId`]. Opening the
+/// same file again with the same ID reuses the segments an earlier open read.
+#[derive(Clone)]
+pub struct MokaSegmentCache(Cache<(SegmentSourceId, SegmentId), ByteBuffer, FxBuildHasher>);
 
 impl MokaSegmentCache {
     /// Construct a Moka-backed cache capped by total buffer bytes.
-    pub fn new(max_capacity_bytes: u64) -> Self {
+    pub fn new(max_capacity_bytes: u64, eviction: SegmentEviction) -> Self {
+        let eviction_policy = match eviction {
+            SegmentEviction::Lru => EvictionPolicy::lru(),
+            SegmentEviction::TinyLfu => EvictionPolicy::tiny_lfu(),
+        };
         Self(
             CacheBuilder::new(max_capacity_bytes)
                 .name("vortex-segment-cache")
@@ -61,23 +137,61 @@ impl MokaSegmentCache {
                 .weigher(|_, buffer: &ByteBuffer| {
                     u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
                 })
-                // We configure LFU (vs LRU) since the cache is mostly used when re-reading the
-                // same file - it is _not_ used when reading the same segments during a single
-                // scan.
-                .eviction_policy(EvictionPolicy::tiny_lfu())
+                .eviction_policy(eviction_policy)
                 .build_with_hasher(FxBuildHasher),
         )
     }
+
+    /// The view of this cache for the file identified by `source_id`.
+    pub fn for_file(&self, source_id: impl Into<SegmentSourceId>) -> FileSegmentCache {
+        FileSegmentCache {
+            cache: self.clone(),
+            source_id: source_id.into(),
+        }
+    }
+
+    /// The total bytes of the cached segments.
+    ///
+    /// Recent inserts and evictions may not be counted yet; call [`Self::run_pending_tasks`] first
+    /// for an exact value.
+    pub fn weighted_size(&self) -> u64 {
+        self.0.weighted_size()
+    }
+
+    /// The number of cached segments, with the same caveat as [`Self::weighted_size`].
+    pub fn entry_count(&self) -> u64 {
+        self.0.entry_count()
+    }
+
+    /// Apply pending inserts and evictions, so that the counts are exact.
+    pub async fn run_pending_tasks(&self) {
+        self.0.run_pending_tasks().await;
+    }
+
+    /// Remove every cached segment.
+    pub fn invalidate_all(&self) {
+        self.0.invalidate_all();
+    }
+}
+
+/// One file's view of a [`MokaSegmentCache`]; see [`MokaSegmentCache::for_file`].
+#[derive(Clone)]
+pub struct FileSegmentCache {
+    cache: MokaSegmentCache,
+    source_id: SegmentSourceId,
 }
 
 #[async_trait]
-impl SegmentCache for MokaSegmentCache {
+impl SegmentCache for FileSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        Ok(self.0.get(&id).await)
+        Ok(self.cache.0.get(&(self.source_id.clone(), id)).await)
     }
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        self.0.insert(id, buffer).await;
+        self.cache
+            .0
+            .insert((self.source_id.clone(), id), buffer)
+            .await;
         Ok(())
     }
 }
@@ -165,5 +279,61 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             Ok(result)
         }
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::ByteBuffer;
+
+    use super::*;
+
+    #[rstest]
+    #[case::lru(SegmentEviction::Lru)]
+    #[case::tiny_lfu(SegmentEviction::TinyLfu)]
+    #[tokio::test]
+    async fn shared_cache_separates_files(#[case] eviction: SegmentEviction) -> VortexResult<()> {
+        let shared = MokaSegmentCache::new(1 << 20, eviction);
+        let a = shared.for_file("a");
+        let b = shared.for_file("b");
+        let id = SegmentId::from(0);
+
+        a.put(id, ByteBuffer::copy_from(b"from a")).await?;
+        assert_eq!(a.get(id).await?.as_deref(), Some(b"from a".as_slice()));
+        assert!(b.get(id).await?.is_none());
+
+        // A later view with the same source ID sees what the earlier one stored.
+        let a_again = shared.for_file("a");
+        assert_eq!(
+            a_again.get(id).await?.as_deref(),
+            Some(b"from a".as_slice())
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::lru(SegmentEviction::Lru)]
+    #[case::tiny_lfu(SegmentEviction::TinyLfu)]
+    #[tokio::test]
+    async fn shared_cache_is_capped_by_bytes(
+        #[case] eviction: SegmentEviction,
+    ) -> VortexResult<()> {
+        let shared = MokaSegmentCache::new(1000, eviction);
+        let file = shared.for_file("file");
+        for i in 0..10u32 {
+            file.put(SegmentId::from(i), ByteBuffer::copy_from(vec![0u8; 400]))
+                .await?;
+        }
+
+        shared.run_pending_tasks().await;
+        assert!(shared.weighted_size() <= 1000);
+        assert!(shared.entry_count() <= 2);
+
+        // LRU admits every segment, so the most recently stored one survives.
+        if eviction == SegmentEviction::Lru {
+            assert!(file.get(SegmentId::from(9)).await?.is_some());
+        }
+        Ok(())
     }
 }

@@ -34,6 +34,7 @@ use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::VarBinView;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::ResolvedViews;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
@@ -735,7 +736,7 @@ impl VarBinViewData {
 
 pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
     fn dtype_parts(&self) -> (bool, Nullability) {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Utf8(nullability) => (true, *nullability),
             DType::Binary(nullability) => (false, *nullability),
             _ => unreachable!("VarBinViewArrayExt requires a utf8 or binary dtype"),
@@ -744,7 +745,7 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 
     fn varbinview_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VarBinViewSlots::VALIDITY].as_ref(),
+            self.slots()[VarBinViewSlots::VALIDITY].as_ref(),
             self.dtype_parts().1,
         )
     }
@@ -752,14 +753,15 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
+    /// Resolve the data buffers of this array for per-row access.
+    pub fn resolved_views(&self) -> ResolvedViews<'_> {
+        ResolvedViews::new(self)
+    }
+
     #[inline]
     fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: ArraySlots) -> Self {
         let len = data.len();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(VarBinView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBinView, dtype, len, data, slots)) }
     }
 
     /// Construct a `VarBinViewArray` from an iterator of optional byte slices.

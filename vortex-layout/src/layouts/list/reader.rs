@@ -437,17 +437,18 @@ impl LayoutReader for ListReader {
                 return Ok(mask);
             }
 
+            let mut ctx = session.create_execution_ctx();
             if mask.density() < EXPR_EVAL_THRESHOLD {
                 let predicate = reader
                     .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
                     .await?;
-                let predicate_mask = predicate_array_to_mask(predicate, &session)?;
+                let predicate_mask = predicate.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 Ok(mask.intersect_by_rank(&predicate_mask))
             } else {
                 let predicate = reader
                     .projection_evaluation(&row_range, &expr, MaskFuture::new_true(len))?
                     .await?;
-                let predicate_mask = predicate_array_to_mask(predicate, &session)?;
+                let predicate_mask = predicate.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 Ok(mask & &predicate_mask)
             }
         }))
@@ -597,11 +598,6 @@ fn apply_lengths_validity(
     } else {
         Ok(lengths)
     }
-}
-
-fn predicate_array_to_mask(array: ArrayRef, session: &VortexSession) -> VortexResult<Mask> {
-    let mut ctx = session.create_execution_ctx();
-    array.null_as_false().execute(&mut ctx)
 }
 
 #[cfg(test)]

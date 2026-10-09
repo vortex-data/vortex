@@ -14,13 +14,14 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::ArrowExporter;
 use crate::executor::validity::to_arrow_null_buffer;
-use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_fixed_list(
     array: ArrayRef,
     list_size: i32,
     elements_field: &FieldRef,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -31,18 +32,25 @@ pub(super) fn to_arrow_fixed_list(
 
     // Check for Vortex FixedSizeListArray and convert directly.
     if let Some(array) = array.as_opt::<FixedSizeList>() {
-        return list_to_list(&array.into_owned(), elements_field, list_size, ctx);
+        return list_to_list(
+            &array.into_owned(),
+            elements_field,
+            list_size,
+            exporter,
+            ctx,
+        );
     }
 
     // Otherwise, we execute the array to become a FixedSizeListArray.
     let fixed_size_list = array.execute::<FixedSizeListArray>(ctx)?;
-    list_to_list(&fixed_size_list, elements_field, list_size, ctx)
+    list_to_list(&fixed_size_list, elements_field, list_size, exporter, ctx)
 }
 
 fn list_to_list(
     array: &FixedSizeListArray,
     elements_field: &FieldRef,
     list_size: i32,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -52,11 +60,8 @@ fn list_to_list(
         list_size
     );
 
-    let elements = ctx.session().clone().arrow().execute_arrow(
-        array.elements().clone(),
-        Some(elements_field.as_ref()),
-        ctx,
-    )?;
+    let elements =
+        exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"

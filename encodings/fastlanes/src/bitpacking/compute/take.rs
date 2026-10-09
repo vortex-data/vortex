@@ -25,6 +25,7 @@ use vortex_error::VortexResult;
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidthsView;
 use crate::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
@@ -39,6 +40,9 @@ impl TakeExecute for BitPacked {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+            return Ok(None);
+        };
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
             let prim = array.array().clone().execute::<PrimitiveArray>(ctx)?;
@@ -54,7 +58,7 @@ impl TakeExecute for BitPacked {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                take_primitive::<T, I>(array, &indices, taken_validity, ctx)?
+                take_primitive::<T, I>(array, bit_width, &indices, taken_validity, ctx)?
             })
         });
         let taken = if ptype.is_signed_int() {
@@ -72,6 +76,7 @@ impl TakeExecute for BitPacked {
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     indices: &PrimitiveArray,
     taken_validity: Validity,
     ctx: &mut ExecutionCtx,
@@ -81,7 +86,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     }
 
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
+    let bit_width = bit_width as usize;
 
     let packed = array.packed_slice::<T>();
 
@@ -279,6 +284,7 @@ mod test {
 
         let taken_primitive = take_primitive::<u32, u64>(
             start.as_view(),
+            1,
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
             Validity::NonNullable,
             &mut ctx,

@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query IITR
+SELECT dt.d_year,
+       item.i_brand_id brand_id,
+       item.i_brand brand,
+       sum(ss_ext_sales_price) sum_agg
+FROM date_dim dt,
+     store_sales,
+     item
+WHERE dt.d_date_sk = store_sales.ss_sold_date_sk
+  AND store_sales.ss_item_sk = item.i_item_sk
+  AND item.i_manufact_id = 128
+  AND dt.d_moy=11
+GROUP BY dt.d_year,
+         item.i_brand,
+         item.i_brand_id
+ORDER BY dt.d_year,
+         sum_agg DESC,
+         brand_id
+LIMIT 100;
+----
+1998 3001001 amalgexporti #1 35091.22
+1998 6004008 edu packcorp #8 7815.69
+1998 1004001 edu packamalg #1 4804.39
+1999 1004001 edu packamalg #1 21945.56
+1999 3001001 amalgexporti #1 15640.06
+1999 6004008 edu packcorp #8 3158.28
+2000 1004001 edu packamalg #1 19485.89
+2000 6004008 edu packcorp #8 16982.85
+2000 3001001 amalgexporti #1 16927.9
+2001 3001001 importoscholar #2 31223.1
+2001 1004001 exportiexporti #2 29816.3
+2001 6004008 edu packcorp #8 24093.07
+2002 6004008 edu packcorp #8 20111.76
+2002 3001001 importoscholar #2 13535.81
+2002 1004001 exportiexporti #2 11338.71

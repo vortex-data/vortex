@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 use vortex_mask::MaskValuesRef;
 
@@ -12,10 +12,10 @@ use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 
-/// Density threshold for choosing between indices and slices representation when expanding masks.
-///
-/// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
-const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
+/// Selections of lists at least this long cache the ranges of selected elements on the element
+/// mask. Those ranges hold at least this many elements each, so filters can copy them whole
+/// rather than walk the bitmap.
+const MIN_CACHED_SLICES_LIST_SIZE: usize = 8;
 
 /// Filter implementation for [`FixedSizeListArray`].
 ///
@@ -38,7 +38,6 @@ pub fn filter_fixed_size_list(
 
     let new_elements = {
         if list_size != 0 {
-            // TODO(connor): Push down an indices or slices selection to avoid expanding the mask.
             let elements_mask =
                 compute_mask_for_fsl_elements(selection_mask.as_ref(), list_size as usize);
 
@@ -75,44 +74,48 @@ pub fn filter_fixed_size_list(
 /// `list_size` times.
 ///
 /// The output `Mask` is guaranteed to have a length equal to `selection_mask.len() * list_size`.
+///
+/// The element bitmap is built directly rather than from a list of ranges: each run of selected
+/// lists is filled a word at a time.
 fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) -> Mask {
-    let expanded_len = selection_mask.len() * list_size;
+    let selection = selection_mask.bit_buffer();
+    let len = selection.len() * list_size;
 
-    // Use threshold_iter to choose the optimal representation based on density.
-    let expanded_slices = match selection_mask.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
-        MaskIter::Slices(slices) => {
-            // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
-            slices
-                .iter()
-                .map(|&(start, end)| (start * list_size, end * list_size))
-                .collect()
-        }
-        MaskIter::Indices(indices) => {
-            // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
-            // times.
-            //
-            // Note that in the worst case, it is possible that we create only a few slices with a
-            // small range (for example, when list_size <= 2). This could be further optimized,
-            // but we choose simplicity for now.
-            indices
-                .iter()
-                .map(|&idx| {
-                    let start = idx * list_size;
-                    let end = (idx + 1) * list_size;
-                    (start, end)
-                })
-                .collect()
-        }
-    };
+    if list_size == 1 {
+        return Mask::from_buffer(selection.clone());
+    }
 
-    Mask::from_slices(expanded_len, expanded_slices)
+    let cache_slices = list_size >= MIN_CACHED_SLICES_LIST_SIZE;
+    let mut elements = BitBufferMut::new_unset(len);
+    let mut slices = Vec::new();
+    for (start, end) in selection.set_slices() {
+        let (start, end) = (start * list_size, end * list_size);
+        // SAFETY: selected lists lie within the selection, so `start <= end <= len`.
+        unsafe { elements.fill_range_unchecked(start, end, true) };
+        if cache_slices {
+            slices.push((start, end));
+        }
+    }
+
+    let elements = elements.freeze();
+    if cache_slices {
+        Mask::from_buffer_with_slices(elements, slices)
+    } else {
+        Mask::from_buffer(elements)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use super::compute_mask_for_fsl_elements;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -198,5 +201,34 @@ mod tests {
             FixedSizeListArray::new(expected_inner.into_array(), 2, Validity::NonNullable, 1);
 
         assert_arrays_eq!(filtered, expected_outer, &mut ctx);
+    }
+
+    #[rstest]
+    fn expanded_mask_repeats_each_bit(
+        #[values(1, 2, 3, 4, 5, 8, 16, 63, 64, 65, 130)] list_size: usize,
+        #[values(0.01, 0.5, 0.99)] density: f64,
+        #[values(0, 5, 64)] offset: usize,
+    ) {
+        let mut rng = StdRng::seed_from_u64(0);
+        let bits = BitBuffer::from_iter((0..offset + 333).map(|_| rng.random_bool(density)))
+            .slice(offset..);
+        let Mask::Values(selection) = Mask::from_buffer(bits.clone()) else {
+            unreachable!("the selection is neither empty nor full")
+        };
+
+        let expanded = compute_mask_for_fsl_elements(&selection, list_size);
+        let expected = Mask::from_buffer(BitBuffer::from_iter(
+            bits.iter()
+                .flat_map(|selected| std::iter::repeat_n(selected, list_size)),
+        ));
+        assert_eq!(expanded, expected);
+
+        let values = expanded.values().unwrap();
+        if list_size >= 8 {
+            let expected_slices: Vec<_> = values.bit_buffer().set_slices().collect();
+            assert_eq!(values.cached_slices(), Some(expected_slices.as_slice()));
+        } else {
+            assert!(values.cached_slices().is_none());
+        }
     }
 }

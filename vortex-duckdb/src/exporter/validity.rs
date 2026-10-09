@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::array::ExecutionCtx;
+use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex::mask::MaskValues;
@@ -53,6 +54,16 @@ fn zero_copy_validity(values: &MaskValues) -> Option<ValidityData> {
 }
 
 pub(crate) fn new_exporter(
+    validity: Validity,
+    len: usize,
+    exporter: Box<dyn ColumnExporter>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let mask = validity.execute_mask(len, ctx)?;
+    Ok(new_exporter_with_mask(mask, exporter))
+}
+
+pub(crate) fn new_exporter_with_mask(
     mask: Mask,
     exporter: Box<dyn ColumnExporter>,
 ) -> Box<dyn ColumnExporter> {
@@ -87,13 +98,10 @@ impl ColumnExporter for ValidityExporter {
         );
 
         if unsafe {
-            vector.set_validity_zero_copy(&self.mask, offset, len, self.zero_copy.as_ref())
+            !vector.set_validity_zero_copy(&self.mask, offset, len, self.zero_copy.as_ref())
         } {
-            // All values are null, so no point copying the data.
-            return Ok(());
+            self.exporter.export(offset, len, vector, ctx)?;
         }
-
-        self.exporter.export(offset, len, vector, ctx)?;
 
         Ok(())
     }

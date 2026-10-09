@@ -228,7 +228,13 @@ impl VTable for ALPRD {
             })?,
             left_parts_patches,
         );
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -375,7 +381,7 @@ impl ALPRD {
         let len = left_parts.len();
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
-        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data, slots))
     }
 
     /// # Safety
@@ -393,9 +399,7 @@ impl ALPRD {
         let data = unsafe {
             ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
         };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data, slots)) }
     }
 }
 
@@ -519,11 +523,7 @@ pub trait ALPRDArrayExt: ALPRDArraySlotsExt {
     }
 
     fn left_parts_patches(&self) -> Option<Patches> {
-        patches_from_slots(
-            self.as_ref().slots(),
-            self.patches_data.as_ref(),
-            self.as_ref().len(),
-        )
+        patches_from_slots(self.slots(), self.patches_data.as_ref(), self.len())
     }
 
     fn left_parts_dictionary(&self) -> &Buffer<u16> {

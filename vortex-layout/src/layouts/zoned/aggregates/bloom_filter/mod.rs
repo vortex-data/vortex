@@ -311,7 +311,7 @@ impl AggregateFnVTable for BloomFilter {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         if scalar.is_null() {
             return Ok(BloomPartial::from(args.options));
@@ -482,7 +482,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
         let full = vec![u8::MAX; options.blocks_count().get() as usize * BLOCK_SIZE];
         let partial = BloomFilter.partial_from_scalar(
             dtypes.args(&options),
-            Scalar::binary(full, Nullability::NonNullable),
+            &Scalar::binary(full, Nullability::NonNullable),
         )?;
 
         assert!(BloomFilter.is_saturated(dtypes.args(&options), &partial));
@@ -499,7 +499,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
             BloomFilter.to_scalar(dtypes.args(&BloomOptions::default()), &bigger)?;
         assert!(
             BloomFilter
-                .partial_from_scalar(dtypes.args(&smaller), bigger_scalar)
+                .partial_from_scalar(dtypes.args(&smaller), &bigger_scalar)
                 .is_err(),
             "parsing a partial built with a different blocks_count must fail loudly, not corrupt state"
         );

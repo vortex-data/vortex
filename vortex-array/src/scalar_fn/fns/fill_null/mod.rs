@@ -16,11 +16,12 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
-use crate::builtins::ArrayBuiltins;
+use crate::arrays::VarBinView;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::scalar::Scalar;
@@ -46,7 +47,23 @@ impl FillNull {
     ///
     /// Returns an error if the children have different lengths or incompatible dtypes.
     pub fn try_new(input: ArrayRef, fill_value: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), vec![input, fill_value])
+        ScalarFnArray::try_new(FillNull.bind(EmptyOptions), [input, fill_value])
+    }
+
+    /// Returns whether fill_null can execute inputs of `dtype`.
+    ///
+    /// These are the dtypes whose canonical arrays have a [`FillNullKernel`], so update this list
+    /// whenever `fill_null_canonical` gains or loses one. Rewrites into fill_null, such as the
+    /// CASE WHEN simplification, check it first because other dtypes fail at execution time.
+    pub(crate) fn supports_dtype(dtype: &DType) -> bool {
+        matches!(
+            dtype,
+            DType::Bool(_)
+                | DType::Primitive(..)
+                | DType::Decimal(..)
+                | DType::Utf8(_)
+                | DType::Binary(_)
+        )
     }
 }
 
@@ -114,7 +131,8 @@ impl ScalarFnVTable for FillNull {
         );
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
+            let input = input.execute::<ArrayRef>(ctx)?;
+            return Ok(FillNull::try_new(input, fill_value)?.into_array());
         };
 
         match columnar {
@@ -178,6 +196,10 @@ fn fill_null_canonical(
         }
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
+        CanonicalView::VarBinView(a) => {
+            <VarBinView as FillNullKernel>::fill_null(a, fill_value, ctx)?
+                .ok_or_else(|| vortex_err!("FillNullKernel for VarBinViewArray returned None"))
+        }
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",
             other.to_array_ref().encoding_id()
@@ -187,22 +209,34 @@ fn fill_null_canonical(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use super::*;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
+    use crate::builders::builder_with_capacity_in;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::fill_null;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::root;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::scalar::Scalar;
 
     #[test]
     fn dtype() {
@@ -268,6 +302,52 @@ mod tests {
         let expr = fill_null(root(), lit(0i32));
         let result = test_array.apply(&expr).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2, 3]), &mut ctx);
+    }
+
+    /// Inputs with both valid and null rows execute exactly for the dtypes that `supports_dtype`
+    /// accepts, so adding a kernel without updating `supports_dtype` fails here.
+    #[test]
+    fn supports_dtype_matches_kernels() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtypes = [
+            DType::Bool(Nullability::Nullable),
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            DType::Decimal(DecimalDType::new(19, 2), Nullability::Nullable),
+            DType::Utf8(Nullability::Nullable),
+            DType::Binary(Nullability::Nullable),
+            DType::List(Arc::new(i32_dtype.clone()), Nullability::Nullable),
+            DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, Nullability::Nullable),
+            DType::Struct(
+                StructFields::from_iter([("value", i32_dtype.clone())]),
+                Nullability::Nullable,
+            ),
+            DType::Map(
+                MapDType::try_new(i32_dtype.clone(), i32_dtype, false)?,
+                Nullability::Nullable,
+            ),
+            DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()),
+        ];
+
+        for dtype in dtypes {
+            let fill = Scalar::default_value(&dtype.as_nonnullable());
+            let mut builder = builder_with_capacity_in(&dtype, 2, ctx.allocator());
+            builder.append_scalar(&fill.cast(&dtype)?)?;
+            builder.append_null();
+            let filled = builder
+                .finish()
+                .fill_null(fill.clone())?
+                .execute::<Canonical>(&mut ctx);
+
+            if FillNull::supports_dtype(&dtype) {
+                let filled = filled?.into_array();
+                assert_eq!(filled.dtype(), fill.dtype(), "{dtype}");
+                assert_eq!(filled.execute_scalar(1, &mut ctx)?, fill, "{dtype}");
+            } else {
+                assert!(filled.is_err(), "{dtype} executes but is not supported");
+            }
+        }
+        Ok(())
     }
 
     #[test]

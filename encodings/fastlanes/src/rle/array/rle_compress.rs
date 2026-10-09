@@ -20,6 +20,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::ChunkBoundary;
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::RLEArray;
@@ -47,7 +48,12 @@ where
 {
     // Fill-forward null values so the RLE encoder doesn't see garbage at null positions,
     // which would create spurious run boundaries and inflate the dictionary.
-    let values = fill_forward_nulls(array.to_buffer::<T>(), &array.validity()?, ctx)?;
+    let values = fill_forward_nulls(
+        array.to_buffer::<T>(),
+        &array.validity()?,
+        ChunkBoundary::Reset,
+        ctx,
+    )?;
     let len = values.len();
     let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 

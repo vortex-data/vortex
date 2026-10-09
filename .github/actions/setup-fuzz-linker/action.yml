@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: "Setup Fuzz Linker"
+description: "Use mold for native Linux fuzzer builds"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure mold
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        if ! command -v mold >/dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y mold
+        fi
+        # Use mold to handle long-range calls in the instrumented ARM64 binaries.
+        echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"

@@ -42,8 +42,8 @@ impl Display for MaskedData {
 pub trait MaskedArrayExt: TypedArrayRef<Masked> + MaskedArraySlotsExt {
     fn masked_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[MaskedSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[MaskedSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }
@@ -88,10 +88,13 @@ impl Array<Masked> {
             validity,
         )?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Masked, dtype, len, data)
-                    .with_slots(smallvec![Some(child), validity_slot]),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Masked,
+                dtype,
+                len,
+                data,
+                smallvec![Some(child), validity_slot],
+            ))
         })
     }
 }

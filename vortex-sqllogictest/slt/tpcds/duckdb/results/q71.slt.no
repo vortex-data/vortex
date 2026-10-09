@@ -1,0 +1,107 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query ITIIR
+SELECT i_brand_id brand_id,
+       i_brand brand,
+       t_hour,
+       t_minute,
+       sum(ext_price) ext_price
+FROM item,
+  (SELECT ws_ext_sales_price AS ext_price,
+          ws_sold_date_sk AS sold_date_sk,
+          ws_item_sk AS sold_item_sk,
+          ws_sold_time_sk AS time_sk
+   FROM web_sales,
+        date_dim
+   WHERE d_date_sk = ws_sold_date_sk
+     AND d_moy=11
+     AND d_year=1999
+   UNION ALL SELECT cs_ext_sales_price AS ext_price,
+                    cs_sold_date_sk AS sold_date_sk,
+                    cs_item_sk AS sold_item_sk,
+                    cs_sold_time_sk AS time_sk
+   FROM catalog_sales,
+        date_dim
+   WHERE d_date_sk = cs_sold_date_sk
+     AND d_moy=11
+     AND d_year=1999
+   UNION ALL SELECT ss_ext_sales_price AS ext_price,
+                    ss_sold_date_sk AS sold_date_sk,
+                    ss_item_sk AS sold_item_sk,
+                    ss_sold_time_sk AS time_sk
+   FROM store_sales,
+        date_dim
+   WHERE d_date_sk = ss_sold_date_sk
+     AND d_moy=11
+     AND d_year=1999 ) tmp,
+     time_dim
+WHERE sold_item_sk = i_item_sk
+  AND i_manager_id=1
+  AND time_sk = t_time_sk
+  AND (t_meal_time = 'breakfast'
+       OR t_meal_time = 'dinner')
+GROUP BY i_brand,
+         i_brand_id,
+         t_hour,
+         t_minute
+ORDER BY ext_price DESC NULLS FIRST,
+         i_brand_id NULLS FIRST,
+         t_hour NULLS FIRST;
+----
+7010004 univnameless #4 17 27 16760.59
+6007003 brandcorp #3 19 46 8076.2
+1002002 importoamalg #2 9 33 7050.93
+1002002 importoamalg #2 17 57 6408.22
+1002002 importoamalg #2 18 52 6079.15
+7010004 univnameless #4 18 35 5753.02
+6007003 brandcorp #3 19 20 5499.68
+4004001 edu packedu pack #1 18 28 4840.75
+7010004 univnameless #4 19 7 4672.5
+6007003 brandcorp #3 17 30 4584.39
+10010013 univamalgamalg #13 18 44 4515.05
+10004004 edu packunivamalg #4 9 42 4407.04
+1002002 importoamalg #2 18 10 4330.04
+7008009 namelessbrand #9 17 4 4276.34
+7008009 namelessbrand #9 8 53 4190.4
+10004004 edu packunivamalg #4 8 35 3933.15
+10010013 univamalgamalg #13 17 17 3276
+1001002 amalgamalg #2 8 23 3229.98
+1001002 amalgamalg #2 19 50 3047.4
+6007003 brandcorp #3 7 39 2617.16
+1002002 importoamalg #2 9 22 2582.32
+10004004 edu packunivamalg #4 7 43 2089.24
+4004001 edu packedu pack #1 19 43 2040.56
+10010013 univamalgamalg #13 19 56 1601.4
+4004001 edu packedu pack #1 8 52 1567.02
+6007003 brandcorp #3 18 47 1490.17
+7010004 univnameless #4 18 28 1480.32
+10004004 edu packunivamalg #4 8 4 1436.83
+7008009 namelessbrand #9 9 10 1325.4
+10004004 edu packunivamalg #4 9 28 1306.03
+10004004 edu packunivamalg #4 19 36 1227.28
+10010013 univamalgamalg #13 17 36 1090.32
+6005001 scholarcorp #1 17 19 966.84
+10004004 edu packunivamalg #4 18 56 870.09
+1001002 amalgamalg #2 19 4 866.64
+7008009 namelessbrand #9 18 59 716.4
+4004001 edu packedu pack #1 19 45 707.5
+1001002 amalgamalg #2 17 21 681.12
+1001002 amalgamalg #2 9 32 632.16
+6007003 brandcorp #3 19 35 618.63
+10004004 edu packunivamalg #4 9 38 576.72
+7008009 namelessbrand #9 18 39 481.08
+10004004 edu packunivamalg #4 19 8 460.8
+10010013 univamalgamalg #13 17 52 447.64
+6007003 brandcorp #3 9 25 339.9
+10010013 univamalgamalg #13 9 13 317.98
+7008009 namelessbrand #9 17 5 298.62
+7008009 namelessbrand #9 9 54 280.14
+6005001 scholarcorp #1 19 37 261.52
+7008009 namelessbrand #9 9 8 213.84
+1002002 importoamalg #2 9 3 203.85
+7010004 univnameless #4 17 44 141.37
+7010004 univnameless #4 9 54 117
+6005001 scholarcorp #1 19 16 64.32
+6005001 scholarcorp #1 9 43 27.72
+10004004 edu packunivamalg #4 18 50 20.09

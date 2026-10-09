@@ -19,9 +19,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::require_child;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -153,9 +155,13 @@ impl DecimalByteParts {
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         let slots = DecimalBytePartsSlots { msp, lower_parts }.into_slots();
-        Array::try_from_parts(
-            ArrayParts::new(DecimalByteParts, dtype, len, DecimalBytePartsData).with_slots(slots),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            DecimalByteParts,
+            dtype,
+            len,
+            DecimalBytePartsData,
+            slots,
+        ))
     }
 
     /// Construct a [`DecimalBytePartsArray`] from parts whose invariants are already established.
@@ -176,10 +182,13 @@ impl DecimalByteParts {
         // SAFETY: the caller guarantees the part types, lengths, and count. The slot builder
         // fills every required slot, and the length and nullability come from the MSP.
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(DecimalByteParts, dtype, len, DecimalBytePartsData)
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                DecimalByteParts,
+                dtype,
+                len,
+                DecimalBytePartsData,
+                slots,
+            ))
         }
     }
 }
@@ -278,6 +287,14 @@ impl VTable for DecimalByteParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let mut array = require_child!(array, array.msp(), DecimalBytePartsSlots::MSP => Primitive);
+        for idx in 0..array.lower_parts().len() {
+            array = require_child!(
+                array,
+                array.lower_parts()[idx],
+                DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx => Primitive
+            );
+        }
         let lower_parts = array.lower_parts().to_vec();
         let assembled = assemble_decimal(array.msp(), &lower_parts, array.decimal_dtype(), ctx)?;
 
@@ -672,8 +689,8 @@ mod tests {
             DType::Decimal(DecimalDType::new(76, 2), Nullability::NonNullable),
             3,
             DecimalBytePartsData,
-        )
-        .with_slots(slots.into_iter().collect());
+            slots.into_iter().collect(),
+        );
         assert!(Array::try_from_parts(parts).is_err());
     }
 

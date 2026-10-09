@@ -58,7 +58,7 @@ impl Cast {
     /// Creates a lazy cast of `input` to `target_dtype`.
     #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
     pub fn new(input: ArrayRef, target_dtype: DType) -> ScalarFnArray {
-        ScalarFnArray::try_new(Cast.bind(target_dtype), vec![input])
+        ScalarFnArray::try_new(Cast.bind(target_dtype), [input])
             .vortex_expect("Cast has one child and an infallible return dtype")
     }
 }

@@ -21,7 +21,6 @@ use vortex::dtype::IntegerPType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::mask::Mask;
 
 use super::ConversionCache;
 use super::all_invalid;
@@ -95,8 +94,6 @@ pub(crate) fn new_exporter(
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
-
     let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.
     let cached_elements = cache
@@ -142,7 +139,7 @@ pub(crate) fn new_exporter(
         })
     });
 
-    Ok(validity::new_exporter(validity, boxed))
+    validity::new_exporter(validity, len, boxed, ctx)
 }
 
 impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S> {

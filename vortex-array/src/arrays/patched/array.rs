@@ -114,7 +114,7 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
     #[inline]
     #[allow(clippy::disallowed_methods)]
     fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
+        assert!(chunk * 1024 <= self.len() + self.offset());
         assert!(lane < self.n_lanes());
 
         let start = self.lane_offsets().execute_scalar(
@@ -152,12 +152,12 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
         let begin = (chunks.start * 1024).saturating_sub(self.offset());
         let end = (chunks.end * 1024)
             .saturating_sub(self.offset())
-            .min(self.as_ref().len());
+            .min(self.len());
 
         let offset = if chunks.start == 0 { self.offset() } else { 0 };
         let inner = self.inner().slice(begin..end)?;
         let len = inner.len();
-        let dtype = self.as_ref().dtype().clone();
+        let dtype = self.dtype().clone();
         let slots = PatchedSlots {
             inner,
             lane_offsets: sliced_lane_offsets,
@@ -246,10 +246,13 @@ impl Patched {
         offset: usize,
     ) -> Array<Patched> {
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Patched, dtype, len, PatchedData { n_lanes, offset })
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Patched,
+                dtype,
+                len,
+                PatchedData { n_lanes, offset },
+                slots,
+            ))
         }
     }
 }
@@ -365,6 +368,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
     use super::PatchedSlots;
@@ -491,6 +495,39 @@ mod tests {
         let owned = VariadicSlots::from_slots(slot_vec.into());
         assert!(owned.chunks.is_empty());
         assert_eq!(owned.into_slots().len(), 2);
+    }
+
+    #[test]
+    fn variadic_slots_spilled_tail_keeps_order() {
+        let offsets = PrimitiveArray::new(buffer![0u64], Validity::NonNullable).into_array();
+        let chunks: Vec<ArrayRef> = (0..5u8)
+            .map(|len| {
+                PrimitiveArray::new((0..len).collect::<Buffer<u8>>(), Validity::NonNullable)
+                    .into_array()
+            })
+            .collect();
+
+        let slots = VariadicSlots {
+            offsets: offsets.clone(),
+            maybe_validity: None,
+            chunks,
+        }
+        .into_slots();
+
+        assert!(slots.spilled());
+        assert_eq!(slots.len(), VariadicSlots::FIXED_COUNT + 5);
+        assert_eq!(
+            slots[VariadicSlots::OFFSETS].as_ref().map(|s| s.len()),
+            Some(offsets.len())
+        );
+        assert!(slots[VariadicSlots::MAYBE_VALIDITY].is_none());
+        assert_eq!(
+            slots[VariadicSlots::CHUNKS_OFFSET..]
+                .iter()
+                .map(|s| s.as_ref().map(|c| c.len()))
+                .collect::<Vec<_>>(),
+            (0..5).map(Some).collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferAllocatorRef;
 use vortex::buffer::BufferMut;
+use vortex::buffer::trusted_len::TrustedLen;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
@@ -83,7 +84,7 @@ fn vector_as_slice<T: NativePType>(vector: &VectorRef, len: usize) -> ArrayRef {
     .into_array()
 }
 
-fn vector_i128_values(vector: &VectorRef, len: usize) -> impl Iterator<Item = i128> {
+fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = i128> {
     let base = unsafe { crate::cpp::duckdb_vector_get_data(vector.as_ptr()) }.cast::<i128>();
     // In batch copy, columns are 8 byte aligned, so reading vector's values
     // as &[i128] is UB. Read data unaligned specifically
@@ -303,13 +304,21 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let logical_type = vector.logical_type();
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
-            let validity = vector.validity_ref(len).to_validity();
+            let mask = vector.validity_ref(len).execute_mask();
+            let validity = Validity::from_mask(mask, Nullability::Nullable);
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
             match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8 {
+                        // Lossy conversion is defined behavior in Rust so this is fine
+                        let buf =
+                            Buffer::<i8>::from_trusted_len_iter(data.iter().map(|&v| v.as_()));
+                        DecimalArray::try_new(buf, decimal_dtype, validity)
+                    } else {
+                        DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    }
                 }
                 DecimalType::I32 => {
                     let data = vector.as_slice_with_len::<i32>(len);

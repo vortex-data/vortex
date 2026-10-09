@@ -6,7 +6,6 @@
 use std::fmt;
 use std::hash::Hash;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -75,8 +74,9 @@ impl<'a> ExtScalar<'a> {
 
     /// Returns the storage scalar of the extension scalar.
     pub fn to_storage_scalar(&self) -> Scalar {
-        Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
-            .vortex_expect("ExtScalar is invalid")
+        unsafe {
+            Scalar::new_unchecked(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
+        }
     }
 
     /// Returns a reference to the underlying value

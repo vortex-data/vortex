@@ -215,7 +215,7 @@ impl FixedSizeListData {
 
 pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
     fn dtype_parts(&self) -> (&DType, u32, crate::dtype::Nullability) {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::FixedSizeList(element_dtype, list_size, nullability) => {
                 (element_dtype.as_ref(), *list_size, *nullability)
             }
@@ -231,7 +231,7 @@ pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
     fn fixed_size_list_validity(&self) -> Validity {
         let (_, _, nullability) = self.dtype_parts();
         child_to_validity(
-            self.as_ref().slots()[FixedSizeListSlots::VALIDITY].as_ref(),
+            self.slots()[FixedSizeListSlots::VALIDITY].as_ref(),
             nullability,
         )
     }
@@ -239,10 +239,10 @@ pub trait FixedSizeListArrayExt: FixedSizeListArraySlotsExt {
     #[allow(clippy::disallowed_methods)]
     fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
-            index < self.as_ref().len(),
+            index < self.len(),
             "index {} out of bounds: the len is {}",
             index,
-            self.as_ref().len(),
+            self.len(),
         );
 
         let start = self.list_size() as usize * index;
@@ -263,9 +263,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = FixedSizeListData::build(elements, list_size, validity, len);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         }
     }
 
@@ -284,9 +282,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = FixedSizeListData::try_build(elements, list_size, validity, len)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         })
     }
 
@@ -309,9 +305,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         }
     }
 

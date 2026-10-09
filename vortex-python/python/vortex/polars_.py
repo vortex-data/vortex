@@ -65,6 +65,9 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
         return cast(ve.Expr, _OPS[op](lhs, rhs))
 
+    if "Ternary" in expr:
+        node = expr["Ternary"]
+        return ve.zip_(*[_polars_to_vortex(node[k]) for k in ("predicate", "truthy", "falsy")])
     if "Column" in expr:
         return ve.column(expr["Column"])
 
@@ -96,6 +99,17 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         elif "Int64" in scalar:
             value = scalar["Int64"]
             dtype = "Int64"
+        elif "Time" in scalar:
+            return ve.literal(_dtype.time("ns"), scalar["Time"])
+        elif "Decimal" in scalar:
+            value, precision, scale = scalar["Decimal"]
+            return ve.literal(_dtype.decimal(precision=precision, scale=scale), value)
+        elif "Date" in scalar:
+            return ve.literal(_dtype.date("days"), scalar["Date"])
+        elif "Binary" in scalar:
+            return ve.literal(_dtype.binary(), bytes(scalar["Binary"]))
+        elif len(scalar) == 1 and next(iter(scalar)) in _LITERAL_TYPES:
+            dtype, value = next(iter(scalar.items()))
         else:
             raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
 
@@ -148,6 +162,21 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         fn = expr["function"]
         if "Boolean" in fn:
             fn = fn["Boolean"]
+
+            if "IsBetween" in fn:
+                closed = fn["IsBetween"]["closed"]
+                lower = operator.ge if closed in ("Both", "Left") else operator.gt
+                upper = operator.le if closed in ("Both", "Right") else operator.lt
+                return cast(ve.Expr, lower(_inputs[0], _inputs[1]) & upper(_inputs[0], _inputs[2]))
+
+            if fn == "IsNotNull":
+                return ve.is_not_null(_inputs[0])
+
+            if fn == "IsNull":
+                return ve.is_null(_inputs[0])
+
+            if fn == "Not":
+                return ve.not_(_inputs[0])
 
             if "IsIn" in fn:
                 fn = fn["IsIn"]

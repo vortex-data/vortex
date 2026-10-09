@@ -279,7 +279,7 @@ impl ListData {
 
 pub trait ListArrayExt: ListArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListArrayExt requires a list dtype"),
         }
@@ -287,7 +287,7 @@ pub trait ListArrayExt: ListArraySlotsExt {
 
     fn list_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[ListSlots::VALIDITY].as_ref(),
+            self.slots()[ListSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -295,9 +295,9 @@ pub trait ListArrayExt: ListArraySlotsExt {
     #[allow(clippy::disallowed_methods)]
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
         vortex_ensure!(
-            index <= self.as_ref().len(),
+            index <= self.len(),
             "Index {index} out of bounds 0..={}",
-            self.as_ref().len()
+            self.len()
         );
 
         if let Some(p) = self.offsets().as_opt::<Primitive>() {
@@ -321,7 +321,7 @@ pub trait ListArrayExt: ListArraySlotsExt {
 
     fn sliced_elements(&self) -> VortexResult<ArrayRef> {
         let start = self.offset_at(0)?;
-        let end = self.offset_at(self.as_ref().len())?;
+        let end = self.offset_at(self.len())?;
         self.elements().slice(start..end)
     }
 
@@ -364,9 +364,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = ListData::build(elements, offsets, validity);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `ListArray`.
@@ -379,9 +377,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = ListData::try_build(elements, offsets, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) })
     }
 
     /// Creates a new `ListArray` without validation.
@@ -394,9 +390,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = unsafe { ListData::new_unchecked() };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) }
     }
 
     pub fn into_data_parts(self) -> ListDataParts {

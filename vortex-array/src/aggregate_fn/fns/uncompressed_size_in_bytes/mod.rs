@@ -57,7 +57,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -85,11 +84,7 @@ fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
         .typed_value::<u64>()
         .vortex_expect("uncompressed_size_in_bytes result should not be null");
 
-    array.statistics().set(
-        Stat::UncompressedSizeInBytes,
-        Precision::Exact(ScalarValue::from(size)),
-    );
-
+    // The accumulator caches the size on `array` as a statistic.
     Ok(size)
 }
 
@@ -142,7 +137,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(scalar
             .as_primitive()

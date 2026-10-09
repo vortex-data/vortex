@@ -70,11 +70,13 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
+use crate::ArrowExportOptions;
 use crate::IntoVortexArray;
 use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
+use crate::convert::trim_offsets;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
@@ -170,11 +172,13 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// Convert a Vortex array into an Arrow array shaped to `target`.
     ///
     /// Returns ownership of `array` via [`ArrowExport::Unsupported`] when the plugin cannot
-    /// handle the input.
+    /// handle the input. Plugins that export child or storage arrays must pass `options` on to
+    /// those exports.
     fn execute_arrow(
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport>;
 }
@@ -531,63 +535,47 @@ impl ArrowSession {
     ///
     /// With `target = None` the fallback path picks the array's preferred Arrow physical type
     /// and executes directly into that, ignoring extension types.
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    ///
+    /// Uses the default [`ArrowExportOptions`]; see [`exporter`](Self::exporter) to
+    /// change them.
     pub fn execute_arrow(
         &self,
         array: ArrayRef,
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
-        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
-        //  can be expensive to copy.
-        let arrow_field;
-        let target_field = match target {
-            Some(field) => field,
-            None => {
-                let session = ctx.session().clone();
-                arrow_field = session.arrow().to_arrow_field("", array.dtype())?;
-                &arrow_field
-            }
-        };
+        self.exporter(&ArrowExportOptions::default())
+            .execute_arrow(array, target, ctx)
+    }
 
-        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
-            // There can be multiple plugins that report support for a particular extension type.
-            // We try them in order until one of them reports a successful conversion.
-            let len = array.len();
-            let mut current = array;
-
-            for plugin in self.exporters(&Id::new(arrow_ext_name)).iter() {
-                trace!(
-                    plugin = ?plugin,
-                    extension_name = arrow_ext_name,
-                    "probing plugin for converting Arrow array"
-                );
-
-                match plugin.execute_arrow(current, target_field, ctx)? {
-                    ArrowExport::Exported(arrow) => {
-                        vortex_ensure_eq!(
-                            arrow.len(),
-                            len,
-                            "Arrow array length does not match Vortex array length after conversion to {:?}",
-                            arrow
-                        );
-                        return Ok(arrow);
-                    }
-                    ArrowExport::Unsupported(array) => current = array,
-                }
-            }
-
-            debug!(
-                extension_id = arrow_ext_name,
-                data_type = ?target_field.data_type(),
-                "unsupported Arrow extension type encountered, falling back to naive execution"
-            );
-
-            return execute_arrow_naive(current, Some(target_field.data_type()), ctx);
+    /// Return an exporter that applies `options` to its exports.
+    ///
+    /// ```
+    /// use arrow_array::Array;
+    /// use vortex_array::IntoArray;
+    /// use vortex_array::VortexSessionExecute;
+    /// use vortex_array::array_session;
+    /// use vortex_array::arrays::VarBinViewArray;
+    /// use vortex_arrow::ArrowExportOptions;
+    /// use vortex_arrow::ArrowSessionExt;
+    /// use vortex_arrow::CompactBuffers;
+    ///
+    /// let session = array_session();
+    /// let array = VarBinViewArray::from_iter_str(["a", "b"]).into_array();
+    /// let options = ArrowExportOptions::default().with(CompactBuffers(false));
+    /// let arrow = session.arrow().exporter(&options).execute_arrow(
+    ///     array,
+    ///     None,
+    ///     &mut session.create_execution_ctx(),
+    /// )?;
+    /// assert_eq!(arrow.len(), 2);
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    pub fn exporter<'a>(&'a self, options: &'a ArrowExportOptions) -> ArrowExporter<'a> {
+        ArrowExporter {
+            session: self,
+            options,
         }
-
-        execute_arrow_naive(array, target.map(|field| field.data_type()), ctx)
     }
 
     /// Decode an Arrow array into a Vortex array.
@@ -684,19 +672,23 @@ impl ArrowSession {
             }
             DataType::List(elem_field) => {
                 let list = array.as_list::<i32>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
+                let (offsets, referenced) = trim_offsets(list.offsets());
+                let elements = self.from_arrow_array(
+                    list.values().slice(referenced.start, referenced.len()),
+                    elem_field.as_ref(),
+                )?;
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+                Ok(ListArray::try_new(elements, offsets.into_array(), validity)?.into_array())
             }
             DataType::LargeList(elem_field) => {
                 let list = array.as_list::<i64>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
+                let (offsets, referenced) = trim_offsets(list.offsets());
+                let elements = self.from_arrow_array(
+                    list.values().slice(referenced.start, referenced.len()),
+                    elem_field.as_ref(),
+                )?;
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+                Ok(ListArray::try_new(elements, offsets.into_array(), validity)?.into_array())
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
@@ -810,6 +802,81 @@ impl SessionVar for ArrowSession {
     }
 }
 
+/// An [`ArrowSession`] bound to [`ArrowExportOptions`], created by [`ArrowSession::exporter`].
+#[derive(Clone, Copy, Debug)]
+pub struct ArrowExporter<'a> {
+    session: &'a ArrowSession,
+    options: &'a ArrowExportOptions,
+}
+
+impl ArrowExporter<'_> {
+    pub(crate) fn options(&self) -> &ArrowExportOptions {
+        self.options
+    }
+
+    /// Execute a Vortex array into an Arrow array with the bound options.
+    ///
+    /// Behaves like [`ArrowSession::execute_arrow`]. The options are propagated to nested arrays
+    /// and to registered export plugins.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    pub fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        target: Option<&Field>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
+        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
+        //  can be expensive to copy.
+        let arrow_field;
+        let target_field = match target {
+            Some(field) => field,
+            None => {
+                arrow_field = self.session.to_arrow_field("", array.dtype())?;
+                &arrow_field
+            }
+        };
+
+        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
+            // There can be multiple plugins that report support for a particular extension type.
+            // We try them in order until one of them reports a successful conversion.
+            let len = array.len();
+            let mut current = array;
+
+            for plugin in self.session.exporters(&Id::new(arrow_ext_name)).iter() {
+                trace!(
+                    plugin = ?plugin,
+                    extension_name = arrow_ext_name,
+                    "probing plugin for converting Arrow array"
+                );
+
+                match plugin.execute_arrow(current, target_field, self.options, ctx)? {
+                    ArrowExport::Exported(arrow) => {
+                        vortex_ensure_eq!(
+                            arrow.len(),
+                            len,
+                            "Arrow array length does not match Vortex array length after conversion to {:?}",
+                            arrow
+                        );
+                        return Ok(arrow);
+                    }
+                    ArrowExport::Unsupported(array) => current = array,
+                }
+            }
+
+            debug!(
+                extension_id = arrow_ext_name,
+                data_type = ?target_field.data_type(),
+                "unsupported Arrow extension type encountered, falling back to naive execution"
+            );
+
+            return execute_arrow_naive(current, Some(target_field.data_type()), self, ctx);
+        }
+
+        execute_arrow_naive(array, target.map(|field| field.data_type()), self, ctx)
+    }
+}
+
 /// Extension trait for accessing the [`ArrowSession`] on a Vortex session.
 pub trait ArrowSessionExt: SessionExt {
     /// Get the Arrow session.
@@ -824,20 +891,69 @@ impl<S: SessionExt> ArrowSessionExt for S {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
 
     use arrow_array::DictionaryArray;
+    use arrow_array::GenericListArray;
     use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
     use arrow_array::StringArray;
     use arrow_array::types::Int32Type;
+    use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use rstest::rstest;
+    use vortex_array::VortexSessionExecute as _;
+    use vortex_array::array_session;
     use vortex_array::arrays::Dict;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
 
     use super::*;
+
+    #[rstest]
+    #[case::prefix(0, 2)]
+    #[case::middle(500, 2)]
+    #[case::empty(500, 0)]
+    #[case::empty_at_end(1000, 0)]
+    fn test_sliced_list_imports_only_its_rows(
+        #[values(false, true)] large: bool,
+        #[case] start: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let lists = |rows: Range<i64>| -> ArrowArrayRef {
+            let values = Arc::new(Int64Array::from_iter_values(
+                rows.flat_map(|row| [row, row + 1]),
+            ));
+            let len = values.len() / 2;
+            let field = Arc::new(Field::new("item", DataType::Int64, false));
+            if large {
+                Arc::new(GenericListArray::<i64>::new(
+                    field,
+                    OffsetBuffer::from_repeated_length(2, len),
+                    values,
+                    None,
+                ))
+            } else {
+                Arc::new(GenericListArray::<i32>::new(
+                    field,
+                    OffsetBuffer::from_repeated_length(2, len),
+                    values,
+                    None,
+                ))
+            }
+        };
+        let session = ArrowSession::default();
+        let sliced = session.from_arrow_array(lists(0..1000).slice(start, len), false)?;
+        let fresh = session.from_arrow_array(lists(start as i64..(start + len) as i64), false)?;
+        assert_eq!(sliced.nbytes(), fresh.nbytes());
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(sliced, fresh, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn from_arrow_fields_matches_schema_conversion() -> VortexResult<()> {

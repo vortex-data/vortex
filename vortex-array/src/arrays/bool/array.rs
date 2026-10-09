@@ -90,7 +90,7 @@ pub struct BoolDataParts {
 
 pub trait BoolArrayExt: TypedArrayRef<Bool> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Bool(nullability) => *nullability,
             _ => unreachable!("BoolArrayExt requires a bool dtype"),
         }
@@ -98,7 +98,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[BoolSlots::VALIDITY].as_ref(),
+            self.slots()[BoolSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -130,11 +130,11 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
         let validity_mask = BoolArrayExt::validity(self)
-            .execute_mask(self.as_ref().len(), ctx)
+            .execute_mask(self.len(), ctx)
             .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),
-            Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),
+            Mask::AllFalse(_) => return Mask::new_false(self.len()),
             Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)
@@ -189,9 +189,7 @@ impl Array<Bool> {
         let len = bits.len();
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new(bits, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) })
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -205,9 +203,7 @@ impl Array<Bool> {
         let dtype = DType::Bool(validity.nullability());
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) })
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -221,9 +217,7 @@ impl Array<Bool> {
         let slots = BoolData::make_slots(&validity, len);
         // SAFETY: caller guarantees validity length equals bit buffer length.
         let data = unsafe { BoolData::new_unchecked(bits, validity) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) }
     }
 
     /// Validates the components that would be used to create a [`BoolArray`].

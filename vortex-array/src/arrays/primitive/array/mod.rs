@@ -107,26 +107,26 @@ pub struct PrimitiveDataParts {
 
 pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     fn ptype(&self) -> PType {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Primitive(ptype, _) => *ptype,
             _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
         }
     }
 
     fn nullability(&self) -> Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Primitive(_, nullability) => *nullability,
             _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
         }
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PrimitiveSlots::VALIDITY].as_ref()
+        self.slots()[PrimitiveSlots::VALIDITY].as_ref()
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[PrimitiveSlots::VALIDITY].as_ref(),
+            self.slots()[PrimitiveSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -183,7 +183,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             return Ok(self.to_owned());
         };
 
-        let nullability = self.as_ref().dtype().nullability();
+        let nullability = self.dtype().nullability();
 
         if min < 0 || max < 0 {
             // Signed
@@ -346,11 +346,7 @@ impl Array<Primitive> {
         let len = 0;
         let data = PrimitiveData::empty::<T>(nullability);
         let slots = PrimitiveData::make_slots(&Validity::from(nullability), len);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
     /// Creates a new `PrimitiveArray`.
@@ -364,11 +360,7 @@ impl Array<Primitive> {
         let len = buffer.len();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::new(buffer, validity);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `PrimitiveArray`.
@@ -378,9 +370,7 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::try_new(buffer, validity)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots))
         })
     }
 
@@ -394,11 +384,7 @@ impl Array<Primitive> {
         let len = buffer.len();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked(buffer, validity) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
     /// Create a new array from a buffer handle.
@@ -415,11 +401,7 @@ impl Array<Primitive> {
         let len = handle.len() / ptype.byte_width();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked_from_handle(handle, ptype, validity) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
     /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
@@ -428,7 +410,7 @@ impl Array<Primitive> {
         let len = handle.len() / ptype.byte_width();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::from_buffer_handle(handle, ptype, validity);
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data, slots))
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -438,11 +420,7 @@ impl Array<Primitive> {
         let len = buffer.len() / ptype.byte_width();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::from_byte_buffer(buffer, ptype, validity);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
     /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
@@ -463,11 +441,7 @@ impl Array<Primitive> {
             n_rows,
             ctx,
         );
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
     /// Validates the components that would be used to create a `PrimitiveArray`.

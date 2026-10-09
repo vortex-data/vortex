@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTIIII
+SELECT i_item_desc,
+       w_warehouse_name,
+       d1.d_week_seq,
+       sum(CASE
+               WHEN p_promo_sk IS NULL THEN 1
+               ELSE 0
+           END) no_promo,
+       sum(CASE
+               WHEN p_promo_sk IS NOT NULL THEN 1
+               ELSE 0
+           END) promo,
+       count(*) total_cnt
+FROM catalog_sales
+JOIN inventory ON (cs_item_sk = inv_item_sk)
+JOIN warehouse ON (w_warehouse_sk=inv_warehouse_sk)
+JOIN item ON (i_item_sk = cs_item_sk)
+JOIN customer_demographics ON (cs_bill_cdemo_sk = cd_demo_sk)
+JOIN household_demographics ON (cs_bill_hdemo_sk = hd_demo_sk)
+JOIN date_dim d1 ON (cs_sold_date_sk = d1.d_date_sk)
+JOIN date_dim d2 ON (inv_date_sk = d2.d_date_sk)
+JOIN date_dim d3 ON (cs_ship_date_sk = d3.d_date_sk)
+LEFT OUTER JOIN promotion ON (cs_promo_sk=p_promo_sk)
+LEFT OUTER JOIN catalog_returns ON (cr_item_sk = cs_item_sk
+                                    AND cr_order_number = cs_order_number)
+WHERE d1.d_week_seq = d2.d_week_seq
+  AND inv_quantity_on_hand < cs_quantity
+  AND d3.d_date > (d1.d_date + INTERVAL '5' DAY)
+  AND hd_buy_potential = '>10000'
+  AND d1.d_year = 1999
+  AND cd_marital_status = 'D'
+GROUP BY i_item_desc,
+         w_warehouse_name,
+         d1.d_week_seq
+ORDER BY total_cnt DESC NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         w_warehouse_name NULLS FIRST,
+         d1.d_week_seq NULLS FIRST
+LIMIT 100;
+----
+NULL Conventional childr 5211 0 1 1
+Actually keen visitors shall inject just to Conventional childr 5199 0 1 1
+Ago daily schools can get so precise artists. Bloody agencies could see in a  Conventional childr 5209 0 1 1
+Arms should not produce more. Mutual, heavy prices lead. Alone minimal effects cannot look pr Conventional childr 5210 0 1 1
+Bad, original councils ought to let human, new procedures. Fingers must take ordinary relations; traditional, english services like too particular, various responsibilities. Possible, responsi Conventional childr 5183 0 1 1
+Bloody instruments must not sing nowadays strangely valuable groups. Standards would allow much forests. Criminal, important days might allow very from a applicatio Conventional childr 5216 0 1 1
+Carefully keen planes would test vi Conventional childr 5181 0 1 1
+Carefully keen planes would test vi Conventional childr 5215 0 1 1
+Clearly relevant rooms develop necessary hotels. Available women can get as att Conventional childr 5198 0 1 1
+Close, small reports will expand seriously men. Serious, a Conventional childr 5206 0 1 1
+Complete cases shall happen to a generations. Systems must tell sometimes main scenes. Tonnes make still main trees. Different, personal owners become often little important y Conventional childr 5200 0 1 1
+Councils must form more available, common strategies. Factors can enable. J Conventional childr 5216 0 1 1
+Different ages should read other, greek camps Conventional childr 5186 0 1 1
+Different files remain on a conditions. Low specific resources could not foresee such as a risks. Just combined efforts may make reports; boring, super memories descend to Conventional childr 5216 0 1 1
+Dramatically particular charts used to boost unusually false organisers. I Conventional childr 5206 0 1 1
+Factors wish local teachers. Apparently bitter studies should feel. Private masses may not get. Obviously male errors will get now unusual groups. Enough new elements must not reject thus due essentia Conventional childr 5210 0 1 1
+Flowers suffer following, subst Conventional childr 5207 0 1 1
+Gastric ends go personal, official years; concentrat Conventional childr 5211 0 1 1
+Gene Conventional childr 5182 0 1 1
+Great, aware guidelines will risk really with a i Conventional childr 5207 0 1 1
+Happy products provide mediterranean figures.  Conventional childr 5201 0 1 1
+Hea Conventional childr 5210 0 1 1
+Interesting offices should not find already from a characteristics. N Conventional childr 5217 0 1 1
+Large wings used to see particul Conventional childr 5166 0 1 1
+Large, mass ways ought to make very different, right conservatives. Black, diplomatic observers must cope only firm responsibilities. Only global methods thrive so southern places. Answers give. Grea Conventional childr 5199 0 1 1
+Level, natural pages tell relevant stones. Strange events must not throw twice. High subjects s Conventional childr 5211 0 1 1
+Major, strange officials would not assess bodies. Final, suitable applications must serve towns. Joint boys might question most social, tiny strings. Kn Conventional childr 5210 0 1 1
+More positive terms shall not change considerable waves; duties stimulate so in a germans. Real, general costs might send on the eyes. Electrical traders know on a rates.  Conventional childr 5192 0 1 1
+More still tests shall not lie old, valuable trends. Local, content cars Conventional childr 5168 0 1 1
+Officers ought to serve even. Central objectives help accounts. Houses bring exclusively after a questions. Increased talks account most new, likely patterns.  Conventional childr 5177 0 1 1
+Old matters extract characters. Men might preserve really special objectives; young, afraid events deliver best so much as  Conventional childr 5185 0 1 1
+Old years hear effective, local men. Original names go above lo Conventional childr 5210 0 1 1
+Popul Conventional childr 5203 0 1 1
+Positive reasons Conventional childr 5204 0 1 1
+Pp. see even good, wonderful cel Conventional childr 5170 0 1 1
+Regular years lead ideas. Operations put at all to a ideas. Notes tackle in the months. New, common respects might guess forward high, open consequences. Right, ma Conventional childr 5198 0 1 1
+Scientists shall reduce. As small records may give again cases. Consistent, stupid scales should swa Conventional childr 5204 0 1 1
+Small, early knees meet strongly funds. Present levels give also key prices. Blank products choose frequently appropri Conventional childr 5211 0 1 1
+Social minutes try and so on  Conventional childr 5198 0 1 1
+Soon constitutional provisions might send hot components. Ancient children might  Conventional childr 5210 0 1 1
+Sources can try already by a tests. Particul Conventional childr 5185 0 1 1
+Special workers ought to grow dramatic Conventional childr 5197 0 1 1
+Special, so-called things talk clinical claims. Global, certain departments should say prices; clearly sudden expenses feel moving winds. More financial years could pro Conventional childr 5187 0 1 1
+Still early stones  Conventional childr 5193 0 1 1
+Still personal jobs could not forget. Available customers will seem  Conventional childr 5208 0 1 1
+Successful sources shall confront too from a costs; duly working operations should look quick Conventional childr 5209 0 1 1
+Trying designs come useful years. Units used to know levels. Rather other versions can match indeed part Conventional childr 5204 0 1 1
+Well whole are Conventional childr 5204 0 1 1
+White, international others ought to agree economic objects. Maps continue naturally in a boards. Joint feet should Conventional childr 5207 0 1 1
+Wrong, spanish islands can settle extremely final kids; outer, difficult pupils may convert typical, real police.  Conventional childr 5200 0 1 1

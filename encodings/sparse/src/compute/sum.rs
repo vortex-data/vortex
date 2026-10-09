@@ -125,7 +125,7 @@ mod tests {
         };
 
         let mut accumulator = Accumulator::try_new(SumV2, options, arr.dtype().clone())?;
-        accumulator.combine_partials(partial)?;
+        accumulator.combine_partials(&partial)?;
         accumulator.finish()
     }
 

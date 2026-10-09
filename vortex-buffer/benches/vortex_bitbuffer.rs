@@ -333,3 +333,12 @@ fn set_indices_arrow_buffer(bencher: Bencher, length: usize) {
         }
     });
 }
+
+/// Rank-select scan over a sparse deterministic bitmap, reaching the final chunk.
+#[divan::bench(args = [512, 65_536, 1_048_576])]
+fn select_last_vortex_buffer(bencher: Bencher, length: usize) {
+    let buffer = BitBuffer::collect_bool(length, |i| i % 3 == 0);
+    let nth = buffer.true_count() - 1;
+    assert_eq!(buffer.select(nth), Some((length - 1) / 3 * 3));
+    bencher.bench(|| divan::black_box(&buffer).select(divan::black_box(nth)));
+}

@@ -111,7 +111,7 @@ impl IsNotNull {
     /// Creates a lazy non-null check over `input`.
     #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
     pub fn new(input: ArrayRef) -> ScalarFnArray {
-        ScalarFnArray::try_new(IsNotNull.bind(EmptyOptions), vec![input])
+        ScalarFnArray::try_new(IsNotNull.bind(EmptyOptions), [input])
             .vortex_expect("IsNotNull has one child and an infallible return dtype")
     }
 }

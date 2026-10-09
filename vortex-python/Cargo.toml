@@ -32,7 +32,9 @@ tui = ["dep:tokio", "dep:vortex-tui"]
 arrow-array = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
+async-lock = { workspace = true }
 bytes = { workspace = true }
+futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = [

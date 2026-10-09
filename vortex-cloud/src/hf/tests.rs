@@ -362,3 +362,18 @@ fn test_allow_http_is_configured_from_env() {
         format!("{:?}", denied.client_options)
     );
 }
+
+/// `allow_http` accepts the spellings `object_store` accepts, not just `true`/`1`.
+#[rstest]
+#[case("on", true)]
+#[case("yes", true)]
+#[case("y", true)]
+#[case("TRUE", true)]
+#[case("1", true)]
+#[case("off", false)]
+#[case("no", false)]
+#[case("false", false)]
+#[case("maybe", false)]
+fn test_allow_http_matches_object_store_spellings(#[case] value: &str, #[case] expected: bool) {
+    assert_eq!(super::allow_http(&env(&[("ALLOW_HTTP", value)])), expected);
+}

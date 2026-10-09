@@ -159,6 +159,8 @@ divan = { package = "codspeed-divan-compat", version = "5.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
 fastlanes = { version = "0.7.0", features = ["runtime"] }
+fearless_simd = "1.0.0"
+fearless_simd_macros = "0.1.0"
 flatbuffers = "25.2.10"
 fsst-rs = "0.6.0"
 futures = { version = "0.3.31", default-features = false }
@@ -261,7 +263,7 @@ spatialbench-parquet = { package = "parquet", version = "56", features = [
 ] }
 static_assertions = "1.1"
 strum = "0.28"
-syn = { version = "3.0.2", features = ["full"] }
+syn = { version = "3.0.4", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.12"

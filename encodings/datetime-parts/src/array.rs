@@ -179,7 +179,13 @@ impl VTable for DateTimeParts {
 
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -280,9 +286,7 @@ impl DateTimeParts {
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data, slots))
         })
     }
 

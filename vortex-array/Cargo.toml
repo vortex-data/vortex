@@ -31,6 +31,8 @@ bytes = { workspace = true }
 cfg-if = { workspace = true }
 cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 goldenfile = { workspace = true, optional = true }
@@ -133,6 +135,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "compare_sorted"
+harness = false
+
+[[bench]]
 name = "binary_ops"
 harness = false
 
@@ -142,6 +148,10 @@ harness = false
 
 [[bench]]
 name = "row_fn_output"
+harness = false
+
+[[bench]]
+name = "row_fn_utf8_input"
 harness = false
 
 [[bench]]
@@ -174,6 +184,10 @@ harness = false
 
 [[bench]]
 name = "scalar_at_struct"
+harness = false
+
+[[bench]]
+name = "scalar_construction"
 harness = false
 
 [[bench]]
@@ -244,6 +258,10 @@ name = "varbinview_try_new"
 harness = false
 
 [[bench]]
+name = "varbinview_fill_null"
+harness = false
+
+[[bench]]
 name = "bool_zip"
 harness = false
 
@@ -289,6 +307,10 @@ harness = false
 
 [[bench]]
 name = "filter_fixed_width"
+harness = false
+
+[[bench]]
+name = "filter_fsl"
 harness = false
 
 [[bench]]

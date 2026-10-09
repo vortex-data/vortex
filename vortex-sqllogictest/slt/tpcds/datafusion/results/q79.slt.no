@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTIRR
+SELECT c_last_name,
+       c_first_name,
+       SUBSTRING(s_city,1,30),
+       ss_ticket_number,
+       amt,
+       profit
+FROM
+  (SELECT ss_ticket_number ,
+          ss_customer_sk ,
+          store.s_city ,
+          sum(ss_coupon_amt) amt ,
+          sum(ss_net_profit) profit
+   FROM store_sales,
+        date_dim,
+        store,
+        household_demographics
+   WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
+     AND store_sales.ss_store_sk = store.s_store_sk
+     AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND (household_demographics.hd_dep_count = 6
+          OR household_demographics.hd_vehicle_count > 2)
+     AND date_dim.d_dow = 1
+     AND date_dim.d_year IN (1999,
+                             1999+1,
+                             1999+2)
+     AND store.s_number_employees BETWEEN 200 AND 295
+   GROUP BY ss_ticket_number,
+            ss_customer_sk,
+            ss_addr_sk,
+            store.s_city) ms,
+     customer
+WHERE ss_customer_sk = c_customer_sk
+ORDER BY c_last_name  NULLS FIRST,
+         c_first_name  NULLS FIRST,
+         SUBSTRING(s_city,1,30)  NULLS FIRST,
+         profit NULLS FIRST,
+         ss_ticket_number
+LIMIT 100;
+----
+NULL NULL Midway 7696 0 NULL
+NULL NULL Midway 12121 6853.63 -30041.98
+NULL NULL Midway 2636 5300.7 -25774.14
+NULL NULL Midway 6542 7545.83 -24610.07
+NULL NULL Midway 11623 5712.51 -14900.28
+NULL NULL Midway 19793 698.94 -13610.1
+NULL NULL Midway 6637 831.38 -12213.15
+NULL NULL Midway 23768 4962.51 -11916.4
+NULL NULL Midway 20142 5211.62 -10686.78
+NULL NULL Midway 14527 9283.62 -10397.22
+NULL NULL Midway 12890 2494.11 -10339.8
+NULL NULL Midway 19260 1291.42 -9533.87
+NULL NULL Midway 7696 2093.28 -9202.28
+NULL NULL Midway 5904 3772.87 -4797.28
+NULL NULL Midway 9251 278.97 -4249.96
+NULL NULL Midway 20098 2113.91 -3411.71
+NULL Ada Midway 14864 2654.34 -14134.68
+NULL Angel Midway 5358 160.48 -14248.42
+NULL Bobby Midway 18053 751.03 -15237.11
+NULL Carrie Midway 21097 0 -8840.06
+NULL Kathleen Midway 19126 2417.06 -8452.79
+NULL Leonel Midway 5172 1337.45 -7699
+NULL Mable Midway 11598 1417.85 -16896.33
+NULL Margaret Midway 4054 242.7 -5375.15
+NULL Steven Midway 12488 129.94 -24819.68
+NULL Steven Midway 7453 2836.17 -13506.44
+NULL Timothy Midway 9990 2221.38 -20252.86
+NULL William Midway 313 4236.5 -21448.4
+Abrams Dennis Midway 18770 3041.82 -15332.82
+Adair Billy Midway 10311 2131.89 -11184.11
+Adams Pablo Midway 1019 91.18 -8699.05
+Adamson Pauline Midway 5255 455.53 -8557.37
+Adcock Dawn Midway 19523 3596.14 -5224.39
+Adkins Melissa Midway 18097 500.93 -3053.66
+Agee Susanne Midway 20434 3002.61 -11444.41
+Aguilar Jerry Midway 3974 1895.03 -15451.48
+Ainsworth John Midway 12751 2.56 -9084.71
+Alford Roberta Midway 15770 296.73 -14669.82
+Allen Christine Midway 18045 161.78 3938.93
+Allen Harold Midway 23975 2823.36 -1701.54
+Allen Kimberly Midway 4864 854.36 -1994.32
+Allen Michael Midway 19594 460.6 -9537.34
+Allen Michael Midway 22584 1007.72 -6154.76
+Allen Richard Midway 10990 1862.88 -12586.79
+Ambrose Glenn Midway 20298 4024.6 -6532.88
+Anderson Eleanor Midway 8833 1929.92 -4954.47
+Anderson Jason Midway 17429 3617.59 -5833.66
+Andrews Robert Midway 4593 2832.56 -9026.43
+Aponte Joseph Midway 7979 3185.89 -11396.7
+Arndt Vanessa Midway 13951 2561.03 -11753.82
+Arnold Jonathan Midway 18469 1531.04 -12386.88
+Arroyo Earl Midway 19434 1917.73 -16980.72
+Austin Mollie Midway 6232 0 NULL
+Austin Mollie Midway 6232 2808.02 -5492.54
+Ayala Larry Midway 22249 6322.6 -13598.81
+Bailey Charlotte Midway 12226 314.5 -750.56
+Bailey Nicole Midway 5902 3806.56 -2938.09
+Baker Albert Midway 12096 2046.14 -4668.79
+Ball Valerie Midway 19560 0 -10164.97
+Banks Margaret Midway 19152 466.75 -6816.2
+Barba Anthony Midway 23677 755.07 -16184.07
+Barba Anthony Midway 12483 1079.54 -10292.98
+Barnes Byron Midway 15056 16516.45 -18151.42
+Barnes James Midway 5065 3219.07 -7644.46
+Barnes Joseph Midway 22341 669.46 1300.51
+Barnett William Midway 9977 2485.38 -15850.07
+Barr Kyle Midway 20206 2425.6 -6805.83
+Barrett Amy Midway 19458 165.41 -3156.37
+Baskin Vida Midway 8300 35.76 -4371.64
+Baum Dean Midway 14409 7180.23 -11349.75
+Becker Suzanne Midway 10744 1043.56 -6282.91
+Bell Lacey Midway 22034 4939.81 -8340.27
+Benitez Michele Midway 2008 597.65 -3632.03
+Benitez Rickie Midway 11249 3400.83 -8636.67
+Benjamin NULL Midway 2308 5313.58 -19422.37
+Bennett Kimberly Midway 20002 1763.93 -4430.36
+Betts Violet Midway 15060 1828.72 -1041.95
+Betz Adriene Midway 1127 372.06 -6675.73
+Bingham Michael Midway 17574 1.8 -15929.64
+Bingham Michael Midway 1089 123.71 -5598.58
+Bird Frederick Midway 6952 916.78 -10831.27
+Bivins Sandra Midway 15910 1886.75 146.47
+Black Danny Midway 22229 2179.65 -5237.65
+Black Jeremy Midway 9238 2760.56 -29499.47
+Blackburn Katherine Midway 9076 4537.17 -11682.05
+Blair David Midway 6257 1054.82 -9610.17
+Blair John Midway 5297 3454.05 -20926.06
+Blevins Juanita Midway 10452 149.8 -7988.98
+Bliss Heidi Midway 22937 4584.99 -11104.08
+Boisvert Benjamin Midway 20440 4682.3 -4644.43
+Bolt Leonard Midway 18206 44.77 -21027.94
+Bond Larry Midway 15614 1316.87 -11740.43
+Bond Rhonda Midway 14764 1480.49 -7401.73
+Bowman Harry Midway 19319 212.85 -12580.17
+Box Rina Midway 16981 1337.11 -7116.36
+Boyd Jose Midway 10709 1661.67 -12143.15
+Bradford Joseph Midway 20489 0 -3376.6
+Bradford Susan Midway 14526 3410.07 -10906.11
+Branch Byron Midway 16980 51.18 -3529.18
+Bratton Fannie Midway 14115 7515.49 -27661.75

@@ -39,7 +39,7 @@ impl Not {
     ///
     /// Returns an error if `input` is not boolean data.
     pub fn try_new(input: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Not.bind(EmptyOptions), vec![input])
+        ScalarFnArray::try_new(Not.bind(EmptyOptions), [input])
     }
 }
 

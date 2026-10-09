@@ -52,6 +52,9 @@ jobs:
           echo "Checking for required wasmfuzz exports..."
           wasm-objdump -x target/wasm32-wasip1/release/array_ops_wasm.wasm | grep -E "(LLVMFuzzerTestOneInput|wasmfuzz_malloc|wasmfuzz_free)"
 
+      # Apply native linker flags only after building the WebAssembly target.
+      - uses: ./.github/actions/setup-fuzz-linker
+
       - name: Install wasmfuzz
         run: cargo install --git https://github.com/CISPA-SysSec/wasmfuzz --locked
 

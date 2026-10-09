@@ -19,6 +19,7 @@ use vortex_session::registry::Id;
 use crate::ExecutionCtx;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
+use crate::canonical::CanonicalKind;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
@@ -124,6 +125,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the array as a mutable reference to a generic [`Any`] trait object.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    /// Classifies the concrete vtable independently of its logical dtype or encoding ID.
+    fn canonical_kind(&self) -> Option<CanonicalKind>;
 
     /// Returns the [`Validity`] of the array.
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity>;
@@ -283,6 +287,10 @@ mod private {
 /// This is self-contained: identity methods use `ArrayData<V>`'s own fields (dtype, len, stats),
 /// while data-access methods delegate to VTable methods on the inner `V::TypedArrayData`.
 impl<V: VTable> DynArrayData for ArrayData<V> {
+    fn canonical_kind(&self) -> Option<CanonicalKind> {
+        CanonicalKind::of::<V>()
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -393,15 +401,13 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let stats = this.statistics().to_owned();
-        Ok(Array::<V>::try_from_parts(
-            ArrayParts::new(
-                self.vtable.clone(),
-                this.dtype().clone(),
-                this.len(),
-                self.data.clone(),
-            )
-            .with_slots(slots),
-        )?
+        Ok(Array::<V>::try_from_parts(ArrayParts::new(
+            self.vtable.clone(),
+            this.dtype().clone(),
+            this.len(),
+            self.data.clone(),
+            slots,
+        ))?
         .with_stats_set(stats)
         .into_array())
     }
@@ -419,17 +425,21 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.
-        let store = unsafe {
-            ArrayInner::<ArrayData<V>>::new_unchecked(
-                self.vtable.clone(),
-                this.len(),
-                this.dtype().clone(),
-                self.data.clone(),
-                slots,
-                this.statistics().to_array_stats(),
-            )
-        };
-        ArrayRef::from_inner(Arc::new(store))
+        let parts = ArrayParts::new(
+            self.vtable.clone(),
+            this.dtype().clone(),
+            this.len(),
+            self.data.clone(),
+            slots,
+        );
+        let encoding_id = self.vtable.id();
+        let stats = this.statistics().share_existing();
+        let uninit = Arc::new_uninit();
+
+        // SAFETY: `uninit` is new.
+        let store = unsafe { ArrayInner::init_arc(uninit, parts, encoding_id, stats) };
+
+        ArrayRef::from_inner(store)
     }
 
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -490,7 +500,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_array_stats();
+        let stats = this.statistics().to_owned();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
@@ -509,10 +519,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+            result.array().statistics().set_iter(stats.into_iter());
         }
 
         Ok(result)

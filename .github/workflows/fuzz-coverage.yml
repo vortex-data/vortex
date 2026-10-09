@@ -53,6 +53,8 @@ jobs:
           fi
           echo "Found llvm-profdata at $LLVM_PROFDATA"
 
+      - uses: ./.github/actions/setup-fuzz-linker
+
       - name: Install cargo-fuzz
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

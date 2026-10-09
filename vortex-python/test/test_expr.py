@@ -39,7 +39,7 @@ def names(vxf: vx.VortexFile, expr: Expr) -> list[str | None]:
 
 def column_values(vxf: vx.VortexFile, projection: Expr) -> list[object]:
     table = vxf.scan(ve.pack({"value": projection})).read_all().to_arrow_table()
-    return cast(list[object], table.column("value").to_pylist())
+    return table.column("value").to_pylist()
 
 
 # --------------------------------------------------------------------------------------

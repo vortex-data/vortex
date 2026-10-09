@@ -184,7 +184,13 @@ impl VTable for Struct {
             )?));
         }
 
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            slots,
+        ))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

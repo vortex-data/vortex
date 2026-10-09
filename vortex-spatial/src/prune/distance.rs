@@ -378,8 +378,6 @@ mod tests {
         Ok(())
     }
 
-    /// Backward compat: a zone map written without the `GeometryAabb` stat (an older file) keeps
-    /// every zone, the missing stat binds to null and `null_as_false` retains the zone.
     #[test]
     fn missing_aabb_stat_keeps_all_zones() -> VortexResult<()> {
         let session = spatial_session();

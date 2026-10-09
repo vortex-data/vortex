@@ -92,8 +92,7 @@ pub trait MapArrayExt: MapArraySlotsExt {
 
     /// Returns this map's key/value type information.
     fn map_dtype(&self) -> &MapDType {
-        self.as_ref()
-            .dtype()
+        self.dtype()
             .as_map_opt()
             .vortex_expect("MapArray requires a map dtype")
     }
@@ -127,7 +126,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         Self::try_from_parts(parts)
     }
 
@@ -143,7 +142,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         unsafe { Self::from_parts_unchecked(parts) }
     }
 
