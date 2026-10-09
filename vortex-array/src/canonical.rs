@@ -12,7 +12,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::registry::CANONICAL_ARRAY_IDS;
+use vortex_session::registry::RESERVED_ARRAY_IDS;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -1237,13 +1237,14 @@ impl CanonicalView<'_> {
 // Keep classification and checked conversion together so they use the same concrete types.
 macro_rules! canonical_kinds {
     ($($kind:ident => $vtable:ty),+ $(,)?) => {
-        /// Canonical encoding classification, in the order of [`CANONICAL_ARRAY_IDS`].
+        /// Canonical encoding classification, in the order of [`RESERVED_ARRAY_IDS`].
         #[derive(Clone, Copy)]
         pub(crate) enum CanonicalKind {
             $($kind),+
         }
 
-        const _: () = assert!([$(CanonicalKind::$kind),+].len() == CANONICAL_ARRAY_IDS.len());
+        // Every reserved ID but the last, the constant encoding's, is canonical.
+        const _: () = assert!([$(CanonicalKind::$kind),+].len() == RESERVED_ARRAY_IDS.len() - 1);
 
         /// Each canonical vtable paired with the kind its reserved ID must encode.
         #[cfg(test)]

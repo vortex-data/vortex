@@ -20,9 +20,12 @@ use vortex_error::VortexExpect;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
-/// Array encoding IDs reserved for the canonical encodings, in the order of their index in
-/// [`Id::canonical_index`].
-pub const CANONICAL_ARRAY_IDS: [&str; CANONICAL_LEN as usize] = [
+/// Array encoding IDs reserved for the built-in encodings that matchers trust without a type
+/// check.
+///
+/// The canonical encodings come first, in the order of [`Id::canonical_index`], and the constant
+/// encoding is last.
+pub const RESERVED_ARRAY_IDS: [&str; RESERVED_LEN as usize] = [
     "vortex.null",
     "vortex.bool",
     "vortex.primitive",
@@ -35,15 +38,11 @@ pub const CANONICAL_ARRAY_IDS: [&str; CANONICAL_LEN as usize] = [
     "vortex.varbinview",
     "vortex.variant",
     "vortex.ext",
+    "vortex.constant",
 ];
 
-/// Array encoding ID reserved for the constant encoding.
-pub const CONSTANT_ARRAY_ID: &str = "vortex.constant";
-
-const CANONICAL_LEN: u32 = 12;
-
-/// Number of interner keys reserved for [`CANONICAL_ARRAY_IDS`] followed by [`CONSTANT_ARRAY_ID`].
-const RESERVED_LEN: u32 = CANONICAL_LEN + 1;
+/// Number of [`RESERVED_ARRAY_IDS`], which is also the interner key of the constant encoding.
+const RESERVED_LEN: u32 = 13;
 
 /// Global string interner for [`Id`] values.
 ///
@@ -51,7 +50,7 @@ const RESERVED_LEN: u32 = CANONICAL_LEN + 1;
 /// [`Id::reserved`] can build them at compile time.
 static INTERNER: LazyLock<ThreadedRodeo<Spur, DefaultHashBuilder>> = LazyLock::new(|| {
     let interner = ThreadedRodeo::with_hasher(DefaultHashBuilder::default());
-    for name in CANONICAL_ARRAY_IDS.into_iter().chain([CONSTANT_ARRAY_ID]) {
+    for name in RESERVED_ARRAY_IDS {
         interner.get_or_intern_static(name);
     }
     interner
@@ -63,7 +62,7 @@ static INTERNER: LazyLock<ThreadedRodeo<Spur, DefaultHashBuilder>> = LazyLock::n
 /// globally-unique string identifiers throughout Vortex. Equality and hashing
 /// are O(1) symbol comparisons.
 ///
-/// The names in [`CANONICAL_ARRAY_IDS`] and [`CONSTANT_ARRAY_ID`] take the first interner keys,
+/// The names in [`RESERVED_ARRAY_IDS`] take the first interner keys,
 /// so [`Id::reserved`] is a `const fn` and [`Id::is_canonical`], [`Id::is_constant`] and
 /// [`Id::canonical_index`] are a single comparison of the key.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,21 +73,20 @@ impl Id {
     ///
     /// # Panics
     ///
-    /// Panics, at compile time when used in a `const`, if `name` is not one of
-    /// [`CANONICAL_ARRAY_IDS`] or [`CONSTANT_ARRAY_ID`].
+    /// Panics, at compile time when used in a `const`, if `name` is not one of the
+    /// [`RESERVED_ARRAY_IDS`].
     pub const fn reserved(name: &str) -> Self {
         let mut index = 0;
-        while index < CANONICAL_LEN {
-            if str_eq(name, CANONICAL_ARRAY_IDS[index as usize]) {
+        loop {
+            assert!(
+                index < RESERVED_LEN,
+                "Id::reserved called with a name that is not reserved"
+            );
+            if str_eq(name, RESERVED_ARRAY_IDS[index as usize]) {
                 return Self::from_key(index + 1);
             }
             index += 1;
         }
-        assert!(
-            str_eq(name, CONSTANT_ARRAY_ID),
-            "Id::reserved called with a name that is not reserved"
-        );
-        Self::from_key(RESERVED_LEN)
     }
 
     /// Builds the `Id` for the one-based interner key `key`, which must be at least 1.
@@ -105,25 +103,25 @@ impl Id {
         self.0.into_inner().get()
     }
 
-    /// Whether this is one of the [`CANONICAL_ARRAY_IDS`].
+    /// Whether this is one of the canonical [`RESERVED_ARRAY_IDS`].
     #[inline]
     pub fn is_canonical(&self) -> bool {
         self.key() < RESERVED_LEN
     }
 
-    /// Whether this is the [`CONSTANT_ARRAY_ID`].
+    /// Whether this is the constant encoding's ID, the last of the [`RESERVED_ARRAY_IDS`].
     #[inline]
     pub fn is_constant(&self) -> bool {
         self.key() == RESERVED_LEN
     }
 
-    /// Whether this is one of the [`CANONICAL_ARRAY_IDS`] or the [`CONSTANT_ARRAY_ID`].
+    /// Whether this is one of the [`RESERVED_ARRAY_IDS`].
     #[inline]
     pub fn is_canonical_or_constant(&self) -> bool {
         self.key() <= RESERVED_LEN
     }
 
-    /// Returns the index of this `Id` in [`CANONICAL_ARRAY_IDS`], if it is canonical.
+    /// Returns the index of this `Id` in [`RESERVED_ARRAY_IDS`], if it is canonical.
     #[inline]
     pub fn canonical_index(&self) -> Option<usize> {
         self.is_canonical().then(|| self.key() as usize - 1)
@@ -355,11 +353,10 @@ impl Interner {
 mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use super::CANONICAL_ARRAY_IDS;
-    use super::CONSTANT_ARRAY_ID;
     use super::CachedId;
     use super::Id;
     use super::Interner;
+    use super::RESERVED_ARRAY_IDS;
 
     #[test]
     #[expect(
@@ -367,7 +364,8 @@ mod tests {
         reason = "comparing interned and reserved ids"
     )]
     fn reserved_ids_match_interned_ids() {
-        for (index, name) in CANONICAL_ARRAY_IDS.into_iter().enumerate() {
+        let (constant, canonical) = RESERVED_ARRAY_IDS.split_last().unwrap();
+        for (index, &name) in canonical.iter().enumerate() {
             let id = Id::reserved(name);
             assert_eq!(id, Id::new(name));
             assert_eq!(id.as_str(), name);
@@ -375,12 +373,12 @@ mod tests {
             assert_eq!(id.canonical_index(), Some(index));
         }
 
-        let constant = Id::reserved(CONSTANT_ARRAY_ID);
-        assert_eq!(constant, Id::new(CONSTANT_ARRAY_ID));
-        assert_eq!(constant.as_str(), CONSTANT_ARRAY_ID);
-        assert!(constant.is_constant() && constant.is_canonical_or_constant());
-        assert!(!constant.is_canonical());
-        assert_eq!(constant.canonical_index(), None);
+        let id = Id::reserved(constant);
+        assert_eq!(id, Id::new(constant));
+        assert_eq!(id.as_str(), "vortex.constant");
+        assert!(id.is_constant() && id.is_canonical_or_constant());
+        assert!(!id.is_canonical());
+        assert_eq!(id.canonical_index(), None);
 
         let other = Id::new("vortex.test.unreserved");
         assert!(!other.is_canonical_or_constant());

@@ -85,10 +85,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// without a virtual call. When it is `Some`, it must equal [`id`](Self::id) for every
     /// instance.
     ///
-    /// The IDs in [`CANONICAL_ARRAY_IDS`](vortex_session::registry::CANONICAL_ARRAY_IDS) and
-    /// [`CONSTANT_ARRAY_ID`](vortex_session::registry::CONSTANT_ARRAY_ID) are reserved for the
-    /// built-in canonical and constant vtables. Constructing an array of any other vtable with one
-    /// of them panics, which lets matchers trust those IDs without checking the vtable type.
+    /// The IDs in [`RESERVED_ARRAY_IDS`](vortex_session::registry::RESERVED_ARRAY_IDS) are
+    /// reserved for the built-in canonical and constant vtables. Constructing an array of any
+    /// other vtable with one of them panics, which lets matchers trust those IDs without checking
+    /// the vtable type.
     #[inline]
     fn static_id() -> Option<ArrayId> {
         None
