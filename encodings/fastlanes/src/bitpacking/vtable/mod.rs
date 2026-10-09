@@ -16,6 +16,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -23,6 +24,7 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
+use vortex_array::require_opt_child;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
@@ -216,6 +218,11 @@ impl VTable for BitPacked {
             BitPackedSlots::PATCH_CHUNK_OFFSETS
         );
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
+        require_opt_child!(
+            array,
+            array.slots()[BitPackedSlots::BLOCK_OFFSETS].as_ref(),
+            BitPackedSlots::BLOCK_OFFSETS => Primitive
+        );
 
         let decoded = match array.bit_widths() {
             BitWidthsView::Global(_) => unpack_array(array.as_view(), ctx)?,
