@@ -10,18 +10,27 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::extension::datetime::AnyTemporal;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
 
 impl BetweenReduce for Extension {
     /// Evaluates between on the storage array, so a date or timestamp keeps its compressed
     /// storage and reaches that encoding's between kernel instead of being decompressed.
+    ///
+    /// Only the datetime types are known to order like their storage. Any other extension type,
+    /// such as JSON text, UUIDs, WKB geometry or a foreign type, may order differently from its
+    /// storage, so the rule declines it.
     fn between(
         array: ArrayView<'_, Extension>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
+        if !array.ext_dtype().is::<AnyTemporal>() {
+            return Ok(None);
+        }
+
         // Storage values are only ordered alike when the bounds share the extension dtype
         // (a timestamp in milliseconds must not be compared against raw seconds).
         if !array.dtype().eq_ignore_nullability(lower.dtype())
@@ -68,6 +77,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Extension;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -76,8 +86,11 @@ mod tests {
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+    use crate::extension::tests::divisible_int::DivisibleInt;
+    use crate::extension::tests::divisible_int::Divisor;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::BetweenReduce;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::fns::operators::Operator;
 
@@ -178,8 +191,8 @@ mod tests {
         let ts = |v: i64| {
             Scalar::extension_ref(dtype.clone(), Scalar::primitive(v, Nullability::NonNullable))
         };
-        let array =
-            ExtensionArray::new(dtype.clone(), buffer![10i64, 20, 30, 40].into_array()).into_array();
+        let storage = buffer![10i64, 20, 30, 40].into_array();
+        let array = ExtensionArray::new(dtype.clone(), storage).into_array();
         assert_matches_compares(
             array,
             ConstantArray::new(ts(15), 4).into_array(),
@@ -189,5 +202,33 @@ mod tests {
                 upper_strict: StrictComparison::NonStrict,
             },
         )
+    }
+
+    /// An extension type outside the datetime types is declined, even one whose storage happens
+    /// to order correctly, since the rule cannot know how an arbitrary type orders.
+    #[test]
+    fn declines_non_temporal_extension() -> VortexResult<()> {
+        let divisor = Divisor(2);
+        let value = |v: u64| {
+            Scalar::extension::<DivisibleInt>(
+                divisor,
+                Scalar::primitive(v, Nullability::NonNullable),
+            )
+        };
+        let dtype = value(0).dtype().as_extension().clone();
+        let array = ExtensionArray::new(dtype, buffer![2u64, 4, 6].into_array());
+
+        let reduced = <Extension as BetweenReduce>::between(
+            array.as_view(),
+            &ConstantArray::new(value(2), 3).into_array(),
+            &ConstantArray::new(value(4), 3).into_array(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        )?;
+
+        assert!(reduced.is_none());
+        Ok(())
     }
 }
