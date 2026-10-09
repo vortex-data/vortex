@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -104,11 +105,18 @@ impl LayoutStrategy for ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let aggregate_fns = self
+        let mut aggregate_fns = self
             .options
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
+        if ctx.has_nullable_ancestor() {
+            aggregate_fns = aggregate_fns
+                .iter()
+                .filter(|aggregate_fn| is_sound_under_nullable_ancestor(aggregate_fn))
+                .cloned()
+                .collect();
+        }
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -197,6 +205,18 @@ impl LayoutStrategy for ZonedStrategy {
                 .into_layout(),
         )
     }
+}
+
+/// Whether an aggregate computed over an unmasked child still holds for the logical column when a
+/// nullable ancestor hides some of the child's values.
+///
+/// The child is a superset of the logical column, so its min and max bound the logical min and
+/// max and remain sound for pruning. Counts such as `null_count` and `nan_count` would be wrong:
+/// they miss the rows the ancestor nulls out and include values the logical column never shows.
+/// Until those are computed over the masked values they are omitted rather than recorded wrong.
+fn is_sound_under_nullable_ancestor(aggregate_fn: &AggregateFnRef) -> bool {
+    let id = aggregate_fn.id();
+    id == Min.id() || id == Max.id() || id == BoundedMin.id() || id == BoundedMax.id()
 }
 
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
@@ -317,6 +337,25 @@ mod tests {
         assert!(written.contains(&Max.id().to_string()));
         assert!(
             !written.contains(&Sum.id().to_string()),
+            "wrote {written:?}"
+        );
+        Ok(())
+    }
+
+    /// A field of a nullable struct is written unmasked, so only the aggregates that stay sound
+    /// over a superset of the logical values are recorded.
+    #[test]
+    fn a_nullable_ancestor_omits_count_aggregates() -> VortexResult<()> {
+        let written =
+            write_zones(LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor())?;
+        assert!(written.contains(&Min.id().to_string()));
+        assert!(written.contains(&Max.id().to_string()));
+        assert!(
+            !written.contains(&NullCount.id().to_string()),
+            "wrote {written:?}"
+        );
+        assert!(
+            !written.contains(&NanCount.id().to_string()),
             "wrote {written:?}"
         );
         Ok(())

@@ -227,12 +227,20 @@ impl LayoutStrategy for StructStrategy {
                     SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
                 let child_eof = eof.split_off();
                 let session = session.clone();
-                let ctx = ctx.clone();
+                let is_validity = index == 0 && is_nullable;
+                // Fields are written unmasked, so a nullable struct hides some of their values
+                // behind its own validity. Tell the field writers so they omit statistics that
+                // those hidden values would corrupt.
+                let ctx = if is_nullable && !is_validity {
+                    ctx.clone().with_nullable_ancestor()
+                } else {
+                    ctx.clone()
+                };
                 let segment_sink = Arc::clone(&segment_sink);
                 handle.spawn_nested(move |_| {
                     // Validity is written through the validity strategy; every other field
                     // resolves to its named override or the default strategy.
-                    let writer = if index == 0 && is_nullable {
+                    let writer = if is_validity {
                         Arc::clone(&self.validity)
                     } else {
                         self.field_writers
@@ -255,5 +263,102 @@ impl LayoutStrategy for StructStrategy {
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
         Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+
+    use vortex_array::ArrayContext;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
+
+    use super::*;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::writer::ZonedLayoutOptions;
+    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::new_session;
+
+    /// Write a single-field struct with zoned fields, returning the aggregate ids recorded for the
+    /// field.
+    fn field_aggregates(validity: Validity) -> VortexResult<Vec<String>> {
+        let strategy = StructStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(ZonedStrategy::new(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+                ZonedLayoutOptions {
+                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                    ..Default::default()
+                },
+            )),
+        );
+        let is_nullable = validity.nullability().is_nullable();
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = StructArray::try_from_iter_with_validity(
+            [("a", buffer![1, 2, 3].into_array())],
+            validity,
+        )?
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    LayoutWriterContext::new(ArrayContext::empty()),
+                    Arc::new(TestSegments::default()),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+
+        // The validity child, when present, precedes the fields.
+        let children = layout.children()?;
+        Ok(children[usize::from(is_nullable)]
+            .as_::<Zoned>()
+            .aggregate_fns()
+            .iter()
+            .map(|aggregate_fn| aggregate_fn.id().to_string())
+            .collect())
+    }
+
+    #[test]
+    fn non_nullable_struct_fields_record_all_default_aggregates() -> VortexResult<()> {
+        let written = field_aggregates(Validity::NonNullable)?;
+        assert!(written.contains(&NullCount.id().to_string()));
+        Ok(())
+    }
+
+    /// The field holds values in rows the struct nulls out, so its null count would undercount
+    /// the logical column. Only bounds survive.
+    #[test]
+    fn nullable_struct_fields_omit_aggregates_hidden_nulls_corrupt() -> VortexResult<()> {
+        let written = field_aggregates(Validity::Array(
+            BoolArray::from_iter([false, true, true]).into_array(),
+        ))?;
+        assert!(written.contains(&Min.id().to_string()));
+        assert!(written.contains(&Max.id().to_string()));
+        assert!(
+            !written.contains(&NullCount.id().to_string()),
+            "wrote {written:?}"
+        );
+        Ok(())
     }
 }
