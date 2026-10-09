@@ -104,6 +104,67 @@ fn flat_plan_has_no_children() -> VortexResult<()> {
 }
 
 #[test]
+fn filter_over_selection_keeps_child_shape() -> VortexResult<()> {
+    let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
+    let mask = SelectionPlan::new(3).into_plan();
+    let plan = FilterPlan::try_new(child.clone(), mask)?;
+
+    assert_eq!(plan.dtype(), child.dtype());
+    assert_eq!(plan.row_count(), 3);
+    assert!(plan.child_plan()?.is::<SegmentScan>());
+    assert!(plan.mask()?.is::<Selection>());
+    insta::assert_snapshot!(plan.into_plan().display_tree(), @"
+    root: vortex.plan.filter(i32, rows=3)
+      child: vortex.plan.segment_scan(i32, rows=3)
+      mask: vortex.plan.selection(bool, rows=3)
+    ");
+    Ok(())
+}
+
+#[test]
+fn filter_mask_may_be_a_predicate_over_the_child() -> VortexResult<()> {
+    let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
+    let mask = make_eval(gt(root(), lit(5_i32)), child.clone())?.into_plan();
+    let plan = FilterPlan::try_new(child, mask)?.into_plan();
+
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.filter(i32, rows=3)
+      child: vortex.plan.segment_scan(i32, rows=3)
+      mask: vortex.plan.eval(bool, rows=3) expr=($ > 5i32)
+        child: vortex.plan.segment_scan(i32, rows=3)
+    ");
+    Ok(())
+}
+
+#[test]
+fn filter_rejects_mask_from_another_row_domain() -> VortexResult<()> {
+    let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
+    let mask = SelectionPlan::new(2).into_plan();
+
+    let error = FilterPlan::try_new(child, mask)
+        .err()
+        .ok_or_else(|| vortex_err!("mismatched mask unexpectedly accepted"))?;
+    assert!(error.to_string().contains("Filter mask has 2 rows"));
+    Ok(())
+}
+
+#[test]
+fn filter_rejects_non_boolean_mask() -> VortexResult<()> {
+    let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
+    let mask = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 1))?;
+
+    let error = FilterPlan::try_new(child, mask)
+        .err()
+        .ok_or_else(|| vortex_err!("non-boolean mask unexpectedly accepted"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Filter mask must be a non-nullable bool")
+    );
+    Ok(())
+}
+
+#[test]
 fn chunked_plan_exposes_chunks() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let layout = ChunkedLayout::new(

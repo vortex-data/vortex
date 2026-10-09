@@ -3,6 +3,7 @@
 
 mod concat;
 pub(crate) mod eval;
+mod filter;
 mod list_pack;
 mod pack;
 mod row_idx;
@@ -17,6 +18,11 @@ pub use eval::Eval;
 pub use eval::EvalData;
 pub(crate) use eval::EvalIdentityRule;
 pub use eval::EvalPlan;
+pub use filter::Filter;
+pub use filter::FilterPlan;
+pub use filter::Selection;
+pub use filter::SelectionPlan;
+pub use filter::selection_dtype;
 pub use list_pack::ListPack;
 pub use list_pack::ListPackData;
 pub use list_pack::ListPackPlan;
