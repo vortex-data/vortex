@@ -144,14 +144,12 @@ impl PyVortexDataset {
         store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> VortexResult<Self> {
         let session = session();
+        let options = session.open_options().with_layout_reader_cache();
         let vxf = match resolve_store(url, store)? {
             ResolvedStore::ObjectStore(store, path) => {
-                session
-                    .open_options()
-                    .open_object_store(&store, path)
-                    .await?
+                options.open_object_store(&store, path).await?
             }
-            ResolvedStore::Path(path) => session.open_options().open_path(path).await?,
+            ResolvedStore::Path(path) => options.open_path(path).await?,
         };
         PyVortexDataset::try_new(vxf)
     }

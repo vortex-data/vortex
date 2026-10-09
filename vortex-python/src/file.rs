@@ -200,7 +200,8 @@ fn open_options(
     segment_cache: Option<&PySegmentCache>,
     cache_key: Option<&str>,
 ) -> PyResult<VortexOpenOptions> {
-    let options = session().open_options();
+    // Python scans of one file share a reader tree instead of rebuilding it per scan.
+    let options = session().open_options().with_layout_reader_cache();
 
     match (segment_cache, cache_key) {
         (Some(_), _) if without_segment_cache => Err(PyValueError::new_err(
