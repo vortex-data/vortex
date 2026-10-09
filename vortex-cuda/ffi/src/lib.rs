@@ -12,7 +12,6 @@ use std::os::raw::c_int;
 use std::ptr;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
-use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
@@ -338,7 +337,7 @@ fn projected_scan(
     file: &VortexFile,
     columns: FieldNames,
     batch_rows: usize,
-) -> VortexResult<ScanBuilder<ArrayRef>> {
+) -> VortexResult<ScanBuilder> {
     let mut scan = file.scan()?;
     if !columns.is_empty() {
         let projection = select(columns, root()).bind(file.dtype())?.optimize()?;
