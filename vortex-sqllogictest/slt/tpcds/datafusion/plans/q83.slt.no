@@ -157,13 +157,13 @@ physical_plan
 13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_returned_date_sk@0, d_date_sk@0)], projection=[wr_return_quantity@1, i_item_id@2, d_date@4]
 14)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, wr_item_sk@1)], projection=[wr_returned_date_sk@2, wr_return_quantity@4, i_item_id@1]
 15)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
-16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_item_sk, wr_return_quantity], file_type=vortex
+16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_item_sk, wr_return_quantity], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 17)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-18)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex
+18)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 19)----------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_week_seq@0, d_week_seq@1)], projection=[d_date@0]
 20)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_week_seq], file_type=vortex, predicate: d_date@2 = 2000-06-30 OR d_date@2 = 2000-09-27 OR d_date@2 = 2000-11-17
 21)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-22)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex
+22)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 23)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(item_id@0, item_id@0)], projection=[item_id@2, sr_item_qty@3, cr_item_qty@1]
 24)------------CoalescePartitionsExec
 25)--------------ProjectionExec: expr=[i_item_id@0 as item_id, sum(catalog_returns.cr_return_quantity)@1 as cr_item_qty]
@@ -177,13 +177,13 @@ physical_plan
 33)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cr_item_sk@1)], projection=[cr_returned_date_sk@2, cr_return_quantity@4, i_item_id@1]
 34)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
 35)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-36)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_item_sk, cr_return_quantity], file_type=vortex
+36)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_item_sk, cr_return_quantity], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 37)----------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-38)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex
+38)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 39)------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_week_seq@0, d_week_seq@1)], projection=[d_date@0]
 40)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_week_seq], file_type=vortex, predicate: d_date@2 = 2000-06-30 OR d_date@2 = 2000-09-27 OR d_date@2 = 2000-11-17
 41)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-42)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex
+42)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 43)------------ProjectionExec: expr=[i_item_id@0 as item_id, sum(store_returns.sr_return_quantity)@1 as sr_item_qty]
 44)--------------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id], aggr=[sum(store_returns.sr_return_quantity)]
 45)----------------RepartitionExec: partitioning=Hash([i_item_id@0], 4), input_partitions=4
@@ -193,11 +193,11 @@ physical_plan
 49)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_returned_date_sk@0, d_date_sk@0)], projection=[sr_return_quantity@1, i_item_id@2, d_date@4]
 50)--------------------------CoalescePartitionsExec
 51)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, sr_item_sk@1)], projection=[sr_returned_date_sk@2, sr_return_quantity@4, i_item_id@1]
-52)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
-53)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_return_quantity], file_type=vortex
+52)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]
+53)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_return_quantity], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 54)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-55)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex
+55)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 56)----------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_week_seq@0, d_week_seq@1)], projection=[d_date@0]
 57)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_week_seq], file_type=vortex, predicate: d_date@2 = 2000-06-30 OR d_date@2 = 2000-09-27 OR d_date@2 = 2000-11-17
 58)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-59)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex
+59)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]

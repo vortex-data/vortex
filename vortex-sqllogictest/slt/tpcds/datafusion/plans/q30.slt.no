@@ -111,10 +111,10 @@ physical_plan
 14)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_returning_addr_sk@1, ca_address_sk@0)], projection=[wr_returning_customer_sk@0, wr_return_amt@2, ca_state@4]
 15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, wr_returned_date_sk@0)], projection=[wr_returning_customer_sk@2, wr_returning_addr_sk@3, wr_return_amt@4]
 16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
-17)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt], file_type=vortex
-18)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex
+17)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
+18)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 19)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-20)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_current_addr_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date_sk], file_type=vortex
+20)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_current_addr_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date_sk], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 21)------ProjectionExec: expr=[CAST(CAST(avg(ctr2.ctr_total_return)@1 AS Float64) * 1.2 AS Decimal128(30, 15)) as avg(ctr2.ctr_total_return) * Float64(1.2), ctr_state@0 as ctr_state]
 22)--------AggregateExec: mode=FinalPartitioned, gby=[ctr_state@0 as ctr_state], aggr=[avg(ctr2.ctr_total_return)]
 23)----------RepartitionExec: partitioning=Hash([ctr_state@0], 4), input_partitions=4
@@ -127,5 +127,5 @@ physical_plan
 30)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_returning_addr_sk@1, ca_address_sk@0)], projection=[wr_returning_customer_sk@0, wr_return_amt@2, ca_state@4]
 31)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, wr_returned_date_sk@0)], projection=[wr_returning_customer_sk@2, wr_returning_addr_sk@3, wr_return_amt@4]
 32)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
-33)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt], file_type=vortex
-34)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex
+33)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
+34)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]

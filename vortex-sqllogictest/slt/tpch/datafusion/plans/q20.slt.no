@@ -72,14 +72,14 @@ physical_plan
 03)----HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(s_suppkey@0, ps_suppkey@0)], projection=[s_name@1, s_address@2]
 04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(n_nationkey@0, s_nationkey@3)], projection=[s_suppkey@1, s_name@2, s_address@3]
 05)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey], file_type=vortex, predicate: n_name@1 = CANADA
-06)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_name, s_address, s_nationkey], file_type=vortex
+06)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_name, s_address, s_nationkey], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 07)------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(ps_partkey@0, l_partkey@1), (ps_suppkey@1, l_suppkey@2)], filter=CAST(ps_availqty@0 AS Float64) > Float64(0.5) * sum(lineitem.l_quantity)@1, projection=[ps_suppkey@1]
 08)--------CoalescePartitionsExec
 09)----------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(p_partkey@0, ps_partkey@0)]
 10)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey], file_type=vortex, predicate: p_name@1 LIKE forest%
-11)------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey, ps_availqty], file_type=vortex
+11)------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey, ps_availqty], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 12)--------ProjectionExec: expr=[0.5 * CAST(sum(lineitem.l_quantity)@2 AS Float64) as Float64(0.5) * sum(lineitem.l_quantity), l_partkey@0 as l_partkey, l_suppkey@1 as l_suppkey]
 13)----------AggregateExec: mode=FinalPartitioned, gby=[l_partkey@0 as l_partkey, l_suppkey@1 as l_suppkey], aggr=[sum(lineitem.l_quantity)]
 14)------------RepartitionExec: partitioning=Hash([l_partkey@0, l_suppkey@1], 4), input_partitions=4
 15)--------------AggregateExec: mode=Partial, gby=[l_partkey@0 as l_partkey, l_suppkey@1 as l_suppkey], aggr=[sum(lineitem.l_quantity)]
-16)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_partkey, l_suppkey, l_quantity], file_type=vortex, predicate: l_shipdate@10 >= 1994-01-01 AND l_shipdate@10 < 1995-01-01
+16)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_partkey, l_suppkey, l_quantity], file_type=vortex, predicate: l_shipdate@10 >= 1994-01-01 AND l_shipdate@10 < 1995-01-01, dynamic_filter: DynamicFilter [ empty ]

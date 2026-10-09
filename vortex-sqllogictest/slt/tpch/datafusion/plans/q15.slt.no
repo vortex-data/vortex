@@ -52,7 +52,7 @@ physical_plan
 08)------------AggregateExec: mode=FinalPartitioned, gby=[l_suppkey@0 as l_suppkey], aggr=[sum(lineitem.l_extendedprice * 1 - lineitem.l_discount) as sum(lineitem.l_extendedprice * Int64(1) - lineitem.l_discount)]
 09)--------------RepartitionExec: partitioning=Hash([l_suppkey@0], 4), input_partitions=4
 10)----------------AggregateExec: mode=Partial, gby=[l_suppkey@0 as l_suppkey], aggr=[sum(lineitem.l_extendedprice * 1 - lineitem.l_discount) as sum(lineitem.l_extendedprice * Int64(1) - lineitem.l_discount)]
-11)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_suppkey, l_extendedprice, l_discount], file_type=vortex, predicate: l_shipdate@10 >= 1996-01-01 AND l_shipdate@10 < 1996-04-01
+11)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_suppkey, l_extendedprice, l_discount], file_type=vortex, predicate: l_shipdate@10 >= 1996-01-01 AND l_shipdate@10 < 1996-04-01, dynamic_filter: DynamicFilter [ empty ]
 12)--AggregateExec: mode=Final, gby=[], aggr=[max(revenue.total_revenue)]
 13)----CoalescePartitionsExec
 14)------AggregateExec: mode=Partial, gby=[], aggr=[max(revenue.total_revenue)]

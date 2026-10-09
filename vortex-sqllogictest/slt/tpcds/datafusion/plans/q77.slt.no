@@ -199,7 +199,7 @@ physical_plan
 17)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
 18)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_store_sk@2, sr_return_amt@3, sr_net_loss@4]
 19)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
-20)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_store_sk, sr_return_amt, sr_net_loss], file_type=vortex
+20)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_store_sk, sr_return_amt, sr_net_loss], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 21)--------------------ProjectionExec: expr=[s_store_sk@0 as s_store_sk, sum(store_sales.ss_ext_sales_price)@1 as sales, sum(store_sales.ss_net_profit)@2 as profit]
 22)----------------------AggregateExec: mode=FinalPartitioned, gby=[s_store_sk@0 as s_store_sk], aggr=[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_net_profit)]
 23)------------------------RepartitionExec: partitioning=Hash([s_store_sk@0], 4), input_partitions=4
@@ -208,7 +208,7 @@ physical_plan
 26)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
 27)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_store_sk@2, ss_ext_sales_price@3, ss_net_profit@4]
 28)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
-29)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit], file_type=vortex
+29)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 30)--------------ProjectionExec: expr=[catalog channel as channel, cs_call_center_sk@2 as id, sales@3 as sales, CAST(returns_@0 AS Decimal128(22, 2)) as returns_, CAST(profit@4 - profit_loss@1 AS Decimal128(23, 2)) as profit]
 31)----------------CrossJoinExec
 32)------------------CoalescePartitionsExec
@@ -219,14 +219,14 @@ physical_plan
 37)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cr_returned_date_sk@0)], projection=[cr_call_center_sk@2, cr_return_amount@3, cr_net_loss@4]
 38)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
 39)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-40)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_call_center_sk, cr_return_amount, cr_net_loss], file_type=vortex
+40)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_call_center_sk, cr_return_amount, cr_net_loss], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 41)------------------ProjectionExec: expr=[cs_call_center_sk@0 as cs_call_center_sk, sum(catalog_sales.cs_ext_sales_price)@1 as sales, sum(catalog_sales.cs_net_profit)@2 as profit]
 42)--------------------AggregateExec: mode=FinalPartitioned, gby=[cs_call_center_sk@0 as cs_call_center_sk], aggr=[sum(catalog_sales.cs_ext_sales_price), sum(catalog_sales.cs_net_profit)]
 43)----------------------RepartitionExec: partitioning=Hash([cs_call_center_sk@0], 4), input_partitions=4
 44)------------------------AggregateExec: mode=Partial, gby=[cs_call_center_sk@0 as cs_call_center_sk], aggr=[sum(catalog_sales.cs_ext_sales_price), sum(catalog_sales.cs_net_profit)]
 45)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_call_center_sk@2, cs_ext_sales_price@3, cs_net_profit@4]
 46)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
-47)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_call_center_sk, cs_ext_sales_price, cs_net_profit], file_type=vortex
+47)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_call_center_sk, cs_ext_sales_price, cs_net_profit], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 48)--------------ProjectionExec: expr=[web channel as channel, wp_web_page_sk@2 as id, sales@3 as sales, CAST(CASE WHEN __common_expr_3@0 IS NOT NULL THEN __common_expr_3@0 ELSE 0.00 END AS Decimal128(22, 2)) as returns_, profit@4 - CASE WHEN __common_expr_4@1 IS NOT NULL THEN __common_expr_4@1 ELSE 0.00 END as profit]
 49)----------------ProjectionExec: expr=[CAST(returns_@0 AS Decimal128(22, 2)) as __common_expr_3, CAST(profit_loss@1 AS Decimal128(22, 2)) as __common_expr_4, wp_web_page_sk@2 as wp_web_page_sk, sales@3 as sales, profit@4 as profit]
 50)------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(wp_web_page_sk@0, wp_web_page_sk@0)], projection=[returns_@1, profit_loss@2, wp_web_page_sk@3, sales@4, profit@5]
@@ -240,7 +240,7 @@ physical_plan
 58)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
 59)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, wr_returned_date_sk@0)], projection=[wr_web_page_sk@2, wr_return_amt@3, wr_net_loss@4]
 60)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
-61)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_web_page_sk, wr_return_amt, wr_net_loss], file_type=vortex
+61)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_web_page_sk, wr_return_amt, wr_net_loss], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 62)--------------------ProjectionExec: expr=[wp_web_page_sk@0 as wp_web_page_sk, sum(web_sales.ws_ext_sales_price)@1 as sales, sum(web_sales.ws_net_profit)@2 as profit]
 63)----------------------AggregateExec: mode=FinalPartitioned, gby=[wp_web_page_sk@0 as wp_web_page_sk], aggr=[sum(web_sales.ws_ext_sales_price), sum(web_sales.ws_net_profit)]
 64)------------------------RepartitionExec: partitioning=Hash([wp_web_page_sk@0], 4), input_partitions=4
@@ -249,4 +249,4 @@ physical_plan
 67)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_page.vortex]]}, projection=[wp_web_page_sk], file_type=vortex
 68)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_web_page_sk@2, ws_ext_sales_price@3, ws_net_profit@4]
 69)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
-70)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_web_page_sk, ws_ext_sales_price, ws_net_profit], file_type=vortex
+70)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_web_page_sk, ws_ext_sales_price, ws_net_profit], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]

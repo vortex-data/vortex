@@ -92,12 +92,12 @@ physical_plan
 05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(r_regionkey@0, n_regionkey@9)], projection=[p_partkey@1, p_mfgr@2, s_name@3, s_address@4, s_phone@5, s_acctbal@6, s_comment@7, ps_supplycost@8, n_name@9]
 06)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/region.vortex]]}, projection=[r_regionkey], file_type=vortex, predicate: r_name@1 = EUROPE
 07)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(n_nationkey@0, s_nationkey@4)], projection=[p_partkey@3, p_mfgr@4, s_name@5, s_address@6, s_phone@8, s_acctbal@9, s_comment@10, ps_supplycost@11, n_name@1, n_regionkey@2]
-08)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_name, n_regionkey], file_type=vortex
+08)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_name, n_regionkey], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 09)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_suppkey@0, ps_suppkey@2)], projection=[p_partkey@7, p_mfgr@8, s_name@1, s_address@2, s_nationkey@3, s_phone@4, s_acctbal@5, s_comment@6, ps_supplycost@10]
-10)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_name, s_address, s_nationkey, s_phone, s_acctbal, s_comment], file_type=vortex
+10)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_name, s_address, s_nationkey, s_phone, s_acctbal, s_comment], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 11)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_partkey@0, ps_partkey@0)], projection=[p_partkey@0, p_mfgr@1, ps_suppkey@3, ps_supplycost@4]
 12)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey, p_mfgr], file_type=vortex, predicate: p_size@5 = 15 AND p_type@4 LIKE %BRASS
-13)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey, ps_supplycost], file_type=vortex
+13)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey, ps_supplycost], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 14)------ProjectionExec: expr=[min(partsupp.ps_supplycost)@1 as min(partsupp.ps_supplycost), ps_partkey@0 as ps_partkey]
 15)--------AggregateExec: mode=FinalPartitioned, gby=[ps_partkey@0 as ps_partkey], aggr=[min(partsupp.ps_supplycost)]
 16)----------RepartitionExec: partitioning=Hash([ps_partkey@0], 4), input_partitions=4
@@ -105,7 +105,7 @@ physical_plan
 18)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(r_regionkey@0, n_regionkey@2)], projection=[ps_partkey@1, ps_supplycost@2]
 19)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/region.vortex]]}, projection=[r_regionkey], file_type=vortex, predicate: r_name@1 = EUROPE
 20)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(n_nationkey@0, s_nationkey@2)], projection=[ps_partkey@2, ps_supplycost@3, n_regionkey@1]
-21)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_regionkey], file_type=vortex
+21)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_regionkey], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 22)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_suppkey@0, ps_suppkey@1)], projection=[ps_partkey@2, ps_supplycost@4, s_nationkey@1]
-23)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_nationkey], file_type=vortex
-24)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey, ps_supplycost], file_type=vortex
+23)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_nationkey], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
+24)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey, ps_supplycost], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
