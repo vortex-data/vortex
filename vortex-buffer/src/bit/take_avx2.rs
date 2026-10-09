@@ -33,6 +33,7 @@ use crate::BufferMut;
 use crate::bit::get_bit;
 use crate::bit::get_bit_unchecked;
 
+/// Caller must verify indices.len() == validity.len()
 pub(super) fn take<I: AsPrimitive<usize>>(
     bits: BitBufferView<'_>,
     indices: &[I],
@@ -51,8 +52,9 @@ pub(super) fn take<I: AsPrimitive<usize>>(
 
     let size = size_of::<I>();
     if size == size_of::<u16>() {
-        // SAFETY: i16 can be reinterpreted as u16 since we guarantee no
-        // negative indices
+        // SAFETY: we clamp the index to be valid in take_lanes and check out of
+        // bound reads there as well, so any invalid index doesn't cause an out
+        // of bounds read and is reported via panic().
         let indices = unsafe { from_raw_parts(indices.as_ptr().cast::<u16>(), indices.len()) };
         let indices_ptr: *const u16 = indices.as_ptr();
         unsafe {
@@ -64,12 +66,11 @@ pub(super) fn take<I: AsPrimitive<usize>>(
                 // 32-bit integers in __m256i
                 _mm256_cvtepu16_epi32(vector)
             };
-            return Some(take_group(bits, indices, validity, last_dword, group));
+            return Some(take_group(bits, indices, validity, group));
         }
     }
     if size == size_of::<u32>() {
-        // SAFETY: i32 can be reinterpreted as u32 since we guarantee
-        // no negative indices
+        // SAFETY: see u16 case above
         let indices = unsafe { from_raw_parts(indices.as_ptr().cast::<u32>(), indices.len()) };
         let indices_ptr: *const u32 = indices.as_ptr();
         unsafe {
@@ -78,19 +79,22 @@ pub(super) fn take<I: AsPrimitive<usize>>(
                 // copy 256 bits into __m256i
                 _mm256_loadu_si256(group_ptr)
             };
-            return Some(take_group(bits, indices, validity, last_dword, group));
+            return Some(take_group(bits, indices, validity, group));
         }
     }
     None
 }
 
+/// By the time we call this function we already handle cases of u16 and u32
+/// separately as there's different packing code. Now we also need to branch
+/// on validity. take(), the first function, is called from two places, one
+/// with validity and one without. Consequently, there are different gather
+/// instructions depending on whether validity is present.
 #[target_feature(enable = "avx2")]
-#[expect(clippy::cast_possible_truncation)]
 unsafe fn take_group<I: AsPrimitive<usize>>(
     bits: BitBufferView<'_>,
     indices: &[I],
     validity: Option<BitBufferView<'_>>,
-    last_dword: usize,
     load_group: impl Fn(usize) -> __m256i,
 ) -> BitBuffer {
     let inner = bits.inner();
@@ -98,48 +102,50 @@ unsafe fn take_group<I: AsPrimitive<usize>>(
     let zero: __m256i = _mm256_setzero_si256();
 
     let Some(validity) = validity else {
-        let gather = |_group: usize, dword: __m256i| -> (__m256i, __m256i) {
+        // If validity isn't present, caller has verified "indices" are valid
+        // offsets info "bits" (see min/max code in take.rs), so we can use
+        // unchecked access into "bits".
+        let gather = |_group: usize, dword: __m256i, _in_bounds: __m256i| -> (__m256i, __m256i) {
             let gathered = unsafe { _mm256_i32gather_epi32::<4>(base.cast(), dword) };
             (gathered, zero)
         };
         return unsafe { take_lanes(bits, indices, load_group, gather, None) };
     };
 
+    // If validity is present, we can't trust "indices" are valid offsets.
+    // There also may be garbage under a NULL index, and we need to avoid
+    // reading bits's offset at this garbage.
     let valid_bytes = validity.inner();
-    let valid_offset = validity.offset();
-    let valid_shift = valid_offset % 8;
-    let valid_byte0 = valid_offset / 8;
-    let full_groups = indices.len() / 8;
-    if full_groups > 0 {
-        let last_byte = valid_byte0 + (full_groups - 1) + usize::from(valid_shift != 0);
-        assert!(last_byte < valid_bytes.len(), "validity out of bounds");
-    }
+    let validity_offset = validity.offset();
+    let validity_shift = validity_offset % 8;
+    let validity_first_byte = validity_offset / 8;
+    let has_non_byte_shift: usize = (validity_shift != 0).as_();
 
-    let max_dword: __m256i = _mm256_set1_epi32(last_dword as i32);
     let lane_bits: __m256i = _mm256_setr_epi32(1, 2, 4, 8, 16, 32, 64, 128);
 
-    let gather = |group: usize, dword: __m256i| -> (__m256i, __m256i) {
-        let byte = valid_byte0 + group;
-        // SAFETY: last_byte was checked above
-        let valid = unsafe {
-            if valid_shift == 0 {
-                *valid_bytes.get_unchecked(byte)
-            } else {
-                let lo = u16::from(*valid_bytes.get_unchecked(byte));
-                let hi = u16::from(*valid_bytes.get_unchecked(byte + 1));
-                let window = lo | (hi << 8);
-                ((window >> valid_shift) & 0xFF) as u8
-            }
-        };
-        let broadcast = _mm256_set1_epi32(i32::from(valid));
-        let selected = _mm256_and_si256(broadcast, lane_bits);
+    let gather = |group: usize, dword: __m256i, in_range: __m256i| -> (__m256i, __m256i) {
+        let byte = validity_first_byte + group;
+        let next_byte = byte + has_non_byte_shift;
+
+        // We've verified in take.rs validity read is in bounds
+        let lo: u16 = unsafe { *valid_bytes.get_unchecked(byte).as_() };
+        let hi: u16 = unsafe { *valid_bytes.get_unchecked(next_byte).as_() };
+
+        let window = lo | (hi << 8);
+        let valid = ((window >> validity_shift) & 0xFF) as u8;
+
+        // all ones if element is valid, all 0 otherwise
+        let valid_vector = _mm256_set1_epi32(i32::from(valid));
+        // valid_vector & lane_bits
+        let selected = _mm256_and_si256(valid_vector, lane_bits);
+        // selected[i] == lane_bits[i]
         let lanes = _mm256_cmpeq_epi32(selected, lane_bits);
-        let clamped = _mm256_min_epu32(dword, max_dword);
-        let in_range = _mm256_cmpeq_epi32(clamped, dword);
-        let escaped = _mm256_andnot_si256(in_range, lanes);
-        let gathered =
-            unsafe { _mm256_mask_i32gather_epi32::<4>(zero, base.cast(), clamped, lanes) };
-        (gathered, escaped)
+
+        // !in_range & lanes. We have a valid index which is out of bounds
+        let violation = _mm256_andnot_si256(in_range, lanes);
+
+        let gathered = unsafe { _mm256_mask_i32gather_epi32::<4>(zero, base.cast(), dword, lanes) };
+        (gathered, violation)
     };
     unsafe {
         take_lanes(
@@ -147,7 +153,7 @@ unsafe fn take_group<I: AsPrimitive<usize>>(
             indices,
             load_group,
             gather,
-            Some((valid_bytes, valid_offset)),
+            Some((valid_bytes, validity_offset)),
         )
     }
 }
@@ -158,7 +164,7 @@ unsafe fn take_lanes<I>(
     bits: BitBufferView<'_>,
     indices: &[I],
     load_group: impl Fn(usize) -> __m256i,
-    gather: impl Fn(usize, __m256i) -> (__m256i, __m256i),
+    gather: impl Fn(usize, __m256i, __m256i) -> (__m256i, __m256i),
     validity: Option<(&[u8], usize)>,
 ) -> BitBuffer
 where
@@ -169,26 +175,43 @@ where
 
     let bit_offset: __m256i = _mm256_set1_epi32(bits.offset() as i32);
     let low_bits: __m256i = _mm256_set1_epi32(31);
+    let max_index: __m256i = _mm256_set1_epi32((bits.len() - 1) as i32);
     let mut out_of_bounds: __m256i = _mm256_setzero_si256();
 
     let mut out = BufferMut::<u8>::with_capacity(total.div_ceil(8));
     for group in 0..full_groups {
-        let bitpos = _mm256_add_epi32(load_group(group), bit_offset);
+        let group_vector: __m256i = load_group(group);
+
+        // group_vector[i] = min(group_vector[i], max_index[i])
+        // We clamp every index so it can never read over bits's buffer, and
+        // calculate violations separately. If we found a violation after
+        // looping< we panic.
+        let clamped = _mm256_min_epu32(group_vector, max_index);
+
+        // clamped == group_vector
+        let in_range = _mm256_cmpeq_epi32(clamped, group_vector);
+
+        let bitpos = _mm256_add_epi32(clamped, bit_offset);
         let dword = _mm256_srli_epi32::<5>(bitpos);
-        let (gathered, escaped) = gather(group, dword);
-        out_of_bounds = _mm256_or_si256(out_of_bounds, escaped);
+
+        let (gathered, violation) = gather(group, dword, in_range);
+        out_of_bounds = _mm256_or_si256(out_of_bounds, violation);
+
         let shift = _mm256_and_si256(bitpos, low_bits);
         let shifted = _mm256_srlv_epi32(gathered, shift);
         let top = _mm256_slli_epi32::<31>(shifted);
         let as_ps = _mm256_castsi256_ps(top);
+
         let group_bits = _mm256_movemask_ps(as_ps);
+        let group_bits: u8 = (group_bits & 0xFF).as_();
+
         // SAFETY: out has sufficient capacity
-        unsafe { out.push_unchecked((group_bits & 0xFF) as u8) };
+        unsafe { out.push_unchecked(group_bits) };
     }
 
     assert!(
         _mm256_testz_si256(out_of_bounds, out_of_bounds) != 0,
-        "take index out of bounds"
+        "index out of bounds"
     );
 
     let tail = total % 8;
@@ -201,17 +224,17 @@ where
     let mut byte = 0u8;
     for bit in 0..tail {
         let pos = start + bit;
-        let keep = validity.map_or(usize::MAX, |(valid_bytes, valid_offset)| {
-            // SAFETY: validity has the same length as indices
-            (unsafe { get_bit_unchecked(valid_bytes.as_ptr(), valid_offset + pos) } as usize)
+        let keep = validity.map_or(usize::MAX, |(valid_bytes, validity_offset)| {
+            // SAFETY: validity has same length as indices
+            (unsafe { get_bit_unchecked(valid_bytes.as_ptr(), validity_offset + pos) } as usize)
                 .wrapping_neg()
         });
-        // SAFETY: pos stays within indices for the tail range
+        // SAFETY: pos stays within indices
         let idx = unsafe { indices.get_unchecked(pos) }.as_() & keep;
         let value = get_bit(inner, bits.offset() + idx);
         byte |= (value as u8) << bit;
     }
-    // SAFETY: out was reserved for the tail byte
+    // SAFETY: out has sufficient capacity
     unsafe { out.push_unchecked(byte) }
     BitBuffer::new(out.freeze(), total)
 }

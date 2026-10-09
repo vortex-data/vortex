@@ -109,7 +109,7 @@ where
             // SAFETY: we're already iterating over every index, a bound
             // is excessive
             let idx = unsafe { indices.get_unchecked(i).as_() };
-            // SAFETY: we've verified validity has same size as indices before
+            // SAFETY: we're verified validity has same size as indices before
             let mask_idx: usize = unsafe { get_bit_unchecked(ptr, offset + i) }.as_();
             bools[idx & mask_idx.wrapping_neg()]
         });
@@ -122,7 +122,7 @@ where
         // SAFETY: we're already iterating over every index, a bound
         // is excessive
         let idx = unsafe { indices.get_unchecked(i).as_() };
-        // SAFETY: we've verified validity has same size as indices before
+        // SAFETY: we're verified validity has same size as indices before
         let mask_idx: usize = unsafe { get_bit_unchecked(ptr, validity_offset + i) }.as_();
         let masked_idx = idx & mask_idx.wrapping_neg();
         get_bit(buf, bits_offset + masked_idx)
@@ -276,5 +276,19 @@ mod tests {
         indices[80] = 1_000_000;
         let validity = BitBuffer::collect_bool(403, |i| i != 200);
         let _taken = take_bits(bits.as_view(), &indices, Some(validity.as_view()));
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn index_out_of_bounds() {
+        let bits = BitBuffer::collect_bool(10_000, |i| i % 2 == 0);
+        let view = bits.as_view().slice(3..);
+        let mut indices: Vec<u32> = random_indices(403, 9_000)
+            .into_iter()
+            .map(|idx| u32::try_from(idx).unwrap())
+            .collect();
+        indices[80] = u32::MAX;
+        let validity = BitBuffer::collect_bool(403, |i| i != 200);
+        let _taken = take_bits(view, &indices, Some(validity.as_view()));
     }
 }
