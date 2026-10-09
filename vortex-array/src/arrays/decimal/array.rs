@@ -239,8 +239,8 @@ impl DecimalData {
 
     /// Constructs a new `DecimalArray` with validation from a [`BufferHandle`].
     ///
-    /// Oversized host buffers are narrowed to the type required by the precision. Device buffers
-    /// must already satisfy this bound. Non-null values must fit the declared precision; their
+    /// Storage must be no wider than the type required by the precision; wider storage is
+    /// rejected rather than narrowed. Non-null values must fit the declared precision; their
     /// range is not checked.
     ///
     /// # Errors
@@ -253,30 +253,51 @@ impl DecimalData {
     ) -> VortexResult<Self> {
         Self::validate(&values, values_type)?;
         let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
-        let (values, values_type) = if values_type > maximum {
-            vortex_ensure!(
-                values.is_on_host(),
-                InvalidArgument: "decimal device storage {values_type} exceeds precision storage {maximum}",
-            );
-            let narrowed = match_each_decimal_value_type!(values_type, |In| {
-                let buffer = Buffer::<In>::from_byte_buffer(values.unwrap_host());
-                match_each_decimal_value_type!(maximum, |Out| {
-                    // Non-null values must already fit the declared precision. Null payloads
-                    // are unspecified and may be truncated along with the buffer.
-                    buffer
-                        .iter()
-                        .map(|value| value.as_())
-                        .collect::<Buffer<Out>>()
-                        .into_byte_buffer()
-                })
-            });
-            (BufferHandle::new_host(narrowed), maximum)
-        } else {
-            (values, values_type)
-        };
+        vortex_ensure!(
+            values_type <= maximum,
+            InvalidArgument: "decimal storage {values_type} exceeds precision storage {maximum} for {decimal_dtype}",
+        );
 
         // SAFETY: buffer layout is validated and storage is bounded by the precision.
         Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype) })
+    }
+
+    /// Narrows host storage wider than the type required by `decimal_dtype` down to that type.
+    ///
+    /// Storage already within the bound is returned unchanged, without copying. Non-null values
+    /// must already fit the declared precision; null payloads are unspecified and may be
+    /// truncated along with the buffer. Importers of external storage layouts use this before
+    /// constructing an array, since the constructors reject oversized storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer layout is invalid for `values_type`, or if oversized
+    /// storage lives on a device, where it cannot be narrowed.
+    pub fn narrow_to_precision(
+        values: BufferHandle,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+    ) -> VortexResult<(BufferHandle, DecimalType)> {
+        Self::validate(&values, values_type)?;
+        let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+        if values_type <= maximum {
+            return Ok((values, values_type));
+        }
+        vortex_ensure!(
+            values.is_on_host(),
+            InvalidArgument: "decimal device storage {values_type} exceeds precision storage {maximum}",
+        );
+        let narrowed = match_each_decimal_value_type!(values_type, |In| {
+            let buffer = Buffer::<In>::from_byte_buffer(values.unwrap_host());
+            match_each_decimal_value_type!(maximum, |Out| {
+                buffer
+                    .iter()
+                    .map(|value| value.as_())
+                    .collect::<Buffer<Out>>()
+                    .into_byte_buffer()
+            })
+        });
+        Ok((BufferHandle::new_host(narrowed), maximum))
     }
 
     /// Creates a new [`DecimalArray`] without validation from these components:
@@ -485,6 +506,21 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
         Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+    }
+
+    /// Creates a new [`DecimalArray`] from a host-native buffer, narrowing storage wider than
+    /// the type required by the precision.
+    ///
+    /// See [`DecimalData::narrow_to_precision`] for the narrowing contract.
+    pub fn try_new_narrowed<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let values = BufferHandle::new_host(buffer.into_byte_buffer());
+        let (values, values_type) =
+            DecimalData::narrow_to_precision(values, T::DECIMAL_TYPE, decimal_dtype)?;
+        Self::try_new_handle(values, values_type, decimal_dtype, validity)
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.

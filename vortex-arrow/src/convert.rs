@@ -211,7 +211,7 @@ pub fn from_arrow_decimal32(
     let decimal_type = DecimalDType::new(array.precision(), array.scale());
     let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
@@ -233,7 +233,7 @@ pub fn from_arrow_decimal64(
     let decimal_type = DecimalDType::new(array.precision(), array.scale());
     let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
@@ -255,7 +255,7 @@ pub fn from_arrow_decimal128(
     let decimal_type = DecimalDType::new(array.precision(), array.scale());
     let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
@@ -281,7 +281,7 @@ pub fn from_arrow_decimal256(
     //  of either type.
     let buffer = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {

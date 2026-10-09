@@ -104,6 +104,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalData;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
     use crate::buffer::DeviceBuffer;
@@ -117,12 +118,16 @@ mod tests {
         let bytes = Buffer::from_iter([1i64]).into_byte_buffer();
         let handle = BufferHandle::new_device(Arc::new(TestDeviceBuffer(bytes)));
         let result = DecimalArray::try_new_handle(
-            handle,
+            handle.clone(),
             DecimalType::I64,
             DecimalDType::new(2, 0),
             Validity::NonNullable,
         );
         assert!(result.is_err());
+        // Device storage cannot be narrowed on the host either.
+        let narrowed =
+            DecimalData::narrow_to_precision(handle, DecimalType::I64, DecimalDType::new(2, 0));
+        assert!(narrowed.is_err());
     }
 
     // Host-backed storage exposes device slicing without allowing implicit host copies.

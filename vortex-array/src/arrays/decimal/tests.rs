@@ -23,7 +23,7 @@ use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
 #[rstest]
-fn construction_bounds_storage_by_precision(
+fn construction_rejects_storage_wider_than_precision(
     #[values(1, 2, 3, 4, 5, 9, 10, 18, 19, 38, 39, 76)] precision: u8,
     #[values(
         DecimalType::I8,
@@ -45,16 +45,55 @@ fn construction_bounds_storage_by_precision(
             .into_byte_buffer()
     });
     let ptr = bytes.as_ptr();
-    let array = DecimalArray::try_new_handle(
+    let result = DecimalArray::try_new_handle(
         BufferHandle::new_host(bytes),
         storage,
         dtype,
         Validity::NonNullable,
-    )?;
-    assert_eq!(array.values_type(), storage.min(maximum));
-    if storage <= maximum {
-        assert_eq!(array.buffer_handle().as_host().as_ptr(), ptr);
+    );
+    if storage > maximum {
+        assert!(result.is_err());
+        return Ok(());
     }
+    let array = result?;
+    assert_eq!(array.values_type(), storage);
+    assert_eq!(array.buffer_handle().as_host().as_ptr(), ptr);
+    assert_arrays_eq!(
+        array,
+        DecimalArray::new(buffer![-9i8, 9], dtype, Validity::NonNullable),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[rstest]
+fn narrowing_bounds_storage_by_precision(
+    #[values(1, 2, 3, 4, 5, 9, 10, 18, 19, 38, 39, 76)] precision: u8,
+    #[values(
+        DecimalType::I8,
+        DecimalType::I16,
+        DecimalType::I32,
+        DecimalType::I64,
+        DecimalType::I128,
+        DecimalType::I256
+    )]
+    storage: DecimalType,
+) -> VortexResult<()> {
+    let dtype = DecimalDType::new(precision, 0);
+    let maximum = DecimalType::smallest_decimal_value_type(&dtype);
+    let array = match_each_decimal_value_type!(storage, |D| {
+        let buffer = [-9i8, 9]
+            .into_iter()
+            .map(|v| v.as_())
+            .collect::<Buffer<D>>();
+        let ptr = buffer.as_ptr();
+        let array = DecimalArray::try_new_narrowed(buffer, dtype, Validity::NonNullable)?;
+        if storage <= maximum {
+            assert_eq!(array.buffer::<D>().as_ptr(), ptr);
+        }
+        array
+    });
+    assert_eq!(array.values_type(), storage.min(maximum));
     assert_arrays_eq!(
         array,
         DecimalArray::new(buffer![-9i8, 9], dtype, Validity::NonNullable),
@@ -66,7 +105,7 @@ fn construction_bounds_storage_by_precision(
 #[test]
 fn narrowing_preserves_validity_and_ignores_null_payloads() -> VortexResult<()> {
     let dtype = DecimalDType::new(2, 0);
-    let array = DecimalArray::try_new(
+    let array = DecimalArray::try_new_narrowed(
         buffer![99i128, i128::MIN, -99],
         dtype,
         Validity::from_iter([true, false, true]),
@@ -81,10 +120,14 @@ fn narrowing_preserves_validity_and_ignores_null_payloads() -> VortexResult<()> 
 }
 
 #[test]
-fn empty_oversized_storage_is_narrowed() {
-    let data = DecimalData::new(Buffer::<i128>::empty(), DecimalDType::new(2, 0));
-    assert!(data.is_empty());
-    assert_eq!(data.values_type(), DecimalType::I8);
+fn empty_oversized_storage_is_rejected_unless_narrowed() -> VortexResult<()> {
+    let dtype = DecimalDType::new(2, 0);
+    assert!(DecimalData::try_new(Buffer::<i128>::empty(), dtype).is_err());
+    let array =
+        DecimalArray::try_new_narrowed(Buffer::<i128>::empty(), dtype, Validity::NonNullable)?;
+    assert!(array.is_empty());
+    assert_eq!(array.values_type(), DecimalType::I8);
+    Ok(())
 }
 
 #[cfg(debug_assertions)]

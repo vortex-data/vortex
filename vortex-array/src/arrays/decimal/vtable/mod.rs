@@ -187,7 +187,10 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
+            // Older writers allowed storage wider than the precision requires.
+            let (values, values_type) =
+                DecimalData::narrow_to_precision(values, metadata.values_type(), *decimal_dtype)?;
+            DecimalData::try_new_handle(values, values_type, *decimal_dtype)
         })?;
         Ok(ArrayParts::new(
             self.clone(),
