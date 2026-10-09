@@ -96,7 +96,8 @@ pub(crate) struct Pipeline {
     stages: Vec<Box<dyn Operator>>,
     inlets: Vec<PortId>,
     outlets: SmallVec<[PortId; 1]>,
-    bytes: Option<BufferHandle>,
+    /// The segments it asked for that have arrived, in order of arrival.
+    bytes: VecDeque<(SegmentId, BufferHandle)>,
     /// The inlets the last run read, each once.
     touched: Vec<usize>,
     /// For each inlet, whether it is in `touched`.
@@ -107,8 +108,8 @@ pub(crate) struct Pipeline {
 
 /// What one run of a pipeline came to.
 enum Progress {
-    /// The source wants this segment read.
-    Read(SegmentId),
+    /// The source wants these segments read.
+    Read(SmallVec<[SegmentId; 1]>),
     /// The pipeline did work and may do more.
     Ran,
     /// The pipeline cannot run until the condition clears.
@@ -147,8 +148,13 @@ fn drive(
         if !outlets.iter().all(|&outlet| cx.arena.has_room(outlet)) {
             return Ok(Progress::Blocked(Blocked::Outlet));
         }
-        if let Some(segment) = source.request() {
-            return Ok(Progress::Read(segment));
+        if let Some(first) = source.request() {
+            let mut segments = SmallVec::new();
+            segments.push(first);
+            while let Some(segment) = source.request() {
+                segments.push(segment);
+            }
+            return Ok(Progress::Read(segments));
         }
         match source.compute(Input::None, &mut cx)? {
             // A source's input is its inlets and reads, which nothing changes while it runs, so
@@ -239,7 +245,7 @@ pub(crate) struct Core {
     /// Runnable pipelines, last in first out, so data a pipeline just produced is consumed
     /// before more is produced.
     ready: Vec<PipelineId>,
-    reads: FxHashMap<ReadId, PipelineId>,
+    reads: FxHashMap<ReadId, (PipelineId, SegmentId)>,
     next_read: u64,
     new_reads: VecDeque<ReadRequest>,
     /// Split slots whose stage output has something new, with a flag per slot so a slot is
@@ -279,7 +285,7 @@ impl Core {
             stages: chain.stages,
             inlets: chain.inlets,
             outlets,
-            bytes: None,
+            bytes: VecDeque::new(),
             touched,
             listed,
             state: State::Runnable,
@@ -349,21 +355,23 @@ impl Core {
             .ok_or_else(|| vortex_err!("Pipeline {id} is not live"))?;
         pipe.queued = false;
         let progress = drive(pipe, &mut self.arena, &self.session, &mut self.exec)?;
-        match progress {
-            Progress::Read(segment_id) => {
-                let read = ReadId(self.next_read);
-                self.next_read += 1;
-                self.reads.insert(read, id);
-                self.new_reads.push_back(ReadRequest {
-                    id: read,
-                    segment_id,
-                });
+        match &progress {
+            Progress::Read(segments) => {
+                for &segment_id in segments {
+                    let read = ReadId(self.next_read);
+                    self.next_read += 1;
+                    self.reads.insert(read, (id, segment_id));
+                    self.new_reads.push_back(ReadRequest {
+                        id: read,
+                        segment_id,
+                    });
+                }
                 self.pipeline_mut(id).state = State::Blocked(Blocked::Io);
             }
             Progress::Ran => self.make_runnable(id),
             // Nothing changes a port while its reader computes, so the condition the source
             // reported holds until a neighbour wakes it.
-            Progress::Blocked(blocked) => self.pipeline_mut(id).state = State::Blocked(blocked),
+            Progress::Blocked(blocked) => self.pipeline_mut(id).state = State::Blocked(*blocked),
             Progress::Done => {}
         }
         self.wake_neighbours(id);
@@ -453,11 +461,11 @@ impl Core {
     }
 
     fn deliver(&mut self, read: ReadId, bytes: BufferHandle) -> VortexResult<()> {
-        let id = self
+        let (id, segment) = self
             .reads
             .remove(&read)
             .ok_or_else(|| vortex_err!("Unknown read {read:?}"))?;
-        self.pipeline_mut(id).bytes = Some(bytes);
+        self.pipeline_mut(id).bytes.push_back((segment, bytes));
         self.make_runnable(id);
         Ok(())
     }

@@ -21,6 +21,8 @@ mod port;
 mod scan;
 pub mod synthetic;
 
+use std::collections::VecDeque;
+
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
@@ -108,9 +110,10 @@ pub trait Source: Operator {
         DEFAULT_CAPACITY
     }
 
-    /// The segment this source wants read next, asked before every
-    /// [`compute`](Operator::compute). A source that returns one is not computed until its
-    /// bytes have arrived through [`Cx::take_bytes`].
+    /// A segment this source wants read, asked until it answers `None` before every
+    /// [`compute`](Operator::compute), so a source may have several reads in flight. A source
+    /// that asked for any is not computed again until one of them arrives; the bytes come
+    /// through [`Cx::take_segment`] in the order they arrive.
     fn request(&mut self) -> Option<SegmentId> {
         None
     }
@@ -121,7 +124,7 @@ pub trait Source: Operator {
 pub struct Cx<'a> {
     arena: &'a mut Arena,
     inlets: &'a [PortId],
-    bytes: &'a mut Option<BufferHandle>,
+    bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
     session: &'a VortexSession,
     exec: &'a mut ExecutionCtx,
     /// The inlets read during this run, each once, so only their writers are checked for room
@@ -140,9 +143,14 @@ impl Cx<'_> {
         self.arena.inlet(self.inlets[index])
     }
 
-    /// The bytes of the segment the source requested, once they have arrived.
+    /// The bytes of a segment the source asked for that has arrived, oldest arrival first.
     pub fn take_bytes(&mut self) -> Option<BufferHandle> {
-        self.bytes.take()
+        self.take_segment().map(|(_, bytes)| bytes)
+    }
+
+    /// Like [`take_bytes`](Self::take_bytes), with the segment the bytes are of.
+    pub fn take_segment(&mut self) -> Option<(SegmentId, BufferHandle)> {
+        self.bytes.pop_front()
     }
 
     /// The session used for decoding and evaluation.
