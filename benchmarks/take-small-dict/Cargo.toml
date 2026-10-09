@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "fearless-dict-take"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+fearless_simd = "=1.0.0"
+
+# Keep the experimental comparison dependency outside the production workspace.
+[workspace]
+
+[profile.release]
+debug = false

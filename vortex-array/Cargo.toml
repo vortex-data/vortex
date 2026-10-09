@@ -87,6 +87,8 @@ unstable_row_fns = []
 [dev-dependencies]
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 mimalloc = { workspace = true }
@@ -274,6 +276,10 @@ name = "take_primitive"
 harness = false
 
 [[bench]]
+name = "take_small_dict"
+harness = false
+
+[[bench]]
 name = "take_chunked"
 harness = false
 
@@ -295,6 +301,10 @@ harness = false
 
 [[bench]]
 name = "take_filter"
+harness = false
+
+[[bench]]
+name = "dict_take_small"
 harness = false
 
 [[bench]]

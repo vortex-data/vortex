@@ -82,17 +82,28 @@ macro_rules! impl_fixed_width_take_value {
     };
 }
 
-impl_fixed_width_take_value!(u16, u32, u64, i16, i32, i64, f16, f32, f64,);
+impl_fixed_width_take_value!(u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64,);
+
+// SAFETY: Byte arrays have no padding and every byte is initialized.
+unsafe impl<const N: usize> FixedWidthTakeValue for [u8; N] {}
 
 pub(crate) fn take_values<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
+    let small_table_width = matches!(size_of::<T>(), 1 | 2)
+        || (cfg!(all(target_arch = "aarch64", target_endian = "little"))
+            && matches!(size_of::<T>(), 4 | 8));
+    if small_table_width
+        && let Some(taken) = small_table::try_take(values, indices, allocator)
+    {
+        return taken;
+    }
     T::take(values, indices, allocator)
 }
 
-fn take_values_fallback<T: FixedWidthTakeValue, I: UnsignedPType>(
+pub(crate) fn take_values_fallback<T: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[T],
     indices: &[I],
     allocator: &BufferAllocatorRef,
