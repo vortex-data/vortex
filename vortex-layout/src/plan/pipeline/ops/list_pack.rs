@@ -23,23 +23,23 @@ use crate::plan::pipeline::Operator;
 use crate::plan::pipeline::Source;
 use crate::plan::pipeline::Step;
 
-/// Reads list offsets, then the element range they reference, then assembles the lists and
-/// keeps the selected ones.
+/// Assembles lists from their offsets, their elements, and their validity, then keeps the
+/// selected ones.
 ///
-/// The element range is known only once the offsets are whole, so the elements are compiled
-/// then, into a new inlet.
+/// Every inlet is compiled up front: the offsets and validity of the lists read, and the list's
+/// elements whole. Once all three have ended, the elements are sliced to the range the offsets
+/// reference, so the source needs no plan it did not start with.
 pub(crate) struct ListPackSource {
     plan: ListPackPlan,
     /// The selection over the lists read.
     mask: Mask,
     has_validity: bool,
-    /// The offsets rebased to the element range, once read, and the elements inlet.
-    offsets: Option<(ArrayRef, usize)>,
     done: bool,
 }
 
 const OFFSETS: usize = 0;
-const VALIDITY: usize = 1;
+const ELEMENTS: usize = 1;
+const VALIDITY: usize = 2;
 
 impl ListPackSource {
     pub(crate) fn new(plan: ListPackPlan, mask: Mask, has_validity: bool) -> Self {
@@ -47,49 +47,53 @@ impl ListPackSource {
             plan,
             mask,
             has_validity,
-            offsets: None,
             done: false,
         }
     }
 
-    fn spawn_elements(&mut self, cx: &mut Cx<'_>) -> VortexResult<()> {
-        let offsets_plan = self.plan.offsets()?;
-        let offsets = join(offsets_plan.dtype(), drain(&mut cx.inlet(OFFSETS)))?;
+    /// The lists, from the whole of every inlet.
+    fn assemble(&self, cx: &mut Cx<'_>) -> VortexResult<ArrayRef> {
+        let offsets = join(self.plan.offsets()?.dtype(), drain(&mut cx.inlet(OFFSETS)))?;
         vortex_ensure!(
             offsets.len() == self.mask.len() + 1,
             "Incomplete list offsets"
         );
-        let start = offsets
-            .execute_scalar(0, cx.exec())?
-            .as_primitive()
-            .as_::<u64>()
-            .ok_or_else(|| vortex_err!("Invalid first list offset"))?;
-        let end = offsets
-            .execute_scalar(offsets.len() - 1, cx.exec())?
-            .as_primitive()
-            .as_::<u64>()
-            .ok_or_else(|| vortex_err!("Invalid last list offset"))?;
-        let elements = self.plan.elements()?;
+        let first = offset(&offsets, 0, cx)?;
+        let last = offset(&offsets, offsets.len() - 1, cx)?;
+        let elements = join(
+            self.plan.elements()?.dtype(),
+            drain(&mut cx.inlet(ELEMENTS)),
+        )?;
         vortex_ensure!(
-            start <= end && end <= elements.row_count(),
-            "List element range {start}..{end} is out of bounds"
+            first <= last && last <= elements.len() as u64,
+            "List element range {first}..{last} is out of bounds"
         );
-        let offsets = if start == 0 {
+        let elements = elements.slice(usize::try_from(first)?..usize::try_from(last)?)?;
+        let offsets = if first == 0 {
             offsets
         } else {
-            let base = vortex_array::arrays::ConstantArray::new(start, offsets.len())
+            let base = vortex_array::arrays::ConstantArray::new(first, offsets.len())
                 .into_array()
                 .cast(offsets.dtype().clone())?;
             offsets.binary(base, BinaryOperator::Sub)?
         };
-        let inlet = cx.spawn(
-            elements,
-            start..end,
-            Mask::new_true(usize::try_from(end - start)?),
-        );
-        self.offsets = Some((offsets, inlet));
-        Ok(())
+        let validity = match self.plan.validity()? {
+            Some(plan) => Validity::Array(join(plan.dtype(), drain(&mut cx.inlet(VALIDITY)))?),
+            None => Validity::NonNullable,
+        };
+        ListArray::try_new(elements, offsets, validity)?
+            .into_array()
+            .filter(self.mask.clone())
     }
+}
+
+/// Offset `index` of `offsets`, as a row of the elements.
+fn offset(offsets: &ArrayRef, index: usize, cx: &mut Cx<'_>) -> VortexResult<u64> {
+    offsets
+        .execute_scalar(index, cx.exec())?
+        .as_primitive()
+        .as_::<u64>()
+        .ok_or_else(|| vortex_err!("Invalid list offset at {index}"))
 }
 
 impl Operator for ListPackSource {
@@ -97,47 +101,19 @@ impl Operator for ListPackSource {
         if self.done {
             return Ok(Step::Finished);
         }
-        let Some((_, elements)) = &self.offsets else {
-            if !cx.inlet(OFFSETS).closed() {
-                return Ok(Step::Blocked(Blocked::Inlet(OFFSETS)));
-            }
-            self.spawn_elements(cx)?;
-            return Ok(Step::Consumed);
-        };
-        let elements = *elements;
-        let inlets: &[usize] = if self.has_validity {
-            &[VALIDITY, OFFSETS]
-        } else {
-            &[OFFSETS]
-        };
-        for &index in inlets.iter().chain([&elements]) {
+        for index in 0..self.inlet_count() {
             if !cx.inlet(index).closed() {
                 return Ok(Step::Blocked(Blocked::Inlet(index)));
             }
         }
-        let elements = join(
-            self.plan.elements()?.dtype(),
-            drain(&mut cx.inlet(elements)),
-        )?;
-        let validity = match self.plan.validity()? {
-            Some(plan) => Validity::Array(join(plan.dtype(), drain(&mut cx.inlet(VALIDITY)))?),
-            None => Validity::NonNullable,
-        };
-        let (offsets, _) = self
-            .offsets
-            .take()
-            .ok_or_else(|| vortex_err!("Missing list offsets"))?;
         self.done = true;
-        let lists = ListArray::try_new(elements, offsets, validity)?
-            .into_array()
-            .filter(self.mask.clone())?;
-        Ok(Step::Last(lists))
+        Ok(Step::Last(self.assemble(cx)?))
     }
 }
 
 impl Source for ListPackSource {
     fn inlet_count(&self) -> usize {
-        if self.has_validity { 2 } else { 1 }
+        if self.has_validity { 3 } else { 2 }
     }
 
     fn capacity(&self, _inlet: usize) -> usize {
