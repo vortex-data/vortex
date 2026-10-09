@@ -246,9 +246,7 @@ impl PlanVTable for Pack {
         if count == 1 && !nullable {
             // One field needs no zip: each of its batches is wrapped as it passes.
             let chain = chains.remove(0);
-            return Ok(Some(
-                chain.with(WrapStage::new(plan.fields().names().clone())),
-            ));
+            return Ok(Some(chain.with(WrapStage::new(plan.fields().clone()))));
         }
         let source = PackSource::new(plan.fields().clone(), nullable, count);
         Ok(Some(compiler.join(chains, source)))
