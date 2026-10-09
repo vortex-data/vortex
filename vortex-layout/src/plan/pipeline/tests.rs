@@ -42,7 +42,6 @@ use crate::layouts::flat::FlatLayout;
 use crate::layouts::list::ListLayout;
 use crate::layouts::struct_::StructLayout;
 use crate::plan::EvalPlan;
-use crate::plan::Filter;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScan;
 use crate::plan::Take;
@@ -532,42 +531,34 @@ fn aligned_fields_stream_one_struct_per_chunk() -> VortexResult<()> {
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 
-/// A bare segment scan returns every row of its range whatever it is told to care about, and a
-/// filter over the same scan returns only the selected rows.
+/// A segment scan keeps the rows its split selects, and so does a filter over the same scan,
+/// which runs as the same source.
 #[rstest]
 #[case::every_other(Sel::EveryOther)]
 #[case::sparse(Sel::Rows(&[1, 4]))]
 #[case::nothing(Sel::None)]
-fn bare_scan_is_dense_and_filter_keeps_the_selection(#[case] sel: Sel) -> VortexResult<()> {
+fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> VortexResult<()> {
     let mut store = Store::default();
     let values = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
-    let filtered = lower(&store.flat(&values)?)?;
-    assert!(filtered.is::<Filter>());
-    let scan = filtered.child_required(0)?;
+    let scan = lower(&store.flat(&values)?)?;
     assert!(scan.is::<SegmentScan>());
+    let filtered = crate::plan::FilterPlan::new(scan.clone()).into_plan();
 
     let rows = 3..9;
     let mask = sel.mask(6);
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let dense = run(
-        &store,
-        &scan,
-        rows.clone(),
-        mask.clone(),
-        delivery(Delivery::Fifo),
-    )?;
-    assert_eq!(dense.arrays.len(), 1);
-    assert_arrays_eq!(dense.arrays[0], values.slice(3..9)?, &mut ctx);
-
-    let kept = run(
-        &store,
-        &filtered,
-        rows.clone(),
-        mask.clone(),
-        delivery(Delivery::Fifo),
-    )?;
-    assert_view(&values, &rows, &mask, kept.arrays)?;
+    for plan in [&scan, &filtered] {
+        let kept = run(
+            &store,
+            plan,
+            rows.clone(),
+            mask.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        if mask.all_false() {
+            assert_eq!(reads(&kept.events), 0, "nothing selected reads nothing");
+        }
+        assert_view(&values, &rows, &mask, kept.arrays)?;
+    }
     Ok(())
 }
 

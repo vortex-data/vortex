@@ -105,9 +105,8 @@ impl PlanVTable for SegmentScan {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let _ = mask;
-        // A bare scan produces every row of its range; a filter over it keeps the selected ones.
-        compiler.scan(plan, rows, None)
+        // A scan keeps the selected rows itself, as every plan produces only those.
+        compiler.scan(plan, rows, Some(mask.clone()))
     }
 
     fn reach(
