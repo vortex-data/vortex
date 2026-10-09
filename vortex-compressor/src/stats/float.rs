@@ -5,7 +5,6 @@
 
 use std::hash::Hash;
 
-use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
@@ -18,10 +17,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
+use super::chunks::count_transitions;
+use super::chunks::for_each_chunk;
 
 /// Information about the distinct values in a float array.
 #[derive(Debug, Clone)]
@@ -215,46 +215,43 @@ where
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?;
 
-    let mut runs = 1;
+    let mut runs: u32 = 1;
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
-    let first_valid_buff = buff.slice(head_idx..array.len());
-    match validity.bit_buffer() {
-        AllOr::All => {
-            for value in first_valid_buff {
-                if count_distinct_values {
-                    distinct_values.insert(NativeValue(value));
-                }
-
-                if value != prev {
-                    prev = value;
-                    runs += 1;
-                }
+    // The nulls before the head are skipped, so the loop can start at 0.
+    for_each_chunk(buff.as_slice(), &validity, |chunk, valid| match valid {
+        // All nulls -> no stats to update.
+        0 => {}
+        u64::MAX => {
+            if count_distinct_values {
+                distinct_values.extend(chunk.iter().map(|&value| NativeValue(value)));
             }
+            runs += u32::from(count_transitions(&prev, chunk));
+            prev = chunk[63];
         }
-        AllOr::None => unreachable!("All invalid arrays have been handled earlier"),
-        AllOr::Some(v) => {
-            for (&value, valid) in first_valid_buff
-                .iter()
-                .zip_eq(v.slice(head_idx..array.len()).iter())
-            {
-                if valid {
-                    if count_distinct_values {
-                        distinct_values.insert(NativeValue(value));
-                    }
-
-                    if value != prev {
-                        prev = value;
-                        runs += 1;
-                    }
-                }
+        // Floats are not forward filled like integers, since a filled NaN would add a run.
+        // The valid values are gathered first, so their changes are counted branch-free.
+        _ => {
+            let mut gathered = *chunk;
+            let mut n = 0;
+            let mut bits = valid;
+            while bits != 0 {
+                gathered[n] = chunk[bits.trailing_zeros() as usize];
+                n += 1;
+                bits &= bits - 1;
             }
+            let gathered = &gathered[..n];
+            if count_distinct_values {
+                distinct_values.extend(gathered.iter().map(|&value| NativeValue(value)));
+            }
+            runs += u32::from(count_transitions(&prev, gathered));
+            prev = gathered[n - 1];
         }
-    }
+    });
 
     let null_count = u32::try_from(null_count)?;
     let value_count = u32::try_from(value_count)?;
@@ -275,11 +272,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
@@ -327,5 +329,64 @@ mod tests {
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 2);
+    }
+
+    /// Checks the chunked loop against a naive reference. The run lengths cover aligned constant
+    /// chunks (64), runs that cross chunk boundaries (3, 100), and chunks where every value
+    /// changes (1). With nulls, `null_chunks` also nulls two whole chunks.
+    #[rstest]
+    fn test_matches_naive_reference(
+        #[values(1, 63, 64, 65, 64 * 20 + 17)] len: u32,
+        #[values(1, 3, 64, 100)] run_len: u32,
+        #[values(None, Some(97), Some(3))] null_every: Option<u32>,
+        #[values(false, true)] null_chunks: bool,
+        #[values(0, 5)] mask_offset: usize,
+    ) {
+        let values: Vec<f64> = (0..len).map(|i| f64::from((i / run_len) % 16)).collect();
+        let valid: Vec<bool> = (0..len)
+            .map(|i| {
+                null_every.is_none_or(|n| i % n != 0 && !(null_chunks && (64..192).contains(&i)))
+            })
+            .collect();
+
+        let mut distinct = Vec::new();
+        let mut runs = 0;
+        let mut prev = None;
+        for (&value, _) in values.iter().zip(&valid).filter(|(_, ok)| **ok) {
+            if !distinct.contains(&value) {
+                distinct.push(value);
+            }
+            if prev.replace(value) != Some(value) {
+                runs += 1;
+            }
+        }
+        let value_count = u32::try_from(valid.iter().filter(|ok| **ok).count()).unwrap();
+
+        let validity = match null_every {
+            None => Validity::NonNullable,
+            // A mask that starts mid-byte gives the chunk loop a short first word.
+            Some(_) => Validity::from(
+                BitBuffer::from_iter(iter::repeat_n(false, mask_offset).chain(valid))
+                    .slice(mask_offset..),
+            ),
+        };
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+        let mut ctx = array_session().create_execution_ctx();
+        let stats = FloatStats::generate_opts(
+            &array,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        assert_eq!(stats.value_count, value_count);
+        if value_count > 0 {
+            assert_eq!(stats.average_run_length, value_count / runs);
+            assert_eq!(
+                stats.distinct_count(),
+                Some(u32::try_from(distinct.len()).unwrap())
+            );
+        }
     }
 }

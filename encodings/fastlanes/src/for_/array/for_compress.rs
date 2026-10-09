@@ -3,7 +3,6 @@
 
 use std::mem::MaybeUninit;
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
@@ -18,9 +17,11 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
@@ -136,31 +137,24 @@ fn subtract<T: PrimInt + WrappingSub>(values: &[T], reference: T, out: &mut [May
 
 /// Find each mixed-validity chunk's minimum and subtract it from each non-null value while the chunk is in cache.
 /// The minimum is the minimum non-null value.
-fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + 'static>(
+fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + Default>(
     values: &[T],
     bits: &BitBuffer,
-) -> (Buffer<T>, Buffer<T>)
-where
-    u8: AsPrimitive<T>,
-{
-    // One validity bit per value, 64 values per word. `iter_padded` ends with the remainder word
-    // even when it is empty, so keep one word per 64 values.
-    let words: Vec<u64> = bits
-        .chunks()
-        .iter_padded()
-        .take(values.len().div_ceil(64))
-        .collect();
-
+) -> (Buffer<T>, Buffer<T>) {
+    // A view slices each chunk's bits without cloning the buffer.
+    let bits = bits.as_view();
     let mut encoded = BufferMut::<T>::with_capacity(values.len());
     let out = &mut encoded.spare_capacity_mut()[..values.len()];
     let mins = values
         .chunks(FL_CHUNK_SIZE)
         .zip(out.chunks_mut(FL_CHUNK_SIZE))
-        .zip_eq(words.chunks(FL_CHUNK_SIZE / 64))
-        .map(|((chunk, out), words)| {
-            let min = valid_min(chunk, words);
+        .enumerate()
+        .map(|(i, (chunk, out))| {
+            let start = i * FL_CHUNK_SIZE;
+            let mask = bits.slice(start..start + chunk.len());
+            let min = valid_min(chunk, mask);
             // An all-null chunk encodes as zeros whatever its reference.
-            subtract_valid(chunk, words, min.unwrap_or_else(T::zero), out);
+            subtract_valid(chunk, mask, min.unwrap_or_else(T::zero), out);
             min
         })
         .collect::<Vec<_>>();
@@ -186,82 +180,32 @@ where
 
 /// The minimum of the valid `values`, or `None` if none are valid.
 #[inline]
-fn valid_min<T: PrimInt + WrappingSub + 'static>(values: &[T], words: &[u64]) -> Option<T>
-where
-    u8: AsPrimitive<T>,
-{
-    if words.iter().all(|&word| word == 0) {
+fn valid_min<T: PrimInt>(values: &[T], mask: BitBufferView) -> Option<T> {
+    if mask.true_count() == 0 {
         return None;
     }
     let mut min = T::max_value();
-    for_each_valid_mask(values, words, |_, v, mask| {
-        min = min.min(select(mask, v, T::max_value()));
+    for_each_mask_word(mask, |word, start, len| {
+        let bytes = word.to_le_bytes();
+        for (j, &v) in values[start..start + len].iter().enumerate() {
+            let valid = (bytes[j / 8] >> (j % 8)) & 1 == 1;
+            // An `if` compiles to a conditional move. Blending with an all-ones mask instead took
+            // 16 instructions per value and made encoding a third slower.
+            min = min.min(if valid { v } else { T::max_value() });
+        }
     });
 
     Some(min)
 }
 
 /// Subtract `reference` from the valid `values` and write zero for the invalid ones.
-fn subtract_valid<T: PrimInt + WrappingSub + 'static>(
+fn subtract_valid<T: PrimInt + WrappingSub + Default>(
     values: &[T],
-    words: &[u64],
+    mask: BitBufferView,
     reference: T,
     out: &mut [MaybeUninit<T>],
-) where
-    u8: AsPrimitive<T>,
-{
-    for_each_valid_mask(values, words, |i, v, mask| {
-        out[i].write(v.wrapping_sub(&reference) & mask);
-    });
-}
-
-/// Calls `f(index, value, mask)` for each value, where `mask` is all ones for a valid value and
-/// all zeros for a null.
-///
-/// Callers combine each value with its mask using bitwise operations instead of branching on
-/// validity, which keeps their loops vectorized.
-///
-/// `words` holds one validity bit per value, least significant bit first, 64 values per word.
-/// Each full 64-value block is a `[T; 64]` walked by a fixed `0..64` loop, so it unrolls and
-/// vectorizes with no bounds checks. The remainder, fewer than 64 values, uses the word after the
-/// full blocks and runs at most once per array.
-///
-/// Each bit is read from its byte of the word rather than by shifting the whole `u64`, which keeps
-/// the vectorized loop in 8-bit lanes.
-#[inline]
-fn for_each_valid_mask<T: PrimInt + WrappingSub + 'static>(
-    values: &[T],
-    words: &[u64],
-    mut f: impl FnMut(usize, T, T),
-) where
-    u8: AsPrimitive<T>,
-{
-    let (blocks, remainder) = values.as_chunks::<64>();
-    for (block_idx, (block, &word)) in blocks.iter().zip(words).enumerate() {
-        // Value `j`'s validity is bit `j % 8` of byte `j / 8`.
-        let bytes = word.to_le_bytes();
-        for j in 0..64 {
-            // Shift the bit to the bottom and clear the rest: `1` if valid, `0` if null.
-            let valid: T = ((bytes[j / 8] >> (j % 8)) & 1).as_();
-            // Create all zero or one mask by subtracting from zero.
-            f(block_idx * 64 + j, block[j], T::zero().wrapping_sub(&valid));
-        }
-    }
-    // The remainder reads its bits the same way, from the word after the full blocks.
-    let start = blocks.len() * 64;
-    if let Some(&word) = words.get(blocks.len()) {
-        let bytes = word.to_le_bytes();
-        for (j, &v) in remainder.iter().enumerate() {
-            let valid: T = ((bytes[j / 8] >> (j % 8)) & 1).as_();
-            f(start + j, v, T::zero().wrapping_sub(&valid));
-        }
-    }
-}
-
-/// `a` where `mask` is all ones and `b` where it is all zeros.
-#[inline]
-fn select<T: PrimInt>(mask: T, a: T, b: T) -> T {
-    (a & mask) | (b & !mask)
+) {
+    values.map_masked_into(mask, out, |v| v.wrapping_sub(&reference));
 }
 
 #[cfg(test)]

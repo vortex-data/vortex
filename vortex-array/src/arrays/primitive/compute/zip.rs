@@ -4,6 +4,7 @@
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -85,35 +86,18 @@ fn select_values<T: NativePType>(
             .values()
             .vortex_expect("mask is Mask::Values")
             .bit_buffer();
-        // TODO(perf): `unaligned_chunks` is a faster single-buffer iterator than `chunks`; switch to
-        // it here, handling its lead/trailing padding.
-        let chunks = mask_bits.chunks();
-
-        let mut base = 0;
-        for word in chunks.iter() {
-            let end = base + 64;
+        for_each_mask_word(mask_bits, |word, base, n| {
+            let end = base + n;
             select_block(
                 word,
                 &true_values[base..end],
                 &false_values[base..end],
                 &mut out_slice[base..end],
             );
-            base = end;
-        }
-
-        let remainder = chunks.remainder_len();
-        if remainder > 0 {
-            let end = base + remainder;
-            select_block(
-                chunks.remainder_bits(),
-                &true_values[base..end],
-                &false_values[base..end],
-                &mut out_slice[base..end],
-            );
-        }
+        });
     }
 
-    // SAFETY: `select_block` initialized every slot covered by the chunks plus remainder, i.e. `len`.
+    // SAFETY: `select_block` initialized every slot covered by the mask words, i.e. `len`.
     unsafe { out.set_len(len) };
     out
 }

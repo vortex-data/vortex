@@ -12,10 +12,10 @@ use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
 use core::arch::aarch64::vtbl1_u8;
 
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_mask::MaskValues;
 
-use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::compress_lut;
@@ -136,7 +136,7 @@ macro_rules! neon_compress_kernel {
             mask: &MaskValues,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(mask.bit_buffer(), |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)

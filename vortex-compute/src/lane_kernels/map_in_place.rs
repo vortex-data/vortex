@@ -6,9 +6,10 @@
 //!
 //! [`IndexedSink`]: crate::lane_kernels::sink::IndexedSink
 
-use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferView;
 
 use crate::lane_kernels::CHUNK_LEN;
+use crate::lane_kernels::mask_words::try_for_each_mask_word;
 use crate::lane_kernels::sink::IndexedSink;
 
 /// Extension trait providing in-place lane-kernel methods on any [`IndexedSink`].
@@ -156,7 +157,11 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     ///
     /// Panics if `self.len() != mask.len()`.
     #[inline]
-    fn try_map_masked_in_place<F>(self, mask: &BitBuffer, mut f: F) -> Result<(), usize>
+    fn try_map_masked_in_place<'m, F>(
+        self,
+        mask: impl Into<BitBufferView<'m>>,
+        mut f: F,
+    ) -> Result<(), usize>
     where
         Self::Write: Default,
         F: FnMut(Self::Item) -> Option<Self::Write>,
@@ -194,29 +199,12 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
 
         let mut values = self;
         let len = values.len();
+        let mask = mask.into();
         assert_eq!(len, mask.len(), "values and mask must have the same length");
 
-        let chunks = mask.chunks();
-        let chunks_count = len / 64;
-        let remainder = len % 64;
-
-        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-            if let Some(failing) = chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f) {
-                return Err(failing);
-            }
-        }
-        if remainder != 0
-            && let Some(failing) = chunk(
-                &mut values,
-                chunks.remainder_bits(),
-                chunks_count * 64,
-                remainder,
-                &mut f,
-            )
-        {
-            return Err(failing);
-        }
-        Ok(())
+        try_for_each_mask_word(mask, |src_chunk, base, count| {
+            chunk(&mut values, src_chunk, base, count, &mut f).map_or(Ok(()), Err)
+        })
     }
 }
 
