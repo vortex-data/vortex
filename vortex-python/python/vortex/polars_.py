@@ -189,6 +189,9 @@ _OPS = {
     "Or": operator.or_,
     "LogicalAnd": operator.and_,
     "LogicalOr": operator.or_,
+    "Plus": operator.add,
+    "Minus": operator.sub,
+    "Multiply": operator.mul,
 }
 
 
@@ -219,17 +222,22 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         rhs = _polars_to_vortex(expr["right"])
         op = expr["op"]
 
+        if op == "TrueDivide":
+            # Polars' `/` always divides in floating point, even between integers.
+            f64 = _dtype.float_(64, nullable=True)
+            return ve.div(ve.cast(lhs, f64), ve.cast(rhs, f64))
         if op not in _OPS:
             raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
         return cast(ve.Expr, _OPS[op](lhs, rhs))
+
+    if "Cast" in expr:
+        return _cast_to_vortex(expr["Cast"])
 
     if "Ternary" in expr:
         node = expr["Ternary"]
         return ve.zip_(*[_polars_to_vortex(node[k]) for k in ("predicate", "truthy", "falsy")])
     if "Column" in expr:
         return ve.column(expr["Column"])
-    if "Cast" in expr:
-        return _cast_datetime_literal(expr["Cast"])
 
     # See https://github.com/pola-rs/polars/pull/21849
     if "Scalar" in expr:
@@ -275,6 +283,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             return ve.literal(_dtype.binary(), bytes(scalar["Binary"]))
         elif "Datetime" in scalar:
             return _datetime_literal(scalar["Datetime"])
+        elif "Duration" in scalar:
+            raise NotImplementedError("Unsupported Polars Duration literal")
         elif len(scalar) == 1 and next(iter(scalar)) in _LITERAL_TYPES:
             dtype, value = next(iter(scalar.items()))
         else:
@@ -318,7 +328,22 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             needle, members = expr["input"]
             return _is_in(_polars_to_vortex(needle), members, nulls_equal=is_in["IsIn"]["nulls_equal"])
 
-        _inputs = [_polars_to_vortex(e) for e in expr["input"]]
+        # The string functions take a literal needle that only has meaning in its raw serialized form.
+        raw_inputs: list[dict[str, Any]] = expr["input"]
+        fn = expr["function"]
+        if isinstance(fn, dict) and "StringExpr" in fn:
+            fn = fn["StringExpr"]
+            if fn == "StartsWith":
+                return ve.like(_polars_to_vortex(raw_inputs[0]), _like_needle(raw_inputs[1]) + "%")
+            if fn == "EndsWith":
+                return ve.like(_polars_to_vortex(raw_inputs[0]), "%" + _like_needle(raw_inputs[1]))
+            if isinstance(fn, dict) and "Contains" in fn:
+                if not fn["Contains"]["literal"]:
+                    raise NotImplementedError("Unsupported regex pattern in Polars StringExpr.Contains")
+                return ve.like(_polars_to_vortex(raw_inputs[0]), "%" + _like_needle(raw_inputs[1]) + "%")
+            raise NotImplementedError(f"Unsupported Polars string function: {fn}")
+
+        _inputs = [_polars_to_vortex(e) for e in raw_inputs]
 
         if expr["function"] == "FillNull":
             if "Literal" in expr["input"][1]:
@@ -357,11 +382,6 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
             if fn == "Not":
                 return ve.not_(_inputs[0])
-
-        if "StringExpr" in fn:
-            fn = fn["StringExpr"]
-            if "Contains" in fn:
-                raise ValueError("Unsupported Polars StringExpr.Contains")
 
         raise NotImplementedError(f"Unsupported Polars function: {fn}")
 
@@ -462,3 +482,54 @@ def _arrow_literal(array: pa.Array[pa.Scalar[Any]]) -> ve.Expr:
     """A Vortex literal of the one value in ``array``."""
     vortex_array = Array.from_arrow(array)
     return ve.literal(vortex_array.dtype, vortex_array.scalar_at(0))
+
+
+_CAST_DTYPES: dict[str, Callable[[], _dtype.DType]] = {
+    "Boolean": lambda: _dtype.bool_(nullable=True),
+    "Int8": lambda: _dtype.int_(8, nullable=True),
+    "Int16": lambda: _dtype.int_(16, nullable=True),
+    "Int32": lambda: _dtype.int_(32, nullable=True),
+    "Int64": lambda: _dtype.int_(64, nullable=True),
+    "UInt8": lambda: _dtype.uint(8, nullable=True),
+    "UInt16": lambda: _dtype.uint(16, nullable=True),
+    "UInt32": lambda: _dtype.uint(32, nullable=True),
+    "UInt64": lambda: _dtype.uint(64, nullable=True),
+    "Float32": lambda: _dtype.float_(32, nullable=True),
+    "Float64": lambda: _dtype.float_(64, nullable=True),
+    "String": lambda: _dtype.utf8(nullable=True),
+    "Binary": lambda: _dtype.binary(nullable=True),
+}
+
+
+def _cast_to_vortex(cast_expr: dict[str, Any]) -> ve.Expr:
+    """Convert a Polars ``Cast`` node. Casts are nullable, since every Polars column is."""
+    target = cast_expr["dtype"]
+    # Post https://github.com/pola-rs/polars/pull/21797 the target is a DataTypeExpr.
+    if isinstance(target, dict) and "Literal" in target:
+        target = target["Literal"]
+
+    if isinstance(target, dict) and "Datetime" in target:
+        # Vortex casts a timestamp only to a finer unit in the same time zone, so only a cast of
+        # a literal translates, through Arrow.
+        return _cast_datetime_literal(cast_expr)
+
+    if cast_expr["options"] != "Strict":
+        # Non-strict casts produce null where Polars' strict cast, like Vortex's, raises.
+        raise NotImplementedError(f"Unsupported Polars cast options: {cast_expr['options']}")
+
+    if isinstance(target, dict) and "Decimal" in target:
+        precision, scale = target["Decimal"]
+        dtype = _dtype.decimal(precision=38 if precision is None else precision, scale=scale or 0, nullable=True)
+    elif isinstance(target, str) and target in _CAST_DTYPES:
+        dtype = _CAST_DTYPES[target]()
+    else:
+        raise NotImplementedError(f"Unsupported Polars cast target: {target}")
+    return ve.cast(_polars_to_vortex(cast_expr["expr"]), dtype)
+
+
+def _like_needle(expr: dict[str, Any]) -> str:
+    """Escape LIKE wildcards in a Polars string literal so that it matches literally."""
+    value = expr.get("Literal", {}).get("Scalar", {}).get("String")
+    if not isinstance(value, str):
+        raise NotImplementedError(f"Expected a Polars string literal, got: {expr}")
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
