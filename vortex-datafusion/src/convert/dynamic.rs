@@ -95,6 +95,34 @@ pub(crate) fn dynamic_filter_to_vortex(
     file_stats: Option<&FileStatistics>,
     session: &VortexSession,
 ) -> Option<Expression> {
+    let converted = convert_dynamic_filter(expr, file_fields, file_stats, session);
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let complete = matches!(
+            DynamicFilterTracking::classify(expr),
+            DynamicFilterTracking::AllComplete
+        );
+        let current = expr
+            .downcast_ref::<DynamicFilterPhysicalExpr>()
+            .and_then(|filter| filter.current().ok())
+            .map(|current| current.to_string())
+            .unwrap_or_default();
+        tracing::debug!(
+            complete,
+            filter = %expr,
+            current = %current,
+            converted = converted.as_ref().map(ToString::to_string).unwrap_or_default(),
+            "converted dynamic filter"
+        );
+    }
+    converted
+}
+
+fn convert_dynamic_filter(
+    expr: &Arc<dyn PhysicalExpr>,
+    file_fields: &StructFields,
+    file_stats: Option<&FileStatistics>,
+    session: &VortexSession,
+) -> Option<Expression> {
     let dynamic_filter = as_column_dynamic_filter(expr)?;
 
     let columns: Vec<(String, DType)> = dynamic_filter
@@ -209,6 +237,7 @@ impl LiveBounds {
                 let (stats, _) = file_stats.get(file_fields.find(name)?);
                 let stat = |stat| Scalar::try_new(dtype.clone(), stats.get(stat).into_inner()).ok();
                 let kept = kept_fraction(&column_bounds, &stat(Stat::Min)?, &stat(Stat::Max)?)?;
+                tracing::debug!(column = %name, kept, "complete dynamic filter bounds");
                 if kept > MAX_KEPT_FRACTION {
                     return None;
                 }
