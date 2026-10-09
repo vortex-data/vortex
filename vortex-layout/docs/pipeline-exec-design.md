@@ -869,3 +869,106 @@ differences, each made for cost or simplicity:
   stage that reads a column first builds its decoding pipeline with a port for the projection
   stage, which claims it when it compiles; a stage that never runs drops its port when the split
   finishes.
+
+## 14. Semantics
+
+These hold for every plan and every operator. Anything that breaks one is a bug.
+
+1. **A plan produces its selected rows, in order.** Compiled over rows `R` of its domain with a
+   mask `M` as long as `R`, a plan produces exactly the rows of `R` that `M` selects, in row
+   order, as non-empty batches, or nothing when `M` selects no row. A segment scan is no
+   exception. `Filter` adds nothing a scan does not already do; it keeps the selected rows of a
+   child compiled over every row.
+2. **Every mask is known when its stage compiles.** The split's selection, the zones the
+   pruning stage kept, and the rows each conjunct kept are all decided before the next stage is
+   compiled. A mask only narrows from stage to stage. It is applied by the source that reads the
+   rows, so a chunk a mask selects nothing of is never built and never read.
+3. **One method per operator.** `compute(input, cx) -> Step`. A stage is pushed one batch at a
+   time and never blocks. A source is asked for its next batch and is the only thing that blocks,
+   on exactly one of a segment read it requested, an empty inlet, or a full outlet.
+4. **One writer, one reader per port.** The reading source declares each inlet's capacity in
+   batches. An empty port always has room. A batch's slot frees when the reader takes it. A
+   reader may slice the front batch in place, so a batch never leaves the queue half-read.
+5. **A pipeline runs only when its blocking condition has cleared.** Nothing is polled.
+6. **Shared work is scoped to the scan.** A decoded segment, or a plan's whole output such as a
+   dictionary's values, read by more than one reader is produced once by one pipeline, which
+   writes one single-use port per reader, tagged with the reader's split. A port is dropped when
+   its reader drains it, or when its split finishes without claiming it. Nothing holding data
+   outlives the scan.
+7. **Splits are independent in their output and dependent only through shares.** A split's
+   output is its own rows, in order. Splits share nothing but shared ports, which carry the same
+   data whichever split produced it first.
+
+## 15. The public API
+
+Two audiences, each with a small surface.
+
+**Running a plan.**
+
+```rust
+let mut scan = Scan::try_new(session, plan, splits)?   // splits: Vec<Split { rows, mask }>
+    .with_max_active(n);                                 // splits compiled at once
+loop {
+    match scan.step()? {
+        Turn::Read(read) => io.request(read.id, read.segment_id), // answer with scan.deliver
+        Turn::Output(split, array) => sink(split, array),
+        Turn::Waiting => scan.deliver(id, wait_for_any_read()?)?,
+        Turn::Done => break,
+    }
+}
+```
+
+`execute(session, plan, rows, mask, segment_source)` wraps that loop as a `Stream` for one
+range.
+
+**Writing an operator.** A plan implements two hooks:
+
+- `PlanVTable::compile(plan, rows, mask, compiler) -> Option<Chain>` either adds a stage to a
+  child's chain (`compiler.compile(child, ..)?.map(|c| c.with(stage))`) or joins several
+  children's chains under a source of its own (`compiler.join(chains, source)`). A plan read
+  whole by every split uses `compiler.whole(child, share)`.
+- `PlanVTable::reach(plan, rows, at, visit)` reports what compiling it could read, so readers
+  can be counted. The default reports nothing, which is always safe; it only gives up sharing.
+
+The operators themselves see only `Operator`/`Source`, `Input`, `Step`, `Blocked`, `Cx`, and
+`Inlet`.
+
+## 16. Filter pushdown, splits, and pieces a filter removes
+
+**Pushdown is a plan rewrite.** It happens before anything runs. The optimizer pushes each
+conjunct, and the projection, through `Pack` to the fields it reads, into `Take` values when
+the predicate can be evaluated on the dictionary, and into `Zoned` plans, where a predicate
+over the zoned column becomes a pruning proof. A `QueryPlan` keeps the conjuncts as separate
+children, so each is compiled, and ordered, on its own.
+
+**Splits come from the layout or a row count.** `SplitBy::Layout` cuts at the chunk boundaries
+of the columns a query reads, and `SplitBy::RowCount(n)` at fixed rows. The scan takes the split
+list up front; reader counting uses it, so splits are known before the first read.
+
+**When a filter removes whole pieces:**
+
+- Zones the pruning stage rules out are cleared from the mask before any data is read. Their
+  chunks are never compiled.
+- A chunk an earlier conjunct left with no selected row is never compiled in a later conjunct or
+  in the projection.
+- A split whose mask becomes empty ends at once: no later stage is compiled.
+- A shared segment or value whose readers were all pruned is still produced once if any reader
+  claimed it; the ports of the readers that never came are dropped when their split ends.
+
+## 17. Morsels, planners, and the scope of the exec nodes
+
+The planner and morsel protocol in `vortex-scan` maps onto the scan without new semantics. It
+is not built yet.
+
+- **A morsel is one `Scan` over a run of consecutive splits.** That run is the scope of
+  everything the exec nodes share: within a morsel, a segment, a dictionary's values, or a zone
+  table is read once; across morsels nothing is shared but the immutable plan. Morsel size is
+  therefore the trade-off between parallelism, with more morsels on more threads, and reading
+  shared data once.
+- **A morsel's IO is its scan's reads.** `Turn::Read` becomes a fetch of the segment's byte
+  range from the file's segment map, gathered into one IO batch until the scan next waits or
+  produces. `Turn::Waiting` is the morsel's `Waiting` state, and a delivery hands the bytes to
+  `Scan::deliver`.
+- **A planner plans one file.** It lowers the layout, builds the `QueryPlan` with its pushed-down
+  conjuncts, computes the splits, groups them into runs, and hands each run out as a morsel with
+  its row range as the scope.
