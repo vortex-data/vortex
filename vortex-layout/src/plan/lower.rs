@@ -28,7 +28,6 @@ use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 use crate::layouts::zoned::ZonedLayout;
 use crate::plan::ConcatPlan;
-use crate::plan::FilterPlan;
 use crate::plan::ListPackPlan;
 use crate::plan::PackPlan;
 use crate::plan::PlanChildren;
@@ -41,12 +40,9 @@ use crate::plan::ZonedPlan;
 ///
 /// The root operator is built immediately. Its child container owns a hidden clone of the source
 /// layout and lowers each child independently on first access.
-///
-/// A flat layout lowers to a [`Filter`](crate::plan::Filter) over its segment scan, so the scan
-/// returns only the rows it is executed with.
 pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
     if let Some(layout) = layout.as_opt::<Flat>() {
-        return Ok(FilterPlan::new(lower_flat(layout).into_plan()).into_plan());
+        return Ok(lower_flat(layout).into_plan());
     }
     if let Some(layout) = layout.as_opt::<Chunked>() {
         return Ok(lower_chunked(layout)?.into_plan());
