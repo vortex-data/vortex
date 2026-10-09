@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use onpair::CompactDictionaryView;
 use prost::Message;
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -677,26 +678,25 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
-/// Take gathers token runs without decoding, retraining or copying the pair dictionary.
-#[test]
-fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
+/// Take decodes the referenced rows once and gathers them, including repeated and null indices.
+#[rstest]
+#[case::sparse_repeated(vec![Some(1999u32), None, Some(0), Some(7), Some(7)])]
+#[case::dense_repeated((0..4_000).map(|i| Some(i % 50)).collect())]
+#[case::every_row((0..2_000).rev().map(Some).collect())]
+#[case::all_null(vec![None, None, None])]
+fn test_onpair_take_decodes_referenced(
+    #[case] indices: Vec<Option<u32>>,
+) -> vortex_error::VortexResult<()> {
     let input = take_input();
     let mut ctx = SESSION.create_execution_ctx();
     let arr = compress_onpair(&input.clone().into_array(), &mut ctx)?;
-    let indices =
-        PrimitiveArray::from_option_iter([Some(1999u32), None, Some(0), Some(7), Some(7)])
-            .into_array();
+    let indices = PrimitiveArray::from_option_iter(indices).into_array();
 
     let taken = <OnPair as TakeExecute>::take(arr.as_view(), &indices, &mut ctx)?
         .expect("OnPair take must return Some");
-    let typed = taken
-        .try_downcast::<OnPair>()
-        .map_err(|_| vortex_error::vortex_err!("take result was not OnPair"))?;
-    assert_eq!(typed.dict_bytes().as_slice(), arr.dict_bytes().as_slice());
-    assert_eq!(typed.dict_offsets().len(), arr.dict_offsets().len());
 
     let expected = input.into_array().take(indices)?;
-    assert_arrays_eq!(typed.into_array(), expected, &mut ctx);
+    assert_arrays_eq!(taken, expected, &mut ctx);
     Ok(())
 }
 

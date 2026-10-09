@@ -84,8 +84,8 @@ impl<'a> OnPairDecodePlan<'a> {
         // this array: `slice` keeps the full `codes` child and only narrows
         // `codes_offsets` (so `code_start > 0` and/or `code_end < codes.len()`),
         // while `filter` rebuilds both children so the window is the whole stream.
-        // OnPair has no `TakeExecute`, so a reordering take is served from the
-        // canonical `VarBinView` and never reaches this path. We only need those
+        // OnPair's take decodes the referenced rows and gathers from the canonical
+        // `VarBinView`, so a reordering take never reaches this path. We only need those
         // two boundaries, so point-look them up rather than decoding every offset.
         let codes_offsets = array.codes_offsets();
         let code_start = code_boundary_at(codes_offsets, 0, ctx)?;

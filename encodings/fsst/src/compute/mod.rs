@@ -10,41 +10,23 @@ mod like;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
-use vortex_array::arrays::varbin::take_varbin;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar::Scalar;
+use vortex_array::arrays::dict::take_referenced_canonical;
 use vortex_error::VortexResult;
 
 use crate::FSST;
-use crate::FSSTArrayExt;
-use crate::FSSTArraySlotsExt;
 
 impl TakeExecute for FSST {
+    /// Decodes each referenced row once and gathers the decoded strings.
+    ///
+    /// Gathering compressed rows instead would decode a row again for every index that repeats
+    /// it, which is far slower when the indices are dense, as in a dictionary over FSST values.
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            FSST::try_new_with_symbol_table(
-                array
-                    .dtype()
-                    .clone()
-                    .union_nullability(indices.dtype().nullability()),
-                array.symbol_table(),
-                take_varbin(array.codes().as_view(), indices, ctx)?,
-                array
-                    .uncompressed_lengths()
-                    .take(indices.clone())?
-                    .fill_null(Scalar::zero_value(
-                        &array.uncompressed_lengths_dtype().clone(),
-                    ))?,
-                ctx,
-            )?
-            .into_array(),
-        ))
+        take_referenced_canonical(array.array(), indices, ctx).map(Some)
     }
 }
 

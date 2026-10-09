@@ -19,9 +19,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -29,6 +31,9 @@ use vortex_mask::Mask;
 use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
+
+/// Below this mask density, filter gathers token runs by index instead of filtering them.
+const SPARSE_FILTER_DENSITY: f64 = 0.05;
 
 impl FilterKernel for OnPair {
     fn filter(
@@ -46,8 +51,22 @@ impl FilterKernel for OnPair {
                 Validity::NonNullable,
             )
         };
-        let filtered_codes_ref = <List as FilterKernel>::filter(codes.as_view(), mask, ctx)?
-            .vortex_expect("List filter kernel always returns Some");
+        // The List filter builds a mask over every code, so a sparse mask instead gathers the
+        // selected token runs.
+        let filtered_codes_ref = match mask.values() {
+            Some(values) if values.density() < SPARSE_FILTER_DENSITY => {
+                let indices = values
+                    .indices()
+                    .iter()
+                    .map(|&idx| idx as u64)
+                    .collect::<Buffer<u64>>()
+                    .into_array();
+                <List as TakeExecute>::take(codes.as_view(), &indices, ctx)?
+                    .vortex_expect("List take kernel always returns Some")
+            }
+            _ => <List as FilterKernel>::filter(codes.as_view(), mask, ctx)?
+                .vortex_expect("List filter kernel always returns Some"),
+        };
         let filtered_codes = filtered_codes_ref
             .try_downcast::<List>()
             .ok()
