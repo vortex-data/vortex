@@ -9,6 +9,7 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
+use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -41,7 +42,7 @@ use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 
-/// Builder for scanning a [`LayoutReader`] into arrays, streams, or iterators.
+/// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
 ///
 /// A scan has three independent row restriction mechanisms:
 ///
@@ -51,7 +52,7 @@ use crate::scan::splits::attempt_split_ranges;
 ///
 /// Projection and filter expressions must be bound against the reader dtype. Work is divided by
 /// the configured [`SplitBy`] strategy or by explicit selection ranges.
-pub struct ScanBuilder {
+pub struct ScanBuilder<A> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
     projection: BoundExpression,
@@ -70,6 +71,8 @@ pub struct ScanBuilder {
     natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
+    /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
+    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Maximal number of rows to read after filtering.
     limit: Option<ScanLimit>,
@@ -78,7 +81,7 @@ pub struct ScanBuilder {
     row_offset: u64,
 }
 
-impl ScanBuilder {
+impl ScanBuilder<ArrayRef> {
     /// Create a scan builder over `layout_reader` using `session` for runtime and execution state.
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
         let projection = BoundExpression::new_root(layout_reader.dtype().clone());
@@ -95,6 +98,7 @@ impl ScanBuilder {
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
+            map_fn: Arc::new(Ok),
             metrics_registry: None,
             limit: None,
             row_offset: 0,
@@ -124,7 +128,7 @@ impl ScanBuilder {
     }
 }
 
-impl ScanBuilder {
+impl<A: 'static + Send> ScanBuilder<A> {
     /// Add a filter expression bound against the reader dtype.
     pub fn with_filter(mut self, filter: BoundExpression) -> Self {
         self.filter = Some(filter);
@@ -271,8 +275,32 @@ impl ScanBuilder {
         &self.session
     }
 
+    /// Map each split of the scan. The function will be run on the spawned task.
+    pub fn map<B: 'static>(
+        self,
+        map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
+    ) -> ScanBuilder<B> {
+        let old_map_fn = self.map_fn;
+        ScanBuilder {
+            session: self.session,
+            layout_reader: self.layout_reader,
+            projection: self.projection,
+            filter: self.filter,
+            ordered: self.ordered,
+            row_range: self.row_range,
+            selection: self.selection,
+            split_by: self.split_by,
+            natural_splits: self.natural_splits,
+            concurrency: self.concurrency,
+            metrics_registry: self.metrics_registry,
+            limit: self.limit,
+            row_offset: self.row_offset,
+            map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
+        }
+    }
+
     /// Optimize expressions, compute split ranges, and return an executable repeated scan.
-    pub fn prepare(self) -> VortexResult<RepeatedScan> {
+    pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -327,9 +355,18 @@ impl ScanBuilder {
             self.selection,
             splits,
             self.concurrency,
+            self.map_fn,
             self.limit,
             dtype,
         ))
+    }
+
+    /// Constructs a task per row split of the scan, returned as a vector of futures.
+    ///
+    /// Scans with row limits must use [`Self::into_stream`] or [`Self::into_iter`] so the scan
+    /// can coordinate the limit across splits.
+    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        self.prepare()?.execute(None)
     }
 
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
@@ -338,7 +375,7 @@ impl ScanBuilder {
     /// step are returned as the stream's next item.
     pub fn into_stream(
         self,
-    ) -> VortexResult<impl Stream<Item = VortexResult<ArrayRef>> + Send + 'static> {
+    ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         Ok(LazyScanStream::new(self))
     }
 
@@ -346,39 +383,39 @@ impl ScanBuilder {
     pub fn into_iter<B: BlockingRuntime>(
         self,
         runtime: &B,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<ArrayRef>> + 'static> {
+    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         let stream = self.into_stream()?;
         Ok(runtime.block_on_stream(stream))
     }
 }
 
-enum LazyScanState {
-    Builder(Option<Box<ScanBuilder>>),
-    Preparing(PreparingScan),
-    Stream(BoxStream<'static, VortexResult<ArrayRef>>),
+enum LazyScanState<A: 'static + Send> {
+    Builder(Option<Box<ScanBuilder<A>>>),
+    Preparing(PreparingScan<A>),
+    Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
 }
 
-struct PreparingScan {
-    task: Task<VortexResult<BoxStream<'static, VortexResult<ArrayRef>>>>,
+struct PreparingScan<A: 'static + Send> {
+    task: Task<VortexResult<BoxStream<'static, VortexResult<A>>>>,
 }
 
-struct LazyScanStream {
-    state: LazyScanState,
+struct LazyScanStream<A: 'static + Send> {
+    state: LazyScanState<A>,
 }
 
-impl LazyScanStream {
-    fn new(builder: ScanBuilder) -> Self {
+impl<A: 'static + Send> LazyScanStream<A> {
+    fn new(builder: ScanBuilder<A>) -> Self {
         Self {
             state: LazyScanState::Builder(Some(Box::new(builder))),
         }
     }
 }
 
-impl Unpin for LazyScanStream {}
+impl<A: 'static + Send> Unpin for LazyScanStream<A> {}
 
-impl Stream for LazyScanStream {
-    type Item = VortexResult<ArrayRef>;
+impl<A: 'static + Send> Stream for LazyScanStream<A> {
+    type Item = VortexResult<A>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -936,6 +973,31 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(values, [0, 1, 2, 3, 4, 5]);
+        Ok(())
+    }
+
+    /// `map` applies to every emitted split, including the trimmed output of a filtered limit.
+    #[rstest]
+    #[case::unlimited(None, 8)]
+    #[case::limited(Some(3), 3)]
+    fn map_applies_to_every_emitted_split(
+        #[case] limit: Option<u64>,
+        #[case] expected_rows: usize,
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
+        let filter = root().bind(reader.dtype())?;
+
+        let rows = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_some_limit(limit)
+            .map(|array| Ok(array.len()))
+            .into_iter(&runtime)?
+            .sum::<VortexResult<usize>>()?;
+        drain_runtime(&runtime);
+
+        assert_eq!(rows, expected_rows);
         Ok(())
     }
 

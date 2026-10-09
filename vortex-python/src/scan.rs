@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
 use vortex::layout::scan::repeated_scan::RepeatedScan;
@@ -29,7 +30,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyclass(name = "RepeatedScan", module = "vortex", frozen)]
 pub struct PyRepeatedScan {
-    pub scan: Arc<RepeatedScan>,
+    pub scan: Arc<RepeatedScan<ArrayRef>>,
     pub row_count: u64,
 }
 

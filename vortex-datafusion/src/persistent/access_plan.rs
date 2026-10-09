@@ -58,7 +58,10 @@ impl VortexAccessPlan {
     ///
     /// This is used internally by the file opener after it has translated a
     /// `PartitionedFile` into a Vortex scan.
-    pub fn apply_to_builder(&self, mut scan_builder: ScanBuilder) -> ScanBuilder {
+    pub fn apply_to_builder<A>(&self, mut scan_builder: ScanBuilder<A>) -> ScanBuilder<A>
+    where
+        A: 'static + Send,
+    {
         let Self { selection } = self;
 
         if let Some(selection) = selection {

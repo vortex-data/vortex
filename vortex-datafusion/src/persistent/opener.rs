@@ -443,29 +443,28 @@ impl FileOpener for VortexOpener {
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
-            let file_location = file.object_meta.location.clone();
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
-                .into_stream()
-                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                // Convert to Arrow inline on the polling thread: DataFusion sources are expected
-                // to do their CPU work inside `poll_next`, and spawning this onto the blocking
-                // pool oversubscribes the CPU.
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
-                    chunk.and_then(|chunk| {
-                        let arrow_session = ctx.session().clone();
-                        let arrow = arrow_session.arrow().execute_arrow(
-                            chunk,
-                            Some(&stream_target_field),
-                            &mut ctx,
-                        )?;
-                        Ok(RecordBatch::from(arrow.as_struct().clone()))
-                    })
+                    let arrow_session = ctx.session().clone();
+                    let arrow = arrow_session.arrow().execute_arrow(
+                        chunk,
+                        Some(&stream_target_field),
+                        &mut ctx,
+                    )?;
+                    Ok(RecordBatch::from(arrow.as_struct().clone()))
                 })
-                .map_err(move |e: VortexError| vortex_file_read_error(&file_location, e))
-                .map(move |batch| -> DFResult<RecordBatch> {
+                .into_stream()
+                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+                .map_err(move |e: VortexError| {
+                    DataFusionError::External(Box::new(e.with_context(format!(
+                        "Failed to read Vortex file: {}",
+                        file.object_meta.location
+                    ))))
+                })
+                .map(move |batch| {
                     let batch = if projector.projection().as_ref().is_empty() {
                         batch
                     } else {
@@ -563,10 +562,10 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
 }
 
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
-fn natural_splits_for_file(
+fn natural_splits_for_file<A: 'static + Send>(
     natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
     path: &Path,
-    scan_builder: &ScanBuilder,
+    scan_builder: &ScanBuilder<A>,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
     if let Some(splits) = natural_splits.get(path) {
@@ -588,8 +587,8 @@ fn natural_splits_for_file(
 
 /// Walk the layout tree to compute the file's full natural split boundaries for the fields
 /// referenced by the scan's projection and filter.
-fn compute_natural_splits(
-    scan_builder: &ScanBuilder,
+fn compute_natural_splits<A: 'static + Send>(
+    scan_builder: &ScanBuilder<A>,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
     let row_boundaries = scan_builder
@@ -648,12 +647,6 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
     let midpoint_byte = (u128::from(midpoint_row) * u128::from(total_size)) / u128::from(row_count);
 
     u64::try_from(midpoint_byte).vortex_expect("midpoint byte projection should fit into u64")
-}
-
-fn vortex_file_read_error(path: &Path, error: VortexError) -> DataFusionError {
-    DataFusionError::External(Box::new(
-        error.with_context(format!("Failed to read Vortex file: {path}")),
-    ))
 }
 
 #[cfg(test)]
