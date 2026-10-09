@@ -4,7 +4,7 @@
 import json
 import operator
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import polars as pl
 
@@ -108,6 +108,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             return ve.literal(_dtype.date("days"), scalar["Date"])
         elif "Binary" in scalar:
             return ve.literal(_dtype.binary(), bytes(scalar["Binary"]))
+        elif "Datetime" in scalar:
+            return _datetime_literal(scalar["Datetime"])
         elif len(scalar) == 1 and next(iter(scalar)) in _LITERAL_TYPES:
             dtype, value = next(iter(scalar.items()))
         else:
@@ -129,20 +131,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
         # Special-case date-times
         if literal_type == "DateTime":
-            (value, unit, tz) = expr[literal_type]
-            if unit == "Nanoseconds":
-                unit = "ns"
-            elif unit == "Microseconds":
-                unit = "us"
-            elif unit == "Milliseconds":
-                unit = "ms"
-            elif unit == "Seconds":
-                unit = "s"
-            else:
-                raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
-
-            dtype = _dtype.timestamp(unit, tz=tz, nullable=value)
-            return ve.literal(dtype, value)
+            return _datetime_literal(expr[literal_type])
 
         # Unwrap 'Dyn' scalars, whose type hasn't been established yet.
         # (post https://github.com/pola-rs/polars/pull/21849)
@@ -164,6 +153,19 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
                 return ve.fill_null(_inputs[0], _inputs[1])
             return ve.zip_(ve.is_null(_inputs[0]), _inputs[1], _inputs[0])
         fn = expr["function"]
+        if isinstance(fn, dict) and "ReplaceTimeZone" in fn.get("TemporalExpr", {}):
+            time_zone, non_existent = fn["TemporalExpr"]["ReplaceTimeZone"]
+            if isinstance(time_zone, dict):
+                time_zone = time_zone["inner"]
+            if non_existent not in ("Raise", "Null"):
+                raise NotImplementedError(f"Unsupported Polars nonexistent-time policy: {non_existent}")
+            return ve.replace_time_zone(
+                _inputs[0],
+                time_zone,
+                ambiguous=_inputs[1],
+                non_existent="raise" if non_existent == "Raise" else "null",
+            )
+
         if "Boolean" in fn:
             fn = fn["Boolean"]
 
@@ -197,3 +199,19 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         raise NotImplementedError(f"Unsupported Polars function: {fn}")
 
     raise NotImplementedError(f"Unsupported Polars expression: {expr}")
+
+
+def _datetime_literal(data: list[Any]) -> ve.Expr:
+    value, unit, tz = data
+    units: dict[str, Literal["s", "ms", "us", "ns"]] = {
+        "Nanoseconds": "ns",
+        "Microseconds": "us",
+        "Milliseconds": "ms",
+        "Seconds": "s",
+    }
+    if unit not in units:
+        raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
+    if isinstance(tz, dict):
+        tz = tz["inner"]
+    dtype = _dtype.timestamp(units[unit], tz=tz, nullable=value is None)
+    return ve.literal(dtype, value)
