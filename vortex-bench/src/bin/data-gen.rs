@@ -69,6 +69,12 @@ async fn main() -> anyhow::Result<()> {
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
 
+        // Benchmark-specific preparation runs first so a suite can write its own Vortex files,
+        // which the generic Parquet conversion below then leaves alone.
+        for format in args.formats.iter().copied() {
+            benchmark.prepare_format(format, &base_path).await?;
+        }
+
         if args
             .formats
             .iter()

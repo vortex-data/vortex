@@ -181,7 +181,8 @@ async fn main() -> anyhow::Result<()> {
             |format| {
                 let benchmark = &*benchmark;
                 async move {
-                    let session = datafusion_bench::get_session_context();
+                    let mut session = datafusion_bench::get_session_context();
+                    datafusion_bench::register_benchmark_functions(&mut session, benchmark)?;
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }
@@ -192,13 +193,14 @@ async fn main() -> anyhow::Result<()> {
             },
             |query_idx, (session, format), query| {
                 let plans = Arc::clone(&collected_plans);
+                let query = benchmark.query_for(Engine::DataFusion, *format, query);
 
                 let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
 
                 Box::pin(
                     async move {
                         let timer = Instant::now();
-                        let (batches, plan) = execute_query(session, query)
+                        let (batches, plan) = execute_query(session, &query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
