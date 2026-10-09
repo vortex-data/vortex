@@ -33,6 +33,7 @@ use crate::expr::bound;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
+use crate::extension::datetime::resolve_time_zone as resolve_zone;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -256,13 +257,6 @@ fn timestamp_options(dtype: &DType) -> VortexResult<&TimestampOptions> {
     vortex_bail!("replace_time_zone() requires Timestamp, got {dtype}")
 }
 
-fn resolve_zone(name: Option<&str>) -> VortexResult<TimeZone> {
-    Ok(match name {
-        Some(name) => TimeZone::get(name)?,
-        None => TimeZone::UTC,
-    })
-}
-
 fn replace(
     value: i64,
     unit: TimeUnit,
@@ -409,6 +403,8 @@ mod tests {
             .is_err()
         );
         assert!(resolve_zone(Some("Not/A/Timezone")).is_err());
+        assert!(resolve_zone(Some("+99:00")).is_err());
+        assert!(resolve_zone(Some("-05:60")).is_err());
         Ok(())
     }
 
@@ -431,8 +427,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn simplify_folds_literal_input() -> VortexResult<()> {
+    #[rstest]
+    #[case(None, Some("UTC"), 0)]
+    #[case(Some("+01:00"), None, 3_600)]
+    #[case(Some("-05:30"), None, -19_800)]
+    #[case(None, Some("+05:30"), -19_800)]
+    #[case(Some("+01:00"), Some("-05:30"), 23_400)]
+    fn simplify_folds_literal_input(
+        #[case] source: Option<&str>,
+        #[case] target: Option<&str>,
+        #[case] offset_seconds: i64,
+    ) -> VortexResult<()> {
         let timestamp = |tz: Option<&str>| {
             Timestamp::new_with_tz(
                 TimeUnit::Microseconds,
@@ -443,10 +448,10 @@ mod tests {
         };
         let micros = Scalar::primitive(1_704_153_600_000_000i64, Nullability::Nullable);
         let expr = replace_time_zone(
-            lit(Scalar::extension_ref(timestamp(None), micros.clone())),
+            lit(Scalar::extension_ref(timestamp(source), micros)),
             lit("earliest"),
             ReplaceTimeZoneOptions {
-                time_zone: Some("UTC".into()),
+                time_zone: target.map(Into::into),
                 null_on_non_existent: false,
             },
         );
@@ -459,7 +464,13 @@ mod tests {
             .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
         assert_eq!(
             scalar,
-            &Scalar::extension_ref(timestamp(Some("UTC")), micros)
+            &Scalar::extension_ref(
+                timestamp(target),
+                Scalar::primitive(
+                    1_704_153_600_000_000i64 + offset_seconds * 1_000_000,
+                    Nullability::Nullable,
+                ),
+            )
         );
         Ok(())
     }

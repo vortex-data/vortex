@@ -7,6 +7,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use jiff::Span;
+use jiff::fmt::temporal::DateTimeParser;
+use jiff::tz::TimeZone;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -75,6 +77,17 @@ impl fmt::Display for TimestampOptions {
     }
 }
 
+/// Resolve an Arrow timestamp timezone, accepting IANA names and fixed offsets.
+pub(crate) fn resolve_time_zone(name: Option<&str>) -> VortexResult<TimeZone> {
+    Ok(match name {
+        Some(name) if name.starts_with('+') || name.starts_with('-') => {
+            DateTimeParser::new().parse_time_zone(name)?
+        }
+        Some(name) => TimeZone::get(name)?,
+        None => TimeZone::UTC,
+    })
+}
+
 /// Unpacked value of a [`Timestamp`] extension scalar.
 ///
 /// Each variant carries the raw storage value and an optional timezone.
@@ -102,7 +115,8 @@ impl fmt::Display for TimestampValue<'_> {
         match tz {
             None => write!(f, "{ts}"),
             Some(tz) => {
-                let adjusted_ts = ts.in_tz(tz.as_ref()).vortex_expect("unknown timezone");
+                let zone = resolve_time_zone(Some(tz)).vortex_expect("unknown timezone");
+                let adjusted_ts = ts.to_zoned(zone);
                 write!(f, "{adjusted_ts}",)
             }
         }
@@ -218,12 +232,12 @@ impl ExtVTable for Timestamp {
         };
 
         // Validate the storage value is within the valid range for Timestamp.
-        let ts = jiff::Timestamp::UNIX_EPOCH
+        jiff::Timestamp::UNIX_EPOCH
             .checked_add(span)
             .map_err(|e| vortex_err!("Invalid timestamp scalar: {}", e))?;
 
         if let Some(tz) = tz {
-            ts.in_tz(tz.as_ref())
+            resolve_time_zone(Some(tz))
                 .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
         }
 
@@ -235,6 +249,7 @@ impl ExtVTable for Timestamp {
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
@@ -250,6 +265,22 @@ mod tests {
         let dtype = DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased());
         Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(0))))?;
 
+        Ok(())
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[rstest]
+    #[case("+01:00", "1970-01-01T01:00:00+01:00[+01:00]")]
+    #[case("-05:30", "1969-12-31T18:30:00-05:30[-05:30]")]
+    fn display_fixed_offset_timestamp(
+        #[case] timezone: &str,
+        #[case] expected: &str,
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some(timezone.into()), Nullable).erased(),
+        );
+        let scalar = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(0))))?;
+        assert_eq!(format!("{}", scalar.as_extension()), expected);
         Ok(())
     }
 
