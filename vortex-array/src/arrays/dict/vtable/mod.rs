@@ -38,6 +38,7 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
@@ -228,30 +229,36 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if !array.is_empty()
-            && let (Some(codes), Some(values)) = (
-                array.codes().as_opt::<Primitive>(),
-                array.values().as_opt::<AnyCanonical>(),
-            )
-            && !codes.validity()?.definitely_all_null()
-        {
-            if let CanonicalView::VarBinView(values) = values
-                && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+        if !array.is_empty() {
+            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+            if !codes.validity()?.definitely_all_null() {
+                // Decode the children without taking values to the full row count. The
+                // variable-binary builders gather directly through these dictionary codes.
+                let values = array
+                    .values()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array();
+                let values = values.as_::<AnyCanonical>();
+                let codes = codes.as_view();
+                if let CanonicalView::VarBinView(values) = values
+                    && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                        append_dict_to_varbin(codes, values, validity, builder)
+                    })
+                {
+                    return result;
+                }
+                if let CanonicalView::VarBinView(values) = values
+                    && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+                {
                     let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                    append_dict_to_varbin(codes, values, validity, builder)
-                })
-            {
-                return result;
+                    return append_dict_to_varbinview(codes, values, validity, builder);
+                }
+                let canonical = take_canonical(values, codes, ctx)?.into_array();
+                canonical.append_to_builder(builder, ctx)?;
+                return Ok(());
             }
-            if let CanonicalView::VarBinView(values) = values
-                && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
-            {
-                let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                return append_dict_to_varbinview(codes, values, validity, builder);
-            }
-            let canonical = take_canonical(values, codes, ctx)?.into_array();
-            canonical.append_to_builder(builder, ctx)?;
-            return Ok(());
         }
 
         let canonical = array
