@@ -9,6 +9,10 @@ use super::BatchPlan;
 use super::RowFnExecutionArgs;
 use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
+use crate::Columnar;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ScalarFn;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
@@ -23,10 +27,20 @@ impl RowFnExecutionArgs {
         id: ScalarFnId,
         args: &dyn ExecutionArgs,
         plan: impl FnOnce(&[DType]) -> VortexResult<BatchPlan>,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let row_count = args.row_count();
+        // A lazy scalar function's validity is itself lazy and recomputes the function when it is
+        // resolved, so compute such inputs once here. Execution decodes every input anyway.
         let inputs: SmallVec<[ArrayRef; 4]> = (0..args.num_inputs())
-            .map(|index| args.get(index))
+            .map(|index| {
+                let input = args.get(index)?;
+                if input.is::<ScalarFn>() {
+                    Ok(input.execute::<Columnar>(ctx)?.into_array())
+                } else {
+                    Ok(input)
+                }
+            })
             .collect::<VortexResult<_>>()?;
 
         for (index, input) in inputs.iter().enumerate() {

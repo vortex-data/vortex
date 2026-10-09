@@ -15,7 +15,6 @@ use datafusion_common::ScalarValue;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
-use datafusion_common::tree_node::TreeNode;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -23,7 +22,6 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
-use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -276,23 +274,16 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
-            // TODO: support lambda pushdown.
-            let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
-
             let ProcessedProjection {
                 scan_projection,
                 leftover_projection,
-            } = if projection_pushdown {
-                expr_convertor.split_projection(
-                    projection.clone(),
-                    &this_file_schema,
-                    output_schema.as_ref(),
-                )?
-            } else {
-                // When projection pushdown is disabled, read only the required columns
-                // and apply the full projection after the scan.
-                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
-            };
+            } = process_projection(
+                expr_convertor.as_ref(),
+                projection_pushdown,
+                &projection,
+                &this_file_schema,
+                output_schema.as_ref(),
+            )?;
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
@@ -307,7 +298,21 @@ impl FileOpener for VortexOpener {
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
             let scan_reference_schema = if projection_pushdown {
-                (*output_schema).clone()
+                // The scan may also read raw columns for expressions evaluated after it.
+                let extra_fields = this_file_schema
+                    .fields()
+                    .iter()
+                    .filter(|field| output_schema.field_with_name(field.name()).is_err())
+                    .cloned();
+                Schema::new_with_metadata(
+                    output_schema
+                        .fields()
+                        .iter()
+                        .cloned()
+                        .chain(extra_fields)
+                        .collect::<Vec<_>>(),
+                    output_schema.metadata().clone(),
+                )
             } else {
                 // Build schema from the raw columns being read
                 let column_indices = projection.column_indices();
@@ -547,17 +552,23 @@ impl NaturalSplits {
     }
 }
 
-/// Whether any expression in `projection` contains a lambda.
-fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
-    for projection_expr in projection.iter() {
-        if projection_expr
-            .expr
-            .exists(|node| Ok(node.downcast_ref::<LambdaExpr>().is_some()))?
-        {
-            return Ok(true);
-        }
+/// Splits `projection` into the Vortex scan projection and the DataFusion projection applied
+/// after the scan.
+///
+/// When pushdown is disabled, the scan reads only the referenced columns and DataFusion evaluates
+/// the whole projection.
+pub(crate) fn process_projection(
+    expr_convertor: &dyn ExpressionConvertor,
+    projection_pushdown: bool,
+    projection: &ProjectionExprs,
+    file_schema: &Schema,
+    output_schema: &Schema,
+) -> DFResult<ProcessedProjection> {
+    if projection_pushdown {
+        expr_convertor.split_projection(projection.clone(), file_schema, output_schema)
+    } else {
+        expr_convertor.no_pushdown_projection(projection.clone(), file_schema)
     }
-    Ok(false)
 }
 
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.

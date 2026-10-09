@@ -160,6 +160,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::Expression;
+    use crate::expr::cast;
     use crate::expr::list_sum;
     use crate::expr::list_sum_opts;
     use crate::expr::proto::ExprSerializeProtoExt;
@@ -281,6 +282,97 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(2), Some(1)]);
         assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nullable_bool_elements() -> VortexResult<()> {
+        let elements = BoolArray::from_iter([
+            Some(true),
+            None,
+            Some(true),
+            None,
+            None,
+            Some(false),
+            Some(true),
+        ]);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            buffer![0u32, 3, 5, 5, 7, 7].into_array(),
+            Validity::from_iter([true, true, true, true, false]),
+        )?
+        .into_array();
+        let result = list.apply(&list_sum(root()))?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        let expected =
+            PrimitiveArray::from_option_iter::<u64, _>([Some(2), None, None, Some(1), None]);
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sum_of_integers_cast_to_float() -> VortexResult<()> {
+        let elements = PrimitiveArray::from_option_iter([Some(1u64), Some(2), None, Some(3)]);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            buffer![0u32, 2, 4, 4].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let float_list = DType::List(
+            Arc::new(DType::Primitive(PType::F64, Nullability::Nullable)),
+            Nullability::NonNullable,
+        );
+        let result = list.apply(&list_sum(cast(root(), float_list)))?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(3.0), Some(3.0), None]);
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Lists over encoded elements spanning several decode slices sum like the decoded lists.
+    #[rstest]
+    #[case::native(false)]
+    #[case::cast_to_float(true)]
+    fn test_sum_of_lists_over_encoded_elements(#[case] cast_to_float: bool) -> VortexResult<()> {
+        let len = 40_000usize;
+        let values = (0..len).map(|i| (i % 7 != 0).then_some((i % 3) as u64));
+        let decoded = PrimitiveArray::from_option_iter(values).into_array();
+        // A lazy cast keeps the elements encoded until the sum decodes them.
+        let elements = decoded.clone().apply(&cast(
+            root(),
+            DType::Primitive(PType::U32, Nullability::Nullable),
+        ))?;
+        assert!(!elements.is::<crate::arrays::Primitive>());
+        let offsets = [0u32, 3, 3, 9_000, 9_001, 25_000, 40_000];
+        let encoded = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter(offsets).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let plain = ListArray::try_new(
+            decoded,
+            PrimitiveArray::from_iter(offsets).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let expr = if cast_to_float {
+            let float_list = DType::List(
+                Arc::new(DType::Primitive(PType::F64, Nullability::Nullable)),
+                Nullability::NonNullable,
+            );
+            list_sum(cast(root(), float_list))
+        } else {
+            list_sum(root())
+        };
+        let mut ctx = array_session().create_execution_ctx();
+        let expected = plain.apply(&expr)?.execute::<PrimitiveArray>(&mut ctx)?;
+        let actual = encoded.apply(&expr)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 

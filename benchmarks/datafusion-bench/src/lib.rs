@@ -23,6 +23,7 @@ use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
+use vortex_datafusion::VortexExpressionPushdown;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
@@ -42,7 +43,8 @@ pub fn get_session_context() -> SessionContext {
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
         .with_runtime_env(rt)
-        .with_default_features();
+        .with_default_features()
+        .with_physical_optimizer_rule(Arc::new(VortexExpressionPushdown::new()));
 
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(

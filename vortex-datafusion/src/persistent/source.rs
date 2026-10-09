@@ -39,6 +39,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use super::opener::process_projection;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
@@ -211,6 +212,33 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
+    /// The projection the Vortex scan evaluates, as shown by `EXPLAIN` when it computes more than
+    /// the columns it reads.
+    ///
+    /// This is computed against the table's file schema, so it matches what each file's scan
+    /// evaluates unless the file's own schema differs.
+    fn display_scan_projection(&self) -> Option<String> {
+        let output_schema = self
+            .projection
+            .project_schema(self.table_schema.table_schema())
+            .ok()?;
+        let file_schema = self.table_schema.file_schema();
+        let processed = process_projection(
+            self.expression_convertor.as_ref(),
+            self.options.projection_pushdown,
+            &self.projection,
+            file_schema,
+            &output_schema,
+        )
+        .ok()?;
+        let columns_only = self
+            .expression_convertor
+            .no_pushdown_projection(self.projection.clone(), file_schema)
+            .ok()?;
+        (processed.scan_projection != columns_only.scan_projection)
+            .then(|| processed.scan_projection.to_string())
+    }
+
     /// Creates a new `VortexSource` for a table schema and [`VortexSession`].
     ///
     /// The new source starts with:
@@ -428,6 +456,9 @@ impl FileSource for VortexSource {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 if let Some(predicate) = &self.vortex_predicate {
                     write!(f, ", predicate: {predicate}")?;
+                }
+                if let Some(scan_projection) = self.display_scan_projection() {
+                    write!(f, ", vortex_projection: {scan_projection}")?;
                 }
             }
             // Use TreeRender style key=value formatting to display the predicate

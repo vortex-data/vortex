@@ -41,6 +41,8 @@ use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
+use crate::scalar_fn::fns::list_map::ListMap;
+use crate::scalar_fn::fns::list_map::ListMapOptions;
 use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
@@ -1263,6 +1265,21 @@ pub fn bound_list_sum_opts(
     ListSum
         .try_new_bound_expr(options, [input])
         .vortex_expect("list-sum expressions require a numeric list child")
+}
+
+// ---- ListMap ----
+
+/// Creates an expression that applies `element_expr` to every element of a list.
+///
+/// `element_expr` is evaluated with [`root`] bound to the list elements, and the result keeps the
+/// input's list structure and validity.
+///
+/// ```rust
+/// # use vortex_array::expr::{is_not_null, list_map, root};
+/// let expr = list_map(root(), is_not_null(root()));
+/// ```
+pub fn list_map(input: Expression, element_expr: Expression) -> Expression {
+    ListMap.new_expr(ListMapOptions(element_expr), [input])
 }
 
 /// Constructors for expressions whose children have already been bound and type-checked.

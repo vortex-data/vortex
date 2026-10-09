@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -9,13 +10,17 @@ use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
+use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions_nested::array_sum::ArraySum;
+use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
+use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
@@ -24,6 +29,7 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
+use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::dtype::Nullability;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -34,16 +40,19 @@ use vortex::expr::in_list;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
+use vortex::expr::list_map;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::transform::replace;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::list_sum::ListSum;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -180,6 +189,32 @@ impl DefaultExpressionConvertor {
         Self { session }
     }
 
+    /// Whether `expr` can be evaluated entirely by the Vortex scan.
+    fn is_pushable(&self, expr: &Arc<dyn PhysicalExpr>, input_schema: &Schema) -> DFResult<bool> {
+        let mut pushable = true;
+        expr.apply(|node| {
+            let unsupported_scalar_fn = node
+                .downcast_ref::<ScalarFunctionExpr>()
+                .is_some_and(|scalar_fn| !can_scalar_fn_be_pushed_down(scalar_fn, input_schema));
+            // DataFusion assumes different decimal types can be coerced.
+            // Vortex expects a perfect match so we don't push it down.
+            let decimal_arithmetic = match node.downcast_ref::<df_expr::BinaryExpr>() {
+                Some(binary_expr) => {
+                    binary_expr.op().is_numerical_operators()
+                        && binary_expr.left().data_type(input_schema)?.is_decimal()
+                        && binary_expr.right().data_type(input_schema)?.is_decimal()
+                }
+                None => false,
+            };
+            if unsupported_scalar_fn || decimal_arithmetic {
+                pushable = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        Ok(pushable && self.convert(expr.as_ref()).is_ok())
+    }
+
     /// Attempts to convert DataFusion's `octet_length` function to Vortex `byte_length`.
     fn try_convert_octet_length(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         let [input] = scalar_fn.args() else {
@@ -227,6 +262,100 @@ impl DefaultExpressionConvertor {
         Ok(cast(list_length(input), return_dtype))
     }
 
+    /// Attempts to convert DataFusion's `array_sum` function (aliased as `list_sum`) to Vortex
+    /// `list_sum`.
+    ///
+    /// DataFusion coerces the argument to a list of `Float64` and sums it in `f64`, skipping null
+    /// elements and returning null for null, empty and all-null lists. NaN elements poison the
+    /// sum, so the Vortex sum must include them.
+    fn try_convert_array_sum(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        let [input] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!(
+                "array_sum pushdown requires exactly one argument"
+            ));
+        };
+
+        // Summing booleans counts the true values, which is exactly the float sum of their 0/1
+        // casts, so sum a boolean list directly instead of casting every element first.
+        let input = match input.downcast_ref::<df_expr::CastExpr>() {
+            Some(cast_expr) if is_boolean_list_function(cast_expr.expr()) => cast_expr.expr(),
+            _ => input,
+        };
+        let input = self.convert(input.as_ref())?;
+        let return_dtype = self
+            .session
+            .arrow()
+            .from_arrow_field(&Field::new(
+                "",
+                scalar_fn.return_type().clone(),
+                scalar_fn.nullable(),
+            ))
+            .map_err(|e| exec_datafusion_err!("Failed to convert return type to dtype: {e}"))?;
+        let sum = ListSum.new_expr(NumericalAggregateOpts::include_nans(), [input]);
+        Ok(cast(sum, return_dtype))
+    }
+
+    /// Attempts to convert DataFusion's `array_transform(list, x -> body)` to Vortex `list_map`.
+    ///
+    /// Only lambdas whose body depends on nothing but the element parameter are supported, since
+    /// the Vortex element expression is evaluated over the list elements alone.
+    fn try_convert_higher_order_function(
+        &self,
+        hof: &HigherOrderFunctionExpr,
+    ) -> DFResult<Expression> {
+        if (hof.fun().inner().as_ref() as &dyn Any)
+            .downcast_ref::<ArrayTransform>()
+            .is_none()
+        {
+            return Err(exec_datafusion_err!(
+                "Unsupported higher-order function: {}",
+                hof.name()
+            ));
+        }
+        let [list, lambda] = hof.args() else {
+            return Err(exec_datafusion_err!(
+                "array_transform requires a list and a lambda"
+            ));
+        };
+        let lambda = lambda
+            .downcast_ref::<df_expr::LambdaExpr>()
+            .ok_or_else(|| exec_datafusion_err!("array_transform requires a lambda argument"))?;
+        let element_param = lambda
+            .params()
+            .first()
+            .ok_or_else(|| exec_datafusion_err!("array_transform lambda has no parameters"))?;
+
+        // Rewrite the element parameter to a placeholder column so the body converts like any
+        // other expression, then swap the placeholder for the element scope.
+        let body = Arc::clone(lambda.body())
+            .transform(|node| {
+                if node.downcast_ref::<df_expr::Column>().is_some() {
+                    return Err(exec_datafusion_err!(
+                        "array_transform lambdas that capture columns can't be pushed down"
+                    ));
+                }
+                match node.downcast_ref::<df_expr::LambdaVariable>() {
+                    Some(variable) if variable.name() == element_param => Ok(Transformed::yes(
+                        Arc::new(df_expr::Column::new(LAMBDA_ELEMENT_PLACEHOLDER, 0))
+                            as Arc<dyn PhysicalExpr>,
+                    )),
+                    Some(variable) => Err(exec_datafusion_err!(
+                        "array_transform lambda parameter {} can't be pushed down",
+                        variable.name()
+                    )),
+                    None => Ok(Transformed::no(node)),
+                }
+            })?
+            .data;
+        let element_expr = replace(
+            self.convert(body.as_ref())?,
+            &get_item(LAMBDA_ELEMENT_PLACEHOLDER, root()),
+            root(),
+        );
+
+        Ok(list_map(self.convert(list.as_ref())?, element_expr))
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         if let Some(octet_length_fn) =
@@ -239,6 +368,10 @@ impl DefaultExpressionConvertor {
             ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
         {
             return self.try_convert_array_length(array_length_fn);
+        }
+
+        if let Some(array_sum_fn) = ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn) {
+            return self.try_convert_array_sum(array_sum_fn);
         }
 
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
@@ -421,6 +554,10 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             return self.try_convert_case_expr(case_expr);
         }
 
+        if let Some(hof) = df.downcast_ref::<HigherOrderFunctionExpr>() {
+            return self.try_convert_higher_order_function(hof);
+        }
+
         Err(exec_datafusion_err!(
             "Couldn't convert DataFusion physical {df} expression to a vortex expression"
         ))
@@ -432,51 +569,16 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         input_schema: &Schema,
         output_schema: &Schema,
     ) -> DFResult<ProcessedProjection> {
-        let mut scan_projection = vec![];
+        let mut scan = ScanColumns::default();
         let mut leftover_projection: Vec<ProjectionExpr> = vec![];
 
         for projection_expr in source_projection.iter() {
-            let r = projection_expr.expr.apply(|node| {
-                // We only pull column children of scalar functions that we can't push into the scan.
-                if let Some(scalar_fn_expr) = node.downcast_ref::<ScalarFunctionExpr>()
-                    && !can_scalar_fn_be_pushed_down(scalar_fn_expr, input_schema)
-                {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
-
-                    leftover_projection.push(projection_expr.clone());
-                    return Ok(TreeNodeRecursion::Stop);
+            if self.is_pushable(&projection_expr.expr, input_schema)? {
+                let expr = self.convert(projection_expr.expr.as_ref())?;
+                if !scan.fits(&projection_expr.alias, &expr) {
+                    return self.no_pushdown_projection(source_projection.clone(), input_schema);
                 }
-
-                // DataFusion assumes different decimal types can be coerced.
-                // Vortex expects a perfect match so we don't push it down.
-                if let Some(binary_expr) = node.downcast_ref::<df_expr::BinaryExpr>()
-                    && binary_expr.op().is_numerical_operators()
-                    && binary_expr.left().data_type(input_schema)?.is_decimal()
-                    && binary_expr.right().data_type(input_schema)?.is_decimal()
-                {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
-
-                    leftover_projection.push(projection_expr.clone());
-                    return Ok(TreeNodeRecursion::Stop);
-                }
-
-                Ok(TreeNodeRecursion::Continue)
-            })?;
-
-            // if we didn't stop early
-            if matches!(r, TreeNodeRecursion::Continue) {
-                scan_projection.push((
-                    projection_expr.alias.clone(),
-                    self.convert(projection_expr.expr.as_ref())?,
-                ));
+                scan.insert(projection_expr.alias.clone(), expr);
                 leftover_projection.push(ProjectionExpr {
                     expr: Arc::new(df_expr::Column::new_with_schema(
                         projection_expr.alias.as_str(),
@@ -484,11 +586,78 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     )?),
                     alias: projection_expr.alias.clone(),
                 });
+                continue;
             }
+
+            // Push the largest convertible sub-expressions into the scan as extra columns, read
+            // the columns the rest of the expression needs, and evaluate the rest afterwards.
+            let mut pushed = vec![];
+            let mut computed_columns = vec![];
+            let rewritten = Arc::clone(&projection_expr.expr).transform_down(|node| {
+                // Lambda bodies are evaluated per element by DataFusion and must stay intact.
+                if node.downcast_ref::<df_expr::LambdaExpr>().is_some() {
+                    return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                }
+                // Only push numeric and boolean results, whose Arrow type the scan reproduces
+                // exactly without a reference schema.
+                let data_type = node.data_type(input_schema)?;
+                if node.downcast_ref::<df_expr::Column>().is_some()
+                    || node.downcast_ref::<df_expr::Literal>().is_some()
+                    || !(data_type.is_numeric() || data_type == DataType::Boolean)
+                    || !self.is_pushable(&node, input_schema)?
+                {
+                    return Ok(Transformed::no(node));
+                }
+                let expr = self.convert(node.as_ref())?;
+                let name = match scan
+                    .name_of(&expr)
+                    .or_else(|| pushed.iter().find(|(_, e)| *e == expr).map(|(n, _)| n))
+                {
+                    Some(name) => name.clone(),
+                    None => {
+                        let name = format!("__vortex_pushed_{}", scan.len() + pushed.len());
+                        pushed.push((name.clone(), expr));
+                        name
+                    }
+                };
+                computed_columns.push(name.clone());
+                Ok(Transformed::new(
+                    Arc::new(df_expr::Column::new(&name, 0)) as Arc<dyn PhysicalExpr>,
+                    true,
+                    TreeNodeRecursion::Jump,
+                ))
+            })?;
+
+            // DataFusion indexes lambda variables past the planning schema's columns, so a lambda
+            // evaluated after the scan needs the scan to output exactly the referenced columns.
+            if rewritten
+                .data
+                .exists(|node| Ok(node.downcast_ref::<df_expr::LambdaExpr>().is_some()))?
+            {
+                return self.no_pushdown_projection(source_projection.clone(), input_schema);
+            }
+
+            let columns = collect_columns(&rewritten.data)
+                .into_iter()
+                .filter(|c| !computed_columns.iter().any(|name| name == c.name()))
+                .map(|c| (c.name().to_string(), get_item(c.name(), root())))
+                .collect::<Vec<_>>();
+            if !columns
+                .iter()
+                .chain(&pushed)
+                .all(|(name, expr)| scan.fits(name, expr))
+            {
+                return self.no_pushdown_projection(source_projection.clone(), input_schema);
+            }
+            scan.extend(pushed.into_iter().chain(columns));
+            leftover_projection.push(ProjectionExpr {
+                expr: rewritten.data,
+                alias: projection_expr.alias.clone(),
+            });
         }
 
         Ok(ProcessedProjection {
-            scan_projection: pack(scan_projection, Nullability::NonNullable),
+            scan_projection: pack(scan.into_fields(), Nullability::NonNullable),
             leftover_projection: leftover_projection.into(),
         })
     }
@@ -554,6 +723,15 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
         return false;
     }
 
+    // Lambda predicates are left to DataFusion. Evaluating them as a scan predicate made statpopgen
+    // query 10 twice as slow as filtering the scan's projected output.
+    if expr
+        .exists(|node| Ok(node.downcast_ref::<HigherOrderFunctionExpr>().is_some()))
+        .unwrap_or(true)
+    {
+        return false;
+    }
+
     if let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() {
         can_binary_be_pushed_down(binary, schema)
     } else if let Some(col) = expr.downcast_ref::<df_expr::Column>() {
@@ -603,10 +781,18 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
         || expr.downcast_ref::<df_expr::IsNullExpr>().is_some()
         || expr.downcast_ref::<df_expr::IsNotNullExpr>().is_some()
         || expr.downcast_ref::<df_expr::InListExpr>().is_some()
+        || expr
+            .downcast_ref::<HigherOrderFunctionExpr>()
+            .is_some_and(|hof| {
+                DefaultExpressionConvertor::default()
+                    .try_convert_higher_order_function(hof)
+                    .is_ok()
+            })
         || expr.downcast_ref::<ScalarFunctionExpr>().is_some_and(|sf| {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<ArrayLength>(sf).is_some()
+                || ScalarFunctionExpr::try_downcast_func::<ArraySum>(sf).is_some()
         })
 }
 
@@ -668,7 +854,7 @@ fn supported_data_types(dt: &DataType) -> bool {
 }
 
 /// Checks if a scalar function can be pushed down.
-/// Currently GetFieldFunc, OctetLengthFunc, and ArrayLength are supported.
+/// Currently GetFieldFunc, OctetLengthFunc, ArrayLength, and ArraySum are supported.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
     if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
         // Field access is pushable only when its entire source is convertible.
@@ -684,8 +870,32 @@ fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema)
         return true;
     }
 
+    if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn)
+        .is_some_and(|array_sum| can_array_sum_be_pushed_down(array_sum, schema))
+    {
+        return true;
+    }
+
     ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
         .is_some_and(|array_length| can_array_length_be_pushed_down(array_length, schema))
+}
+
+fn can_array_sum_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    let [input] = scalar_fn.args() else {
+        return false;
+    };
+
+    // After coercion the argument is a list of `Float64`, usually a cast of a list column.
+    input
+        .data_type(schema)
+        .as_ref()
+        .is_ok_and(|data_type| match data_type {
+            DataType::List(field)
+            | DataType::LargeList(field)
+            | DataType::FixedSizeList(field, _) => field.data_type() == &DataType::Float64,
+            _ => false,
+        })
+        && is_convertible_expr(input)
 }
 
 fn can_octet_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
@@ -738,6 +948,62 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> Option<&Arc<dyn Physica
 fn is_dimension_one(expr: &Arc<dyn PhysicalExpr>) -> bool {
     expr.downcast_ref::<df_expr::Literal>()
         .is_some_and(|literal| matches!(literal.value(), ScalarValue::Int64(Some(1))))
+}
+
+/// The named expressions a Vortex scan evaluates, without duplicate names.
+#[derive(Default)]
+struct ScanColumns(Vec<(String, Expression)>);
+
+impl ScanColumns {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The name of a column computing `expr`, if any.
+    fn name_of(&self, expr: &Expression) -> Option<&String> {
+        self.0
+            .iter()
+            .find(|(_, existing)| existing == expr)
+            .map(|(name, _)| name)
+    }
+
+    /// Whether `name` is free or already bound to `expr`.
+    fn fits(&self, name: &str, expr: &Expression) -> bool {
+        self.0
+            .iter()
+            .all(|(existing, existing_expr)| existing != name || existing_expr == expr)
+    }
+
+    /// Adds a column unless one with the same name already exists.
+    fn insert(&mut self, name: String, expr: Expression) {
+        if !self.0.iter().any(|(existing, _)| *existing == name) {
+            self.0.push((name, expr));
+        }
+    }
+
+    fn extend(&mut self, columns: impl IntoIterator<Item = (String, Expression)>) {
+        for (name, expr) in columns {
+            self.insert(name, expr);
+        }
+    }
+
+    fn into_fields(self) -> Vec<(String, Expression)> {
+        self.0
+    }
+}
+/// Name of the placeholder column a lambda's element parameter is rewritten to during conversion.
+const LAMBDA_ELEMENT_PLACEHOLDER: &str = "__vortex_lambda_element";
+
+/// Whether `expr` is a higher-order function returning a list of booleans, e.g.
+/// `array_transform(xs, x -> x IS NOT NULL)`.
+fn is_boolean_list_function(expr: &Arc<dyn PhysicalExpr>) -> bool {
+    expr.downcast_ref::<HigherOrderFunctionExpr>()
+        .is_some_and(|hof| match hof.return_type() {
+            DataType::List(field)
+            | DataType::LargeList(field)
+            | DataType::FixedSizeList(field, _) => field.data_type() == &DataType::Boolean,
+            _ => false,
+        })
 }
 
 #[cfg(test)]
@@ -1204,6 +1470,28 @@ mod tests {
         let octet_length = octet_length_expr(expr, &test_schema);
 
         assert!(can_be_pushed_down_impl(&octet_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_array_sum_pushed_down_as_list_sum(test_schema: Schema) -> DFResult<()> {
+        let float_list = DataType::List(Arc::new(Field::new("item", DataType::Float64, true)));
+        let tags = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
+        let cast_tags =
+            Arc::new(df_expr::CastExpr::new(tags, float_list, None)) as Arc<dyn PhysicalExpr>;
+        let array_sum = Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(ScalarUDF::from(ArraySum::new())),
+            vec![cast_tags],
+            &test_schema,
+            Arc::new(ConfigOptions::new()),
+        )?) as Arc<dyn PhysicalExpr>;
+
+        assert!(can_be_pushed_down_impl(&array_sum, &test_schema));
+        let converted = DefaultExpressionConvertor::default().convert(array_sum.as_ref())?;
+        assert_snapshot!(
+            converted.to_string(),
+            @"cast(vortex.list.sum(cast($.tags as list(f64?)?), opts=skip_nans=false) as f64?)"
+        );
+        Ok(())
     }
 
     #[rstest]

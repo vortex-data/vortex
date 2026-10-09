@@ -174,11 +174,30 @@ mod common_tests {
             Self::new_with_factory(factory)
         }
 
+        /// Create a new test session context with projection pushdown and the
+        /// [`VortexExpressionPushdown`](crate::VortexExpressionPushdown) rule.
+        pub fn with_expression_pushdown() -> Self {
+            let opts = VortexTableOptions {
+                projection_pushdown: true,
+                ..Default::default()
+            };
+            let factory = Arc::new(VortexFormatFactory::new().with_options(opts));
+            Self::build(factory, true)
+        }
+
         /// Create a new test session context with the given Vortex format factory.
         pub fn new_with_factory(factory: Arc<VortexFormatFactory>) -> Self {
+            Self::build(factory, false)
+        }
+
+        fn build(factory: Arc<VortexFormatFactory>, expression_pushdown: bool) -> Self {
             let store = Arc::new(InMemory::new());
-            let mut session_state_builder = SessionStateBuilder::new()
-                .with_default_features()
+            let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+            if expression_pushdown {
+                session_state_builder = session_state_builder
+                    .with_physical_optimizer_rule(Arc::new(crate::VortexExpressionPushdown::new()));
+            }
+            let mut session_state_builder = session_state_builder
                 .with_table_factory(
                     factory.get_ext().to_uppercase(),
                     Arc::new(DefaultTableFactory::new()),

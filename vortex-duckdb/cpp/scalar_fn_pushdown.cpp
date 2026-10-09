@@ -8,6 +8,22 @@
 
 #include <optional>
 
+namespace {
+// A function applied to a single column, optionally with constant arguments,
+// e.g. strlen(col) or list_aggr(col, 'sum').
+bool IsColumnFunction(const BoundFunctionExpression &expr) {
+    if (expr.children.empty() || expr.children[0]->GetExpressionType() != ExpressionType::BOUND_COLUMN_REF) {
+        return false;
+    }
+    for (idx_t i = 1; i < expr.children.size(); i++) {
+        if (expr.children[i]->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
 /**
  * Our optimizer runs after all duckdb optimizers. Functions that can be pushed
  * down as complex filters (e.g. WHERE str != '') are already pushed down.
@@ -43,8 +59,7 @@ ExpressionPtr ScalarFnCollect::VisitReplace(BoundColumnRefExpression &expr, Expr
 }
 
 ExpressionPtr ScalarFnCollect::VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *ptr) {
-    if (expr.children.size() != 1 ||
-        expr.children[0]->GetExpressionType() != ExpressionType::BOUND_COLUMN_REF) {
+    if (!IsColumnFunction(expr)) {
         // Descend into children so e.g. fn(col, other) still sees "col" and
         // registers a conflict
         return nullptr;
@@ -88,8 +103,7 @@ ExpressionPtr ScalarFnReplace::VisitReplace(BoundColumnRefExpression &expr, Expr
 }
 
 ExpressionPtr ScalarFnReplace::VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *ptr) {
-    if (expr.children.size() != 1 ||
-        expr.children[0]->GetExpressionType() != ExpressionType::BOUND_COLUMN_REF) {
+    if (!IsColumnFunction(expr)) {
         return nullptr; // Same as in ScalarFnCollect::VisitReplace
     }
     ExpressionPtr &bound_col_base = expr.children[0];
