@@ -3,6 +3,7 @@
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
+use half::f16;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -14,6 +15,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
+use crate::scalar::PValue;
 use crate::scalar::ScalarValue;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
@@ -62,10 +64,10 @@ impl WriteFlatBuffer for StatsSet {
             Precision::Absent => (fba::Precision::Inexact, None),
         };
 
-        let sum = self
-            .get(Stat::Sum)
-            .as_exact()
-            .map(|sum| fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&sum))));
+        let sum = self.get(Stat::Sum).as_exact().map(|sum| {
+            let sum = canonicalize_nan_sum(sum);
+            fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&sum)))
+        });
 
         let stat_args = &fba::ArrayStatsArgs {
             min,
@@ -94,6 +96,28 @@ impl WriteFlatBuffer for StatsSet {
         };
 
         Ok(fba::ArrayStats::create(fbb, stat_args))
+    }
+}
+
+/// Replace a NaN float sum with the canonical quiet NaN of its width.
+///
+/// A float sum is NaN when the data holds both `+inf` and `-inf`, because `inf + -inf` is an IEEE 754
+/// invalid operation. IEEE 754 does not specify the bits of that result, and targets disagree:
+/// x86_64 sets the sign bit and aarch64 does not. Without this step, the bytes of a written file
+/// depend on the architecture that wrote it. A NaN sum has no payload information, so nothing is
+/// lost. Stats that are already written are read back unchanged.
+fn canonicalize_nan_sum(sum: ScalarValue) -> ScalarValue {
+    match sum {
+        ScalarValue::Primitive(PValue::F16(v)) if v.is_nan() => {
+            ScalarValue::Primitive(PValue::F16(f16::from_bits(0x7e00)))
+        }
+        ScalarValue::Primitive(PValue::F32(v)) if v.is_nan() => {
+            ScalarValue::Primitive(PValue::F32(f32::from_bits(0x7fc0_0000)))
+        }
+        ScalarValue::Primitive(PValue::F64(v)) if v.is_nan() => {
+            ScalarValue::Primitive(PValue::F64(f64::from_bits(0x7ff8_0000_0000_0000)))
+        }
+        sum => sum,
     }
 }
 
@@ -206,5 +230,69 @@ impl StatsSet {
         }
 
         Ok(stats_set)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use flatbuffers::FlatBufferBuilder;
+    use flatbuffers::root;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+
+    use crate::array_session;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::flatbuffers::WriteFlatBuffer;
+    use crate::flatbuffers::array as fba;
+    use crate::scalar::PValue;
+    use crate::scalar::ScalarValue;
+    use crate::stats::StatsSet;
+
+    fn roundtrip_sum(sum: f64) -> VortexResult<u64> {
+        let stats = StatsSet::of(
+            Stat::Sum,
+            Precision::exact(ScalarValue::Primitive(PValue::F64(sum))),
+        );
+
+        let mut fbb = FlatBufferBuilder::new();
+        let offset = stats.write_flatbuffer(&mut fbb)?;
+        fbb.finish_minimal(offset);
+        let fb = root::<fba::ArrayStats>(fbb.finished_data())?;
+
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let read = StatsSet::from_flatbuffer(&fb, &dtype, &array_session())?;
+        Ok(read
+            .get_as::<f64>(
+                Stat::Sum,
+                &DType::Primitive(PType::F64, Nullability::Nullable),
+            )
+            .as_exact()
+            .ok_or_else(|| vortex_err!("sum must be exact after a round trip"))?
+            .to_bits())
+    }
+
+    #[test]
+    fn nan_sum_is_written_canonical() -> VortexResult<()> {
+        // x86_64 gives this NaN for `inf + -inf`.
+        assert_eq!(
+            roundtrip_sum(f64::from_bits(0xfff8_0000_0000_0000))?,
+            0x7ff8_0000_0000_0000
+        );
+        assert_eq!(
+            roundtrip_sum(f64::from_bits(0x7ff8_0000_dead_beef))?,
+            0x7ff8_0000_0000_0000
+        );
+
+        assert_eq!(roundtrip_sum(3.0)?, 3.0f64.to_bits());
+        assert_eq!(
+            roundtrip_sum(f64::NEG_INFINITY)?,
+            f64::NEG_INFINITY.to_bits()
+        );
+
+        Ok(())
     }
 }
