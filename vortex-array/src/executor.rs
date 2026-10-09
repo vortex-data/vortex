@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -164,7 +165,10 @@ impl ArrayRef {
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -184,12 +188,13 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                None => root_done_check::<M>(&current_array),
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -564,6 +569,16 @@ pub fn execute_into_builder(
 ) -> VortexResult<Box<dyn ArrayBuilder>> {
     array.append_to_builder(builder.as_mut(), ctx)?;
     Ok(builder)
+}
+
+/// Returns `(matches M, is canonical)`, scanning once when `M` is [`AnyCanonical`].
+#[inline]
+fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
+    if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
+        let canonical = AnyCanonical::matches(array);
+        return (canonical, canonical);
+    }
+    (M::matches(array), AnyCanonical::matches(array))
 }
 
 /// Pop a stack frame, restoring the parent with the finished child in its slot.
