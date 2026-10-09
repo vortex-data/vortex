@@ -37,6 +37,7 @@ COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
 PR_ALL_IDS = tuple(benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id != "vortex-queries")
+EXTENDED_ONLY_IDS = ("westermo",)
 EXPECTED_IDS = {
     "develop": REGULAR_IDS,
     "pr": tuple(
@@ -54,7 +55,7 @@ EXPECTED_IDS = {
     ),
     "pr-compact": COMPACT_IDS,
     "pr-all": PR_ALL_IDS,
-    "pr-full": REGULAR_IDS,
+    "pr-full": REGULAR_IDS + EXTENDED_ONLY_IDS,
     "nightly": ("tpch-nvme", "tpch-s3"),
 }
 
@@ -86,6 +87,12 @@ def test_pr_target_selection() -> None:
     pr_full = {entry["id"]: entry for entry in _entries("pr-full")}
 
     assert _targets(pr["tpch-nvme"]) == {
+        ("datafusion", "parquet"),
+        ("datafusion", "vortex"),
+        ("duckdb", "parquet"),
+        ("duckdb", "vortex"),
+    }
+    assert _targets(pr_full["westermo"]) == {
         ("datafusion", "parquet"),
         ("datafusion", "vortex"),
         ("duckdb", "parquet"),
