@@ -3,9 +3,8 @@
 
 import math
 import os
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
-from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -251,15 +250,15 @@ def test_datetime_predicate_pushdown(tmp_path):
         {
             "id": [0, 1, 2],
             "value": pa.array(
-                [datetime(2026, 9, day, tzinfo=timezone.utc) for day in [16, 17, 18]],
+                [datetime(2026, 9, day, tzinfo=UTC) for day in [16, 17, 18]],
                 type=pa.timestamp("us", tz="UTC"),
             ),
         }
     )
     path = tmp_path / "datetimes.vortex"
     vx.io.write(vx.array(table), str(path))
-    predicate = pl.col("value") >= datetime(2026, 9, 17, tzinfo=timezone.utc)
-    expected = pl.from_arrow(table).lazy().filter(predicate).collect()
+    predicate = pl.col("value") >= datetime(2026, 9, 17, tzinfo=UTC)
+    expected = pl.DataFrame(table).lazy().filter(predicate).collect()
     result = vx.open(str(path)).to_polars().filter(predicate).collect()
     assert_frame_equal(result, expected)
     assert result["id"].to_list() == [1, 2]
@@ -321,9 +320,7 @@ def test_replace_time_zone_policy_column(tmp_path, fold, expected):
 
 
 def test_replace_time_zone_non_existent_null(tmp_path):
-    values = pa.array(
-        [datetime(2024, 3, 10, 2, 30), datetime(2024, 3, 10, 3, 30)], type=pa.timestamp("us")
-    )
+    values = pa.array([datetime(2024, 3, 10, 2, 30), datetime(2024, 3, 10, 3, 30)], type=pa.timestamp("us"))
     reference, frame = _time_zone_scan(tmp_path, values)
     expression = pl.col("dt").dt.replace_time_zone("America/New_York", non_existent="null")
     threshold = datetime(2024, 3, 10, 3, 30, tzinfo=ZoneInfo("America/New_York"))
@@ -345,9 +342,7 @@ def test_replace_time_zone_raises(tmp_path, value):
 
 
 def test_replace_time_zone_maps_to_native_expression():
-    expression = pl.col("dt").dt.replace_time_zone(
-        "America/New_York", ambiguous=pl.col("policy"), non_existent="null"
-    )
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York", ambiguous=pl.col("policy"), non_existent="null")
     expected = ve.replace_time_zone(
         ve.column("dt"), "America/New_York", ambiguous=ve.column("policy"), non_existent="null"
     )
@@ -366,11 +361,11 @@ def test_replace_time_zone_same_zone_during_fold(tmp_path):
     assert actual["id"].to_list() == [0]
 
 
-def _time_zone_scan(tmp_path, values, policy=None):
+def _time_zone_scan(tmp_path, values, policy=None) -> tuple[pl.LazyFrame, pl.LazyFrame]:
     columns = {"id": pa.array(range(len(values))), "dt": values}
     if policy is not None:
         columns["policy"] = pa.array(policy)
     path = tmp_path / "timezones.vortex"
     table = pa.table(columns)
     vx.io.write(vx.array(table), str(path))
-    return pl.from_arrow(table).lazy(), vx.open(str(path)).to_polars()
+    return pl.DataFrame(table).lazy(), vx.open(str(path)).to_polars()

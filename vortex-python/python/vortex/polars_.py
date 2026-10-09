@@ -4,7 +4,7 @@
 import json
 import operator
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import polars as pl
 
@@ -203,7 +203,12 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
 def _datetime_literal(data: list[Any]) -> ve.Expr:
     value, unit, tz = data
-    units = {"Nanoseconds": "ns", "Microseconds": "us", "Milliseconds": "ms", "Seconds": "s"}
+    units: dict[str, Literal["s", "ms", "us", "ns"]] = {
+        "Nanoseconds": "ns",
+        "Microseconds": "us",
+        "Milliseconds": "ms",
+        "Seconds": "s",
+    }
     if unit not in units:
         raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
     if isinstance(tz, dict):
