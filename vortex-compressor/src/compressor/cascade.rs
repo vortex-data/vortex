@@ -169,6 +169,8 @@ impl CascadingCompressor {
                 self.choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
             }
             Canonical::Extension(ext_array) => {
+                let input = ext_array.clone().into_array();
+
                 // Try scheme-based compression first.
                 let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
@@ -193,6 +195,13 @@ impl CascadingCompressor {
                 let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
+
+                // No scheme compressed the array, so `scheme_compressed` is the input itself. A
+                // canonical extension array's storage can still be lazy (sliced, chunked, ...) and
+                // need not be serializable, so only the compressed storage is a valid result.
+                if ArrayRef::ptr_eq(&scheme_compressed, &input) {
+                    return Ok(storage_compressed);
+                }
 
                 if scheme_compressed.nbytes() < storage_compressed.nbytes() {
                     Ok(scheme_compressed)
