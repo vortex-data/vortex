@@ -237,7 +237,10 @@ fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
     })
 }
 
-fn zip_nullability_union(lhs: &DType, rhs: &DType) -> Option<DType> {
+/// Unions the nullability of two dtypes at every nesting level.
+///
+/// Returns `None` when the dtypes differ in more than nullability.
+pub(crate) fn zip_nullability_union(lhs: &DType, rhs: &DType) -> Option<DType> {
     let nullability = lhs.nullability() | rhs.nullability();
 
     match (lhs, rhs) {

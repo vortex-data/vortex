@@ -117,6 +117,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFilterPushdownRule {
             prepare_mask_for_reuse(values, nchildren);
         }
 
+        // Selection precedes value evaluation, including errors in unselected rows.
         let new_children: Vec<_> = child
             .iter_children()
             .map(|c| match c.as_opt::<Constant>() {
