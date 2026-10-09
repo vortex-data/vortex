@@ -1496,8 +1496,7 @@ mod tests {
             i64::MAX - 1,
             i64::MAX,
         ];
-        // A non-null set probed by non-null needles has a non-nullable result.
-        let expected = BoolArray::from_iter(needles.map(|value| elements.contains(&value)));
+        let expected = needles.map(|value| elements.contains(&value));
         let set = Scalar::list(
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
             elements.into_iter().map(Scalar::from).collect(),
@@ -1508,7 +1507,7 @@ mod tests {
             .apply(&list_contains_opts(lit(set), root(), SQL))?;
         assert_arrays_eq!(
             result,
-            expected,
+            BoolArray::from_iter(expected),
             &mut array_session().create_execution_ctx()
         );
         Ok(())
