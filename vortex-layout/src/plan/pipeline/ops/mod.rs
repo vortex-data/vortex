@@ -17,23 +17,37 @@ pub(crate) use filter::*;
 pub(crate) use pack::*;
 pub(crate) use port::*;
 pub(crate) use scan::*;
+use smallvec::SmallVec;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::plan::pipeline::Inlet;
 
-/// Takes the first `len` rows of the inlet's front batch: the batch itself when it is that
-/// long, otherwise a slice, leaving the rest in place.
+/// Takes the first `len` rows of the inlet, across as many batches as hold them, slicing the last
+/// and leaving its rest in place. Rows spanning batches come back chunked, not copied.
 pub(crate) fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
-    let front = inlet
-        .peek_mut()
-        .ok_or_else(|| vortex_err!("Taking rows from an empty inlet"))?;
-    if front.len() == len {
-        return inlet
-            .take()
-            .ok_or_else(|| vortex_err!("Taking rows from an empty inlet"));
+    let mut pieces: SmallVec<[ArrayRef; 2]> = SmallVec::new();
+    let mut left = len;
+    while left > 0 {
+        let front = inlet
+            .peek_mut()
+            .ok_or_else(|| vortex_err!("Taking {len} rows from an inlet holding fewer"))?;
+        if front.len() <= left {
+            left -= front.len();
+            pieces.extend(inlet.take());
+        } else {
+            let rest = front.slice(left..front.len())?;
+            pieces.push(std::mem::replace(front, rest).slice(0..left)?);
+            left = 0;
+        }
     }
-    let rest = front.slice(len..front.len())?;
-    std::mem::replace(front, rest).slice(0..len)
+    if pieces.len() == 1 {
+        return Ok(pieces.swap_remove(0));
+    }
+    let dtype = pieces[0].dtype().clone();
+    // SAFETY: the pieces come from one inlet, whose batches share its writer's dtype.
+    Ok(unsafe { ChunkedArray::new_unchecked(pieces, dtype) }.into_array())
 }
