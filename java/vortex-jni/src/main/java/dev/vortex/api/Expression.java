@@ -119,6 +119,20 @@ public final class Expression {
         return new Expression(NativeExpression.binary(op.code(), lhs.nativePointer(), rhs.nativePointer()));
     }
 
+    /**
+     * Apply a spatial function to native geometry operands, each a column or a geometry literal (see
+     * {@link #literalGeometry(byte[])}). The number of operands must match the function's arity.
+     */
+    public static Expression spatial(SpatialFunction function, Expression... operands) {
+        Preconditions.checkArgument(
+                operands.length == function.arity(),
+                "%s takes %s operands, got %s",
+                function,
+                function.arity(),
+                operands.length);
+        return new Expression(NativeExpression.spatial(function.code(), nativePointers(operands)));
+    }
+
     public static Expression not(Expression child) {
         return new Expression(NativeExpression.not(child.nativePointer()));
     }
@@ -176,6 +190,45 @@ public final class Expression {
 
     public static Expression literal(long value) {
         return new Expression(NativeExpression.literalI64(value, false));
+    }
+
+    /** Create an unsigned 8-bit integer literal. {@code value} must be in {@code [0, 255]}. */
+    public static Expression literalU8(int value) {
+        Preconditions.checkArgument(value >= 0 && value <= 0xFF, "u8 literal out of range: %s", value);
+        return new Expression(NativeExpression.literalU8((byte) value, false));
+    }
+
+    /** Create an unsigned 16-bit integer literal. {@code value} must be in {@code [0, 65535]}. */
+    public static Expression literalU16(int value) {
+        Preconditions.checkArgument(value >= 0 && value <= 0xFFFF, "u16 literal out of range: %s", value);
+        return new Expression(NativeExpression.literalU16((short) value, false));
+    }
+
+    /** Create an unsigned 32-bit integer literal. {@code value} must be in {@code [0, 2^32 - 1]}. */
+    public static Expression literalU32(long value) {
+        Preconditions.checkArgument(value >= 0 && value <= 0xFFFF_FFFFL, "u32 literal out of range: %s", value);
+        return new Expression(NativeExpression.literalU32((int) value, false));
+    }
+
+    /**
+     * Create an unsigned 64-bit integer literal from its bit pattern, so values above {@link Long#MAX_VALUE} are passed
+     * as negative longs (for example via {@link Long#parseUnsignedLong(String)}).
+     */
+    public static Expression literalU64(long bits) {
+        return new Expression(NativeExpression.literalU64(bits, false));
+    }
+
+    /** Create an unsigned 64-bit integer literal. {@code value} must be in {@code [0, 2^64 - 1]}. */
+    public static Expression literalU64(BigInteger value) {
+        Preconditions.checkArgument(value != null, "use nullLiteral(DType.U64) for a null u64 literal");
+        Preconditions.checkArgument(
+                value.signum() >= 0 && value.bitLength() <= Long.SIZE, "u64 literal out of range: %s", value);
+        return literalU64(value.longValue());
+    }
+
+    /** Create a half-precision float literal, rounding {@code value} to the nearest representable half. */
+    public static Expression literalF16(float value) {
+        return new Expression(NativeExpression.literalF16(value, false));
     }
 
     public static Expression literal(float value) {
@@ -239,6 +292,34 @@ public final class Expression {
     }
 
     /**
+     * Create a Time (time-of-day) literal. The {@code value} is the number of {@code unit} units since midnight.
+     *
+     * @param unit any unit except {@link TimeUnit#DAYS}. {@link TimeUnit#SECONDS} and {@link TimeUnit#MILLISECONDS}
+     *     values must fit in an {@code int}.
+     */
+    public static Expression literalTime(long value, TimeUnit unit) {
+        return new Expression(NativeExpression.literalTime(value, unit.tag(), false));
+    }
+
+    /** Null Time literal. See {@link #literalTime(long, TimeUnit)} for the {@code unit} constraints. */
+    public static Expression nullLiteralTime(TimeUnit unit) {
+        return new Expression(NativeExpression.literalTime(0L, unit.tag(), true));
+    }
+
+    /**
+     * Create a geometry literal from its OGC Well-Known Binary (WKB) encoding, for use with Vortex's spatial functions
+     * and predicate pushdown over geometry columns.
+     *
+     * <p>The value is decoded into the native Vortex geometry type matching its kind: Point, LineString, Polygon,
+     * MultiPoint, MultiLineString or MultiPolygon, in XY with no coordinate reference system. Geometry collections and
+     * malformed WKB are rejected.
+     */
+    public static Expression literalGeometry(byte[] wkb) {
+        Preconditions.checkArgument(wkb != null, "geometry literal WKB must not be null");
+        return new Expression(NativeExpression.literalGeometry(wkb));
+    }
+
+    /**
      * Create a UUID literal, enabling predicate pushdown over UUID columns. The value is stored as its 16-byte
      * big-endian (network order) representation, matching Vortex's UUID extension type and Arrow's canonical UUID type.
      */
@@ -281,6 +362,89 @@ public final class Expression {
         return new Expression(NativeExpression.literalNull(dtype.tag()));
     }
 
+    /**
+     * Create a list literal.
+     *
+     * <p>Composite literals are assembled from other literal expressions. The element dtype is the dtype of the
+     * {@code elementType} literal (typically a typed null such as {@code nullLiteral(DType.I32)}) with nullability
+     * {@code elementsNullable}, and every element, which must itself be a literal, is cast to it.
+     */
+    public static Expression literalList(Expression elementType, boolean elementsNullable, Expression... elements) {
+        return new Expression(NativeExpression.literalList(
+                nativePointers(elements), elementType.nativePointer(), elementsNullable, false));
+    }
+
+    /** Null list literal. See {@link #literalList(Expression, boolean, Expression...)} for the element dtype. */
+    public static Expression nullLiteralList(Expression elementType, boolean elementsNullable) {
+        return new Expression(
+                NativeExpression.literalList(new long[0], elementType.nativePointer(), elementsNullable, true));
+    }
+
+    /**
+     * Create a fixed-size list literal whose size is the number of {@code elements}. The element dtype follows
+     * {@link #literalList(Expression, boolean, Expression...)}.
+     */
+    public static Expression literalFixedSizeList(
+            Expression elementType, boolean elementsNullable, Expression... elements) {
+        return new Expression(NativeExpression.literalFixedSizeList(
+                nativePointers(elements), elementType.nativePointer(), elementsNullable, elements.length, false));
+    }
+
+    /** Null fixed-size list literal of {@code size} elements. */
+    public static Expression nullLiteralFixedSizeList(Expression elementType, boolean elementsNullable, int size) {
+        Preconditions.checkArgument(size >= 0, "fixed-size list size must not be negative: %s", size);
+        return new Expression(NativeExpression.literalFixedSizeList(
+                new long[0], elementType.nativePointer(), elementsNullable, size, true));
+    }
+
+    /** Create a struct literal. Each field must be a literal expression; its dtype becomes the field's dtype. */
+    public static Expression literalStruct(String[] fieldNames, Expression[] fields) {
+        Preconditions.checkArgument(
+                fieldNames.length == fields.length,
+                "struct literal has %s field names but %s fields",
+                fieldNames.length,
+                fields.length);
+        return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fields), false));
+    }
+
+    /**
+     * Create a null struct literal. {@code fieldTypes} are literals (typically typed nulls) whose dtypes become the
+     * struct's field dtypes.
+     */
+    public static Expression nullLiteralStruct(String[] fieldNames, Expression[] fieldTypes) {
+        Preconditions.checkArgument(
+                fieldNames.length == fieldTypes.length,
+                "struct literal has %s field names but %s field types",
+                fieldNames.length,
+                fieldTypes.length);
+        return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fieldTypes), true));
+    }
+
+    /**
+     * Create a map literal from parallel arrays of literal keys and values.
+     *
+     * <p>Keys are cast to the non-nullable dtype of the {@code keyType} literal, and values to the dtype of the
+     * {@code valueType} literal with nullability {@code valuesNullable}. Keys are not asserted to be sorted.
+     */
+    public static Expression literalMap(
+            Expression keyType, Expression valueType, boolean valuesNullable, Expression[] keys, Expression[] values) {
+        Preconditions.checkArgument(
+                keys.length == values.length, "map literal has %s keys but %s values", keys.length, values.length);
+        return new Expression(NativeExpression.literalMap(
+                nativePointers(keys),
+                nativePointers(values),
+                keyType.nativePointer(),
+                valueType.nativePointer(),
+                valuesNullable,
+                false));
+    }
+
+    /** Null map literal. See {@link #literalMap} for how the key and value dtypes are derived. */
+    public static Expression nullLiteralMap(Expression keyType, Expression valueType, boolean valuesNullable) {
+        return new Expression(NativeExpression.literalMap(
+                new long[0], new long[0], keyType.nativePointer(), valueType.nativePointer(), valuesNullable, true));
+    }
+
     private static long[] nativePointers(Expression[] exprs) {
         return Arrays.stream(exprs).mapToLong(Expression::nativePointer).toArray();
     }
@@ -311,6 +475,44 @@ public final class Expression {
         }
     }
 
+    /** Spatial functions over native geometries; codes must match the Rust {@code spatial} table. */
+    public enum SpatialFunction {
+        /** Planar area of each geometry; zero for points and line strings. */
+        AREA((byte) 0, 1),
+        /** Collect each list of homogeneous geometries into the matching multi-geometry. */
+        COLLECT((byte) 1, 1),
+        /** Whether the second geometry lies completely inside the first. */
+        CONTAINS((byte) 2, 2),
+        /** Convex hull of each multipoint, as a polygon. */
+        CONVEX_HULL((byte) 3, 1),
+        /** Planar (Euclidean) distance between two geometries. */
+        DISTANCE((byte) 4, 2),
+        /** Axis-aligned bounding box of each geometry. */
+        ENVELOPE((byte) 5, 1),
+        /** Whether two geometries intersect; boundary contact counts. */
+        INTERSECTS((byte) 6, 2),
+        /** Planar length of each lineal geometry. */
+        LENGTH((byte) 7, 1),
+        /** Line string from two points. */
+        MAKE_LINE((byte) 8, 2);
+
+        private final byte code;
+        private final int arity;
+
+        SpatialFunction(byte code, int arity) {
+            this.code = code;
+            this.arity = arity;
+        }
+
+        public byte code() {
+            return code;
+        }
+
+        public int arity() {
+            return arity;
+        }
+    }
+
     /**
      * Strategy for resolving duplicate field names in {@link #merge(DuplicateHandling, Expression...)}. Tag values must
      * match the Rust {@code parse_duplicate_handling} table.
@@ -332,7 +534,7 @@ public final class Expression {
         }
     }
 
-    /** Time units for Date/Timestamp literals. Tag values must match the Rust {@code parse_time_unit} table. */
+    /** Time units for Date/Time/Timestamp literals. Tag values must match the Rust {@code parse_time_unit} table. */
     public enum TimeUnit {
         NANOSECONDS((byte) 0),
         MICROSECONDS((byte) 1),
@@ -361,7 +563,12 @@ public final class Expression {
         F32((byte) 5),
         F64((byte) 6),
         UTF8((byte) 7),
-        BINARY((byte) 8);
+        BINARY((byte) 8),
+        U8((byte) 9),
+        U16((byte) 10),
+        U32((byte) 11),
+        U64((byte) 12),
+        F16((byte) 13);
 
         private final byte tag;
 
