@@ -19,7 +19,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
@@ -48,9 +47,9 @@ pub(super) struct PruningState {
     aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
-    pruning_result: LazyLock<DashMap<ExactBoundExpr, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<DashMap<BoundExpression, Option<SharedPruningResult>>>,
     zone_map: OnceLock<SharedZoneMap>,
-    pruning_predicates: LazyLock<Arc<DashMap<ExactBoundExpr, PredicateCache>>>,
+    pruning_predicates: LazyLock<Arc<DashMap<BoundExpression, PredicateCache>>>,
 }
 
 impl PruningState {
@@ -79,14 +78,12 @@ impl PruningState {
     }
 
     pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        let key = ExactBoundExpr(expr.clone());
-
-        if let Some(result) = self.pruning_result.get(&key) {
+        if let Some(result) = self.pruning_result.get(&expr) {
             return result.value().clone();
         }
 
         self.pruning_result
-            .entry(key)
+            .entry(expr.clone())
             .or_insert_with(|| {
                 let dynamic_updates = DynamicExprUpdates::new(&expr);
                 match self.pruning_predicate(expr.clone()) {
@@ -127,10 +124,8 @@ impl PruningState {
     }
 
     fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
-        let key = ExactBoundExpr(expr.clone());
-
         self.pruning_predicates
-            .entry(key)
+            .entry(expr.clone())
             .or_default()
             .get_or_init(move || match expr.falsify(&self.session) {
                 Ok(predicate) => predicate,
