@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
@@ -17,6 +18,7 @@ use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -33,11 +35,12 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
-use crate::plan::exec::ExecContext;
-use crate::plan::exec::ExecNode;
-use crate::plan::exec::RowIdxNode;
-use crate::plan::exec::Selection;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::OnceSource;
 use crate::plan::plans::pack::rewrite_partition_root;
+use crate::segments::SegmentId;
 
 const ROW_IDX_PARTITION_NAME: &str = "row_idx";
 const CHILD_PARTITION_NAME: &str = "child";
@@ -93,16 +96,34 @@ impl PlanVTable for RowIdx {
         check_child_count("RowIdx", children, 0)
     }
 
-    fn exec(
-        _plan: &Plan<Self>,
+    fn compile(
+        plan: &Plan<Self>,
         rows: Range<u64>,
-        mask: Mask,
-        ctx: &ExecContext,
-    ) -> VortexResult<Box<dyn ExecNode>> {
-        Ok(Box::new(RowIdxNode::new(
-            Selection::try_new(rows, mask)?,
-            ctx.row_offset(),
-        )))
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let _ = plan;
+        if mask.all_false() {
+            return Ok(None);
+        }
+        let offset = compiler.row_offset();
+        let indices = Buffer::from_iter(rows.start + offset..rows.end + offset).into_array();
+        let indices = if mask.all_true() {
+            indices
+        } else {
+            indices.filter(mask.clone())?
+        };
+        Ok(Some(Chain::new(OnceSource::new(indices))))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        let _ = (plan, rows, at, visit);
+        Ok(())
     }
 }
 
