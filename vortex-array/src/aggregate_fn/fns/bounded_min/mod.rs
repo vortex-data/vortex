@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::num::NonZeroUsize;
@@ -27,7 +28,6 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::dtype::DType;
-use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarTruncation;
 use crate::scalar::lower_bound;
@@ -51,7 +51,21 @@ pub struct BoundedMin;
 
 enum BoundedMinState {
     Empty,
-    Value(Scalar),
+    /// The true minimum: it fit within the byte bound, so it was never truncated.
+    Exact(Scalar),
+    /// A lower bound of the true minimum, either because the minimum was truncated or because
+    /// it was combined from a serialized partial, which doesn't record exactness.
+    Inexact(Scalar),
+}
+
+impl BoundedMinState {
+    fn bound(bound: Scalar, exact: bool) -> Self {
+        if exact {
+            Self::Exact(bound)
+        } else {
+            Self::Inexact(bound)
+        }
+    }
 }
 
 /// Partial accumulator state for the bounded minimum aggregate.
@@ -60,16 +74,31 @@ pub struct BoundedMinPartial {
 }
 
 impl BoundedMinPartial {
-    fn merge(&mut self, min: Scalar) {
-        if min.is_null() {
+    fn merge(&mut self, bound: Scalar, exact: bool) {
+        if bound.is_null() {
             return;
         }
 
-        self.state = match std::mem::replace(&mut self.state, BoundedMinState::Empty) {
-            BoundedMinState::Empty => BoundedMinState::Value(min),
-            BoundedMinState::Value(current) => BoundedMinState::Value(
-                partial_min(min, current).vortex_expect("incomparable bounded min scalars"),
-            ),
+        let (current, current_exact) =
+            match std::mem::replace(&mut self.state, BoundedMinState::Empty) {
+                BoundedMinState::Empty => {
+                    self.state = BoundedMinState::bound(bound, exact);
+                    return;
+                }
+                BoundedMinState::Exact(current) => (current, true),
+                BoundedMinState::Inexact(current) => (current, false),
+            };
+
+        // The smaller bound wins. It is the true minimum iff it was not truncated: every other
+        // value is at least its own bound, which is above the winner. On a tie, either side being
+        // exact means the true minimum reaches the bound.
+        self.state = match bound
+            .partial_cmp(&current)
+            .vortex_expect("incomparable bounded min scalars")
+        {
+            Ordering::Less => BoundedMinState::bound(bound, exact),
+            Ordering::Greater => BoundedMinState::bound(current, current_exact),
+            Ordering::Equal => BoundedMinState::bound(current, exact || current_exact),
         };
     }
 }
@@ -137,6 +166,27 @@ impl AggregateFnVTable for BoundedMin {
         }
     }
 
+    fn partial_can_satisfy(
+        &self,
+        options: &Self::Options,
+        partial: &Self::Partial,
+        requested: &AggregateFnRef,
+    ) -> AggregateFnSatisfaction {
+        let satisfaction = self.can_satisfy(options, requested);
+        let untruncated = matches!(
+            partial.state,
+            BoundedMinState::Empty | BoundedMinState::Exact(_)
+        );
+        if satisfaction == AggregateFnSatisfaction::Approximate
+            && untruncated
+            && requested.is::<Min>()
+        {
+            AggregateFnSatisfaction::Exact
+        } else {
+            satisfaction
+        }
+    }
+
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         self.return_dtype(options, input_dtype)
     }
@@ -155,11 +205,12 @@ impl AggregateFnVTable for BoundedMin {
         _args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
-        // A null partial means the producing accumulator saw nothing valid.
+        // A null partial means the producing accumulator saw nothing valid. Serialized partials
+        // don't record exactness.
         let state = if scalar.is_null() {
             BoundedMinState::Empty
         } else {
-            BoundedMinState::Value(scalar.clone())
+            BoundedMinState::Inexact(scalar.clone())
         };
         Ok(BoundedMinPartial { state })
     }
@@ -170,8 +221,10 @@ impl AggregateFnVTable for BoundedMin {
         mut first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        if let BoundedMinState::Value(min) = second.state {
-            first.merge(min);
+        match second.state {
+            BoundedMinState::Empty => {}
+            BoundedMinState::Exact(bound) => first.merge(bound, true),
+            BoundedMinState::Inexact(bound) => first.merge(bound, false),
         }
         Ok(first)
     }
@@ -184,7 +237,7 @@ impl AggregateFnVTable for BoundedMin {
         let dtype = args.dtype.as_nullable();
         match &partial.state {
             BoundedMinState::Empty => Ok(Scalar::null(dtype)),
-            BoundedMinState::Value(min) => min.cast(&dtype),
+            BoundedMinState::Exact(bound) | BoundedMinState::Inexact(bound) => bound.cast(&dtype),
         }
     }
 
@@ -208,8 +261,8 @@ impl AggregateFnVTable for BoundedMin {
         let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
             return Ok(());
         };
-        if let Some(bound) = truncate_min(result.min, args.options.max_bytes.get())? {
-            partial.merge(bound);
+        if let Some((bound, truncated)) = truncate_min(result.min, args.options.max_bytes.get())? {
+            partial.merge(bound, !truncated);
         }
         Ok(())
     }
@@ -237,22 +290,21 @@ fn supported_dtype<'a>(_options: &BoundedMinOptions, input_dtype: &'a DType) -> 
         .map(|_| input_dtype)
 }
 
-fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
+/// Returns the lower bound and whether it was truncated.
+fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<(Scalar, bool)>> {
     let nullability = value.dtype().nullability();
     match value.dtype() {
-        DType::Utf8(_) => {
-            Ok(
-                lower_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        DType::Binary(_) => {
-            Ok(
-                lower_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        _ => Ok(Some(value)),
+        DType::Utf8(_) => Ok(lower_bound(
+            BufferString::from_scalar(value)?,
+            max_bytes,
+            nullability,
+        )),
+        DType::Binary(_) => Ok(lower_bound(
+            ByteBuffer::from_scalar(value)?,
+            max_bytes,
+            nullability,
+        )),
+        _ => Ok(Some((value, false))),
     }
 }
 #[cfg(test)]
@@ -416,6 +468,69 @@ mod tests {
         let roundtrip = BoundedMin.deserialize(&metadata, &VortexSession::empty())?;
 
         assert_eq!(roundtrip, options);
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_min_exactly_satisfies_min_only_when_untruncated() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let requested = Min.bind(NumericalAggregateOpts::skip_nans());
+        let new_acc = || {
+            Accumulator::try_new(
+                BoundedMin,
+                BoundedMinOptions {
+                    max_bytes: max_bytes(4),
+                },
+                VarBinViewArray::from_iter_str(["x"]).dtype().clone(),
+            )
+        };
+
+        // Every value fits the bound, so the bound is the true extremum.
+        let mut acc = new_acc()?;
+        acc.accumulate(
+            &VarBinViewArray::from_iter_str(["c", "dde"]).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(acc.can_satisfy(&requested), AggregateFnSatisfaction::Exact);
+
+        // A truncated value that isn't the extremum doesn't affect exactness.
+        acc.accumulate(
+            &VarBinViewArray::from_iter_str(["ddddd"]).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(acc.can_satisfy(&requested), AggregateFnSatisfaction::Exact);
+
+        // A truncated extremum makes the bound approximate.
+        acc.accumulate(
+            &VarBinViewArray::from_iter_str(["aaaaa"]).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(
+            acc.can_satisfy(&requested),
+            AggregateFnSatisfaction::Approximate
+        );
+
+        // Exactness isn't serialized, so a winning partial combined from its scalar form is
+        // approximate even though it was exact where it was computed.
+        let mut source = new_acc()?;
+        source.accumulate(
+            &VarBinViewArray::from_iter_str(["a"]).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(
+            source.can_satisfy(&requested),
+            AggregateFnSatisfaction::Exact
+        );
+        let mut acc = new_acc()?;
+        acc.accumulate(
+            &VarBinViewArray::from_iter_str(["c"]).into_array(),
+            &mut ctx,
+        )?;
+        acc.combine_partials(&source.partial_scalar()?)?;
+        assert_eq!(
+            acc.can_satisfy(&requested),
+            AggregateFnSatisfaction::Approximate
+        );
         Ok(())
     }
 }

@@ -54,11 +54,63 @@ table PostscriptSegment {
 // [postscript]
 
 // [footer]
+/// An aggregate function and its options, as recorded in the file statistics.
+///
+/// Specs are dictionary-encoded: each distinct (id, options) pair is stored once and referenced
+/// by index from `AggregateSet.specs`.
+table AggregateSpec {
+    /// The aggregate function's globally unique ID, looked up in the session's aggregate registry
+    /// at read time.
+    id: string (required);
+    /// The aggregate function's serialized options. Absent when the options serialize to nothing.
+    options: [ubyte];
+}
+
+/// An ordered list of aggregates recorded together for one or more file statistics entries.
+///
+/// Most columns of the same kind record the same aggregates, so a file typically has only a
+/// handful of distinct sets regardless of how many columns it has.
+table AggregateSet {
+    /// Indices into `FileStatistics.aggregate_specs`, in the order their partial states appear in
+    /// `FileStatistics.partials`. May be empty for an entry that records nothing.
+    specs: [uint16] (required);
+}
+
 /// The `FileStatistics` object contains file-level statistics for the Vortex file.
 table FileStatistics {
-    /// Statistics for each field in the root schema. If the root schema is not a struct, there will
-    /// be a single entry in this array.
+    /// Statistics for each top-level field in the root schema, in schema order. If the root schema
+    /// is not a struct, there will be a single entry in this array. Does not recurse into nested
+    /// struct fields.
+    ///
+    /// Kept in this legacy shape for readers that predate the aggregate-based statistics below,
+    /// which strictly validate this array's length against the number of top-level struct fields.
+    /// Independent of the fields below: neither refers to the other.
     field_stats: [ArrayStats];
+    /// Dictionary of the (aggregate ID, options) pairs used by this file, up to u16::MAX.
+    aggregate_specs: [AggregateSpec];
+    /// Dictionary of the distinct aggregate lists used by entries, up to u16::MAX.
+    aggregate_sets: [AggregateSet];
+    /// One element per file statistics entry, in post-order of the root `DType`: each leaf field
+    /// gets an entry, and each nullable struct additionally gets a trailing entry for its own null
+    /// count, after its children's entries. Each element is an index into `aggregate_sets`.
+    ///
+    /// The entry paths and dtypes are not stored; readers derive them from the root `DType` with
+    /// the same post-order walk.
+    ///
+    /// Absent for files written before aggregate-based statistics, whose readers fall back to
+    /// `field_stats`.
+    entry_sets: [uint16];
+    /// The partial states of every entry's aggregates, concatenated. For each entry in
+    /// `entry_sets` order, and for each spec in that entry's set in order:
+    ///
+    ///   - an unsigned LEB128 varint byte length `n`, then
+    ///   - `n` bytes of a protobuf-serialized `vortex.scalar.ScalarValue`, typed by the
+    ///     aggregate's partial dtype for the entry's dtype. A null value means no value was
+    ///     accumulated.
+    ///
+    /// Readers skip the partial of an aggregate they don't recognize using its length prefix, so
+    /// unknown aggregates never desynchronize the stream.
+    partials: [ubyte];
 }
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,
