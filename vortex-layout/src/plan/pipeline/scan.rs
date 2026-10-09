@@ -26,7 +26,6 @@ use super::Cx;
 use super::Input;
 use super::Operator;
 use super::Source;
-use super::Spawn;
 use super::Step;
 use super::compile::Chain;
 use super::compile::Shares;
@@ -97,7 +96,6 @@ pub(crate) struct Pipeline {
     inlets: Vec<PortId>,
     outlets: SmallVec<[PortId; 1]>,
     bytes: Option<BufferHandle>,
-    spawns: Vec<Spawn>,
     /// The inlets the last run read.
     touched: SmallVec<[usize; 4]>,
     state: State,
@@ -129,7 +127,6 @@ fn drive(
         inlets,
         outlets,
         bytes,
-        spawns,
         touched,
         ..
     } = pipe;
@@ -139,7 +136,6 @@ fn drive(
         bytes,
         session,
         exec,
-        spawns,
         touched,
     };
     loop {
@@ -283,7 +279,6 @@ impl Core {
             inlets: chain.inlets,
             outlets,
             bytes: None,
-            spawns: Vec::new(),
             touched: SmallVec::new(),
             state: State::Runnable,
             queued: true,
@@ -355,11 +350,6 @@ impl Core {
             .ok_or_else(|| vortex_err!("Pipeline {id} is not live"))?;
         pipe.queued = false;
         let progress = drive(pipe, &mut self.arena, &self.session, &mut self.exec)?;
-        if !pipe.spawns.is_empty() {
-            for spawn in std::mem::take(&mut pipe.spawns) {
-                self.spawn_inlet(id, spawn)?;
-            }
-        }
         match progress {
             Progress::Read(segment_id) => {
                 let read = ReadId(self.next_read);
@@ -380,21 +370,6 @@ impl Core {
         self.wake_neighbours(id);
         if matches!(progress, Progress::Done) {
             self.retire(id);
-        }
-        Ok(())
-    }
-
-    /// Compiles what a source asked for into a new inlet of it.
-    fn spawn_inlet(&mut self, id: PipelineId, spawn: Spawn) -> VortexResult<()> {
-        let index = self.pipeline(id).inlets.len();
-        let capacity = self.pipeline(id).source.capacity(index);
-        let port = self.arena.create(capacity, None, Reader::Pipeline(id));
-        self.pipeline_mut(id).inlets.push(port);
-        match self.compile(&spawn.plan, spawn.rows, &spawn.mask)? {
-            Some(chain) => {
-                self.add_pipeline(chain, smallvec::smallvec![port]);
-            }
-            None => self.arena.close(port),
         }
         Ok(())
     }

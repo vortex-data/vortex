@@ -5,7 +5,9 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
+use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
@@ -24,6 +26,7 @@ use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
 use crate::plan::pipeline::ops::ListPackSource;
+use crate::plan::pipeline::ops::OnceSource;
 use crate::segments::SegmentId;
 
 const ELEMENTS: usize = 0;
@@ -146,6 +149,20 @@ impl PlanVTable for ListPack {
         let mask = mask.slice(first..last + 1);
         let len = mask.len();
         let validity = plan.validity()?;
+        let elements = plan.elements()?;
+        let elements_len = elements.row_count();
+        // The elements are read whole, as the plan says: which of them the lists read is known
+        // only from the offsets, and the source slices them once both have arrived.
+        let elements = match compiler.compile(
+            &elements,
+            0..elements_len,
+            &Mask::new_true(usize::try_from(elements_len)?),
+        )? {
+            Some(chain) => chain,
+            None => Chain::new(OnceSource::new(
+                Canonical::empty(elements.dtype()).into_array(),
+            )),
+        };
         let mut chains = vec![
             compiler
                 .compile(
@@ -154,6 +171,7 @@ impl PlanVTable for ListPack {
                     &Mask::new_true(len + 1),
                 )?
                 .ok_or_else(|| vortex_err!("List offsets produced no rows"))?,
+            elements,
         ];
         if let Some(validity) = &validity {
             chains.push(
@@ -172,10 +190,14 @@ impl PlanVTable for ListPack {
         at: &Reach,
         visit: &mut dyn FnMut(SegmentId, Range<u64>),
     ) -> VortexResult<()> {
-        // The elements' range is known only once the offsets are read, so a list's segments
-        // are read by the list alone.
-        let _ = (plan, rows, at, visit);
-        Ok(())
+        // The offsets of the lists read, one past them, and the elements whole for every list.
+        plan.offsets()?.reach(rows.start..rows.end + 1, at, visit)?;
+        if let Some(validity) = plan.validity()? {
+            validity.reach(rows.clone(), at, visit)?;
+        }
+        let elements = plan.elements()?;
+        let len = elements.row_count();
+        elements.reach(0..len, &at.fixed(&rows), visit)
     }
 }
 
