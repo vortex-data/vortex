@@ -103,6 +103,12 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
       COLUMNS: 120
+      # datafusion-bench and duckdb-bench cache Vortex segments of local data in memory across a
+      # query's runs. The cache is cleared before each query's first run, so the cold run reads from
+      # storage and the hot runs read from the cache. Remote (S3) data is always read from storage.
+      # Every mode sets it so PR runs stay comparable to the develop baseline they are compared
+      # against.
+      VORTEX_BENCH_SEGMENT_CACHE_MB: "32768"
     strategy:
       fail-fast: false
       matrix:

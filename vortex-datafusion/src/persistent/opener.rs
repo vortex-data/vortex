@@ -44,11 +44,13 @@ use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::multi::MultiFileSession;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -199,6 +201,13 @@ impl FileOpener for VortexOpener {
                 .with_file_size(file.object_meta.size)
                 .with_metrics_registry(Arc::clone(&metrics_registry))
                 .with_labels(labels);
+
+            if let Some(segment_cache) = session
+                .get_opt::<MultiFileSession>()
+                .and_then(|multi_file| multi_file.segment_cache(file.path().as_ref()))
+            {
+                open_opts = open_opts.with_segment_cache(segment_cache);
+            }
 
             let cached_footer = file_metadata_cache
                 .as_ref()

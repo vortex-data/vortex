@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
+use futures::future;
 use moka::future::Cache;
 use moka::future::CacheBuilder;
 use moka::policy::EvictionPolicy;
@@ -261,11 +262,23 @@ impl SegmentCacheSourceAdapter {
 
 impl SegmentSource for SegmentCacheSourceAdapter {
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        // In-memory caches answer immediately. Resolve those hits without registering a request
+        // with the source, which would otherwise be registered here and cancelled on drop.
+        let answered = match self.cache.get(id).now_or_never() {
+            Some(Ok(Some(segment))) => {
+                tracing::debug!("Resolved segment {} from cache", id);
+                return future::ready(Ok(BufferHandle::new_host(segment))).boxed();
+            }
+            Some(_) => true,
+            None => false,
+        };
+
         let cache = Arc::clone(&self.cache);
         let delegate = self.source.request(id);
 
         async move {
-            if let Ok(Some(segment)) = cache.get(id).await {
+            // Only consult the cache again if it could not answer synchronously above.
+            if !answered && let Ok(Some(segment)) = cache.get(id).await {
                 tracing::debug!("Resolved segment {} from cache", id);
                 return Ok(BufferHandle::new_host(segment));
             }
