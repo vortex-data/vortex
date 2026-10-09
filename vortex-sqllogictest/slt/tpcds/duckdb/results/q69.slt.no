@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTIIITI
+SELECT cd_gender,
+       cd_marital_status,
+       cd_education_status,
+       count(*) cnt1,
+       cd_purchase_estimate,
+       count(*) cnt2,
+       cd_credit_rating,
+       count(*) cnt3
+FROM customer c,
+     customer_address ca,
+     customer_demographics
+WHERE c.c_current_addr_sk = ca.ca_address_sk
+  AND ca_state IN ('KY',
+                   'GA',
+                   'NM')
+  AND cd_demo_sk = c.c_current_cdemo_sk
+  AND EXISTS
+    (SELECT *
+     FROM store_sales,
+          date_dim
+     WHERE c.c_customer_sk = ss_customer_sk
+       AND ss_sold_date_sk = d_date_sk
+       AND d_year = 2001
+       AND d_moy BETWEEN 4 AND 4+2)
+  AND (NOT EXISTS
+         (SELECT *
+          FROM web_sales,
+               date_dim
+          WHERE c.c_customer_sk = ws_bill_customer_sk
+            AND ws_sold_date_sk = d_date_sk
+            AND d_year = 2001
+            AND d_moy BETWEEN 4 AND 4+2)
+       AND NOT EXISTS
+         (SELECT *
+          FROM catalog_sales,
+               date_dim
+          WHERE c.c_customer_sk = cs_ship_customer_sk
+            AND cs_sold_date_sk = d_date_sk
+            AND d_year = 2001
+            AND d_moy BETWEEN 4 AND 4+2))
+GROUP BY cd_gender,
+         cd_marital_status,
+         cd_education_status,
+         cd_purchase_estimate,
+         cd_credit_rating
+ORDER BY cd_gender,
+         cd_marital_status,
+         cd_education_status,
+         cd_purchase_estimate,
+         cd_credit_rating
+LIMIT 100;
+----
+F D 4 yr Degree 1 6500 1 High Risk 1
+F D Advanced Degree 1 500 1 High Risk 1
+F D Unknown 1 6000 1 High Risk 1
+F M 2 yr Degree 1 2000 1 High Risk 1
+F M Advanced Degree 1 500 1 Low Risk 1
+F M Advanced Degree 1 5500 1 High Risk 1
+F M Advanced Degree 1 10000 1 Good 1
+F M College 1 1500 1 Low Risk 1
+F M Unknown 1 9500 1 Low Risk 1
+F S 2 yr Degree 1 1000 1 High Risk 1
+F S Advanced Degree 1 9500 1 Unknown 1
+F S College 1 5500 1 Unknown 1
+F S College 1 9500 1 Low Risk 1
+F S Secondary 1 8500 1 Good 1
+F S Unknown 1 2000 1 Good 1
+F S Unknown 1 6500 1 Unknown 1
+F U 2 yr Degree 1 3000 1 Low Risk 1
+F U 2 yr Degree 1 10000 1 Good 1
+F U Primary 1 5000 1 Good 1
+F U Unknown 1 8000 1 High Risk 1
+F W 2 yr Degree 1 6500 1 Low Risk 1
+F W 4 yr Degree 1 500 1 Unknown 1
+F W 4 yr Degree 1 4000 1 Unknown 1
+F W Advanced Degree 1 5000 1 Good 1
+F W College 1 9000 1 High Risk 1
+F W Secondary 1 3000 1 Good 1
+F W Secondary 1 7000 1 Unknown 1
+M D 2 yr Degree 1 2500 1 Low Risk 1
+M D 2 yr Degree 1 5500 1 Good 1
+M D Advanced Degree 1 4000 1 Good 1
+M D Advanced Degree 1 5500 1 Good 1
+M D College 1 1500 1 Low Risk 1
+M D College 1 3000 1 High Risk 1
+M D Primary 1 4000 1 Unknown 1
+M D Primary 1 6000 1 Low Risk 1
+M D Primary 1 8500 1 High Risk 1
+M D Secondary 2 10000 2 High Risk 2
+M D Unknown 1 3500 1 High Risk 1
+M M 2 yr Degree 1 8000 1 High Risk 1
+M M 2 yr Degree 1 9500 1 High Risk 1
+M M 2 yr Degree 1 10000 1 High Risk 1
+M M 4 yr Degree 1 7500 1 Unknown 1
+M M College 1 3000 1 Low Risk 1
+M S 2 yr Degree 1 2000 1 Low Risk 1
+M S 2 yr Degree 1 4500 1 Unknown 1
+M S 2 yr Degree 1 9500 1 High Risk 1
+M S 2 yr Degree 1 10000 1 High Risk 1
+M S 4 yr Degree 1 4500 1 Good 1
+M S 4 yr Degree 1 5000 1 Unknown 1
+M S College 1 5000 1 Low Risk 1
+M S College 1 8500 1 Low Risk 1
+M S College 1 10000 1 Good 1
+M S Primary 1 500 1 High Risk 1
+M S Primary 1 3000 1 High Risk 1
+M S Primary 1 5500 1 Low Risk 1
+M S Secondary 1 500 1 Low Risk 1
+M S Secondary 1 500 1 Unknown 1
+M S Secondary 1 5000 1 Unknown 1
+M S Secondary 1 7000 1 Low Risk 1
+M S Unknown 1 5500 1 Good 1
+M S Unknown 1 8000 1 Good 1
+M S Unknown 1 8500 1 Good 1
+M U 2 yr Degree 1 1000 1 Good 1
+M U 4 yr Degree 1 1500 1 Unknown 1
+M U 4 yr Degree 1 3000 1 Unknown 1
+M U College 1 3500 1 High Risk 1
+M U College 1 7500 1 Good 1
+M U Primary 1 9500 1 Unknown 1
+M U Unknown 1 8000 1 Unknown 1
+M W Primary 1 6000 1 Good 1
+M W Unknown 1 6000 1 High Risk 1

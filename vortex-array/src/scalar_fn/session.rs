@@ -31,6 +31,7 @@ use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
@@ -83,6 +84,7 @@ impl Default for ScalarFnSession {
         this.register(Merge);
         this.register(Not);
         this.register(Pack);
+        this.register(ReplaceTimeZone);
         this.register(Select);
         this.register(StatFn);
         this.register(VariantGet);

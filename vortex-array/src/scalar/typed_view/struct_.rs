@@ -285,7 +285,7 @@ impl Scalar {
         };
 
         let children: Vec<Scalar> = children.into_iter().collect();
-        let field_dtypes = struct_fields.fields();
+        let field_dtypes = struct_fields.field_dtypes();
         if children.len() != field_dtypes.len() {
             vortex_panic!(
                 "Struct has {} fields but {} children were provided",
@@ -295,7 +295,7 @@ impl Scalar {
         }
 
         for (idx, (child, expected_dtype)) in children.iter().zip(field_dtypes).enumerate() {
-            if child.dtype() != &expected_dtype {
+            if child.dtype() != expected_dtype {
                 vortex_panic!(
                     "Field {} expected dtype {} but got {}",
                     idx,
@@ -306,8 +306,9 @@ impl Scalar {
         }
 
         let value_children: Vec<_> = children.into_iter().map(|x| x.into_value()).collect();
-        Self::try_new(dtype, Some(ScalarValue::Tuple(value_children)))
-            .vortex_expect("unable to construct a struct `Scalar`")
+
+        // SAFETY: Each child is a valid `Scalar` whose dtype equals its field dtype.
+        unsafe { Self::new_unchecked(dtype, Some(ScalarValue::Tuple(value_children))) }
     }
 
     /// Creates a new struct scalar from an iterator of field scalars, skipping dtype checks.

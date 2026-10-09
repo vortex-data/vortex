@@ -54,7 +54,7 @@ pub trait FoRArrayExt: FoRArraySlotsExt {
 
     #[inline]
     fn ptype(&self) -> PType {
-        self.as_ref().dtype().as_ptype()
+        self.dtype().as_ptype()
     }
 }
 

@@ -137,6 +137,7 @@ mod tests {
     use vortex_error::vortex_err;
 
     use crate::dtype::DType;
+    use crate::dtype::FieldName;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
@@ -147,8 +148,12 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::lt_eq;
+    use crate::expr::merge;
     use crate::expr::or;
+    use crate::expr::pack;
     use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::transform::replace;
     use crate::expr::zip_expr;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
@@ -229,6 +234,92 @@ mod tests {
         let original = expr.bind(&scope)?;
         let optimized = expr.bind(&scope)?.optimize_recursive()?;
         assert_eq!(optimized.dtype(), original.dtype());
+
+        Ok(())
+    }
+
+    /// `Select` over a `pack` rewrites to a `pack` of the selected child fields. It must read
+    /// those fields out of the child `pack` itself, because the optimizer visits children before
+    /// their parent and so never revisits the children a rule introduces.
+    #[test]
+    fn optimize_select_of_pack_reads_pack_fields() -> VortexResult<()> {
+        let field_names = (0..4)
+            .map(|idx| FieldName::from(format!("field_{idx}")))
+            .collect::<Vec<_>>();
+        let fields = StructFields::new(
+            field_names.clone().into(),
+            vec![DType::Primitive(PType::U64, Nullability::NonNullable); field_names.len()],
+        );
+        let scope = DType::Struct(fields, Nullability::NonNullable);
+
+        let expr = select(
+            field_names
+                .iter()
+                .cloned()
+                .chain(["input_row_idx".into(), "input_file_idx".into()])
+                .collect::<Vec<_>>(),
+            merge([
+                root(),
+                pack(
+                    [
+                        ("input_row_idx", lit(0_u64)),
+                        ("input_file_idx", lit(1_u64)),
+                    ],
+                    Nullability::NonNullable,
+                ),
+            ]),
+        );
+        let root_pack = pack(
+            field_names
+                .iter()
+                .map(|name| (name.clone(), get_item(name.clone(), root())))
+                .collect::<Vec<_>>(),
+            Nullability::NonNullable,
+        );
+        let expr = replace(expr, &root(), root_pack);
+
+        let expected = pack(
+            field_names
+                .into_iter()
+                .map(|name| (name.clone(), get_item(name, root())))
+                .chain([
+                    ("input_row_idx".into(), lit(0_u64)),
+                    ("input_file_idx".into(), lit(1_u64)),
+                ])
+                .collect::<Vec<_>>(),
+            Nullability::NonNullable,
+        );
+
+        let expected = expected.bind(&scope)?;
+
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        assert_eq!(optimized, expected, "got {optimized}");
+        assert_eq!(optimized.optimize_recursive()?, expected);
+
+        Ok(())
+    }
+
+    /// `Merge` reduces to a `pack` that reads each field out of its children, so it must also
+    /// read straight out of a `pack` child.
+    #[test]
+    fn optimize_merge_of_packs_reads_pack_fields() -> VortexResult<()> {
+        let scope = DType::Struct(StructFields::empty(), Nullability::NonNullable);
+        let expr = merge([
+            pack([("a", lit(0_u64))], Nullability::NonNullable),
+            pack([("b", lit(1_u64))], Nullability::NonNullable),
+        ]);
+
+        let expected = pack(
+            [("a", lit(0_u64)), ("b", lit(1_u64))],
+            Nullability::NonNullable,
+        );
+
+        let expected = expected.bind(&scope)?;
+
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        assert_eq!(optimized, expected, "got {optimized}");
+        assert_eq!(optimized.optimize_recursive()?, expected);
+
         Ok(())
     }
 }

@@ -302,7 +302,7 @@ impl AggregateFnVTable for IsConstant {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
@@ -838,7 +838,7 @@ mod tests {
 
         let scalar = IsConstant.to_scalar(args, &partial)?;
         assert!(!scalar.is_null());
-        let parsed = IsConstant.partial_from_scalar(args, scalar)?;
+        let parsed = IsConstant.partial_from_scalar(args, &scalar)?;
         assert_eq!(
             IsConstant.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)

@@ -61,14 +61,8 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         array.dtype().clone(),
     )?;
     acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
-
-    // Cache the computed sum as a statistic (only if non-null, i.e. no overflow).
-    if let Some(val) = result.value().cloned() {
-        array.statistics().set(Stat::Sum, Precision::Exact(val));
-    }
-
-    Ok(result)
+    // The accumulator caches the sum on `array` as a statistic.
+    acc.finish()
 }
 
 /// Sum an array, starting from zero.
@@ -152,7 +146,7 @@ impl AggregateFnVTable for Sum {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         vortex_ensure!(
             scalar.dtype().eq_ignore_nullability(args.return_dtype),
@@ -164,7 +158,7 @@ impl AggregateFnVTable for Sum {
         let current = if scalar.is_null() {
             None
         } else {
-            Some(sum_state_from_scalar(&scalar, args.return_dtype)?)
+            Some(sum_state_from_scalar(scalar, args.return_dtype)?)
         };
         Ok(SumPartial { current })
     }
@@ -612,8 +606,8 @@ mod tests {
         let args = owned.args(&options);
 
         let overflowed =
-            Sum.partial_from_scalar(args, Scalar::null(DType::Primitive(PType::I64, Nullable)))?;
-        let five = Sum.partial_from_scalar(args, Scalar::primitive(5i64, Nullable))?;
+            Sum.partial_from_scalar(args, &Scalar::null(DType::Primitive(PType::I64, Nullable)))?;
+        let five = Sum.partial_from_scalar(args, &Scalar::primitive(5i64, Nullable))?;
         let state = Sum.merge_partials(args, five, overflowed)?;
 
         assert!(Sum.is_saturated(args, &state));

@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
@@ -464,6 +465,20 @@ impl ArrayRef {
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
         let inner = self.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
+    }
+
+    /// Returns a typed view without a runtime type check.
+    ///
+    /// # Safety
+    /// The caller must guarantee the concrete type behind `dyn DynArrayData` is `ArrayData<V>`.
+    #[inline]
+    pub(crate) unsafe fn as_typed_unchecked<V: VTable>(&self) -> ArrayView<'_, V> {
+        debug_assert!(self.is::<V>());
+        // SAFETY: the caller guarantees the concrete type, so the thin data pointer of the
+        // `dyn DynArrayData` points at an `ArrayData<V>`.
+        let inner = unsafe { &*ptr::from_ref(self.dyn_array()).cast::<ArrayData<V>>() };
+        // SAFETY: `inner` is the typed data stored inside `self`.
+        unsafe { ArrayView::new_unchecked(self, &inner.data) }
     }
 
     /// Returns the constant scalar if this is a constant array.

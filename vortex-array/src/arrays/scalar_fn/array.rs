@@ -47,13 +47,13 @@ pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFn> {
     }
 
     fn child_at(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[idx]
+        self.slots()[idx]
             .as_ref()
             .vortex_expect("ScalarFnArray child slot")
     }
 
     fn child_count(&self) -> usize {
-        self.as_ref().slots().len()
+        self.slots().len()
     }
 
     fn nchildren(&self) -> usize {

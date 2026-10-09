@@ -1,0 +1,165 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTIIIIRIIIIRIIIIR
+SELECT ca_state,
+       cd_gender,
+       cd_marital_status,
+       cd_dep_count,
+       count(*) cnt1,
+       min(cd_dep_count) min1,
+       max(cd_dep_count) max1,
+       avg(cd_dep_count) avg1,
+       cd_dep_employed_count,
+       count(*) cnt2,
+       min(cd_dep_employed_count) min2,
+       max(cd_dep_employed_count) max2,
+       avg(cd_dep_employed_count) avg2,
+       cd_dep_college_count,
+       count(*) cnt3,
+       min(cd_dep_college_count),
+       max(cd_dep_college_count),
+       avg(cd_dep_college_count)
+FROM customer c,
+     customer_address ca,
+     customer_demographics
+WHERE c.c_current_addr_sk = ca.ca_address_sk
+  AND cd_demo_sk = c.c_current_cdemo_sk
+  AND EXISTS
+    (SELECT *
+     FROM store_sales,
+          date_dim
+     WHERE c.c_customer_sk = ss_customer_sk
+       AND ss_sold_date_sk = d_date_sk
+       AND d_year = 2002
+       AND d_qoy < 4)
+  AND (EXISTS
+         (SELECT *
+          FROM web_sales,
+               date_dim
+          WHERE c.c_customer_sk = ws_bill_customer_sk
+            AND ws_sold_date_sk = d_date_sk
+            AND d_year = 2002
+            AND d_qoy < 4)
+       OR EXISTS
+         (SELECT *
+          FROM catalog_sales,
+               date_dim
+          WHERE c.c_customer_sk = cs_ship_customer_sk
+            AND cs_sold_date_sk = d_date_sk
+            AND d_year = 2002
+            AND d_qoy < 4))
+GROUP BY ca_state,
+         cd_gender,
+         cd_marital_status,
+         cd_dep_count,
+         cd_dep_employed_count,
+         cd_dep_college_count
+ORDER BY ca_state NULLS FIRST,
+         cd_gender NULLS FIRST,
+         cd_marital_status NULLS FIRST,
+         cd_dep_count NULLS FIRST,
+         cd_dep_employed_count NULLS FIRST,
+         cd_dep_college_count NULLS FIRST
+LIMIT 100;
+----
+NULL F D 4 1 4 4 4 1 1 1 1 1 0 1 0 0 0
+NULL F S 5 1 5 5 5 3 1 3 3 3 0 1 0 0 0
+NULL F U 2 1 2 2 2 3 1 3 3 3 0 1 0 0 0
+NULL F U 3 1 3 3 3 0 1 0 0 0 0 1 0 0 0
+NULL F W 0 1 0 0 0 1 1 1 1 1 0 1 0 0 0
+NULL F W 0 1 0 0 0 4 1 4 4 4 0 1 0 0 0
+NULL M D 2 1 2 2 2 1 1 1 1 1 0 1 0 0 0
+NULL M M 5 1 5 5 5 0 1 0 0 0 0 1 0 0 0
+NULL M M 5 1 5 5 5 4 1 4 4 4 0 1 0 0 0
+NULL M U 6 1 6 6 6 0 1 0 0 0 0 1 0 0 0
+NULL M W 1 1 1 1 1 3 1 3 3 3 0 1 0 0 0
+AK F M 6 1 6 6 6 1 1 1 1 1 0 1 0 0 0
+AK F S 0 1 0 0 0 3 1 3 3 3 0 1 0 0 0
+AK F S 2 1 2 2 2 0 1 0 0 0 0 1 0 0 0
+AK F W 5 1 5 5 5 4 1 4 4 4 0 1 0 0 0
+AK M M 4 1 4 4 4 2 1 2 2 2 0 1 0 0 0
+AK M U 0 1 0 0 0 1 1 1 1 1 0 1 0 0 0
+AK M W 3 1 3 3 3 2 1 2 2 2 0 1 0 0 0
+AL F M 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0
+AL F S 0 1 0 0 0 4 1 4 4 4 0 1 0 0 0
+AL M U 3 1 3 3 3 2 1 2 2 2 0 1 0 0 0
+AL M U 6 1 6 6 6 0 1 0 0 0 0 1 0 0 0
+AR F M 6 1 6 6 6 1 1 1 1 1 0 1 0 0 0
+AR F S 4 1 4 4 4 1 1 1 1 1 0 1 0 0 0
+AR F W 1 1 1 1 1 2 1 2 2 2 0 1 0 0 0
+AR M D 4 1 4 4 4 3 1 3 3 3 0 1 0 0 0
+AR M M 4 1 4 4 4 2 1 2 2 2 0 1 0 0 0
+AR M S 4 1 4 4 4 0 1 0 0 0 0 1 0 0 0
+AR M U 0 1 0 0 0 2 1 2 2 2 0 1 0 0 0
+AZ F S 0 1 0 0 0 1 1 1 1 1 0 1 0 0 0
+CA F M 1 1 1 1 1 1 1 1 1 1 0 1 0 0 0
+CA F M 5 1 5 5 5 1 1 1 1 1 0 1 0 0 0
+CA F S 4 1 4 4 4 4 1 4 4 4 0 1 0 0 0
+CA F W 3 1 3 3 3 2 1 2 2 2 0 1 0 0 0
+CA M D 4 1 4 4 4 3 1 3 3 3 0 1 0 0 0
+CA M M 0 1 0 0 0 3 1 3 3 3 0 1 0 0 0
+CA M S 2 1 2 2 2 1 1 1 1 1 0 1 0 0 0
+CA M S 5 1 5 5 5 2 1 2 2 2 0 1 0 0 0
+CA M W 2 1 2 2 2 2 1 2 2 2 0 1 0 0 0
+CO F S 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+CO F U 5 1 5 5 5 1 1 1 1 1 0 1 0 0 0
+CO M S 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+CO M W 2 1 2 2 2 3 1 3 3 3 0 1 0 0 0
+CO M W 2 1 2 2 2 4 1 4 4 4 0 1 0 0 0
+CT F D 6 1 6 6 6 1 1 1 1 1 0 1 0 0 0
+DE M U 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+FL F M 5 1 5 5 5 4 1 4 4 4 0 1 0 0 0
+FL F M 6 1 6 6 6 1 1 1 1 1 0 1 0 0 0
+FL F S 0 1 0 0 0 4 1 4 4 4 0 1 0 0 0
+FL F S 6 1 6 6 6 1 1 1 1 1 0 1 0 0 0
+FL F U 1 1 1 1 1 2 1 2 2 2 0 1 0 0 0
+FL F W 4 1 4 4 4 0 1 0 0 0 0 1 0 0 0
+FL M M 1 1 1 1 1 2 1 2 2 2 0 1 0 0 0
+FL M S 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+FL M W 2 1 2 2 2 3 1 3 3 3 0 1 0 0 0
+GA F D 0 1 0 0 0 3 1 3 3 3 0 1 0 0 0
+GA F D 1 1 1 1 1 1 1 1 1 1 0 1 0 0 0
+GA F D 6 1 6 6 6 2 1 2 2 2 0 1 0 0 0
+GA F M 1 1 1 1 1 3 1 3 3 3 0 1 0 0 0
+GA F M 2 1 2 2 2 4 1 4 4 4 0 1 0 0 0
+GA F M 6 1 6 6 6 2 1 2 2 2 0 1 0 0 0
+GA F S 1 1 1 1 1 1 1 1 1 1 0 1 0 0 0
+GA F S 2 1 2 2 2 1 1 1 1 1 0 1 0 0 0
+GA F S 5 1 5 5 5 0 1 0 0 0 0 1 0 0 0
+GA F U 4 1 4 4 4 1 1 1 1 1 0 1 0 0 0
+GA F U 4 1 4 4 4 2 1 2 2 2 0 1 0 0 0
+GA F W 0 1 0 0 0 2 1 2 2 2 0 1 0 0 0
+GA M D 0 1 0 0 0 1 1 1 1 1 0 1 0 0 0
+GA M D 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+GA M D 3 1 3 3 3 1 1 1 1 1 0 1 0 0 0
+GA M D 3 1 3 3 3 2 1 2 2 2 0 1 0 0 0
+GA M D 4 1 4 4 4 2 1 2 2 2 0 1 0 0 0
+GA M D 4 1 4 4 4 3 1 3 3 3 0 1 0 0 0
+GA M M 0 1 0 0 0 3 1 3 3 3 0 1 0 0 0
+GA M M 2 1 2 2 2 0 1 0 0 0 0 1 0 0 0
+GA M M 4 1 4 4 4 1 1 1 1 1 0 1 0 0 0
+GA M M 5 1 5 5 5 1 1 1 1 1 0 1 0 0 0
+GA M M 6 1 6 6 6 0 1 0 0 0 0 1 0 0 0
+GA M S 1 1 1 1 1 4 1 4 4 4 0 1 0 0 0
+GA M S 3 1 3 3 3 4 1 4 4 4 0 1 0 0 0
+GA M S 5 2 5 5 5 2 2 2 2 2 0 2 0 0 0
+GA M S 5 2 5 5 5 4 2 4 4 4 0 2 0 0 0
+GA M U 0 1 0 0 0 1 1 1 1 1 0 1 0 0 0
+GA M U 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+GA M U 2 1 2 2 2 1 1 1 1 1 0 1 0 0 0
+GA M U 4 1 4 4 4 4 1 4 4 4 0 1 0 0 0
+IA F D 0 1 0 0 0 2 1 2 2 2 0 1 0 0 0
+IA F D 4 1 4 4 4 0 1 0 0 0 0 1 0 0 0
+IA F M 5 1 5 5 5 1 1 1 1 1 0 1 0 0 0
+IA F U 4 1 4 4 4 0 1 0 0 0 0 1 0 0 0
+IA F W 1 1 1 1 1 0 1 0 0 0 0 1 0 0 0
+IA M D 4 1 4 4 4 1 1 1 1 1 0 1 0 0 0
+IA M M 0 1 0 0 0 2 1 2 2 2 0 1 0 0 0
+IA M S 5 1 5 5 5 1 1 1 1 1 0 1 0 0 0
+IA M S 6 1 6 6 6 0 1 0 0 0 0 1 0 0 0
+IA M W 6 1 6 6 6 3 1 3 3 3 0 1 0 0 0
+ID F D 0 1 0 0 0 3 1 3 3 3 0 1 0 0 0
+ID F U 2 1 2 2 2 3 1 3 3 3 0 1 0 0 0
+ID M D 5 1 5 5 5 0 1 0 0 0 0 1 0 0 0
+ID M U 4 1 4 4 4 3 1 3 3 3 0 1 0 0 0

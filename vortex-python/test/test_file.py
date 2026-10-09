@@ -52,6 +52,13 @@ def test_scan_with_indices(vxf: VortexFile) -> None:
     assert total_rows == 4
 
 
+def test_read_url_with_indices(tmp_path) -> None:
+    fname = tmp_path / "indices.vortex"
+    vx.io.write(vx.compress(vx.array(pa.array([record(x) for x in range(100)]))), str(fname))
+    result = vx.io.read_url(str(fname), indices=vx.array([1, 10, 42]))
+    assert len(result.to_arrow_array()) == 3
+
+
 def test_to_arrow_batch_size(vxf: VortexFile) -> None:
     assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"

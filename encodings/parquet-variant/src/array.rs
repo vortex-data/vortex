@@ -431,8 +431,8 @@ pub trait ParquetVariantArrayExt:
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[ParquetVariantSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[ParquetVariantSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 

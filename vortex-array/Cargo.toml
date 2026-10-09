@@ -135,6 +135,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "compare_sorted"
+harness = false
+
+[[bench]]
 name = "binary_ops"
 harness = false
 
@@ -180,6 +184,10 @@ harness = false
 
 [[bench]]
 name = "scalar_at_struct"
+harness = false
+
+[[bench]]
+name = "scalar_construction"
 harness = false
 
 [[bench]]
@@ -250,6 +258,10 @@ name = "varbinview_try_new"
 harness = false
 
 [[bench]]
+name = "varbinview_fill_null"
+harness = false
+
+[[bench]]
 name = "bool_zip"
 harness = false
 
@@ -295,6 +307,10 @@ harness = false
 
 [[bench]]
 name = "filter_fixed_width"
+harness = false
+
+[[bench]]
+name = "filter_fsl"
 harness = false
 
 [[bench]]

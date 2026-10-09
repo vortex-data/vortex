@@ -31,16 +31,14 @@ env:
 jobs:
   attempt-fix:
     name: "Attempt to Fix Fuzzer Crash"
-    # Only run when:
-    # 1. Manually triggered via workflow_dispatch, OR
-    # 2. Called from another workflow (workflow_call), OR
-    # 3. Reached via a reusable-workflow caller triggered by an "issues" event
-    #    (e.g. fuzzer-issue-autofix.yml). A called reusable workflow inherits
-    #    the caller's github.event_name, so the inner job sees "issues" rather
-    #    than "workflow_call" and must allow it explicitly.
+    # A called reusable workflow inherits the caller's github.event_name, so the
+    # job sees the caller's event, never "workflow_call". Allow each caller:
+    # - workflow_dispatch: a manual run of this workflow or of fuzz.yml.
+    # - schedule: the in-pipeline attempt-fix-* jobs in fuzz.yml.
+    # - issues: fuzzer-issue-autofix.yml.
     if: |
-      github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       github.event_name == 'issues'
 
     runs-on: ubuntu-latest
@@ -91,6 +89,8 @@ jobs:
         uses: aminya/setup-cpp@v1
         with:
           compiler: llvm
+
+      - uses: ./.github/actions/setup-fuzz-linker
 
       - name: Install cargo-fuzz
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
@@ -272,7 +272,7 @@ jobs:
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
-        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790  # v1
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
         with:
           # Same `vortex-claude-ci` rule as the rest of the fuzz pipeline.
           anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI }}
@@ -283,127 +283,39 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           show_full_output: true
           prompt: |
-            # Fuzzer Crash Fix - Issue #${{ env.ISSUE_NUMBER }}
+            # Fuzzer crash fix for issue #${{ env.ISSUE_NUMBER }}
 
-            ## Context
+            The fuzz target `${{ env.TARGET }}` crashes on the input at
+            `${{ env.CRASH_FILE_PATH }}`. The crash is already reproduced, and
+            `crash_reproduction.log` has the output with `RUST_BACKTRACE=full`.
 
-            A fuzzer crash has been detected, downloaded, and reproduced. Your job is to analyze it and attempt a fix.
+            Find the root cause. If the fix is local and clear, such as a missing
+            bounds check, missing validation, an unhandled edge case or an off-by-one,
+            make the smallest fix and add a regression test that uses the crash input.
+            If the fix needs an architecture change or domain knowledge that you do not
+            have, do not change the code. Explain the cause and suggest an approach.
 
-            **Crash file**: `${{ env.CRASH_FILE_PATH }}`
-            **Crash log**: `crash_reproduction.log` (already run with RUST_BACKTRACE=full)
-            **Target**: ${{ env.TARGET }}
+            A later step commits your changes to files that git already tracks and
+            opens a draft pull request. Thus, do not run git or open a pull request.
+            Put the regression test in an existing test file, and put the crash bytes
+            in the test itself, because the downloaded crash file is not committed.
 
-            **Note**: A draft pull request is opened automatically afterwards from
-            the source files you change — do not run git or open a PR yourself.
-            Just make the source edits and write the regression test; a later step
-            commits your changes to tracked files onto a fix branch and opens the PR.
+            To run the target again, use
+            `cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none ${{ env.TARGET }} <crash_file> -- -rss_limit_mb=0`.
+            The `--dev` flag makes the build faster. Follow `AGENTS.md` and the nested
+            `AGENTS.md` files that apply to the code that you change.
 
-            ## Your Task
-
-            1. **Analyze**: Read `crash_reproduction.log` to understand the crash
-            2. **Post analysis**: Post initial analysis comment to issue #${{ env.ISSUE_NUMBER }}
-            3. **Fix**: If straightforward (missing bounds check, validation, edge case), fix it
-            4. **Post progress**: After implementing fix, post progress comment with what was changed
-            5. **Test**: Write a regression test using the crash file
-            6. **Post completion**: Post final comment with test results and summary
-
-            ## Important - Progressive Updates
-
-            - **Post comments frequently** as you make progress using `gh issue comment`
-            - **CRITICAL**: Include ALL relevant code inline in your comments in code blocks
-            - After analyzing the crash, post what you found WITH the problematic code section
-            - After implementing the fix, post the COMPLETE changed code (entire function/section)
-            - After writing tests, post the COMPLETE test code inline
-            - This ensures your work is visible and reviewable even if you hit the turn limit
-            - Keep fixes minimal - only fix the specific bug
-            - Follow `AGENTS.md` and any applicable nested `AGENTS.md` guidelines
-            - **Use `--dev` flag** for faster builds: `cargo +nightly fuzz run --dev --sanitizer=none <target> <crash_file> -- -rss_limit_mb=0`
-
-            ## Fixability Guidelines
-
-            **Can fix** (do it): Missing bounds check, validation, edge case, off-by-one
-            **Can't fix** (analyze only): Architecture issues, complex logic, requires domain knowledge
-
-            ## Comment Templates
-
-            Post comments at each stage using:
-            ```bash
-            gh issue comment ${{ env.ISSUE_NUMBER }} --body "YOUR_COMMENT_HERE"
-            ```
-
-            **After analysis** (post immediately):
-            ```markdown
-            ## 🔍 Analysis
-
-            **Root Cause**: [2-3 sentence explanation]
-
-            **Crash Location**: `file.rs:function_name`
-
-            **Relevant Code** (from crash location):
-            \`\`\`rust
-            [Include the problematic code section from the crash location - show enough context]
-            \`\`\`
-
-            **Next Step**: [Attempting fix | Needs human review because...]
-            ```
-
-            **After implementing fix** (post immediately):
-            ```markdown
-            ## 🔧 Fix Implemented
-
-            **Modified**: `path/to/file.rs`
-
-            **Changes**: [Brief description of what was changed]
-
-            **Complete Code Changes**:
-            \`\`\`rust
-            [Include ALL the changed code - the entire function or section that was modified]
-            \`\`\`
-
-            **Next Step**: Writing regression test...
-            ```
-
-            **Final summary** (post at end):
-            ```markdown
-            ## ✅ Automated Fix Complete
-
-            **Root Cause**: [Summary]
-
-            **Files Modified**:
-            - `path/to/file.rs`
-
-            **Complete Fix**:
-            \`\`\`rust
-            [Include the complete fixed code again for easy review]
-            \`\`\`
-
-            **Regression Test**:
-            \`\`\`rust
-            [Include the complete test code inline]
-            \`\`\`
-
-            **Test Result**: [Pass/Fail status with output]
-
-            **Note**: This is an automated fix - please review carefully before merging.
-            ```
-
-            **If can't fix**:
-            ```markdown
-            ## 🤖 Analysis Complete - Human Review Needed
-
-            **Root Cause**: [Analysis]
-
-            **Problematic Code**:
-            \`\`\`rust
-            [Show the problematic code section]
-            \`\`\`
-
-            **Why Manual Fix Required**: [Reason]
-
-            **Suggested Approach**: [Recommendation with code snippets if possible]
-            ```
+            Maintainers review your work on the issue, and the run can stop at the turn
+            limit. Thus, post a comment with `gh issue comment ${{ env.ISSUE_NUMBER }}`
+            after each stage: after the analysis, after the fix and after the test.
+            Each comment must contain the related code in fenced blocks, so that each
+            comment is complete without the others. The analysis shows the root cause,
+            the crash location and the code at that location. The fix comment shows the
+            full changed function or section. The last comment shows the fix, the full
+            regression test and the test result, or, if you did not fix the crash, why
+            a person must fix it and the approach that you suggest.
           claude_args: |
-            --model claude-opus-4-8
+            --model claude-opus-5-5
             --max-turns 120
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=* cargo:*)"
 

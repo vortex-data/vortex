@@ -203,14 +203,14 @@ pub(super) fn make_struct_slots(
 /// [`StructArraySlotsExt`] supertrait; this trait layers struct-specific lookups on top.
 pub trait StructArrayExt: StructArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Struct(_, nullability) => *nullability,
             _ => unreachable!("StructArrayExt requires a struct dtype"),
         }
     }
 
     fn names(&self) -> &FieldNames {
-        self.as_ref().dtype().as_struct_fields().names()
+        self.dtype().as_struct_fields().names()
     }
 
     fn struct_validity(&self) -> Validity {
@@ -258,7 +258,7 @@ pub trait StructArrayExt: StructArraySlotsExt {
     }
 
     fn struct_fields(&self) -> &StructFields {
-        self.as_ref().dtype().as_struct_fields()
+        self.dtype().as_struct_fields()
     }
 }
 impl<T: TypedArrayRef<Struct>> StructArrayExt for T {}

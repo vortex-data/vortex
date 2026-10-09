@@ -46,18 +46,17 @@ pub(crate) fn new_exporter_with_flatten(
     let codes = array.codes();
     let codes_len = codes.len();
 
+    let validity = codes.validity()?;
     if let Some(constant) = values.as_opt::<Constant>() {
-        return constant::new_exporter_with_mask(
+        return constant::new_exporter_with_validity(
             ConstantArray::new(constant.scalar().clone(), codes_len),
-            codes.validity()?.execute_mask(codes_len, ctx)?,
+            validity,
             cache,
             ctx,
         );
     }
 
-    let codes_mask = codes.validity()?.execute_mask(codes_len, ctx)?;
-
-    match codes_mask {
+    match validity.execute_mask(codes_len, ctx)? {
         Mask::AllTrue(_) => {}
         Mask::AllFalse(_) => return Ok(all_invalid::new_exporter()),
         Mask::Values(_) => {

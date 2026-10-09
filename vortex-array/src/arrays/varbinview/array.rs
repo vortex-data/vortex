@@ -736,7 +736,7 @@ impl VarBinViewData {
 
 pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
     fn dtype_parts(&self) -> (bool, Nullability) {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Utf8(nullability) => (true, *nullability),
             DType::Binary(nullability) => (false, *nullability),
             _ => unreachable!("VarBinViewArrayExt requires a utf8 or binary dtype"),
@@ -745,7 +745,7 @@ pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
 
     fn varbinview_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VarBinViewSlots::VALIDITY].as_ref(),
+            self.slots()[VarBinViewSlots::VALIDITY].as_ref(),
             self.dtype_parts().1,
         )
     }

@@ -5,6 +5,7 @@ use rstest::fixture;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -69,4 +70,53 @@ fn test_offsets_tile_utf8(#[case] offsets: Vec<u32>, #[case] bytes: &[u8], #[cas
 #[test]
 fn test_offsets_tile_utf8_rejects_negative_offsets() {
     assert!(!offsets_tile_utf8(&[-1i32, 0], b"a"));
+}
+
+#[rstest]
+#[case::decreasing(buffer![0i32, 5, 3].into_array())]
+#[case::negative_first(buffer![-1i32, 2, 3].into_array())]
+#[case::beyond_bytes(buffer![0i32, 2, 6].into_array())]
+fn try_new_rejects_invalid_offsets(#[case] offsets: ArrayRef) {
+    let values = Buffer::copy_from("hello".as_bytes());
+
+    let result = VarBinArray::try_new(
+        offsets,
+        values,
+        DType::Binary(Nullability::NonNullable),
+        Validity::NonNullable,
+    );
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn try_new_allows_nonzero_first_offset() -> VortexResult<()> {
+    let values = Buffer::copy_from("hello".as_bytes());
+    let offsets = buffer![1i32, 3, 5].into_array();
+
+    let array = VarBinArray::try_new(
+        offsets,
+        values,
+        DType::Binary(Nullability::NonNullable),
+        Validity::NonNullable,
+    )?;
+
+    assert_eq!(array.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn try_new_rejects_unsorted_utf8_offsets_at_null_row() {
+    // Every non-null string is valid UTF-8, so only the offsets check rejects the null row 3..1.
+    let values = Buffer::copy_from("hello".as_bytes());
+    let offsets = buffer![0i32, 3, 1, 5].into_array();
+
+    let result = VarBinArray::try_new(
+        offsets,
+        values,
+        DType::Utf8(Nullability::Nullable),
+        Validity::from_iter([true, false, true]),
+    );
+
+    assert!(result.is_err());
 }

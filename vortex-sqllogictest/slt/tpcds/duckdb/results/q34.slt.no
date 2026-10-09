@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTII
+SELECT c_last_name ,
+       c_first_name ,
+       c_salutation ,
+       c_preferred_cust_flag ,
+       ss_ticket_number ,
+       cnt
+FROM
+  (SELECT ss_ticket_number ,
+          ss_customer_sk ,
+          count(*) cnt
+   FROM store_sales,
+        date_dim,
+        store,
+        household_demographics
+   WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
+     AND store_sales.ss_store_sk = store.s_store_sk
+     AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND (date_dim.d_dom BETWEEN 1 AND 3
+          OR date_dim.d_dom BETWEEN 25 AND 28)
+     AND (household_demographics.hd_buy_potential = '>10000'
+          OR household_demographics.hd_buy_potential = 'Unknown')
+     AND household_demographics.hd_vehicle_count > 0
+     AND (CASE
+              WHEN household_demographics.hd_vehicle_count > 0 THEN (household_demographics.hd_dep_count*1.000)/ household_demographics.hd_vehicle_count
+              ELSE NULL
+          END) > 1.2
+     AND date_dim.d_year IN (1999,
+                             1999+1,
+                             1999+2)
+     AND store.s_county = 'Williamson County'
+   GROUP BY ss_ticket_number,
+            ss_customer_sk) dn,
+     customer
+WHERE ss_customer_sk = c_customer_sk
+  AND cnt BETWEEN 15 AND 20
+ORDER BY c_last_name NULLS FIRST,
+         c_first_name NULLS FIRST,
+         c_salutation NULLS FIRST,
+         c_preferred_cust_flag DESC NULLS FIRST,
+         ss_ticket_number NULLS FIRST;
+----
+NULL NULL NULL Y 13629 15
+NULL Ernestina NULL NULL 224 15
+NULL Steven NULL Y 7453 16
+Austin Isela Dr. N 8049 15
+Barr Kyle Mr. Y 1281 16
+Bennett Gary Mr. N 3324 16
+Boston John Mr. N 8949 16
+Conner Betty Dr. Y 20319 15
+Dabbs Elizabeth Ms. Y 17220 15
+Davis William Sir N 6311 16
+Desjardins Joyce Miss N 20342 15
+Espinoza Michael Sir N 23084 15
+Foster Crystal Miss Y 17471 15
+Garrison Kevin Sir Y 11753 16
+Glover Valerie Miss N 13944 15
+Gonzalez David Dr. Y 14075 15
+Good William Dr. Y 6580 15
+Grant Stephen Mr. Y 60 15
+Hagen Catherine Mrs. Y 18961 15
+Hendrix Nicole Dr. Y 9979 15
+Jensen Ana Ms. N 2490 15
+Johnson Beverly Dr. N 7637 15
+Johnson David Sir N 9370 16
+Johnson Olen Mr. N 12862 16
+Jordan Christopher Mr. N 6941 15
+Lawhorn James Sir Y 5723 15
+Mcgregor Brandon Sir Y 2698 16
+Mcmurray Vincent Dr. Y 17565 15
+Mcpherson Doris Ms. Y 22999 15
+Neal Dave Sir N 18103 15
+Norfleet Ethel Miss N 14366 15
+Pappas Abigail Mrs. N 6954 15
+Paris Danette Mrs. Y 10488 15
+Phifer Karen Ms. N 10643 15
+Reis Graham Dr. N 17491 15
+Robinson Laura Miss Y 11712 15
+Roth Elizabeth Ms. N 7856 16
+Sanchez Cortez Mr. N 11423 15
+Sanchez Edward Dr. Y 12536 15
+Schaefer James Sir Y 10819 16
+Scott Lawrence Dr. N 2730 15
+Smith Terry Dr. N 16945 16
+Snodgrass Andy Mr. N 5587 15
+Spencer Kent Dr. Y 23881 16
+Stanford Kathleen Dr. N 21865 15
+Stinson Rebecca Miss N 5917 16
+Teague Julie Dr. N 11061 15
+Terrell Deborah Mrs. N 15877 15
+Vega Henry Dr. Y 932 16
+Villarreal Gerald Mr. Y 22490 16
+Walker Brandon Dr. Y 16544 15
+Williamson Xiomara Ms. N 15209 16
+Young Robert Sir Y 3829 16

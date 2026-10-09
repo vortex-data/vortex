@@ -260,3 +260,39 @@ def test_deserialize_rejects_garbage() -> None:
 def test_serialize_is_stable() -> None:
     expr = ve.column("age") > 21
     assert expr.serialize() == expr.serialize()
+
+
+@pytest.mark.parametrize("value", [1_705_320_000_000_000_123, None])
+@pytest.mark.parametrize(("target", "offset_seconds"), [("America/New_York", 18_000), ("+05:30", -19_800)])
+def test_replace_time_zone_constant(value, target, offset_seconds):
+    dtype = vx.timestamp("ns", nullable=value is None)
+    expression = ve.replace_time_zone(ve.literal(dtype, value), target)
+    expected_value = None if value is None else value + offset_seconds * 1_000_000_000
+    expected = pa.array([expected_value] * 3, type=pa.timestamp("ns", tz=target))
+    actual = vx.array(pa.array([0, 1, 2])).apply(expression).to_arrow_array()
+    assert actual.equals(expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "offset_seconds"),
+    [
+        ("+01:00", None, 3_600),
+        ("-05:30", None, -19_800),
+        (None, "+05:30", -19_800),
+        ("+01:00", "-05:30", 23_400),
+        ("+01:00", "America/New_York", 21_600),
+        ("America/New_York", "+01:00", -21_600),
+        ("+00:00", None, 0),
+    ],
+)
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+def test_replace_time_zone_fixed_offsets(source, target, offset_seconds, unit):
+    scale = {"s": 1, "ms": 1_000, "us": 1_000_000, "ns": 1_000_000_000}[unit]
+    values = [0, scale // 2, -scale - scale // 2, None]
+    array = vx.array(pa.array(values, type=pa.timestamp(unit, tz=source)))
+    actual = array.apply(ve.replace_time_zone(ve.root(), target)).to_arrow_array()
+    expected = pa.array(
+        [None if value is None else value + offset_seconds * scale for value in values],
+        type=pa.timestamp(unit, tz=target),
+    )
+    assert actual.equals(expected)

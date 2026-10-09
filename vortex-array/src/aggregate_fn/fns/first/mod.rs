@@ -67,11 +67,11 @@ impl AggregateFnVTable for First {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
         Ok(FirstPartial {
-            value: (!scalar.is_null()).then_some(scalar),
+            value: (!scalar.is_null()).then(|| scalar.clone()),
         })
     }
 
@@ -288,7 +288,7 @@ mod tests {
         let owned = AggregateDTypes::try_new(&First, &EmptyOptions, dtype)?;
         let args = owned.args(&EmptyOptions);
         let partial_of =
-            |value: i32| First.partial_from_scalar(args, Scalar::primitive(value, Nullable));
+            |value: i32| First.partial_from_scalar(args, &Scalar::primitive(value, Nullable));
 
         let empty = First.empty_partial(args)?;
         assert!(!First.is_saturated(args, &empty));

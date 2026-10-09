@@ -37,6 +37,7 @@ mod iter;
 mod object_store;
 mod opendal_store;
 mod python_repr;
+mod readable;
 mod registry;
 mod runtime;
 pub mod scalar;

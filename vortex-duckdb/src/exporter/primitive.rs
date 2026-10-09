@@ -8,7 +8,6 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_native_ptype;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
@@ -27,12 +26,11 @@ pub fn new_exporter(
     array: PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    let len = array.len();
     let validity = array.validity()?;
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     };
-    let validity = validity.to_array(array.len()).execute::<Mask>(ctx)?;
-
     match_each_native_ptype!(array.ptype(), |T| {
         let buffer = array.to_buffer::<T>();
         let prim = Box::new(PrimitiveExporter {
@@ -41,7 +39,7 @@ pub fn new_exporter(
             shared_buffer: VectorBuffer::new(buffer),
             _phantom_type: Default::default(),
         });
-        Ok(validity::new_exporter(validity, prim))
+        validity::new_exporter(validity, len, prim, ctx)
     })
 }
 

@@ -107,22 +107,6 @@ mod tests {
     }
 
     #[test]
-    fn test_varbin_array_validation_non_monotonic_offsets_accepted() {
-        // VarBin does not validate monotonicity of offsets at construction time.
-        // Sortedness is enforced at the builder level instead.
-        let offsets = buffer![0i32, 3, 2, 5].into_array(); // 3 -> 2 is decreasing.
-        let bytes = ByteBuffer::from(vec![0u8, 1, 2, 3, 4]);
-        let result = VarBinArray::try_new(
-            offsets,
-            bytes,
-            DType::Binary(Nullability::NonNullable),
-            Validity::NonNullable,
-        );
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_list_array_validation_success() {
         // Valid case: offsets are monotonically increasing.
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();

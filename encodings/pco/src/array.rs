@@ -374,8 +374,8 @@ pub trait PcoArrayExt: PcoArraySlotsExt {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[PcoSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[PcoSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }

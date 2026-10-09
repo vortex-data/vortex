@@ -9,7 +9,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -18,7 +17,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
 use crate::dtype::DType;
@@ -130,11 +129,11 @@ impl AggregateFnVTable for Max {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let mut partial = MaxPartial { max: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, scalar);
+        partial.merge(args, scalar.clone());
         Ok(partial)
     }
 
@@ -210,11 +209,7 @@ impl AggregateFnVTable for Max {
     ) -> VortexResult<()> {
         // Delegate to the existing min_max implementation for now. A dedicated max aggregate
         // would avoid computing min when only max is needed.
-        let array = match batch {
-            Columnar::Canonical(canonical) => canonical.clone().into_array(),
-            Columnar::Constant(constant) => constant.clone().into_array(),
-        };
-        if let Some(result) = min_max(&array, ctx, *args.options)? {
+        if let Some(result) = columnar_min_max(batch, *args.options, ctx)? {
             partial.merge(args, result.max);
         }
         Ok(())

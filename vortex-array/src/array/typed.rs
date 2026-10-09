@@ -98,6 +98,26 @@ pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::TypedArr
     fn to_owned(&self) -> Array<V> {
         self.as_ref().clone().downcast()
     }
+
+    /// Returns the child slots of the array.
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        self.as_ref().slots()
+    }
+
+    /// Returns the logical [`DType`] of the array.
+    fn dtype(&self) -> &DType {
+        self.as_ref().dtype()
+    }
+
+    /// Returns the number of rows in the array.
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+
+    /// Returns `true` if the array has no rows.
+    fn is_empty(&self) -> bool {
+        self.as_ref().is_empty()
+    }
 }
 
 impl<V: VTable> TypedArrayRef<V> for Array<V> {}
@@ -281,16 +301,19 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the logical dtype.
+    #[allow(clippy::same_name_method)]
     pub fn dtype(&self) -> &DType {
         self.inner.dtype()
     }
 
     /// Returns the length.
+    #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
     /// Returns whether this array is empty.
+    #[allow(clippy::same_name_method)]
     pub fn is_empty(&self) -> bool {
         self.inner.len() == 0
     }
@@ -352,6 +375,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the array slots.
+    #[allow(clippy::same_name_method)]
     pub fn slots(&self) -> &[Option<ArrayRef>] {
         self.inner.slots()
     }

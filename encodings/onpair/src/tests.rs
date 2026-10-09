@@ -10,14 +10,17 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -656,5 +659,60 @@ fn test_onpair_rejects_impossible_uncompressed_lengths() -> vortex_error::Vortex
         assert!(invalid.execute_scalar(0, &mut ctx).is_err());
         assert!(invalid.execute::<VarBinViewArray>(&mut ctx).is_err());
     }
+    Ok(())
+}
+
+fn take_input() -> VarBinArray {
+    VarBinArray::from_iter(
+        (0..2_000).map(|i| (i % 11 != 0).then(|| format!("https://www.example.com/items/{i:06}"))),
+        DType::Utf8(Nullability::Nullable),
+    )
+}
+
+#[test]
+fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = compress_onpair(&take_input().into_array(), &mut ctx)?;
+    test_take_conformance(&arr.into_array(), &mut ctx);
+    Ok(())
+}
+
+/// Take gathers token runs without decoding, retraining or copying the pair dictionary.
+#[test]
+fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
+    let input = take_input();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = compress_onpair(&input.clone().into_array(), &mut ctx)?;
+    let indices =
+        PrimitiveArray::from_option_iter([Some(1999u32), None, Some(0), Some(7), Some(7)])
+            .into_array();
+
+    let taken = <OnPair as TakeExecute>::take(arr.as_view(), &indices, &mut ctx)?
+        .expect("OnPair take must return Some");
+    let typed = taken
+        .try_downcast::<OnPair>()
+        .map_err(|_| vortex_error::vortex_err!("take result was not OnPair"))?;
+    assert_eq!(typed.dict_bytes().as_slice(), arr.dict_bytes().as_slice());
+    assert_eq!(typed.dict_offsets().len(), arr.dict_offsets().len());
+
+    let expected = input.into_array().take(indices)?;
+    assert_arrays_eq!(typed.into_array(), expected, &mut ctx);
+    Ok(())
+}
+
+/// A dictionary whose values are OnPair takes through the kernel instead of decoding every value.
+#[test]
+fn test_dict_over_onpair_uses_take_kernel() -> vortex_error::VortexResult<()> {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let values = take_input();
+    let onpair = compress_onpair(&values.clone().into_array(), &mut ctx)?;
+    let codes = PrimitiveArray::from_iter([3u16, 1500, 3, 42]).into_array();
+    let dict = DictArray::try_new(codes.clone(), onpair.into_array())?.into_array();
+
+    let expected = values.into_array().take(codes)?;
+    assert_arrays_eq!(dict, expected, &mut ctx);
     Ok(())
 }
