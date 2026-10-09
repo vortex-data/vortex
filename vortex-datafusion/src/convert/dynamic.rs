@@ -236,64 +236,26 @@ impl LiveBounds {
             .iter()
             .enumerate()
             .filter_map(|(idx, (name, dtype))| {
-                let scalar = |value: &ScalarValue| {
-                    Scalar::try_new(dtype.clone(), Some(value.clone())).ok()
-                };
+                let scalar =
+                    |value: &ScalarValue| Scalar::try_new(dtype.clone(), Some(value.clone())).ok();
                 let column_bounds: Vec<_> = bounds
                     .iter()
                     .filter(|(c, ..)| *c == idx)
                     .map(|(_, op, value)| Some((*op, scalar(value)?)))
                     .collect::<Option<_>>()?;
                 let column_members = match members.iter().find(|(c, _)| *c == idx) {
-                    Some((_, values)) => Some(values.iter().map(scalar).collect::<Option<Vec<_>>>()?),
+                    Some((_, values)) => {
+                        Some(values.iter().map(scalar).collect::<Option<Vec<_>>>()?)
+                    }
                     None => None,
                 };
                 if column_bounds.is_empty() && column_members.is_none() {
                     return None;
                 }
-
                 let (stats, _) = file_stats.get(file_fields.find(name)?);
                 let stat = |stat| Scalar::try_new(dtype.clone(), stats.get(stat).into_inner()).ok();
-                let (min, max) = (stat(Stat::Min)?, stat(Stat::Max)?);
-                let lhs = get_item(name.clone(), root());
-
-                let mut conjuncts = vec![];
-                // The range the file's rows can lie in after the bounds are applied; the whole
-                // file when the bounds aren't selective enough to be worth evaluating.
-                let mut range = (as_f64(&min)?, as_f64(&max)?);
-                if !column_bounds.is_empty() {
-                    let bounded = bounded_range(&column_bounds, range)?;
-                    let kept = range_fraction(bounded, range);
-                    tracing::debug!(column = %name, kept, "complete dynamic filter bounds");
-                    if kept <= MAX_KEPT_FRACTION {
-                        range = bounded;
-                        conjuncts.extend(
-                            column_bounds
-                                .into_iter()
-                                .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
-                        );
-                    }
-                }
-                // A membership list is only worth its decode of the column when it prunes a
-                // meaningful share of the rows the bounds keep, which a list that is dense in
-                // that range does not. Assumes an integer column spread uniformly over the range.
-                if let Some(values) = column_members
-                    && dtype.is_int()
-                {
-                    let kept = (values.len() as f64 / (range.1 - range.0 + 1.0)).clamp(0.0, 1.0);
-                    tracing::debug!(column = %name, kept, members = values.len(), "complete dynamic filter members");
-                    if kept <= MAX_KEPT_FRACTION {
-                        let list = Scalar::list(dtype.clone(), values, Nullability::NonNullable);
-                        conjuncts.push(in_list(lhs.clone(), lit(list)));
-                    }
-                }
-
-                let comparisons = and_collect(conjuncts)?;
-                Some(if dtype.is_nullable() {
-                    or(is_null(lhs), comparisons)
-                } else {
-                    comparisons
-                })
+                let range = (as_f64(&stat(Stat::Min)?)?, as_f64(&stat(Stat::Max)?)?);
+                column_static_filter(name, dtype, range, column_bounds, column_members)
             });
         and_collect(per_column)
     }
@@ -624,6 +586,55 @@ fn union_members(left: Option<Vec<Members>>, right: Option<Vec<Members>>) -> Opt
 
 fn as_f64(scalar: &Scalar) -> Option<f64> {
     scalar.as_primitive_opt()?.as_::<f64>()
+}
+
+/// Static comparisons for one column of a complete filter: its bounds, when they are selective
+/// against the file's `(min, max)` range, and its membership list, when that list is sparse in
+/// the range the bounds keep. Nullable columns keep their nulls so the join can still see them.
+fn column_static_filter(
+    name: &str,
+    dtype: &DType,
+    file_range: (f64, f64),
+    bounds: Vec<(CompareOperator, Scalar)>,
+    members: Option<Vec<Scalar>>,
+) -> Option<Expression> {
+    let lhs = get_item(name.to_owned(), root());
+    let mut conjuncts = vec![];
+    // The range the file's rows can lie in after the bounds are applied; the whole file when the
+    // bounds aren't selective enough to be worth evaluating.
+    let mut range = file_range;
+    if !bounds.is_empty() {
+        let bounded = bounded_range(&bounds, range)?;
+        let kept = range_fraction(bounded, range);
+        tracing::debug!(column = %name, kept, "complete dynamic filter bounds");
+        if kept <= MAX_KEPT_FRACTION {
+            range = bounded;
+            conjuncts.extend(
+                bounds
+                    .into_iter()
+                    .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
+            );
+        }
+    }
+    // A membership list is only worth its decode of the column when it prunes a meaningful share
+    // of the rows the bounds keep, which a list that is dense in that range does not. Assumes an
+    // integer column spread uniformly over the range.
+    if let Some(values) = members
+        && dtype.is_int()
+    {
+        let kept = (values.len() as f64 / (range.1 - range.0 + 1.0)).clamp(0.0, 1.0);
+        tracing::debug!(column = %name, kept, members = values.len(), "complete dynamic filter members");
+        if kept <= MAX_KEPT_FRACTION {
+            let list = Scalar::list(dtype.clone(), values, Nullability::NonNullable);
+            conjuncts.push(in_list(lhs.clone(), lit(list)));
+        }
+    }
+    let comparisons = and_collect(conjuncts)?;
+    Some(if dtype.is_nullable() {
+        or(is_null(lhs), comparisons)
+    } else {
+        comparisons
+    })
 }
 
 /// Narrows the `[min, max]` range of a column to the part `bounds` keep. Returns `None` for
