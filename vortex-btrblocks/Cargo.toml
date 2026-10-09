@@ -28,6 +28,7 @@ vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-onpair = { workspace = true }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }

@@ -17,6 +17,7 @@ use crate::SchemeExt;
 use crate::SchemeId;
 use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
+use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -73,6 +74,7 @@ impl CompressionMode {
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
+                    fixed_size_list::FixedSizeListSparseScheme.id(),
                     string::StringDictScheme.id(),
                     binary::BinaryDictScheme.id(),
                 ]);
