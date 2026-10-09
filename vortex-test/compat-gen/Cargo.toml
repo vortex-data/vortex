@@ -22,14 +22,19 @@ test = false
 [dependencies]
 # Vortex crates
 vortex = { workspace = true, features = ["files", "tokio", "zstd"] }
-vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-array = { workspace = true, features = ["_test-harness", "arbitrary"] }
 vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-edition = { workspace = true }
+vortex-runend = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }
 
 # TPC-H generation
 arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 
@@ -46,9 +51,10 @@ tokio = { workspace = true, features = ["full"] }
 reqwest = { workspace = true }
 
 # CLI + serialization
+arbitrary = { workspace = true }
 base16ct = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 sha2 = { workspace = true }
 tempfile = { workspace = true }

@@ -6,12 +6,10 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::file::WriteStrategyBuilder;
-use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
@@ -141,7 +139,7 @@ impl Fixture for DatasetFixtureAdapter {
         let path = dir.join(self.name());
         // Build the compressor from the session the fixture is written with, so it only chooses
         // schemes whose encodings that session's enabled editions accept.
-        let session = VortexSession::default();
+        let session = adapter::session();
         let mut compressor = BtrBlocksCompressorBuilder::from_session(&session);
         if self.compact {
             compressor = compressor.with_compact();
