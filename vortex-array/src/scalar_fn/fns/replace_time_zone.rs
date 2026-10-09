@@ -28,6 +28,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
@@ -38,6 +40,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::literal::Literal;
 
 /// Timezone replacement options. The ambiguity policy is a UTF-8 expression child.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -106,6 +109,22 @@ impl ScalarFnVTable for ReplaceTimeZone {
         }
     }
 
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let (Some(value), Some(policy)) = (
+            expr.child(0).as_opt::<Literal>(),
+            expr.child(1).as_opt::<Literal>(),
+        ) else {
+            return Ok(None);
+        };
+        // Fold to a literal so stats pruning sees a bare literal operand. A failing replacement
+        // (e.g. a raised ambiguity) is left in place so the error surfaces at execution time.
+        Ok(replace_scalar(options, value, policy).ok().map(bound::lit))
+    }
+
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input = timestamp_options(&arg_dtypes[0])?;
         if input.unit == TimeUnit::Days {
@@ -150,27 +169,8 @@ impl ScalarFnVTable for ReplaceTimeZone {
         };
 
         if let (Some(value), Some(policy)) = (input.as_constant(), ambiguous.as_constant()) {
-            let result = if value.is_null() || policy.is_null() {
-                None
-            } else {
-                let storage = value.as_extension().to_storage_scalar();
-                let policy = policy
-                    .as_utf8()
-                    .value()
-                    .ok_or_else(|| vortex_err!("Missing ambiguity policy"))?;
-                convert(i64::try_from(&storage)?, policy.as_str())?
-            };
-            let DType::Extension(ext) = dtype else {
-                unreachable!()
-            };
-            let storage = result.map_or_else(
-                || Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
-                |v| Scalar::primitive(v, Nullability::Nullable),
-            );
-            return Ok(
-                ConstantArray::new(Scalar::extension_ref(ext, storage), args.row_count())
-                    .into_array(),
-            );
+            let scalar = replace_scalar(options, &value, &policy)?;
+            return Ok(ConstantArray::new(scalar, args.row_count()).into_array());
         }
 
         if matches!(ambiguous.dtype(), DType::Null) {
@@ -209,6 +209,42 @@ impl ScalarFnVTable for ReplaceTimeZone {
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))?;
         Ok(ExtensionArray::new(ext, storage).into_array())
     }
+}
+
+/// Replace the timezone of a single timestamp scalar using a scalar ambiguity policy.
+fn replace_scalar(
+    options: &ReplaceTimeZoneOptions,
+    value: &Scalar,
+    policy: &Scalar,
+) -> VortexResult<Scalar> {
+    let DType::Extension(ext) =
+        ReplaceTimeZone.return_dtype(options, &[value.dtype().clone(), policy.dtype().clone()])?
+    else {
+        unreachable!("replace_time_zone() returns a timestamp")
+    };
+    let metadata = timestamp_options(value.dtype())?;
+    let result = if value.is_null() || policy.is_null() {
+        None
+    } else {
+        let storage = value.as_extension().to_storage_scalar();
+        let policy = policy
+            .as_utf8()
+            .value()
+            .ok_or_else(|| vortex_err!("Missing ambiguity policy"))?;
+        replace(
+            i64::try_from(&storage)?,
+            metadata.unit,
+            &resolve_zone(metadata.tz.as_deref())?,
+            &resolve_zone(options.time_zone.as_deref())?,
+            policy.as_str(),
+            options.null_on_non_existent,
+        )?
+    };
+    let storage = result.map_or_else(
+        || Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+        |v| Scalar::primitive(v, Nullability::Nullable),
+    );
+    Ok(Scalar::extension_ref(ext, storage))
 }
 
 fn timestamp_options(dtype: &DType) -> VortexResult<&TimestampOptions> {
@@ -278,14 +314,23 @@ fn replace(
 mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use super::ReplaceTimeZone;
     use super::ReplaceTimeZoneOptions;
     use super::replace;
     use super::resolve_zone;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
+    use crate::expr::lit;
+    use crate::expr::replace_time_zone;
     use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::literal::Literal;
 
     #[rstest]
     #[case(TimeUnit::Seconds, 1)]
@@ -382,6 +427,39 @@ mod tests {
         assert_eq!(
             ReplaceTimeZone.deserialize(&metadata, &VortexSession::empty())?,
             options
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn simplify_folds_literal_input() -> VortexResult<()> {
+        let timestamp = |tz: Option<&str>| {
+            Timestamp::new_with_tz(
+                TimeUnit::Microseconds,
+                tz.map(Into::into),
+                Nullability::Nullable,
+            )
+            .erased()
+        };
+        let micros = Scalar::primitive(1_704_153_600_000_000i64, Nullability::Nullable);
+        let expr = replace_time_zone(
+            lit(Scalar::extension_ref(timestamp(None), micros.clone())),
+            lit("earliest"),
+            ReplaceTimeZoneOptions {
+                time_zone: Some("UTC".into()),
+                null_on_non_existent: false,
+            },
+        );
+        let scope = DType::Struct(StructFields::empty(), Nullability::NonNullable);
+        let optimized = expr.bind(&scope)?.optimize()?;
+
+        // Stats pruning only matches bare literal operands, so the replacement must fold.
+        let scalar = optimized
+            .as_opt::<Literal>()
+            .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
+        assert_eq!(
+            scalar,
+            &Scalar::extension_ref(timestamp(Some("UTC")), micros)
         );
         Ok(())
     }
