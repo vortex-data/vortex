@@ -50,7 +50,7 @@ jobs:
   attempt-fix-io:
     name: "Attempt Fix for IO Fuzz Crash"
     needs: report-io-fuzz-failures
-    if: needs.report-io-fuzz-failures.outputs.issue_number != ''
+    if: needs.report-io-fuzz-failures.outputs.issue_created == 'true'
     permissions:
       # actions: read is needed for `gh run download` of the crash artifact.
       actions: read
@@ -73,6 +73,7 @@ jobs:
     with:
       fuzz_target: array_ops
       jobs: 4
+      max_time: 7200
       fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
@@ -99,6 +100,22 @@ jobs:
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
       incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  attempt-fix-ops:
+    name: "Attempt Fix for Array Operations Fuzz Crash"
+    needs: report-ops-fuzz-failures
+    if: needs.report-ops-fuzz-failures.outputs.issue_created == 'true'
+    permissions:
+      # actions: read is needed for `gh run download` of the crash artifact.
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-ops-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
 
   # ============================================================================
   # FSST LIKE Fuzzer
@@ -137,6 +154,22 @@ jobs:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
       incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
 
+  attempt-fix-fsst-like:
+    name: "Attempt Fix for FSST LIKE Fuzz Crash"
+    needs: report-fsst-like-fuzz-failures
+    if: needs.report-fsst-like-fuzz-failures.outputs.issue_created == 'true'
+    permissions:
+      # actions: read is needed for `gh run download` of the crash artifact.
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-fsst-like-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
+
   # ============================================================================
   # Row Encoding Fuzzer
   # ============================================================================
@@ -174,6 +207,22 @@ jobs:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
       incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
 
+  attempt-fix-row-encode:
+    name: "Attempt Fix for Row Encoding Fuzz Crash"
+    needs: report-row-encode-fuzz-failures
+    if: needs.report-row-encode-fuzz-failures.outputs.issue_created == 'true'
+    permissions:
+      # actions: read is needed for `gh run download` of the crash artifact.
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-row-encode-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
+
   # ============================================================================
   # Compress Roundtrip Fuzzer
   # ============================================================================
@@ -210,6 +259,22 @@ jobs:
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
       incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  attempt-fix-compress:
+    name: "Attempt Fix for Compress Roundtrip Fuzz Crash"
+    needs: report-compress-fuzz-failures
+    if: needs.report-compress-fuzz-failures.outputs.issue_created == 'true'
+    permissions:
+      # actions: read is needed for `gh run download` of the crash artifact.
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-compress-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
 
   # ============================================================================
   # GPU Compress Fuzzer (CUDA)

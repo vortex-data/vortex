@@ -397,6 +397,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
         print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
         _write_github_output("issue_number", issue_number)
+        _write_github_output("issue_created", "true")
 
         # Post full debug output as a follow-up comment (collapsed).
         debug_output = variables.get("DEBUG_OUTPUT", "")
