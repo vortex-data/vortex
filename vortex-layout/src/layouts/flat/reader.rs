@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::future::WeakShared;
+use parking_lot::Mutex;
 use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
@@ -16,6 +18,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::serde::SerializedArray;
+use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -40,6 +43,7 @@ pub struct FlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    array: Mutex<Option<WeakShared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>>>,
 }
 
 impl FlatReader {
@@ -54,24 +58,29 @@ impl FlatReader {
             name,
             segment_source,
             session,
+            array: Mutex::new(None),
         }
     }
 
     /// Register the segment request and return a future that would resolve into the deserialised array.
     fn array_future(&self) -> SharedArrayFuture {
+        // Share deserialization across overlapping batches without retaining segment buffers
+        // after their evaluation futures have been dropped.
+        let mut cached = self.array.lock();
+        if let Some(array) = cached.as_ref().and_then(WeakShared::upgrade) {
+            return array;
+        }
+
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
-        // We create the segment_fut here to ensure we give the segment reader visibility into
-        // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(self.layout.segment_id());
 
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
         let dtype = self.layout.dtype().clone();
         let array_tree = self.layout.array_tree().cloned();
-        async move {
+        let array = async move {
             let segment = segment_fut.await?;
             let parts = if let Some(array_tree) = array_tree {
                 // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
@@ -85,7 +94,9 @@ impl FlatReader {
                 .map_err(Arc::new)
         }
         .boxed()
-        .shared()
+        .shared();
+        *cached = array.downgrade();
+        array
     }
 }
 
@@ -230,7 +241,11 @@ impl LayoutReader for FlatReader {
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -243,16 +258,85 @@ mod test {
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::new_session;
+
+    use super::FlatReader;
+
+    struct CountingSegmentSource {
+        segments: Arc<TestSegments>,
+        requests: AtomicUsize,
+    }
+
+    impl SegmentSource for CountingSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            self.segments.request(id)
+        }
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn flat_shared_decode(#[case] cancel_first: bool) -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let source = Arc::new(CountingSegmentSource {
+                segments,
+                requests: AtomicUsize::new(0),
+            });
+            let reader = layout.new_reader("".into(), source.clone(), &session, &Default::default())?;
+            let reader = reader
+                .as_any()
+                .downcast_ref::<FlatReader>()
+                .vortex_expect("flat layout must construct a flat reader");
+            if cancel_first {
+                drop(reader.array_future());
+            }
+
+            let first = reader.array_future();
+            let second = reader.array_future();
+            let expected_requests = usize::from(cancel_first) + 1;
+            assert_eq!(source.requests.load(Ordering::Relaxed), expected_requests);
+            let (a, b) = futures::try_join!(first.clone(), second)?;
+            assert!(ArrayRef::ptr_eq(&a, &b));
+            let cached = reader.array_future().await?;
+            assert!(ArrayRef::ptr_eq(&a, &cached));
+            assert_arrays_eq!(a.clone(), array, &mut ctx);
+
+            drop(first);
+            let fresh = reader.array_future().await?;
+            assert!(!ArrayRef::ptr_eq(&a, &fresh));
+            assert_eq!(source.requests.load(Ordering::Relaxed), expected_requests + 1);
+            assert_arrays_eq!(a, fresh, &mut ctx);
+            Ok(())
+        })
+    }
 
     #[test]
     fn flat_identity() -> VortexResult<()> {
