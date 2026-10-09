@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::UncompressedSizeOpts;
 use super::uncompressed_size_in_bytes_u64;
 use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
@@ -12,9 +13,10 @@ use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 
 pub(super) fn fixed_size_list_uncompressed_size_in_bytes(
     array: &FixedSizeListArray,
+    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
-    let elements_size = uncompressed_size_in_bytes_u64(array.elements(), ctx)?;
+    let elements_size = uncompressed_size_in_bytes_u64(array.elements(), opts, ctx)?;
     let validity_size = validity_uncompressed_size_in_bytes(
         array
             .as_ref()

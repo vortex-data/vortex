@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::UncompressedSizeOpts;
 use super::uncompressed_size_in_bytes_u64;
 use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
@@ -13,13 +14,17 @@ use crate::arrays::listview::ListViewRebuildMode;
 
 pub(super) fn list_view_uncompressed_size_in_bytes(
     array: &ListViewArray,
+    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let mut size = if array.is_empty() {
         0
-    } else {
+    } else if opts.is_exact() {
+        // Only the elements the lists reference count, each as many times as it is referenced.
         let rebuilt = array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-        uncompressed_size_in_bytes_u64(rebuilt.elements(), ctx)?
+        uncompressed_size_in_bytes_u64(rebuilt.elements(), opts, ctx)?
+    } else {
+        uncompressed_size_in_bytes_u64(array.elements(), opts, ctx)?
     };
 
     let view_buffer_size = u64::try_from(array.len())

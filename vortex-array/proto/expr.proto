@@ -32,6 +32,12 @@ message NumericalAggregateOpts {
   bool skip_nans = 1;
 }
 
+// Options for `vortex.uncompressed_size_in_bytes`, controlling whether the size counts every
+// byte an array holds (inexact, the default) or only the bytes its rows reference (exact).
+message UncompressedSizeInBytesOpts {
+  bool exact = 1;
+}
+
 // Options for `vortex.literal`
 message LiteralOpts {
   vortex.scalar.Scalar value = 1;
