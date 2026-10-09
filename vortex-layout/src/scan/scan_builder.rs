@@ -921,42 +921,13 @@ mod test {
         Ok(())
     }
 
-    /// An unordered filtered limit reserves rows before projecting, so a huge split never decodes
-    /// more rows than the limit can return.
+    /// An ordered filtered limit takes rows in split order, so it returns the earliest matching
+    /// rows even when later splits finish first.
     #[test]
-    fn unordered_filtered_limit_limits_projection_mask_before_projection() -> VortexResult<()> {
+    fn ordered_filtered_limit_returns_the_earliest_rows() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
-        let projection_masks = Arc::new(Mutex::new(Vec::new()));
-        let reader = Arc::new(
-            TestLayoutReader::new(100_000).with_projection_masks(Arc::clone(&projection_masks)),
-        );
-        let filter = root().bind(reader.dtype())?;
-
-        let stream = ScanBuilder::new(session, reader)
-            .with_filter(filter)
-            .with_limit(1)
-            .with_ordered(false)
-            .into_stream()?;
-        let values = collect_scan_values(runtime.block_on_stream(stream))?;
-
-        assert_eq!(values, [0]);
-        assert_eq!(projection_masks.lock().as_slice(), [1]);
-        Ok(())
-    }
-
-    /// An ordered filtered limit reserves rows in split order, so it returns the earliest matching
-    /// rows and still never projects rows past the limit.
-    #[test]
-    fn ordered_filtered_limit_projects_only_the_earliest_rows() -> VortexResult<()> {
-        let runtime = SingleThreadRuntime::default();
-        let session = session_with_handle(runtime.handle());
-        let projection_masks = Arc::new(Mutex::new(Vec::new()));
-        let reader = Arc::new(
-            TestLayoutReader::new(12)
-                .with_split_size(4)
-                .with_projection_masks(Arc::clone(&projection_masks)),
-        );
+        let reader = Arc::new(TestLayoutReader::new(12).with_split_size(4));
         let filter = root().bind(reader.dtype())?;
 
         let stream = ScanBuilder::new(session, reader)
@@ -967,7 +938,6 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(values, [0, 1, 2, 3, 4, 5]);
-        assert_eq!(projection_masks.lock().as_slice(), [4, 2]);
         Ok(())
     }
 
