@@ -78,6 +78,9 @@ use vortex_layout::plan::exec::ExecState;
 use vortex_layout::plan::exec::IoRequestId;
 use vortex_layout::plan::lower;
 use vortex_layout::plan::optimize;
+use vortex_layout::plan::pipeline::Scan;
+use vortex_layout::plan::pipeline::Split;
+use vortex_layout::plan::pipeline::Turn;
 use vortex_layout::scan::filter::FilterExpr;
 use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
@@ -797,6 +800,42 @@ fn drive_splits(
     })
 }
 
+/// Runs `plan` over `splits` on the pipeline executor, with up to `in_flight` splits compiled
+/// at once, answering its reads from `source`. Returns the rows produced.
+fn drive_scan(
+    source: &Arc<dyn SegmentSource>,
+    plan: PlanRef,
+    splits: Vec<std::ops::Range<u64>>,
+    in_flight: usize,
+) -> usize {
+    let splits = splits.into_iter().map(Split::all).collect();
+    let mut scan = Scan::try_new(SESSION.clone(), plan, splits)
+        .expect("scan")
+        .with_max_active(in_flight);
+    RUNTIME.block_on(async {
+        let mut pending = FuturesUnordered::new();
+        let mut rows = 0;
+        loop {
+            match scan.step().expect("step") {
+                Turn::Read(read) => {
+                    let bytes = source.request(read.segment_id);
+                    pending.push(async move { (read.id, bytes.await) }.boxed());
+                }
+                Turn::Output(_, array) => rows += array.len(),
+                Turn::Waiting => {
+                    let mut delivery = pending.next().await;
+                    // Deliver everything that has completed before computing again.
+                    while let Some((id, bytes)) = delivery {
+                        scan.deliver(id, bytes.expect("read")).expect("deliver");
+                        delivery = pending.next().now_or_never().flatten();
+                    }
+                }
+                Turn::Done => return rows,
+            }
+        }
+    })
+}
+
 /// Runs `plan`, a boolean plan, over every row of `rows`, and returns what it produces: one lazy
 /// array per piece, in row order.
 fn predicate(
@@ -878,6 +917,10 @@ enum Algorithm {
     /// spanning consecutive splits is decoded once and dropped once the splits have passed it.
     /// The V1 scan decodes such a segment once per split.
     QueryStreaming,
+    /// The `Query` plan on the pipeline executor: one scan over every split, stages compiled
+    /// per split under the rows the earlier stages kept, and segments several readers need
+    /// decoded once and dropped once the last has read them.
+    Pipeline,
 }
 
 fn run(
@@ -893,11 +936,15 @@ fn run(
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
-        Algorithm::QueryStreaming => shared.clone(),
+        Algorithm::QueryStreaming | Algorithm::Pipeline => shared.clone(),
     };
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
     let mut rows = 0;
+    if matches!(algorithm, Algorithm::Pipeline) {
+        let (plan, splits) = query.build(file, source);
+        return drive_scan(&segments, plan, splits, in_flight(variant));
+    }
     if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source);
         return drive_splits(&segments, &plan, &splits, &cache, in_flight(variant));
@@ -906,7 +953,9 @@ fn run(
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
-            Algorithm::Query | Algorithm::QueryStreaming => unreachable!("handled above"),
+            Algorithm::Query | Algorithm::QueryStreaming | Algorithm::Pipeline => {
+                unreachable!("handled above")
+            }
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
                     let pieces = predicate(&segments, filter, split.clone(), &cache());
@@ -988,13 +1037,17 @@ fn run_exec(
 fn main() {
     let only = std::env::var("ONLY").unwrap_or_else(|_| "both".to_string());
     let wanted = std::env::var("QUERY").unwrap_or_else(|_| "project".to_string());
-    let algorithm = match std::env::var("ALGO").as_deref() {
-        Ok("whole") => Algorithm::Whole,
-        Ok("redecode") => Algorithm::ConjunctsRedecode,
-        Ok("query") => Algorithm::Query,
-        Ok("stream") => Algorithm::QueryStreaming,
+    let parse = |name: &str| match name {
+        "whole" => Algorithm::Whole,
+        "redecode" => Algorithm::ConjunctsRedecode,
+        "query" => Algorithm::Query,
+        "stream" => Algorithm::QueryStreaming,
+        "pipeline" => Algorithm::Pipeline,
         _ => Algorithm::Conjuncts,
     };
+    let algorithm = parse(std::env::var("ALGO").as_deref().unwrap_or(""));
+    // A second exec algorithm, run alternately with the first, for an A/B on the same drift.
+    let second = std::env::var("ALGO2").ok().map(|name| parse(&name));
     let Fixture {
         name,
         variant,
@@ -1022,6 +1075,7 @@ fn main() {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(2);
     let mut exec_times = Vec::with_capacity(iters);
+    let mut exec2_times = Vec::with_capacity(iters);
     let mut v1_times = Vec::with_capacity(iters);
     for i in 0..iters {
         let verbose = i < 2;
@@ -1035,6 +1089,18 @@ fn main() {
             exec_times.push(elapsed);
             if verbose {
                 report("exec", rows, elapsed);
+            }
+        }
+        if let Some(second) = second {
+            ALLOCS.store(0, Ordering::Relaxed);
+            ALLOC_BYTES.store(0, Ordering::Relaxed);
+            SEGMENT_READS.store(0, Ordering::Relaxed);
+            let start = std::time::Instant::now();
+            let rows = run_exec(file, query, second, source, *variant);
+            let elapsed = start.elapsed();
+            exec2_times.push(elapsed);
+            if verbose {
+                report("exec2", rows, elapsed);
             }
         }
         if only != "exec" {
@@ -1057,6 +1123,13 @@ fn main() {
             .map_or(0.0, |d| d.as_secs_f64() * 1e3)
     };
     let (exec_median, v1_median) = (median(&mut exec_times), median(&mut v1_times));
+    let exec2_median = median(&mut exec2_times);
+    if exec2_median > 0.0 {
+        println!(
+            "median exec={exec_median:.3}ms exec2={exec2_median:.3}ms exec/exec2={:.2}x",
+            exec_median / exec2_median
+        );
+    }
     if exec_median > 0.0 && v1_median > 0.0 {
         println!(
             "median exec={exec_median:.3}ms v1={v1_median:.3}ms v1/exec={:.2}x over {iters} alternating runs",

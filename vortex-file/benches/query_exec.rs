@@ -76,6 +76,9 @@ use vortex_layout::plan::exec::ExecState;
 use vortex_layout::plan::exec::IoRequestId;
 use vortex_layout::plan::lower;
 use vortex_layout::plan::optimize;
+use vortex_layout::plan::pipeline::Scan;
+use vortex_layout::plan::pipeline::Split;
+use vortex_layout::plan::pipeline::Turn;
 use vortex_layout::scan::filter::FilterExpr;
 use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
@@ -742,6 +745,42 @@ fn drive_splits(
     })
 }
 
+/// Runs `plan` over `splits` on the pipeline executor, with up to `in_flight` splits compiled
+/// at once, answering its reads from `source`. Returns the rows produced.
+fn drive_scan(
+    source: &Arc<dyn SegmentSource>,
+    plan: PlanRef,
+    splits: Vec<std::ops::Range<u64>>,
+    in_flight: usize,
+) -> usize {
+    let splits = splits.into_iter().map(Split::all).collect();
+    let mut scan = Scan::try_new(SESSION.clone(), plan, splits)
+        .expect("scan")
+        .with_max_active(in_flight);
+    RUNTIME.block_on(async {
+        let mut pending = FuturesUnordered::new();
+        let mut rows = 0;
+        loop {
+            match scan.step().expect("step") {
+                Turn::Read(read) => {
+                    let bytes = source.request(read.segment_id);
+                    pending.push(async move { (read.id, bytes.await) }.boxed());
+                }
+                Turn::Output(_, array) => rows += array.len(),
+                Turn::Waiting => {
+                    let mut delivery = pending.next().await;
+                    // Deliver everything that has completed before computing again.
+                    while let Some((id, bytes)) = delivery {
+                        scan.deliver(id, bytes.expect("read")).expect("deliver");
+                        delivery = pending.next().now_or_never().flatten();
+                    }
+                }
+                Turn::Done => return rows,
+            }
+        }
+    })
+}
+
 /// Runs `plan`, a boolean plan, over every row of `rows`, and returns what it produces: one lazy
 /// array per piece, in row order.
 fn predicate(
@@ -827,14 +866,19 @@ enum Algorithm {
     /// spanning consecutive splits is decoded once and dropped once the splits have passed it.
     /// The V1 scan decodes such a segment once per split.
     QueryStreaming,
+    /// The `Query` plan on the pipeline executor: one scan over every split, stages compiled
+    /// per split under the rows the earlier stages kept, and segments several readers need
+    /// decoded once and dropped once the last has read them.
+    Pipeline,
 }
 
-const ALGORITHMS: [Algorithm; 5] = [
+const ALGORITHMS: [Algorithm; 6] = [
     Algorithm::Whole,
     Algorithm::Conjuncts,
     Algorithm::ConjunctsRedecode,
     Algorithm::Query,
     Algorithm::QueryStreaming,
+    Algorithm::Pipeline,
 ];
 
 fn run(
@@ -851,11 +895,15 @@ fn run(
     let cache = || match algorithm {
         Algorithm::Whole | Algorithm::Conjuncts => shared.clone(),
         Algorithm::ConjunctsRedecode | Algorithm::Query => DecodeCache::default(),
-        Algorithm::QueryStreaming => shared.clone(),
+        Algorithm::QueryStreaming | Algorithm::Pipeline => shared.clone(),
     };
     // A fresh scheduler per run, as every V1 scan starts with no selectivity history.
     let scheduler = query.filter.clone().map(FilterExpr::new);
     let mut rows = 0;
+    if matches!(algorithm, Algorithm::Pipeline) {
+        let (plan, splits) = query.build(file, source, split);
+        return drive_scan(&segments, plan, splits, in_flight(variant));
+    }
     if matches!(algorithm, Algorithm::Query | Algorithm::QueryStreaming) {
         let (plan, splits) = query.build(file, source, split);
         return drive_splits(&segments, &plan, &splits, &cache, in_flight(variant));
@@ -868,7 +916,9 @@ fn run(
         let len = (split.end - split.start) as usize;
         let mut mask = Mask::new_true(len);
         match algorithm {
-            Algorithm::Query | Algorithm::QueryStreaming => unreachable!("handled above"),
+            Algorithm::Query | Algorithm::QueryStreaming | Algorithm::Pipeline => {
+                unreachable!("handled above")
+            }
             Algorithm::Whole => {
                 if let Some(filter) = &query.whole_filter {
                     let pieces = predicate(&segments, filter, split.clone(), &cache());
@@ -917,7 +967,7 @@ fn run(
 }
 
 /// One exec graph run of the query over the case's splits, under each filter algorithm.
-#[divan::bench(args = cases(), consts = [0, 1, 2, 3, 4])]
+#[divan::bench(args = cases(), consts = [0, 1, 2, 3, 4, 5])]
 fn exec<const ALGORITHM: usize>(bencher: Bencher, case: &str) {
     let (fixture, query, split) = lookup(case);
     let algorithm = ALGORITHMS[ALGORITHM];
