@@ -32,12 +32,14 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_plan::expressions as df_expr;
 use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::binary;
 use vortex::expr::dynamic;
 use vortex::expr::get_item;
+use vortex::expr::in_list;
 use vortex::expr::is_null;
 use vortex::expr::lit;
 use vortex::expr::or;
@@ -54,6 +56,11 @@ use crate::convert::scalar_from_df;
 /// Complete filters are only applied when they are estimated to keep at most this fraction of a
 /// file's value range for some column.
 const MAX_KEPT_FRACTION: f64 = 0.5;
+
+/// The most values a membership list may hold before it is dropped. `in_list` costs one
+/// comparison over the column per value, so beyond this the list is slower than the join probe
+/// it saves. DataFusion's own `hash_join_inlist_pushdown_max_distinct_values` is 150.
+const MAX_MEMBERS: usize = 256;
 
 const TEMPLATE_OPS: [CompareOperator; 4] = [
     CompareOperator::Lt,
@@ -158,7 +165,13 @@ fn convert_dynamic_filter(
         .enumerate()
         .filter_map(|(idx, (name, dtype))| {
             // Once the filter has bounds, columns and operators it doesn't bound are skipped.
+            // Before that, only the leading column gets the template: a TopK filter over
+            // several sort keys is a lexicographic disjunction whose hull only ever bounds the
+            // first key, and an aggregate filter bounds one column per accumulator.
             let ops: Vec<_> = if current.is_empty() {
+                if idx > 0 {
+                    return None;
+                }
                 TEMPLATE_OPS.to_vec()
             } else {
                 TEMPLATE_OPS
@@ -209,45 +222,73 @@ struct LiveBounds {
 }
 
 impl LiveBounds {
-    /// Builds static comparisons from the filter's current bounds, keeping only columns whose
-    /// bounds are estimated to exclude a meaningful share of the file.
+    /// Builds static comparisons from the filter's current bounds and membership lists, keeping
+    /// only columns whose constraints are estimated to exclude a meaningful share of the file.
     fn selective_static_filter(
         &self,
         file_fields: &StructFields,
         file_stats: &FileStatistics,
     ) -> Option<Expression> {
         let bounds = self.extract_bounds();
+        let members = self.extract_members();
         let per_column = self
             .columns
             .iter()
             .enumerate()
             .filter_map(|(idx, (name, dtype))| {
+                let scalar = |value: &ScalarValue| {
+                    Scalar::try_new(dtype.clone(), Some(value.clone())).ok()
+                };
                 let column_bounds: Vec<_> = bounds
                     .iter()
                     .filter(|(c, ..)| *c == idx)
-                    .map(|(_, op, value)| {
-                        (*op, Scalar::try_new(dtype.clone(), Some(value.clone())))
-                    })
-                    .map(|(op, scalar)| Some((op, scalar.ok()?)))
+                    .map(|(_, op, value)| Some((*op, scalar(value)?)))
                     .collect::<Option<_>>()?;
-                if column_bounds.is_empty() {
+                let column_members: Option<Vec<Scalar>> = members
+                    .iter()
+                    .find(|(c, _)| *c == idx)
+                    .map(|(_, values)| values.iter().map(scalar).collect::<Option<_>>())?;
+                if column_bounds.is_empty() && column_members.is_none() {
                     return None;
                 }
 
                 let (stats, _) = file_stats.get(file_fields.find(name)?);
                 let stat = |stat| Scalar::try_new(dtype.clone(), stats.get(stat).into_inner()).ok();
-                let kept = kept_fraction(&column_bounds, &stat(Stat::Min)?, &stat(Stat::Max)?)?;
-                tracing::debug!(column = %name, kept, "complete dynamic filter bounds");
-                if kept > MAX_KEPT_FRACTION {
-                    return None;
+                let (min, max) = (stat(Stat::Min)?, stat(Stat::Max)?);
+                let lhs = get_item(name.clone(), root());
+
+                let mut conjuncts = vec![];
+                // The range the file's rows can lie in after the bounds are applied; the whole
+                // file when the bounds aren't selective enough to be worth evaluating.
+                let mut range = (as_f64(&min)?, as_f64(&max)?);
+                if !column_bounds.is_empty() {
+                    let bounded = bounded_range(&column_bounds, range)?;
+                    let kept = range_fraction(bounded, range);
+                    tracing::debug!(column = %name, kept, "complete dynamic filter bounds");
+                    if kept <= MAX_KEPT_FRACTION {
+                        range = bounded;
+                        conjuncts.extend(
+                            column_bounds
+                                .into_iter()
+                                .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
+                        );
+                    }
+                }
+                // A membership list is only worth its decode of the column when it prunes a
+                // meaningful share of the rows the bounds keep, which a list that is dense in
+                // that range does not. Assumes an integer column spread uniformly over the range.
+                if let Some(values) = column_members
+                    && dtype.is_int()
+                {
+                    let kept = (values.len() as f64 / (range.1 - range.0 + 1.0)).clamp(0.0, 1.0);
+                    tracing::debug!(column = %name, kept, members = values.len(), "complete dynamic filter members");
+                    if kept <= MAX_KEPT_FRACTION {
+                        let list = Scalar::list(dtype.clone(), values, Nullability::NonNullable);
+                        conjuncts.push(in_list(lhs.clone(), lit(list)));
+                    }
                 }
 
-                let lhs = get_item(name.clone(), root());
-                let comparisons = and_collect(
-                    column_bounds
-                        .into_iter()
-                        .map(|(op, value)| binary(op.into(), lhs.clone(), lit(value))),
-                )?;
+                let comparisons = and_collect(conjuncts)?;
                 Some(if dtype.is_nullable() {
                     or(is_null(lhs), comparisons)
                 } else {
@@ -298,6 +339,102 @@ impl LiveBounds {
             .and_then(|filter| filter.current().ok())
             .and_then(|current| self.bounds_of(&current))
             .unwrap_or_default()
+    }
+
+    /// Reads `col IN (literals)` membership lists from the filter's current predicate.
+    fn extract_members(&self) -> Vec<Members> {
+        self.filter
+            .downcast_ref::<DynamicFilterPhysicalExpr>()
+            .and_then(|filter| filter.current().ok())
+            .and_then(|current| self.members_of(&current))
+            .unwrap_or_default()
+    }
+
+    /// Per-column value lists that every row satisfying `expr` draws its value from, unless the
+    /// column is null, or `None` if no row can satisfy `expr`. Columns without a list are
+    /// unconstrained. Lists longer than [`MAX_MEMBERS`] are dropped.
+    fn members_of(&self, expr: &Arc<dyn PhysicalExpr>) -> Option<Vec<Members>> {
+        if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
+            return match literal.value() {
+                DFScalarValue::Boolean(Some(false) | None) | DFScalarValue::Null => None,
+                _ => Some(vec![]),
+            };
+        }
+        if let Some(case) = expr.downcast_ref::<df_expr::CaseExpr>() {
+            // Rows the CASE keeps satisfy one of its results, so a column is constrained only
+            // when every reachable branch lists its values.
+            return case
+                .when_then_expr()
+                .iter()
+                .map(|(_, then)| then)
+                .chain(case.else_expr())
+                .map(|branch| self.members_of(branch))
+                .reduce(union_members)
+                .flatten();
+        }
+        if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
+            if in_list.negated() {
+                return Some(vec![]);
+            }
+            let Some(idx) = column_of(in_list.expr()).and_then(|col| self.column_index(col.name()))
+            else {
+                return Some(vec![]);
+            };
+            if in_list.list().len() > MAX_MEMBERS {
+                return Some(vec![]);
+            }
+            let values = in_list
+                .list()
+                .iter()
+                .map(|element| {
+                    let literal = element.downcast_ref::<df_expr::Literal>()?;
+                    if literal.value().is_null() {
+                        return None;
+                    }
+                    self.literal_value(idx, literal.value())
+                })
+                .collect::<Option<Vec<_>>>();
+            // A list we can't convert exactly constrains nothing.
+            return Some(values.map_or_else(Vec::new, |values| vec![(idx, values)]));
+        }
+        let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() else {
+            return Some(vec![]);
+        };
+        match binary.op() {
+            DFOperator::And => {
+                let mut members = self.members_of(binary.left())?;
+                for (idx, values) in self.members_of(binary.right())? {
+                    match members.iter_mut().find(|(c, _)| *c == idx) {
+                        // Both lists hold, so keep the shorter one.
+                        Some((_, existing)) if existing.len() <= values.len() => {}
+                        Some((_, existing)) => *existing = values,
+                        None => members.push((idx, values)),
+                    }
+                }
+                Some(members)
+            }
+            DFOperator::Or => {
+                if let Some(null_col) = binary
+                    .left()
+                    .downcast_ref::<df_expr::IsNullExpr>()
+                    .and_then(|is_null| column_of(is_null.arg()))
+                {
+                    let idx = self.column_index(null_col.name());
+                    return Some(
+                        self.members_of(binary.right())
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|(c, _)| Some(*c) == idx)
+                            .collect(),
+                    );
+                }
+                union_members(
+                    self.members_of(binary.left()),
+                    self.members_of(binary.right()),
+                )
+            }
+            _ => Some(vec![]),
+        }
     }
 
     /// Bounds that every row satisfying `expr` also satisfies, unless the bound's column is null,
@@ -438,9 +575,13 @@ impl LiveBounds {
         };
 
         let idx = self.column_index(col.name())?;
-        let dtype = &self.columns[idx].1;
+        Some((idx, op, self.literal_value(idx, literal.value())?))
+    }
 
-        let scalar = scalar_from_df(literal.value(), &self.session).ok()?;
+    /// Converts a DataFusion literal to the file dtype of tracked column `idx`.
+    fn literal_value(&self, idx: usize, literal: &DFScalarValue) -> Option<ScalarValue> {
+        let dtype = &self.columns[idx].1;
+        let scalar = scalar_from_df(literal, &self.session).ok()?;
         let scalar = if scalar.dtype().eq_ignore_nullability(dtype) {
             scalar
         } else {
@@ -452,15 +593,45 @@ impl LiveBounds {
             }
             cast
         };
-        Some((idx, op, scalar.into_value()?))
+        scalar.into_value()
     }
 }
 
-/// Estimates the fraction of the `[min, max]` range kept by `bounds`, assuming values are spread
-/// uniformly. Returns `None` for non-numeric columns.
-fn kept_fraction(bounds: &[(CompareOperator, Scalar)], min: &Scalar, max: &Scalar) -> Option<f64> {
-    let as_f64 = |s: &Scalar| s.as_primitive_opt()?.as_::<f64>();
-    let (min, max) = (as_f64(min)?, as_f64(max)?);
+/// `(column index, values)`: every kept row's value for the column is one of `values`.
+type Members = (usize, Vec<ScalarValue>);
+
+/// Lists implied by either side holding: a column is listed only when both sides list it, with
+/// the two lists merged. A side no row can satisfy (`None`) contributes nothing.
+fn union_members(left: Option<Vec<Members>>, right: Option<Vec<Members>>) -> Option<Vec<Members>> {
+    let (left, right) = match (left, right) {
+        (Some(left), Some(right)) => (left, right),
+        (side, None) | (None, side) => return side,
+    };
+    Some(
+        left.into_iter()
+            .filter_map(|(idx, mut values)| {
+                let (_, other) = right.iter().find(|(c, _)| *c == idx)?;
+                for value in other {
+                    if !values.contains(value) {
+                        values.push(value.clone());
+                    }
+                }
+                (values.len() <= MAX_MEMBERS).then_some((idx, values))
+            })
+            .collect(),
+    )
+}
+
+fn as_f64(scalar: &Scalar) -> Option<f64> {
+    scalar.as_primitive_opt()?.as_::<f64>()
+}
+
+/// Narrows the `[min, max]` range of a column to the part `bounds` keep. Returns `None` for
+/// non-numeric bounds.
+fn bounded_range(
+    bounds: &[(CompareOperator, Scalar)],
+    (min, max): (f64, f64),
+) -> Option<(f64, f64)> {
     let mut lower = min;
     let mut upper = max;
     for (op, value) in bounds {
@@ -471,10 +642,16 @@ fn kept_fraction(bounds: &[(CompareOperator, Scalar)], min: &Scalar, max: &Scala
             CompareOperator::Eq | CompareOperator::NotEq => {}
         }
     }
+    Some((lower, upper))
+}
+
+/// Estimates the fraction of the `[min, max]` range that `[lower, upper]` covers, assuming values
+/// are spread uniformly.
+fn range_fraction((lower, upper): (f64, f64), (min, max): (f64, f64)) -> f64 {
     if max <= min {
-        return Some(if lower <= upper { 1.0 } else { 0.0 });
+        return if lower <= upper { 1.0 } else { 0.0 };
     }
-    Some(((upper - lower) / (max - min)).clamp(0.0, 1.0))
+    ((upper - lower) / (max - min)).clamp(0.0, 1.0)
 }
 
 fn find_bound(bounds: &[Bound], column: usize, op: CompareOperator) -> Option<ScalarValue> {
@@ -893,6 +1070,123 @@ mod tests {
             (None, None) => {}
             (converted, expected) => panic!("expected {expected:?}, got {converted:?}"),
         }
+        Ok(())
+    }
+
+    fn in_list_a(values: &[i32]) -> PhysicalExprRef {
+        Arc::new(
+            df_expr::InListExpr::try_new(
+                col_a(),
+                values.iter().map(|v| lit_i32(*v)).collect(),
+                false,
+                &arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+                    "a",
+                    DataType::Int32,
+                    false,
+                )]),
+            )
+            .expect("valid IN list"),
+        )
+    }
+
+    fn stats_1_to_10(input: &ArrayRef) -> FileStatistics {
+        let stats = StatsSet::from_iter([
+            (Stat::Min, Precision::exact(VxScalarValue::from(1i32))),
+            (Stat::Max, Precision::exact(VxScalarValue::from(10i32))),
+        ]);
+        FileStatistics::new_with_dtype(Arc::from([stats]), input.dtype())
+    }
+
+    /// A complete join filter's membership list (`col IN (...)`) is applied when it covers a
+    /// small share of the file's value range, even where its bounds span the whole range.
+    #[rstest]
+    // Members 1 and 10 span the range [1, 10] but keep 2 of 10 values: applied.
+    #[case(range(1, 10), in_list_a(&[1, 10]), Some([true, false, true]))]
+    // Partitioned joins route keys through a CASE; the union of the partition lists applies.
+    #[case(
+        Arc::new(df_expr::CaseExpr::try_new(
+            Some(col_a()),
+            vec![
+                (lit_i32(0), binary(range(1, 1), DFOperator::And, in_list_a(&[1]))),
+                (lit_i32(1), binary(range(5, 5), DFOperator::And, in_list_a(&[5]))),
+            ],
+            Some(lit_bool(false)),
+        ).expect("valid CASE")),
+        lit_bool(true),
+        Some([true, true, false]),
+    )]
+    // A partition without a list leaves the column unconstrained.
+    #[case(
+        Arc::new(df_expr::CaseExpr::try_new(
+            Some(col_a()),
+            vec![(lit_i32(0), in_list_a(&[1])), (lit_i32(1), lit_bool(true))],
+            None,
+        ).expect("valid CASE")),
+        lit_bool(true),
+        None,
+    )]
+    // Six of ten values is not selective enough.
+    #[case(lit_bool(true), in_list_a(&[1, 2, 3, 4, 5, 6]), None)]
+    fn complete_filter_membership(
+        #[case] left: PhysicalExprRef,
+        #[case] right: PhysicalExprRef,
+        #[case] expected: Option<[bool; 3]>,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input =
+            StructArray::from_fields(&[("a", buffer![1i32, 5, 10].into_array())])?.into_array();
+        let file_stats = stats_1_to_10(&input);
+        let filter = complete_filter(binary(left, DFOperator::And, right));
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+
+        let converted = dynamic_filter_to_vortex(&filter, fields, Some(&file_stats), &session);
+        match (converted, expected) {
+            (Some(converted), Some(expected)) => assert_arrays_eq!(
+                input.apply(&converted)?,
+                BoolArray::from_iter(expected),
+                &mut session.create_execution_ctx()
+            ),
+            (None, None) => {}
+            (converted, expected) => panic!("expected {expected:?}, got {converted:?}"),
+        }
+        Ok(())
+    }
+
+    /// Before its first update a multi-column filter only tracks the leading column, which is
+    /// the only one a TopK or aggregate filter can ever bound.
+    #[test]
+    fn template_tracks_leading_column_only() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let input = StructArray::from_fields(&[
+            ("a", buffer![1i32, 5, 10].into_array()),
+            ("b", buffer![7i32, 0, 0].into_array()),
+        ])?
+        .into_array();
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![col_a(), col_b()],
+            lit_bool(true),
+        ));
+        let filter: PhysicalExprRef = Arc::clone(&dynamic) as _;
+        let fields = input.dtype().as_struct_fields_opt().expect("struct input");
+        let converted = dynamic_filter_to_vortex(&filter, fields, None, &session)
+            .expect("filter should convert");
+        assert_eq!(converted.to_string().matches("dynamic(").count(), 4);
+        assert!(!converted.to_string().contains("$.b"));
+
+        dynamic.update(binary(
+            binary(col_a(), DFOperator::Lt, lit_i32(5)),
+            DFOperator::Or,
+            binary(
+                binary(col_a(), DFOperator::Eq, lit_i32(5)),
+                DFOperator::And,
+                binary(col_b(), DFOperator::Lt, lit_i32(3)),
+            ),
+        ))?;
+        assert_arrays_eq!(
+            input.apply(&converted)?,
+            BoolArray::from_iter([true, true, false]),
+            &mut session.create_execution_ctx()
+        );
         Ok(())
     }
 
