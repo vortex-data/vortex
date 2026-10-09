@@ -159,7 +159,7 @@ impl PlanVTable for Concat {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let mut chains = Vec::new();
+        let mut chains = Vec::with_capacity(overlapping(plan, &rows).size_hint().1.unwrap_or(0));
         for (index, start, local) in overlapping(plan, &rows) {
             let local_mask = mask.slice(
                 usize::try_from(local.start - rows.start)?

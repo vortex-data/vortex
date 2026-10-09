@@ -43,7 +43,6 @@ mod scan;
 mod stream;
 pub mod synthetic;
 
-use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
@@ -68,7 +67,7 @@ pub use self::stream::execute;
 use crate::segments::SegmentId;
 
 /// Batches an inlet holds before its writer is blocked, unless its reader says otherwise.
-pub const DEFAULT_CAPACITY: usize = 2;
+pub const DEFAULT_CAPACITY: usize = 8;
 
 /// What a pipeline stage is handed on each call.
 #[derive(Debug)]
@@ -151,14 +150,17 @@ pub struct Cx<'a> {
     bytes: &'a mut Option<BufferHandle>,
     session: &'a VortexSession,
     exec: &'a mut ExecutionCtx,
-    /// The inlets read during this run, so only their writers are checked for room after it.
-    touched: &'a mut SmallVec<[usize; 4]>,
+    /// The inlets read during this run, each once, so only their writers are checked for room
+    /// after it, and whether each inlet is listed.
+    touched: &'a mut Vec<usize>,
+    listed: &'a mut [bool],
 }
 
 impl Cx<'_> {
     /// The reading side of inlet `index` of this pipeline's source.
     pub fn inlet(&mut self, index: usize) -> Inlet<'_> {
-        if self.touched.last() != Some(&index) {
+        if !self.listed[index] {
+            self.listed[index] = true;
             self.touched.push(index);
         }
         self.arena.inlet(self.inlets[index])
