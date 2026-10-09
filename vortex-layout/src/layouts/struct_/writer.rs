@@ -227,12 +227,20 @@ impl LayoutStrategy for StructStrategy {
                     SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
                 let child_eof = eof.split_off();
                 let session = session.clone();
-                let ctx = ctx.clone();
+                let is_validity = index == 0 && is_nullable;
+                // Fields are written unmasked, so a nullable struct hides some of their values
+                // behind its own validity. Tell the field writers so they omit statistics that
+                // those hidden values would corrupt.
+                let ctx = if is_nullable && !is_validity {
+                    ctx.clone().with_nullable_ancestor()
+                } else {
+                    ctx.clone()
+                };
                 let segment_sink = Arc::clone(&segment_sink);
                 handle.spawn_nested(move |_| {
                     // Validity is written through the validity strategy; every other field
                     // resolves to its named override or the default strategy.
-                    let writer = if index == 0 && is_nullable {
+                    let writer = if is_validity {
                         Arc::clone(&self.validity)
                     } else {
                         self.field_writers
@@ -255,5 +263,208 @@ impl LayoutStrategy for StructStrategy {
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
         Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+
+    use vortex_array::ArrayContext;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
+
+    use super::*;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::table::TableStrategy;
+    use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::writer::ZonedLayoutOptions;
+    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::new_session;
+
+    /// Write a single-field struct with zoned fields, returning whether the field got a zone map.
+    fn field_has_zone_map(validity: Validity) -> VortexResult<bool> {
+        let strategy = StructStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(ZonedStrategy::new(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+                ZonedLayoutOptions {
+                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                    ..Default::default()
+                },
+            )),
+        );
+        let is_nullable = validity.nullability().is_nullable();
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = StructArray::try_from_iter_with_validity(
+            [("a", buffer![1, 2, 3].into_array())],
+            validity,
+        )?
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    LayoutWriterContext::new(ArrayContext::empty()),
+                    Arc::new(TestSegments::default()),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+
+        // The validity child, when present, precedes the fields.
+        Ok(layout.children()?[usize::from(is_nullable)].is::<Zoned>())
+    }
+
+    /// Write `array` through a [`TableStrategy`] with zoned leaves, returning the layout.
+    fn write_table(array: StructArray) -> VortexResult<LayoutRef> {
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(ZonedStrategy::new(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+                ZonedLayoutOptions {
+                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                    ..Default::default()
+                },
+            )),
+        );
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = array.into_array().to_array_stream().sequenced(ptr);
+        block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    LayoutWriterContext::new(ArrayContext::empty()),
+                    Arc::new(TestSegments::default()),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })
+    }
+
+    #[test]
+    fn non_nullable_struct_fields_get_a_zone_map() -> VortexResult<()> {
+        assert!(field_has_zone_map(Validity::NonNullable)?);
+        Ok(())
+    }
+
+    /// The field holds values in rows the struct nulls out, so no aggregate over it is exact for
+    /// the logical column and no zone map is written.
+    #[test]
+    fn nullable_struct_fields_get_no_zone_map() -> VortexResult<()> {
+        assert!(!field_has_zone_map(Validity::Array(
+            BoolArray::from_iter([false, true, true]).into_array(),
+        ))?);
+        Ok(())
+    }
+
+    /// A nullable struct anywhere above a leaf hides its values, however deep the leaf sits, while
+    /// leaves beside a nullable struct are unaffected.
+    #[test]
+    fn nullable_ancestor_propagates_through_nested_structs() -> VortexResult<()> {
+        let some_nulls = || Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
+
+        // Nullable outer struct, non-nullable inner struct: the inner leaf is still hidden.
+        let outer_nullable = StructArray::try_from_iter_with_validity(
+            [(
+                "inner",
+                StructArray::try_from_iter([("a", buffer![1, 2, 3].into_array())])?.into_array(),
+            )],
+            some_nulls(),
+        )?;
+        let layout = write_table(outer_nullable)?;
+        let inner = &layout.children()?[1];
+        assert!(!inner.children()?[0].is::<Zoned>());
+
+        // Non-nullable outer struct: a leaf beside the nullable inner struct keeps its zone map,
+        // the leaf below it loses it.
+        let inner_nullable = StructArray::try_from_iter([
+            ("sibling", buffer![1, 2, 3].into_array()),
+            (
+                "inner",
+                StructArray::try_from_iter_with_validity(
+                    [("a", buffer![1, 2, 3].into_array())],
+                    some_nulls(),
+                )?
+                .into_array(),
+            ),
+        ])?;
+        let layout = write_table(inner_nullable)?;
+        let children = layout.children()?;
+        assert!(children[0].is::<Zoned>());
+        assert!(!children[1].children()?[1].is::<Zoned>());
+        Ok(())
+    }
+
+    /// Wrap `leaf` in `depth` non-nullable single-field structs named `l0`, `l1`, ...
+    fn nest(leaf: ArrayRef, depth: usize) -> VortexResult<ArrayRef> {
+        (0..depth).try_fold(leaf, |inner, level| {
+            Ok(StructArray::try_from_iter([(format!("l{level}"), inner)])?.into_array())
+        })
+    }
+
+    /// Descend `depth` single-field non-nullable struct layouts to their leaf.
+    fn descend(layout: &LayoutRef, depth: usize) -> VortexResult<LayoutRef> {
+        (0..depth).try_fold(Arc::clone(layout), |layout, _| {
+            Ok(Arc::clone(&layout.children()?[0]))
+        })
+    }
+
+    /// The flag survives any number of non-nullable struct levels below the nullable one, and is
+    /// only set at the nullable level, not above it.
+    #[test]
+    fn nullable_ancestor_propagates_through_deep_nesting() -> VortexResult<()> {
+        const DEPTH: usize = 6;
+        let some_nulls = || Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
+
+        // Nullable root over DEPTH non-nullable levels.
+        let root = StructArray::try_from_iter_with_validity(
+            [("top", nest(buffer![1, 2, 3].into_array(), DEPTH)?)],
+            some_nulls(),
+        )?;
+        let layout = write_table(root)?;
+        // Skip the root's validity child, then walk every non-nullable level to the leaf.
+        let leaf = descend(&layout.children()?[1], DEPTH)?;
+        assert!(!leaf.is::<Zoned>());
+
+        // Non-nullable levels above, a nullable struct in the middle, non-nullable levels below.
+        // A leaf above the nullable level keeps its zone map, the leaf below it does not.
+        let middle = StructArray::try_from_iter_with_validity(
+            [("below", nest(buffer![1, 2, 3].into_array(), DEPTH)?)],
+            some_nulls(),
+        )?;
+        let root = nest(
+            StructArray::try_from_iter([
+                ("above", buffer![1, 2, 3].into_array()),
+                ("middle", middle.into_array()),
+            ])?
+            .into_array(),
+            DEPTH,
+        )?
+        .execute::<StructArray>(&mut new_session().create_execution_ctx())?;
+        let layout = write_table(root)?;
+        let holder = descend(&layout, DEPTH)?;
+        let holder_children = holder.children()?;
+        assert!(holder_children[0].is::<Zoned>());
+        // The nullable middle struct's children are `[validity, below]`.
+        let leaf = descend(&holder_children[1].children()?[1], DEPTH)?;
+        assert!(!leaf.is::<Zoned>());
+        Ok(())
     }
 }

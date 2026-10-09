@@ -109,6 +109,16 @@ impl LayoutStrategy for ZonedStrategy {
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
+        // Fields of a nullable struct are written unmasked, so every aggregate over them sees
+        // values the logical column does not contain: counts come out wrong and min/max come out
+        // wider than the truth. Zone maps hold exact values only, so until the aggregates are
+        // computed over the masked values no zone map is written for such a field.
+        if ctx.has_nullable_ancestor() {
+            return self
+                .child
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -268,6 +278,16 @@ mod tests {
     /// Write three zones of primitives through `ctx`, returning the aggregates the zoned
     /// layout recorded.
     fn write_zones(ctx: LayoutWriterContext) -> VortexResult<Vec<String>> {
+        Ok(write_layout(ctx)?
+            .as_::<Zoned>()
+            .aggregate_fns()
+            .iter()
+            .map(|aggregate_fn| aggregate_fn.id().to_string())
+            .collect())
+    }
+
+    /// Write three zones of primitives through `ctx`, returning the resulting layout.
+    fn write_layout(ctx: LayoutWriterContext) -> VortexResult<LayoutRef> {
         let strategy = ZonedStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
@@ -286,7 +306,7 @@ mod tests {
         .to_array_stream()
         .sequenced(ptr);
 
-        let layout = block_on(|handle: Handle| async move {
+        block_on(|handle: Handle| async move {
             let session = vortex_array::array_session()
                 .with::<LayoutSession>()
                 .with::<RuntimeSession>()
@@ -300,14 +320,7 @@ mod tests {
                     &session,
                 )
                 .await
-        })?;
-
-        Ok(layout
-            .as_::<Zoned>()
-            .aggregate_fns()
-            .iter()
-            .map(|aggregate_fn| aggregate_fn.id().to_string())
-            .collect())
+        })
     }
 
     #[test]
@@ -319,6 +332,16 @@ mod tests {
             !written.contains(&Sum.id().to_string()),
             "wrote {written:?}"
         );
+        Ok(())
+    }
+
+    /// A field of a nullable struct is written unmasked, so no aggregate over it is exact and no
+    /// zone map is written.
+    #[test]
+    fn a_nullable_ancestor_writes_no_zone_map() -> VortexResult<()> {
+        let layout =
+            write_layout(LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor())?;
+        assert!(!layout.is::<Zoned>());
         Ok(())
     }
 
