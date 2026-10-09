@@ -599,9 +599,11 @@ impl Partition for MultiLayoutPartition {
             .with_selection(request.selection)
             .with_projection(request.projection)
             .with_some_filter(filter)
-            .with_some_limit(request.limit)
-            .with_some_row_limit(self.row_limit)
             .with_ordered(request.ordered);
+        builder = match self.row_limit {
+            Some(row_limit) => builder.with_shared_limit(row_limit),
+            None => builder.with_some_limit(request.limit),
+        };
 
         if let Some(row_range) = request.row_range {
             builder = builder.with_row_range(row_range);
