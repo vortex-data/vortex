@@ -10,6 +10,8 @@ use jiff::Timestamp as JiffTimestamp;
 use jiff::tz::AmbiguousOffset;
 use jiff::tz::TimeZone;
 use prost::Message;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -24,7 +26,6 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::extension::ExtensionArrayExt;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -42,6 +43,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::validity::Validity;
 
 /// Timezone replacement options. The ambiguity policy is a UTF-8 expression child.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -186,28 +188,33 @@ impl ScalarFnVTable for ReplaceTimeZone {
         let valid = storage.validity()?.execute_mask(values.len(), ctx)?;
         let policies = ambiguous.execute::<VarBinViewArray>(ctx)?;
         let policies_valid = policies.validity()?.execute_mask(values.len(), ctx)?;
-        let mut output = Vec::with_capacity(values.len());
+        let mut output = BufferMut::<i64>::with_capacity(values.len());
+        let mut output_valid = BitBufferMut::with_capacity(values.len());
         for (i, ((value, valid), policy_valid)) in values
             .iter()
             .zip(valid.iter())
             .zip(policies_valid.iter())
             .enumerate()
         {
-            output.push(if valid && policy_valid {
+            let replaced = if valid && policy_valid {
                 let bytes = policies.bytes_at(i);
                 // SAFETY: policies has Utf8 dtype and this row is valid.
                 let policy = unsafe { std::str::from_utf8_unchecked(&bytes) };
                 convert(*value, policy)?
             } else {
                 None
-            });
+            };
+            output.push(replaced.unwrap_or_default());
+            output_valid.append(replaced.is_some());
         }
         let DType::Extension(ext) = dtype else {
             unreachable!()
         };
-        let storage = PrimitiveArray::from_option_iter(output)
-            .into_array()
-            .cast(DType::Primitive(PType::I64, Nullability::Nullable))?;
+        let storage = PrimitiveArray::new(
+            output.freeze(),
+            Validity::from_bit_buffer(output_valid.freeze(), Nullability::Nullable),
+        )
+        .into_array();
         Ok(ExtensionArray::new(ext, storage).into_array())
     }
 }
@@ -315,11 +322,21 @@ mod tests {
     use super::ReplaceTimeZoneOptions;
     use super::replace;
     use super::resolve_zone;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::StructFields;
+    use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::replace_time_zone;
+    use crate::expr::root;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
@@ -472,6 +489,65 @@ mod tests {
                 ),
             )
         );
+        Ok(())
+    }
+
+    #[test]
+    fn applies_per_row_policies_and_nulls() -> VortexResult<()> {
+        let timestamp = |tz: Option<&str>| {
+            Timestamp::new_with_tz(
+                TimeUnit::Microseconds,
+                tz.map(Into::into),
+                Nullability::Nullable,
+            )
+            .erased()
+        };
+        // 2024-11-03 01:30 occurs twice in New York.
+        let fold = 1_730_597_400_000_000i64;
+        let hour = 3_600_000_000i64;
+        let input = ExtensionArray::new(
+            timestamp(None),
+            PrimitiveArray::from_option_iter([
+                Some(fold),
+                Some(fold),
+                Some(fold),
+                Some(fold),
+                None,
+            ])
+            .into_array(),
+        );
+        let policies = VarBinViewArray::from_iter_nullable_str([
+            Some("earliest"),
+            Some("latest"),
+            Some("null"),
+            None,
+            Some("raise"),
+        ]);
+        let array =
+            StructArray::from_fields(&[("t", input.into_array()), ("p", policies.into_array())])?
+                .into_array();
+        let result = array.apply(&replace_time_zone(
+            get_item("t", root()),
+            get_item("p", root()),
+            ReplaceTimeZoneOptions {
+                time_zone: Some("America/New_York".into()),
+                null_on_non_existent: false,
+            },
+        ))?;
+
+        let expected = ExtensionArray::new(
+            timestamp(Some("America/New_York")),
+            PrimitiveArray::from_option_iter([
+                Some(fold + 4 * hour),
+                Some(fold + 5 * hour),
+                None,
+                None,
+                None,
+            ])
+            .into_array(),
+        );
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 }
