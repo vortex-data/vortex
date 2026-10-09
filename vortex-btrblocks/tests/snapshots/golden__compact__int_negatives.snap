@@ -5,7 +5,7 @@ expression: rendered
 input: i64, len=16384, nbytes=131072
 root: fastlanes.for.v2(i64, len=16384) nbytes=16387
   metadata: offset: 0
-  encoded: fastlanes.bitpacked(i64, len=16384) nbytes=16384
+  encoded: fastlanes.bitpacked.v2(i64, len=16384) nbytes=16384
     metadata: bit_width: 8, offset: 0
   references: vortex.constant(i64, len=16) nbytes=3
     metadata: scalar: -128i64
