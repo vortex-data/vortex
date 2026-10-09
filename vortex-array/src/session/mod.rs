@@ -29,6 +29,7 @@ use crate::arrays::List;
 use crate::arrays::ListView;
 use crate::arrays::Map;
 use crate::arrays::Masked;
+use crate::arrays::Narrow;
 use crate::arrays::Null;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
@@ -105,6 +106,7 @@ impl Default for ArraySession {
         this.register(Dict);
         this.register(List);
         this.register(Masked);
+        this.register(Narrow);
         this.register(PiecewiseSequence);
         this.register(VarBin);
 
