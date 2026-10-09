@@ -128,8 +128,8 @@ unsafe fn take_group<I: AsPrimitive<usize>>(
         let next_byte = byte + has_non_byte_shift;
 
         // We've verified in take.rs validity read is in bounds
-        let lo: u16 = unsafe { *valid_bytes.get_unchecked(byte).as_() };
-        let hi: u16 = unsafe { *valid_bytes.get_unchecked(next_byte).as_() };
+        let lo = unsafe { *valid_bytes.get_unchecked(byte) as u16 };
+        let hi = unsafe { *valid_bytes.get_unchecked(next_byte) as u16 };
 
         let window = lo | (hi << 8);
         let valid = ((window >> validity_shift) & 0xFF) as u8;
