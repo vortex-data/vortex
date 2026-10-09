@@ -43,8 +43,8 @@ use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitWidthsView;
+use crate::bitpack_compress::bitpack_blocked_to_best_bit_widths;
 use crate::bitpack_compress::bitpack_encode_blocked;
-use crate::bitpack_compress::bitpack_to_best_bit_widths;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
@@ -268,7 +268,7 @@ fn v2_roundtrip(
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     let array = match bit_widths {
         Some(bit_widths) => bitpack_encode_blocked(&values, &bit_widths, None, &mut ctx)?,
-        None => bitpack_to_best_bit_widths(&values, &mut ctx)?,
+        None => bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?,
     };
     let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
         vortex_bail!("expected block offsets");
@@ -296,7 +296,7 @@ fn v2_roundtrip(
 fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     let values = drifting();
-    let encoded = bitpack_to_best_bit_widths(&values, &mut ctx)?;
+    let encoded = bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?;
     let BitWidthsView::Blocked(block_offsets) = encoded.bit_widths() else {
         vortex_bail!("expected block offsets");
     };
@@ -333,8 +333,10 @@ fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
 
 #[test]
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
-    let array =
-        bitpack_to_best_bit_widths(&drifting(), &mut PLUGIN_SESSION.create_execution_ctx())?;
+    let array = bitpack_blocked_to_best_bit_widths(
+        &drifting(),
+        &mut PLUGIN_SESSION.create_execution_ctx(),
+    )?;
     let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
         vortex_bail!("expected block offsets");
     };
