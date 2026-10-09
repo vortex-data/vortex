@@ -35,11 +35,11 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
+use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::splits::Splits;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
-use crate::scan::tasks::split_filter;
 use crate::scan::tasks::split_projection;
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
@@ -233,6 +233,8 @@ impl RepeatedScan {
         let ordered = self.ordered;
         let ctx = self.task_context();
 
+        // The limit applied to the emitted arrays, for scans that cannot reserve rows up front.
+        let mut trim = None;
         let tasks = match self.limit.as_ref().map(ScanLimit::budget) {
             // Without a limit, build every task eagerly so the I/O system sees all split ranges
             // up front.
@@ -264,53 +266,64 @@ impl RepeatedScan {
                     concurrency,
                 )
             }
-            // With a filter, a split's output row count is unknown until its filter has run. Split
-            // filters therefore run ahead (until the budget is spent), each filtered mask then
-            // reserves rows against the limit, and only the granted rows are projected. Masks
-            // arrive in split order for ordered scans, so those return the earliest matching rows.
+            // With a filter, a split's output row count is unknown until its filter has run.
+            // Splits therefore filter and project ahead of the consumer, and the rows they
+            // return are taken from the limit as they are emitted, discarding the excess. Split
+            // tasks are built lazily so that no new splits start once the budget is spent.
             Some(limit) => {
-                let filter_ctx = Arc::clone(&ctx);
-                let filter_handle = handle.clone();
                 let gate = limit.clone();
                 let selection = self.selection.clone();
-                // Row masks are built as splits are pulled so that a scan stopped early by its
-                // limit does not materialize a mask for every split up front.
-                let filtered = stream::iter(self.split_ranges(row_range))
+                let tasks = stream::iter(self.split_ranges(row_range))
                     .take_while(move |_| future::ready(!gate.is_exhausted()))
                     .filter_map(move |row_range| {
                         let row_mask = selection.row_mask(&row_range);
                         let task = (!row_mask.mask().all_false()).then(|| {
-                            let filter_mask =
-                                split_filter(&filter_ctx, &row_range, row_mask.mask().clone())
-                                    .vortex_expect("filtered scans have a filter");
-                            filter_handle.spawn(async move {
-                                filter_mask.await.map(|mask| (row_range, mask))
-                            })
+                            match split_exec(&ctx, row_mask) {
+                                Ok(task) => handle.spawn(task).boxed(),
+                                Err(err) => future::ready(Err(err)).boxed(),
+                            }
                         });
                         future::ready(task)
                     });
-                let projections = buffer(filtered, ordered, concurrency).map(move |filtered| {
-                    let task = filtered.and_then(|(row_range, mask)| {
-                        split_projection(&ctx, &row_range, limit.limit(mask))
-                    });
-                    match task {
-                        Ok(task) => handle.spawn(task).boxed(),
-                        Err(err) => future::ready(Err(err)).boxed(),
-                    }
-                });
-                buffer(projections, ordered, concurrency)
+                trim = Some(limit);
+                buffer(tasks, ordered, concurrency)
             }
         };
 
+        let arrays = tasks.filter_map(|array| future::ready(array.transpose()));
+        let arrays = match trim {
+            Some(limit) => {
+                let gate = limit.clone();
+                arrays
+                    .take_while(move |_| future::ready(!gate.is_exhausted()))
+                    .filter_map(move |array| future::ready(take_rows(&limit, array)))
+                    .boxed()
+            }
+            None => arrays.boxed(),
+        };
+
         let mut errored = false;
-        Ok(tasks
-            .filter_map(|array| future::ready(array.transpose()))
+        Ok(arrays
             .take_while(move |array| {
                 let take = !errored;
                 errored |= array.is_err();
                 future::ready(take)
             })
             .boxed())
+    }
+}
+
+/// Take `array`'s rows from `limit`, slicing off the rows past the budget.
+///
+/// Returns `None` when the budget is already spent.
+fn take_rows(limit: &RowLimit, array: VortexResult<ArrayRef>) -> Option<VortexResult<ArrayRef>> {
+    let Ok(array) = array else {
+        return Some(array);
+    };
+    match limit.take(array.len()) {
+        0 => None,
+        granted if granted < array.len() => Some(array.slice(0..granted)),
+        _ => Some(Ok(array)),
     }
 }
 

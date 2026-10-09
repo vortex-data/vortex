@@ -41,9 +41,10 @@ pub(crate) fn split_exec(ctx: &TaskContext, read_mask: RowMask) -> VortexResult<
     let row_range = read_mask.row_range();
     let row_mask = read_mask.mask().clone();
 
-    let Some(filter_mask) = split_filter(ctx, &row_range, row_mask.clone()) else {
+    let Some(filter) = ctx.filter.as_ref() else {
         return split_projection(ctx, &row_range, row_mask);
     };
+    let filter_mask = build_filter_mask(&ctx.reader, filter, &row_range, row_mask);
 
     // Construct the projection before the filter has run so the reader can prefetch its I/O.
     let projection =
@@ -56,17 +57,6 @@ pub(crate) fn split_exec(ctx: &TaskContext, read_mask: RowMask) -> VortexResult<
         projection.await.map(Some)
     }
     .boxed())
-}
-
-/// Build the filter mask for a split, or `None` when the scan has no filter.
-pub(crate) fn split_filter(
-    ctx: &TaskContext,
-    row_range: &Range<u64>,
-    row_mask: Mask,
-) -> Option<MaskFuture> {
-    ctx.filter
-        .as_ref()
-        .map(|filter| build_filter_mask(&ctx.reader, filter, row_range, row_mask))
 }
 
 /// Project the rows selected by an already-evaluated `mask`.

@@ -9,9 +9,11 @@ use vortex_mask::Mask;
 
 /// A cloneable row budget shared by all work that can contribute rows to one scan.
 ///
-/// Splits reserve the rows their filter selected before projection work is constructed, so rows
-/// that cannot be returned are never decoded. Reservation order decides which rows are returned:
-/// an ordered scan reserves in split order, an unordered one in completion order.
+/// Filterless scans reserve each split's selected rows before constructing its projection, so
+/// rows past the limit are never decoded. Filtered scans cannot know a split's row count up front,
+/// so they take rows from the budget as arrays are emitted and discard the excess. Either way,
+/// the order in which rows are taken decides which rows are returned: an ordered scan takes them
+/// in split order, an unordered one in completion order.
 #[derive(Clone)]
 pub(crate) struct RowLimit(Arc<AtomicU64>);
 

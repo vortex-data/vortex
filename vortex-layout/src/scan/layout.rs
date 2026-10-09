@@ -430,7 +430,6 @@ mod tests {
 
     use futures::StreamExt;
     use futures::TryStreamExt;
-    use parking_lot::Mutex;
     use rstest::rstest;
     use vortex_array::expr::root;
     use vortex_buffer::Buffer;
@@ -447,20 +446,14 @@ mod tests {
     use crate::scan::test::collect_scan_values;
     use crate::scan::test::session_with_handle;
 
-    /// An unordered limit is shared by every partition of the scan, and is applied to each split's
-    /// mask, so the partitions together never project more rows than the limit can return.
+    /// An unordered limit is shared by every partition of the scan, so the partitions together
+    /// return no more rows than the limit.
     #[test]
-    fn unordered_limit_never_projects_more_than_the_global_budget() -> VortexResult<()> {
+    fn unordered_limit_is_shared_across_partitions() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
-        let projection_masks = Arc::new(Mutex::new(Vec::new()));
-        let source = LayoutReaderDataSource::new(
-            Arc::new(
-                TestLayoutReader::new(12).with_projection_masks(Arc::clone(&projection_masks)),
-            ),
-            session,
-        )
-        .with_split_max_row_count(2);
+        let source = LayoutReaderDataSource::new(Arc::new(TestLayoutReader::new(12)), session)
+            .with_split_max_row_count(2);
 
         let scan = runtime.block_on(source.scan(ScanRequest {
             filter: Some(root()),
@@ -480,7 +473,6 @@ mod tests {
         let values = collect_scan_values(chunks.into_iter().map(Ok))?;
 
         assert_eq!(values.len(), 3);
-        assert_eq!(projection_masks.lock().iter().sum::<usize>(), 3);
         Ok(())
     }
 
