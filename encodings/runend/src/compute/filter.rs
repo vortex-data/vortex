@@ -25,6 +25,7 @@ use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 use crate::array::RunEndArraySlotsExt;
 use crate::compute::take::take_indices_unchecked;
+use crate::iter::trimmed_ends_iter;
 
 /// Takes directly below this average number of selected rows per source run.
 ///
@@ -65,6 +66,16 @@ impl FilterKernel for RunEnd {
         }
 
         let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
+        if source_run_count == array.len()
+            && match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |E| {
+                trimmed_ends_iter(primitive_run_ends.as_slice::<E>(), array.offset(), array.len())
+                    .eq(1..=array.len())
+            })
+        {
+            // Each logical row is already a run value. Filtering the values directly
+            // avoids building new run boundaries and decoding the resulting RunEnd.
+            return Ok(Some(array.values().filter(mask.clone())?));
+        }
         let (filtered_run_ends, values_mask) =
             match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
                 filter_run_end_primitive(
@@ -75,6 +86,11 @@ impl FilterKernel for RunEnd {
                 )?
             });
         let filtered_values = array.values().filter(values_mask)?;
+        if filtered_run_ends.len() == selected_rows {
+            // The retained ends are strictly increasing and end at selected_rows, so
+            // this many retained runs proves that each contains exactly one row.
+            return Ok(Some(filtered_values));
+        }
 
         // SAFETY: `filter_run_end_primitive` returns one strictly increasing end for each retained
         // run value, with the final end equal to `selected_rows`.
@@ -146,16 +162,20 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::RunEnd;
     use crate::RunEndArray;
     use crate::tests::SESSION;
+
+    use super::filter_run_end_primitive;
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(
@@ -180,6 +200,76 @@ mod tests {
             ),
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case([1u32, 2, 3], [Some(1i32), Some(3)])]
+    #[case([1u32, 2, 4], [Some(1i32), Some(3)])]
+    #[case([1u32, 3, 4], [Some(1i32), None])]
+    fn filter_unit_runs_and_clamped_tail(
+        #[case] ends: [u32; 3],
+        #[case] expected: [Option<i32>; 2],
+        #[values(0, 3)] offset: u32,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let ends = (1u32..=62)
+            .chain(ends.map(|end| end + 62))
+            .map(|end| end + offset);
+        let prefix = (0..62).map(Some);
+        let array = RunEnd::try_new_offset_length(
+            PrimitiveArray::from_iter(ends).into_array(),
+            PrimitiveArray::from_option_iter(prefix.clone().chain([Some(1i32), None, Some(3)]))
+                .into_array(),
+            offset as usize,
+            65,
+            &mut ctx,
+        )?;
+        let mask = Mask::from_iter(std::iter::repeat_n(true, 62).chain([true, false, true]));
+        assert_arrays_eq!(
+            array.filter(mask)?,
+            PrimitiveArray::from_option_iter(prefix.chain(expected)),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn filter_sliced_mask_across_words_and_long_runs(
+        #[values(0, 3, 7)] mask_offset: usize,
+        #[values(0, 3)] array_offset: u32,
+        #[values(0, 1, 2, 10)] period: usize,
+    ) -> VortexResult<()> {
+        let ends = [1u32, 5, 64, 65, 128, 384, 385, 896, 900];
+        let bits: Vec<bool> = (0..900 + mask_offset)
+            .map(|i| period != 0 && i % period == 0)
+            .collect();
+        let mask = BitBuffer::from(bits.clone()).slice(mask_offset..900 + mask_offset);
+        let bits = &bits[mask_offset..];
+        let run_ends: Vec<u32> = ends.iter().map(|&end| end + array_offset).collect();
+        let mut expected_ends = Vec::new();
+        let mut retained = Vec::new();
+        let mut start = 0;
+        let mut count = 0u32;
+        for end in ends {
+            let end = end as usize;
+            let selected: u32 = bits[start..end].iter().copied().map(u32::from).sum();
+            count += selected;
+            retained.push(selected > 0);
+            if selected > 0 {
+                expected_ends.push(count);
+            }
+            start = end;
+        }
+
+        let (filtered_ends, values_mask) =
+            filter_run_end_primitive(&run_ends, u64::from(array_offset), 900, &mask)?;
+        assert_arrays_eq!(
+            filtered_ends,
+            PrimitiveArray::from_iter(expected_ends),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(values_mask, Mask::from_iter(retained));
         Ok(())
     }
 

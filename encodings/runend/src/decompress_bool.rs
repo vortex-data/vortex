@@ -157,6 +157,16 @@ fn decode_bool_non_nullable(
 ) -> BoolArray {
     let num_runs = values.len();
 
+    // Comparisons can produce a uniform value for every run. The output bitmap then needs
+    // no run expansion, even when the input still contains many run boundaries.
+    let true_runs = values.true_count();
+    if true_runs == 0 || true_runs == num_runs {
+        return BoolArray::new(
+            BitBufferMut::full(true_runs != 0, length).freeze(),
+            nullability.into(),
+        );
+    }
+
     // For few runs, sequential append is faster than prefill + modify
     if num_runs < PREFILL_RUN_THRESHOLD {
         let mut decoded = BitBufferMut::with_capacity(length);
@@ -167,7 +177,7 @@ fn decode_bool_non_nullable(
     }
 
     // Adaptive strategy: prefill with majority value, only flip minority runs
-    let prefill = values.true_count() > num_runs - values.true_count();
+    let prefill = true_runs > num_runs - true_runs;
     let mut decoded = BitBufferMut::full(prefill, length);
     let mut current_pos = 0usize;
 
@@ -250,6 +260,7 @@ fn decode_nullable_sequential(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -257,6 +268,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::BitBufferMut;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -267,6 +279,31 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[rstest]
+    fn decode_uniform_runs(
+        #[values(false, true)] value: bool,
+        #[values(false, true)] nullable: bool,
+        #[values(16, 65)] run_count: usize,
+        #[values(0, 1)] offset: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let validity = if nullable {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        };
+        let ends = PrimitiveArray::from_iter((1u32..).take(run_count).map(|run| run * 2));
+        let values = BoolArray::new(
+            BitBufferMut::full(value, run_count).freeze(),
+            validity.clone(),
+        );
+        let length = run_count * 2 - offset - 1;
+        let decoded = runend_decode_bools(ends, values, offset, length, &mut ctx)?;
+        let expected = BoolArray::new(BitBufferMut::full(value, length).freeze(), validity);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn decode_bools_alternating() -> VortexResult<()> {

@@ -14,14 +14,21 @@
 #![expect(clippy::expect_used)]
 
 use std::fmt;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::BitBuffer;
+use vortex_mask::Mask;
+use vortex_runend::RunEnd;
 use vortex_runend::_benchmarking::filter_run_end_primitive;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -29,6 +36,12 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_runend::initialize(&session);
+    session
+});
 
 #[derive(Clone, Copy)]
 struct FilterBenchArgs {
@@ -38,50 +51,41 @@ struct FilterBenchArgs {
     run_length: usize,
     /// Fraction of mask bits that are set to `true`.
     density: f64,
+    /// Bit offset of a sliced predicate mask.
+    mask_offset: usize,
 }
 
 impl fmt::Display for FilterBenchArgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "len={}_run={}_density={:.1}",
-            self.length, self.run_length, self.density
+            "len={}_run={}_density={:.1}_offset={}",
+            self.length, self.run_length, self.density, self.mask_offset
         )
     }
 }
 
-const FILTER_ARGS: &[FilterBenchArgs] = &[
-    FilterBenchArgs {
-        length: 4_096,
-        run_length: 16,
+const FILTER_ARGS: [FilterBenchArgs; 36] = {
+    let mut args = [FilterBenchArgs {
+        length: 16_384,
+        run_length: 1,
         density: 0.1,
-    },
-    FilterBenchArgs {
-        length: 4_096,
-        run_length: 16,
-        density: 0.5,
-    },
-    FilterBenchArgs {
-        length: 4_096,
-        run_length: 16,
-        density: 0.9,
-    },
-    FilterBenchArgs {
-        length: 16_384,
-        run_length: 16,
-        density: 0.1,
-    },
-    FilterBenchArgs {
-        length: 16_384,
-        run_length: 16,
-        density: 0.5,
-    },
-    FilterBenchArgs {
-        length: 16_384,
-        run_length: 16,
-        density: 0.9,
-    },
-];
+        mask_offset: 0,
+    }; 36];
+    let lengths = [1, 4, 16, 64, 256, 1024];
+    let densities = [0.1, 0.5, 0.9];
+    let mut i = 0;
+    while i < args.len() {
+        args[i] = FilterBenchArgs {
+            length: 16_384,
+            run_length: lengths[i / 6],
+            density: densities[(i / 2) % 3],
+            mask_offset: (i % 2) * 3,
+        };
+        i += 1;
+    }
+    args
+};
 
 /// Build the run-end boundaries (cumulative run lengths) for `length` rows.
 fn build_run_ends(length: usize, run_length: usize) -> Vec<u32> {
@@ -107,11 +111,37 @@ fn build_mask(length: usize, density: f64) -> BitBuffer {
 #[divan::bench(args = FILTER_ARGS)]
 fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
     let run_ends = build_run_ends(args.length, args.run_length);
-    let mask = build_mask(args.length, args.density);
+    let mask = build_mask(args.length + args.mask_offset, args.density)
+        .slice(args.mask_offset..args.length + args.mask_offset);
     let length = args.length as u64;
     bencher
         .with_inputs(|| (run_ends.clone(), mask.clone()))
         .bench_refs(|(run_ends, mask)| {
             filter_run_end_primitive::<u32>(run_ends, 0, length, mask).expect("filter")
+        });
+}
+
+#[divan::bench(args = FILTER_ARGS)]
+fn filter_run_end_array(bencher: Bencher, args: FilterBenchArgs) {
+    let ends = build_run_ends(args.length, args.run_length);
+    let values = PrimitiveArray::from_iter(0..ends.len() as i64).into_array();
+    let array = RunEnd::new(
+        PrimitiveArray::from_iter(ends).into_array(),
+        values,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array();
+    let mask = Mask::from(
+        build_mask(args.length + args.mask_offset, args.density)
+            .slice(args.mask_offset..args.length + args.mask_offset),
+    );
+    bencher
+        .with_inputs(|| (array.clone(), mask.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mask, mut ctx)| {
+            array
+                .filter(mask)
+                .expect("filter")
+                .execute::<PrimitiveArray>(&mut ctx)
+                .expect("execute")
         });
 }

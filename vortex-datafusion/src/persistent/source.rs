@@ -14,11 +14,15 @@ use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr::conjunction_opt;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
@@ -37,6 +41,7 @@ use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use super::opener::DynamicPredicateCaches;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
@@ -126,12 +131,15 @@ use crate::persistent::reader::VortexReaderFactory;
 ///
 /// # Projection And Predicate Behavior
 ///
-/// `VortexSource` keeps two related predicate forms:
+/// `VortexSource` keeps predicates for three stages:
 ///
 /// - `full_predicate`, which is used by DataFusion's `FilePruner` to skip whole
 ///   files before they are opened,
 /// - `vortex_predicate`, which contains only the expressions Vortex can evaluate
 ///   during the scan.
+/// - `dynamic_predicate`, which applies optional runtime pruning hints before converting chunks
+///   to Arrow. DataFusion retains the complete runtime predicate. The referenced columns must
+///   be projected directly by the scan.
 ///
 /// Projection handling depends on
 /// [`VortexTableOptions::projection_pushdown`]:
@@ -146,7 +154,8 @@ use crate::persistent::reader::VortexReaderFactory;
 /// - when disabled, `VortexSource` still keeps the full predicate for
 ///   DataFusion file pruning, but reports filters as not pushed down so
 ///   DataFusion evaluates them after the scan,
-/// - when enabled, supported filters are pushed into the Vortex scan.
+/// - when enabled, supported static filters are pushed into the Vortex scan and supported
+///   runtime predicates can also be used as pruning hints.
 ///
 /// # Observability
 ///
@@ -191,6 +200,10 @@ pub struct VortexSource {
     /// Subset of predicates that can be pushed down into Vortex scan operations.
     /// These are expressions that Vortex can efficiently evaluate during scanning.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
+    /// Runtime pruning hints evaluated before returning batches to DataFusion.
+    dynamic_predicate: Option<PhysicalExprRef>,
+    /// Snapshot caches belong to this projection and predicate, shared across file partitions.
+    dynamic_predicate_caches: Arc<DynamicPredicateCaches>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
     df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
@@ -231,6 +244,8 @@ impl VortexSource {
             projection,
             full_predicate: None,
             vortex_predicate: None,
+            dynamic_predicate: None,
+            dynamic_predicate_caches: Arc::new(DashMap::default()),
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
@@ -351,6 +366,8 @@ impl VortexSource {
             vortex_reader_factory,
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
+            dynamic_filter: self.dynamic_predicate.clone(),
+            dynamic_predicate_caches: Arc::clone(&self.dynamic_predicate_caches),
             file_pruning_predicate: self.full_predicate.clone(),
             expr_adapter_factory,
             table_schema: self.table_schema.clone(),
@@ -429,12 +446,18 @@ impl FileSource for VortexSource {
                 if let Some(predicate) = &self.vortex_predicate {
                     write!(f, ", predicate: {predicate}")?;
                 }
+                if let Some(predicate) = &self.dynamic_predicate {
+                    write!(f, ", dynamic_filter: {predicate}")?;
+                }
             }
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
                 if let Some(predicate) = &self.vortex_predicate {
                     writeln!(f, "predicate={}", fmt_sql(predicate.as_ref()))?;
                 };
+                if let Some(predicate) = &self.dynamic_predicate {
+                    writeln!(f, "dynamic_filter={}", fmt_sql(predicate.as_ref()))?;
+                }
             }
         }
         Ok(())
@@ -474,10 +497,19 @@ impl FileSource for VortexSource {
             .with_updated_node(Arc::new(source) as _));
         }
 
+        let mut dynamic_filters = Vec::new();
+        source.dynamic_predicate_caches = Arc::new(DashMap::default());
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
-                if self
+                if DynamicFilterTracking::classify(&expr).contains_dynamic_filter() {
+                    if dynamic_filter_matches_projection(&expr, &self.projection) {
+                        dynamic_filters.push(Arc::clone(&expr));
+                    }
+                    // Runtime predicates are pruning hints. Their unsupported parts must
+                    // remain the parent's responsibility when the filter changes shape.
+                    PushedDownPredicate::unsupported(expr)
+                } else if self
                     .expression_convertor
                     .can_be_pushed_down(&expr, self.table_schema.file_schema())
                 {
@@ -487,6 +519,8 @@ impl FileSource for VortexSource {
                 }
             })
             .collect::<Vec<_>>();
+        source.dynamic_predicate =
+            conjunction_opt(source.dynamic_predicate.into_iter().chain(dynamic_filters));
 
         if supported_filters
             .iter()
@@ -505,15 +539,8 @@ impl FileSource for VortexSource {
                 PushedDown::No => None,
             })
             .cloned();
-
-        let predicate = match source.vortex_predicate {
-            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
-            None => conjunction(supported),
-        };
-
-        tracing::debug!(%predicate, "Saving predicate");
-
-        source.vortex_predicate = Some(predicate);
+        source.vortex_predicate =
+            conjunction_opt(source.vortex_predicate.into_iter().chain(supported));
 
         Ok(FilterPushdownPropagation::with_parent_pushdown_result(
             supported_filters.iter().map(|f| f.discriminant).collect(),
@@ -527,6 +554,13 @@ impl FileSource for VortexSource {
     ) -> DFResult<Option<Arc<dyn FileSource>>> {
         let mut source = self.clone();
         source.projection = self.projection.try_merge(projection)?;
+        source.dynamic_predicate_caches = Arc::new(DashMap::default());
+        if let Some(filter) = &source.dynamic_predicate
+            && !dynamic_filter_matches_projection(filter, &source.projection)
+        {
+            // Optional runtime hints must not prevent projection pushdown.
+            source.dynamic_predicate = None;
+        }
         Ok(Some(Arc::new(source)))
     }
 
@@ -546,10 +580,27 @@ impl FileSource for VortexSource {
             self.full_predicate
                 .iter()
                 .chain(self.vortex_predicate.iter())
+                .chain(self.dynamic_predicate.iter())
                 .chain(self.projection.iter().map(|expr| &expr.expr)),
             f,
         )
     }
+}
+
+/// Runtime filters keep their original column names when their bounds change. Only accept them
+/// when the scan returns those columns directly; computed or renamed projections stay in DF.
+fn dynamic_filter_matches_projection(filter: &PhysicalExprRef, projection: &ProjectionExprs) -> bool {
+    projection.iter().all(|expr| {
+        expr.expr
+            .downcast_ref::<Column>()
+            .is_some_and(|column| column.name() == expr.alias)
+    }) && collect_columns(filter).iter().all(|column| {
+        projection.iter().any(|expr| {
+            expr.expr
+                .downcast_ref::<Column>()
+                .is_some_and(|projected| projected == column)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -567,7 +618,9 @@ mod tests {
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
 
     use super::*;
@@ -711,6 +764,54 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
             .clone();
         assert!(updated_source.vortex_predicate.is_some());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(vec![0, 1], true)]
+    #[case(vec![1, 0], true)]
+    #[case(vec![1], false)]
+    fn dynamic_filter_requires_projected_column(
+        #[case] indices: Vec<usize>,
+        #[case] supported: bool,
+        #[values(false, true)] predicate_pushdown: bool,
+    ) -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let mut source = sort_test_source(Arc::clone(&schema))
+            .with_predicate_pushdown(predicate_pushdown);
+        source.projection = ProjectionExprs::from_indices(&indices, &schema);
+        let column = Arc::new(Column::new("a", 0)) as PhysicalExprRef;
+        let filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![column],
+            df_expr::lit(true),
+        )) as PhysicalExprRef;
+
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        let updated = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("missing updated source"))?;
+        let updated = updated
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+        assert_eq!(
+            updated.dynamic_predicate.is_some(),
+            predicate_pushdown && supported
+        );
+        assert!(updated.vortex_predicate.is_none());
+        if predicate_pushdown && supported {
+            let projection = ProjectionExprs::from_indices(
+                &[0],
+                &Schema::new(vec![Field::new("renamed", DataType::Int32, false)]),
+            );
+            let projected = updated
+                .try_pushdown_projection(&projection)?
+                .ok_or_else(|| anyhow::anyhow!("expected projection pushdown"))?;
+            let projected = projected
+                .downcast_ref::<VortexSource>()
+                .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+            assert!(projected.dynamic_predicate.is_none());
+        }
         Ok(())
     }
 

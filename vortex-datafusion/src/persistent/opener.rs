@@ -3,6 +3,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::Weak;
 
 use arrow_array::RecordBatchOptions;
@@ -22,12 +23,14 @@ use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr::utils::reassign_expr_columns;
+use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
@@ -41,14 +44,23 @@ use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
+use vortex::array::builtins::ArrayBuiltins;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::expr::BoundExpression;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::list_contains::ListContains;
+use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -78,6 +90,10 @@ pub(crate) struct VortexOpener {
     /// This may be a subset of file_pruning_predicate containing only expressions
     /// that Vortex can efficiently evaluate.
     pub filter: Option<PhysicalExprRef>,
+    /// Runtime pruning hints; evaluated natively when the scan schema matches the output.
+    pub dynamic_filter: Option<PhysicalExprRef>,
+    /// Runtime predicate snapshots shared by all partitions reading the same file.
+    pub dynamic_predicate_caches: Arc<DynamicPredicateCaches>,
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
     pub file_pruning_predicate: Option<PhysicalExprRef>,
@@ -110,6 +126,81 @@ pub(crate) struct VortexOpener {
     pub scan_concurrency: Option<usize>,
 }
 
+pub(crate) type DynamicPredicateCaches = DashMap<Path, Arc<Mutex<DynamicPredicateCache>>>;
+
+pub(crate) struct DynamicPredicateCache {
+    tracking: DynamicFilterTracking,
+    initialized: bool,
+    predicate: Option<Arc<[BoundExpression]>>,
+}
+
+impl DynamicPredicateCache {
+    fn new(filter: &PhysicalExprRef) -> Self {
+        Self {
+            tracking: DynamicFilterTracking::classify(filter),
+            initialized: false,
+            predicate: None,
+        }
+    }
+
+    fn current(
+        &mut self,
+        filter: &PhysicalExprRef,
+        convertor: &dyn ExpressionConvertor,
+        schema: &Schema,
+        dtype: &DType,
+    ) -> VortexResult<Option<Arc<[BoundExpression]>>> {
+        let changed = self
+            .tracking
+            .watcher()
+            .is_some_and(|watcher| watcher.changed());
+        if self.initialized && !changed {
+            return Ok(self.predicate.clone());
+        }
+        let snapshot = snapshot_physical_expr(Arc::clone(filter)).map_err(|e| {
+            vortex::error::vortex_err!("Failed to snapshot dynamic filter: {e}")
+        })?;
+        let predicates = split_conjunction(&snapshot)
+            .into_iter()
+            .filter(|expr| convertor.can_be_pushed_down(expr, schema))
+            .cloned()
+            .collect::<Vec<_>>();
+        self.predicate = make_vortex_predicate(convertor, &predicates)
+            .map_err(|e| vortex::error::vortex_err!("Failed to convert dynamic filter: {e}"))?
+            .map(|predicate| predicate.bind(dtype)?.optimize_recursive())
+            .transpose()?
+            .map(|predicate| {
+                let mut conjuncts = Vec::new();
+                collect_dynamic_conjuncts(&predicate, &mut conjuncts);
+                Arc::from(conjuncts)
+            });
+        self.initialized = true;
+        Ok(self.predicate.clone())
+    }
+}
+
+fn collect_dynamic_conjuncts(predicate: &BoundExpression, conjuncts: &mut Vec<BoundExpression>) {
+    if predicate.as_opt::<Binary>() == Some(&Operator::And) {
+        collect_dynamic_conjuncts(predicate.child(0), conjuncts);
+        collect_dynamic_conjuncts(predicate.child(1), conjuncts);
+    } else if efficient_dynamic_predicate(predicate) {
+        conjuncts.push(predicate.clone());
+    }
+}
+
+fn efficient_dynamic_predicate(predicate: &BoundExpression) -> bool {
+    if predicate.is::<ListContains>()
+        && let Some(list) = predicate.child(0).as_opt::<Literal>()
+        && list.as_list().len() >= 4
+        && !matches!(predicate.child(1).dtype(), DType::Primitive(ptype, _) if ptype.is_int())
+    {
+        // Non-integer membership still compares the column once per list element.
+        // Runtime lists can contain thousands of keys, so keep this work with the parent.
+        return false;
+    }
+    predicate.children().iter().all(efficient_dynamic_predicate)
+}
+
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         // Calculate the output schema before replacing partition columns with literals so it
@@ -127,6 +218,12 @@ impl FileOpener for VortexOpener {
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
+        let dynamic_filter = self
+            .dynamic_filter
+            .as_ref()
+            .map(|filter| reassign_expr_columns(Arc::clone(filter), &output_schema))
+            .transpose()?;
+        let dynamic_predicate_caches = Arc::clone(&self.dynamic_predicate_caches);
 
         let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
@@ -324,6 +421,25 @@ impl FileOpener for VortexOpener {
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
+            // Apply supported runtime predicates to compressed columns when no schema
+            // adaptation remains. Other predicates remain with DataFusion.
+            let native_dynamic_filter = if projection_pushdown && stream_schema == *output_schema {
+                dynamic_filter.clone().map(|filter| {
+                    let cache = Arc::clone(
+                        dynamic_predicate_caches
+                            .entry(file.path().clone())
+                            .or_insert_with(|| {
+                                Arc::new(Mutex::new(DynamicPredicateCache::new(&filter)))
+                            })
+                            .value(),
+                    );
+                    (filter, cache)
+                })
+            } else {
+                None
+            };
+            let dynamic_schema = Arc::clone(&output_schema);
+            let dynamic_convertor = Arc::clone(&expr_convertor);
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
             let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
@@ -396,6 +512,7 @@ impl FileOpener for VortexOpener {
 
             if let Some(limit) = limit
                 && filter.is_none()
+                && dynamic_filter.is_none()
             {
                 scan_builder = scan_builder.with_limit(limit);
             }
@@ -445,9 +562,49 @@ impl FileOpener for VortexOpener {
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
-                .map(move |chunk| {
+                .map(move |mut chunk| {
                     let mut ctx = session.create_execution_ctx();
                     let arrow_session = ctx.session().clone();
+                    if let Some((filter, cache)) = &native_dynamic_filter {
+                        // Translate and bind once per update, then share the immutable predicate
+                        // across splits. Release the cache lock before evaluating any array.
+                        let predicate = cache
+                            .lock()
+                            .map_err(|e| {
+                                vortex::error::vortex_err!("Dynamic filter cache poisoned: {e}")
+                            })?
+                            .current(
+                                filter,
+                                dynamic_convertor.as_ref(),
+                                &dynamic_schema,
+                                chunk.dtype(),
+                            )?;
+                        if let Some(predicates) = predicate {
+                            let mut pending = Mask::AllTrue(chunk.len());
+                            for predicate in predicates.iter() {
+                                if chunk.is_empty() {
+                                    break;
+                                }
+                                let mask = chunk
+                                    .clone()
+                                    .apply_bound(predicate)?
+                                    .fill_null(false)?
+                                    .execute::<Mask>(&mut ctx)?;
+                                pending = pending & &mask;
+                                // Sparse results make subsequent column work much cheaper.
+                                // Otherwise combine masks before gathering projected values.
+                                if pending.true_count() <= chunk.len() / 10 {
+                                    chunk = chunk.filter(pending)?;
+                                    pending = Mask::AllTrue(chunk.len());
+                                }
+                            }
+                            // The parent still enforces the full predicate. Avoid a dense
+                            // gather when pruning removes fewer than one row in twenty.
+                            if chunk.len() - pending.true_count() >= chunk.len().div_ceil(20) {
+                                chunk = chunk.filter(pending)?;
+                            }
+                        }
+                    }
                     let arrow = arrow_session.arrow().execute_arrow(
                         chunk,
                         Some(&stream_target_field),
@@ -664,6 +821,7 @@ mod tests {
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
+    use datafusion::arrow::datatypes::Int32Type;
     use datafusion::arrow::datatypes::Schema;
     use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
@@ -679,6 +837,7 @@ mod tests {
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use insta::assert_snapshot;
     use itertools::Itertools;
@@ -686,11 +845,24 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray as VortexStructArray;
+    use vortex::array::assert_arrays_eq;
     use vortex::buffer::Buffer;
+    use vortex::dtype::Nullability;
+    use vortex::expr::and;
+    use vortex::expr::eq;
+    use vortex::expr::list_contains;
+    use vortex::expr::lit as vortex_lit;
+    use vortex::expr::or;
+    use vortex::expr::root;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
+    use vortex::scalar::Scalar;
     use vortex::scan::selection::Selection;
     use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex::session::VortexSession;
@@ -869,6 +1041,8 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter,
+            dynamic_filter: None,
+            dynamic_predicate_caches: Arc::new(DashMap::default()),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
@@ -884,6 +1058,313 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
         }
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn dynamic_filter_observes_update_after_open(
+        #[values(false, true)] projection_pushdown: bool,
+        #[values(false, true)] unsupported_conjunct: bool,
+        #[values(false, true)] additional_conjunct: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let batch = record_batch!(
+            ("a", Int32, vec![Some(1), None, Some(3), Some(4)]),
+            ("b", Int32, vec![10, 20, 30, 40])
+        )?;
+        let size = write_arrow_to_vortex(Arc::clone(&object_store), "dynamic.vortex", batch).await?;
+        // The table widens a file column, and the scan returns columns in a different order.
+        let table_schema = TableSchema::from(Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int64, true),
+            Field::new("b", DataType::Int32, false),
+        ])));
+        let column = Arc::new(df_expr::Column::new("a", 0)) as PhysicalExprRef;
+        let filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![
+                Arc::clone(&column),
+                Arc::new(df_expr::Column::new("b", 1)) as PhysicalExprRef,
+            ],
+            df_expr::lit(true),
+        ));
+        let mut opener = make_opener(object_store, table_schema.clone(), None);
+        opener.projection = ProjectionExprs::from_indices(&[1, 0], table_schema.file_schema());
+        opener.projection_pushdown = projection_pushdown;
+        opener.dynamic_filter = Some(Arc::clone(&filter) as PhysicalExprRef);
+        opener.limit = Some(1);
+
+        let stream = opener.open(PartitionedFile::new("dynamic.vortex", size))?.await?;
+        let mut predicate = Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&column),
+            Operator::GtEq,
+            df_expr::lit(3i64),
+        )) as PhysicalExprRef;
+        if unsupported_conjunct {
+            let odd = Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::BinaryExpr::new(
+                    column,
+                    Operator::BitwiseAnd,
+                    df_expr::lit(1i64),
+                )),
+                Operator::Eq,
+                df_expr::lit(1i64),
+            ));
+            predicate = Arc::new(df_expr::BinaryExpr::new(predicate, Operator::And, odd));
+        }
+        if additional_conjunct {
+            predicate = Arc::new(df_expr::BinaryExpr::new(
+                predicate,
+                Operator::And,
+                Arc::new(df_expr::BinaryExpr::new(
+                    Arc::new(df_expr::Column::new("b", 1)),
+                    Operator::Lt,
+                    df_expr::lit(40i32),
+                )),
+            ));
+        }
+        filter.update(predicate)?;
+        let batches: Vec<RecordBatch> = stream.try_collect().await?;
+        let rows: Vec<_> = batches
+            .iter()
+            .flat_map(|batch| {
+                batch.column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        if !projection_pushdown {
+            assert_eq!(rows, [10, 20, 30, 40]);
+        } else if additional_conjunct {
+            assert_eq!(rows, [30]);
+        } else {
+            // Native runtime predicates are hints; the parent enforces unsupported conjuncts.
+            assert_eq!(rows, [30, 40]);
+        }
+        assert!(
+            batches
+                .iter()
+                .all(|batch| batch.column(1).data_type() == &DataType::Int64)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_predicate_cache_observes_supported_and_unsupported_updates() -> anyhow::Result<()> {
+        let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+        let input = VortexStructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array(),
+        )])?
+        .into_array();
+        let column = Arc::new(df_expr::Column::new("a", 0)) as PhysicalExprRef;
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let filter = Arc::clone(&dynamic) as PhysicalExprRef;
+        let convertor = DefaultExpressionConvertor::new(SESSION.clone());
+        let mut cache = DynamicPredicateCache::new(&filter);
+        let initial = cache.current(&filter, &convertor, &schema, input.dtype())?;
+        assert_eq!(cache.current(&filter, &convertor, &schema, input.dtype())?, initial);
+        dynamic.update(Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&column),
+            Operator::Gt,
+            df_expr::lit(2i32),
+        )))?;
+        let predicate = cache
+            .current(&filter, &convertor, &schema, input.dtype())?
+            .ok_or_else(|| anyhow::anyhow!("missing native predicate"))?;
+        assert_arrays_eq!(
+            input.apply_bound(&predicate[0])?,
+            BoolArray::from_iter([false, false, true, true]),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        dynamic.update(Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(column, Operator::BitwiseAnd, df_expr::lit(1i32))),
+            Operator::Eq,
+            df_expr::lit(1i32),
+        )))?;
+        assert!(cache.current(&filter, &convertor, &schema, input.dtype())?.is_none());
+        dynamic.update(df_expr::lit(true))?;
+        assert_eq!(cache.current(&filter, &convertor, &schema, input.dtype())?, initial);
+        Ok(())
+    }
+
+    #[rstest]
+    fn dynamic_membership_keeps_large_non_integer_lists_with_parent(
+        #[values(false, true)] integer: bool,
+        #[values(3, 4, 256)] set_len: i64,
+    ) -> anyhow::Result<()> {
+        let elements = (0..set_len)
+            .map(|i| {
+                if integer {
+                    Scalar::from(i)
+                } else {
+                    Scalar::utf8(i.to_string(), Nullability::NonNullable)
+                }
+            })
+            .collect::<Vec<_>>();
+        let dtype = elements[0].dtype().clone();
+        let list = Scalar::list(dtype.clone(), elements, Nullability::NonNullable);
+        let predicate = list_contains(vortex_lit(list), root()).bind(&dtype)?;
+        assert_eq!(efficient_dynamic_predicate(&predicate), integer || set_len < 4);
+        Ok(())
+    }
+
+    #[test]
+    fn expensive_dynamic_membership_is_removed_only_from_conjunctions() -> anyhow::Result<()> {
+        let dtype = DType::Utf8(Nullability::NonNullable);
+        let list = Scalar::list(
+            dtype.clone(),
+            ["a", "b", "c", "d"]
+                .map(|value| Scalar::utf8(value, Nullability::NonNullable))
+                .to_vec(),
+            Nullability::NonNullable,
+        );
+        let membership = list_contains(vortex_lit(list), root());
+        let comparison = eq(root(), vortex_lit("a"));
+        let mut conjuncts = Vec::new();
+        collect_dynamic_conjuncts(
+            &and(membership.clone(), comparison.clone()).bind(&dtype)?,
+            &mut conjuncts,
+        );
+        assert_eq!(conjuncts, [comparison.clone().bind(&dtype)?]);
+        conjuncts.clear();
+        collect_dynamic_conjuncts(
+            &or(membership, comparison).bind(&dtype)?,
+            &mut conjuncts,
+        );
+        assert!(conjuncts.is_empty());
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn expensive_runtime_membership_preserves_optional_pruning(
+        #[values(false, true)] disjunction: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let batch = record_batch!(
+            ("a", Int32, vec![1, 2, 3, 4]),
+            ("state", Utf8, vec!["GA", "CA", "TX", "FL"])
+        )?;
+        let schema = TableSchema::from(batch.schema());
+        let size =
+            write_arrow_to_vortex(Arc::clone(&object_store), "membership.vortex", batch).await?;
+        let a = Arc::new(df_expr::Column::new("a", 0)) as PhysicalExprRef;
+        let state = Arc::new(df_expr::Column::new("state", 1)) as PhysicalExprRef;
+        let membership = Arc::new(df_expr::InListExpr::try_new(
+            Arc::clone(&state),
+            vec![df_expr::lit("GA"); 4],
+            false,
+            schema.file_schema(),
+        )?);
+        let range = Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&a),
+            Operator::GtEq,
+            df_expr::lit(3i32),
+        ));
+        let predicate = Arc::new(df_expr::BinaryExpr::new(
+            range,
+            if disjunction {
+                Operator::Or
+            } else {
+                Operator::And
+            },
+            membership,
+        ));
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(vec![a, state], predicate));
+        let mut opener = make_opener(object_store, schema.clone(), None);
+        opener.projection = ProjectionExprs::from_indices(&[0, 1], schema.file_schema());
+        opener.projection_pushdown = true;
+        opener.dynamic_filter = Some(dynamic as PhysicalExprRef);
+        let stream = opener.open(PartitionedFile::new("membership.vortex", size))?.await?;
+        let batches: Vec<RecordBatch> = stream.try_collect().await?;
+        let values: Vec<_> = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        assert_eq!(
+            values,
+            if disjunction { vec![1, 2, 3, 4] } else { vec![3, 4] }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shared_dynamic_cache_observes_updates_between_partitions() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let batch = record_batch!(("a", Int32, vec![1, 2, 3, 4]))?;
+        let schema = TableSchema::from(batch.schema());
+        let size = write_arrow_to_vortex(Arc::clone(&object_store), "shared.vortex", batch).await?;
+        let column = Arc::new(df_expr::Column::new("a", 0)) as PhysicalExprRef;
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let mut opener = make_opener(object_store, schema, None);
+        opener.projection_pushdown = true;
+        opener.dynamic_filter = Some(Arc::clone(&dynamic) as PhysicalExprRef);
+        let file = PartitionedFile::new("shared.vortex", size);
+        let first = opener.open(file.clone())?.await?;
+        let batches: Vec<RecordBatch> = first.try_collect().await?;
+        assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 4);
+
+        let mut next_partition = opener.clone();
+        next_partition.partition += 1;
+        let second = next_partition.open(file)?.await?;
+        dynamic.update(Arc::new(df_expr::BinaryExpr::new(
+            column,
+            Operator::Gt,
+            df_expr::lit(2i32),
+        )))?;
+        let batches: Vec<RecordBatch> = second.try_collect().await?;
+        let values: Vec<_> = batches
+            .iter()
+            .flat_map(|batch| batch.column(0).as_primitive::<Int32Type>().values().iter().copied())
+            .collect();
+        assert_eq!(values, [3, 4]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dynamic_conjuncts_preserve_row_coordinates_after_sparse_filter() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let batch = record_batch!(
+            ("a", Int32, (1..=100).collect::<Vec<i32>>()),
+            ("b", Int32, (1..=100).rev().collect::<Vec<i32>>())
+        )?;
+        let schema = TableSchema::from(batch.schema());
+        let size = write_arrow_to_vortex(Arc::clone(&object_store), "conjuncts.vortex", batch).await?;
+        let a = Arc::new(df_expr::Column::new("a", 0)) as PhysicalExprRef;
+        let b = Arc::new(df_expr::Column::new("b", 1)) as PhysicalExprRef;
+        let predicate = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(Arc::clone(&a), Operator::GtEq, df_expr::lit(96i32))),
+            Operator::And,
+            Arc::new(df_expr::BinaryExpr::new(Arc::clone(&b), Operator::LtEq, df_expr::lit(3i32))),
+        ));
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(vec![a, b], predicate));
+        let mut opener = make_opener(object_store, schema.clone(), None);
+        opener.projection = ProjectionExprs::from_indices(&[0, 1], schema.file_schema());
+        opener.projection_pushdown = true;
+        opener.dynamic_filter = Some(dynamic as PhysicalExprRef);
+        let stream = opener.open(PartitionedFile::new("conjuncts.vortex", size))?.await?;
+        let batches: Vec<RecordBatch> = stream.try_collect().await?;
+        let values: Vec<_> = batches
+            .iter()
+            .flat_map(|batch| batch.column(0).as_primitive::<Int32Type>().values().iter().copied())
+            .collect();
+        assert_eq!(values, [98, 99, 100]);
+        Ok(())
     }
 
     #[tokio::test]
@@ -1153,6 +1634,7 @@ mod tests {
             ))),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
+            dynamic_filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
@@ -1241,6 +1723,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
             filter: None,
+            dynamic_filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(Arc::clone(&table_schema)),
@@ -1396,6 +1879,7 @@ mod tests {
                 table_schema.file_schema(),
             ),
             filter: None,
+            dynamic_filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
@@ -1457,6 +1941,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection,
             filter: None,
+            dynamic_filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(schema),
@@ -1665,6 +2150,7 @@ mod tests {
             ))),
             projection,
             filter: None,
+            dynamic_filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
