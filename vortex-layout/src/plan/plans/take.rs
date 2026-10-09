@@ -2,15 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-use std::fmt;
 use std::ops::Range;
-use std::sync::Arc;
-use std::sync::OnceLock;
 
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
-use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
@@ -33,9 +27,8 @@ use crate::plan::optimizer::PlanParentReduceRule;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
-use crate::plan::pipeline::ops::OnceSource;
+use crate::plan::pipeline::Shared;
 use crate::plan::pipeline::ops::TakeSource;
-use crate::segments::SegmentId;
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
@@ -47,26 +40,19 @@ pub struct Take;
 /// A plan that indexes one child by another.
 pub type TakePlan = Plan<Take>;
 
-/// The values of a [`TakePlan`], once any execution of the plan has produced them.
+/// Whether a [`TakePlan`]'s values may be shared by every split of a scan.
 ///
-/// The values run over their whole domain whatever rows the take is executed with, so they
-/// depend only on the plan. Every execution of the plan, across the splits of a scan, shares one
-/// copy: later executions skip reading and decoding them, and see the same array. A plan rebuilt
-/// with new children starts empty.
-#[derive(Clone)]
+/// The values run over their whole domain whatever rows the take is executed with, so a scan
+/// reads them once and every split reading the take's codes shares them. Values evaluated with a
+/// dynamic comparison change as the engine updates it, so each split evaluates them again.
+#[derive(Clone, Debug)]
 pub struct TakeData {
-    values: Arc<OnceLock<ArrayRef>>,
-    /// Whether the values may be kept. Values evaluated with a dynamic comparison change as the
-    /// engine updates it, so each execution evaluates them again.
-    cacheable: bool,
+    shareable: bool,
 }
 
 impl Default for TakeData {
     fn default() -> Self {
-        Self {
-            values: Default::default(),
-            cacheable: true,
-        }
+        Self { shareable: true }
     }
 }
 
@@ -77,17 +63,8 @@ impl TakeData {
             None => false,
         };
         Ok(Self {
-            values: Default::default(),
-            cacheable: !dynamic,
+            shareable: !dynamic,
         })
-    }
-}
-
-impl fmt::Debug for TakeData {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TakeData")
-            .field("values_cached", &self.values.get().is_some())
-            .finish()
     }
 }
 
@@ -130,20 +107,6 @@ impl TakePlan {
             data,
         }
         .into_typed()
-    }
-
-    /// The values an earlier execution of this plan produced, if any.
-    pub(crate) fn cached_values(&self) -> Option<ArrayRef> {
-        self.data().values.get().cloned()
-    }
-
-    /// Records the values for later executions, keeping the first when two race, unless the
-    /// values may not be kept.
-    pub(crate) fn cache_values(&self, values: ArrayRef) -> ArrayRef {
-        if !self.data().cacheable {
-            return values;
-        }
-        self.data().values.get_or_init(|| values).clone()
     }
 
     /// Returns the plan producing indices.
@@ -207,23 +170,11 @@ impl PlanVTable for Take {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let values = plan.values()?;
-        let values_rows = 0..values.row_count();
         let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
             return Ok(None);
         };
-        if let Some(cached) = plan.cached_values() {
-            let source = TakeSource::new(plan.clone(), Some(cached));
-            return Ok(Some(compiler.join(vec![codes], source)));
-        }
-        let len = usize::try_from(values_rows.end)?;
-        let values = match compiler.compile(&values, values_rows, &Mask::new_true(len))? {
-            Some(values) => values,
-            None => Chain::new(OnceSource::new(
-                Canonical::empty(values.dtype()).into_array(),
-            )),
-        };
-        let source = TakeSource::new(plan.clone(), None);
+        let values = compiler.whole(&plan.values()?, plan.data().shareable)?;
+        let source = TakeSource::new(plan.clone());
         Ok(Some(compiler.join(vec![codes, values], source)))
     }
 
@@ -231,11 +182,16 @@ impl PlanVTable for Take {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         let values = plan.values()?;
-        let len = values.row_count();
-        values.reach(0..len, &at.fixed(&rows), visit)?;
+        if plan.data().shareable {
+            // Every split reading the codes reads the values whole, from one shared array.
+            visit(Shared::plan(&values), at.root(&rows));
+        } else {
+            let len = values.row_count();
+            values.reach(0..len, &at.fixed(&rows), visit)?;
+        }
         plan.codes()?.reach(rows, at, visit)
     }
 }

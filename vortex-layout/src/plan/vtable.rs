@@ -17,8 +17,8 @@ use crate::plan::PlanChildren;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::plan::typed::Plan;
-use crate::segments::SegmentId;
 
 /// A unique identifier for a plan operator.
 pub type PlanId = Id;
@@ -103,7 +103,7 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         let _ = (plan, rows, at, visit);
         Ok(())

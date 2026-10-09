@@ -98,12 +98,9 @@ impl QueryRun {
         let rows = 0..plan.row_count();
         for index in 0..plan.conjunct_count() {
             if let Some(pruning) = plan.pruning(index, &core.session)? {
-                let pruning = pruning.as_::<Zoned>();
-                if pruning.cache().zone_map().is_none() {
-                    let zones = pruning.zones_plan()?;
-                    let count = zones.row_count();
-                    core.shares.add_every_split(&zones, 0..count)?;
-                }
+                let zones = pruning.as_::<Zoned>().zones_plan()?;
+                let count = zones.row_count();
+                core.shares.add_every_split(&zones, 0..count)?;
             }
             core.shares.add(&plan.conjunct(index)?, rows.clone())?;
         }
@@ -155,8 +152,10 @@ impl QueryRun {
                     pruning.zone_len(),
                     pruning.row_count(),
                 )?;
-                let zone_map = pruning.cache().set_zone_map(zone_map);
-                self.prune(&pruning, zone_map, core)?;
+                let zone_map = Arc::new(zone_map);
+                core.zone_maps
+                    .insert(zones.as_ptr_key(), Arc::clone(&zone_map));
+                self.prune(&pruning, &zone_map, core)?;
             }
             Some(Current::Conjunct(index, spawned)) => {
                 let bits = std::mem::replace(&mut self.folded, BitBufferMut::with_capacity(0));
@@ -179,11 +178,27 @@ impl QueryRun {
     }
 
     /// Narrows the mask to the rows whose zones `pruning`'s proof keeps.
-    fn prune(&mut self, pruning: &ZonedPlan, zone_map: &ZoneMap, core: &Core) -> VortexResult<()> {
+    fn prune(
+        &mut self,
+        pruning: &ZonedPlan,
+        zone_map: &ZoneMap,
+        core: &mut Core,
+    ) -> VortexResult<()> {
         let proof = pruning
             .proof()
             .ok_or_else(|| vortex_err!("Zone pruning plan has no proof"))?;
-        let pruned = proof.pruned(zone_map, &core.session)?;
+        // The zones a proof prunes are proven once per scan, unless they may change as it runs.
+        let key = Arc::as_ptr(proof).cast::<()>() as usize;
+        let pruned = match core.pruned.get(&key) {
+            Some(pruned) if !proof.is_dynamic() => pruned.clone(),
+            _ => {
+                let pruned = proof.pruned(zone_map, &core.session)?;
+                if !proof.is_dynamic() {
+                    core.pruned.insert(key, pruned.clone());
+                }
+                pruned
+            }
+        };
         let zone_len = pruning.zone_len();
         let rows = &self.rows;
         let len = usize::try_from(rows.end - rows.start)?;
@@ -238,8 +253,8 @@ impl QueryRun {
                     let pruning = pruning.as_::<Zoned>().clone();
                     let zones = pruning.zones_plan()?;
                     let count = zones.row_count();
-                    if let Some(zone_map) = pruning.cache().zone_map() {
-                        self.prune(&pruning, zone_map, core)?;
+                    if let Some(zone_map) = core.zone_maps.get(&zones.as_ptr_key()).cloned() {
+                        self.prune(&pruning, &zone_map, core)?;
                         continue;
                     }
                     let all = Mask::new_true(usize::try_from(count)?);

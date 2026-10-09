@@ -22,8 +22,8 @@ use crate::plan::check_child_count;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::plan::pipeline::ops::MaskStage;
-use crate::segments::SegmentId;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -126,7 +126,7 @@ impl PlanVTable for Filter {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         plan.child_plan()?.reach(rows, at, visit)
     }

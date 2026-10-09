@@ -23,8 +23,8 @@ use crate::plan::optimizer::PlanReduceRule;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::plan::pipeline::ops::EvalStage;
-use crate::segments::SegmentId;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -135,7 +135,7 @@ impl PlanVTable for Eval {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         plan.child_plan()?.reach(rows, at, visit)
     }

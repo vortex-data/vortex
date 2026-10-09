@@ -26,9 +26,9 @@ use crate::plan::optimizer::PlanParentReduceRule;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::plan::pipeline::ops::ConcatSource;
 use crate::plan::pipeline::overlapping;
-use crate::segments::SegmentId;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -188,7 +188,7 @@ impl PlanVTable for Concat {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         for (index, start, local) in overlapping(plan, &rows) {
             plan.child_required(index)?.reach(

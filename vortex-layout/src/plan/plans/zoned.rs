@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
@@ -37,7 +36,7 @@ use crate::plan::optimizer::PlanParentReduceRule;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
-use crate::segments::SegmentId;
+use crate::plan::pipeline::Shared;
 
 const DATA: usize = 0;
 const ZONES: usize = 1;
@@ -51,9 +50,9 @@ const ZONES: usize = 1;
 /// plan that tells, for every row, whether the row's zone may hold a match, from the zone table
 /// alone.
 ///
-/// The zone table, once read, and the proof of each predicate over it are kept on the plan and
-/// shared by every plan derived from it, so a file's zones are read and proven once however many
-/// queries and splits run over them.
+/// The proof of each predicate is built once and shared by every plan derived from this one. The
+/// zone table and the zones a proof prunes are data, read and proven once per scan and dropped
+/// with it, so a scan's splits share them and nothing outlives the scan.
 #[derive(Clone, Debug)]
 pub struct Zoned;
 
@@ -96,10 +95,10 @@ impl fmt::Debug for ZonedData {
     }
 }
 
-/// The zone table of a zoned plan once it has been read, and the proof of each predicate over
-/// it, shared by every plan derived from the zoned plan.
+/// The proof of each predicate over a zoned plan's zone table, shared by every plan derived from
+/// the zoned plan. A proof is an expression, built from the predicate alone; the zone table and
+/// the zones a proof prunes are data, kept by the scan that reads them.
 pub(crate) struct ZoneCache {
-    zone_map: OnceLock<ZoneMap>,
     /// The proof of each predicate, or `None` when no statistic proves it false.
     proofs: Mutex<FxHashMap<ExactBoundExpr, Option<Arc<Proof>>>>,
 }
@@ -107,19 +106,8 @@ pub(crate) struct ZoneCache {
 impl ZoneCache {
     fn new() -> Self {
         Self {
-            zone_map: OnceLock::new(),
             proofs: Mutex::new(FxHashMap::default()),
         }
-    }
-
-    /// The zone table, if an execution has read it.
-    pub(crate) fn zone_map(&self) -> Option<&ZoneMap> {
-        self.zone_map.get()
-    }
-
-    /// Keeps the zone table an execution read, unless another did first.
-    pub(crate) fn set_zone_map(&self, zone_map: ZoneMap) -> &ZoneMap {
-        self.zone_map.get_or_init(|| zone_map)
     }
 
     /// The proof of `predicate` from statistics, built once per predicate, or `None` when no
@@ -138,7 +126,6 @@ impl ZoneCache {
             Arc::new(Proof {
                 dynamic: DynamicExprUpdates::new(predicate),
                 falsifier,
-                pruned: Mutex::new(None),
             })
         });
         self.proofs.lock().entry(key).or_insert(proof).clone()
@@ -146,27 +133,23 @@ impl ZoneCache {
 }
 
 /// An expression that proves, from a zone's statistics, that the zone holds no row passing a
-/// predicate, and the zones it proved that for.
+/// predicate.
 pub(crate) struct Proof {
     falsifier: BoundExpression,
-    /// Set when the predicate compares against a value that may change between executions, in
-    /// which case the zones are proven again on every execution.
+    /// Set when the predicate compares against a value that may change while a scan runs, in
+    /// which case the zones are proven again for every split.
     dynamic: Option<DynamicExprUpdates>,
-    pruned: Mutex<Option<Mask>>,
 }
 
 impl Proof {
     /// The zones that hold no passing row: `true` for a zone that can be skipped.
     pub(crate) fn pruned(&self, zone_map: &ZoneMap, session: &VortexSession) -> VortexResult<Mask> {
-        if self.dynamic.is_some() {
-            return zone_map.prune(&self.falsifier, session);
-        }
-        if let Some(pruned) = &*self.pruned.lock() {
-            return Ok(pruned.clone());
-        }
-        let pruned = zone_map.prune(&self.falsifier, session)?;
-        *self.pruned.lock() = Some(pruned.clone());
-        Ok(pruned)
+        zone_map.prune(&self.falsifier, session)
+    }
+
+    /// Whether the zones it prunes may change while a scan runs.
+    pub(crate) fn is_dynamic(&self) -> bool {
+        self.dynamic.is_some()
     }
 }
 
@@ -360,7 +343,7 @@ impl PlanVTable for Zoned {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         match plan.data_plan()? {
             Some(data) => data.reach(rows, at, visit),

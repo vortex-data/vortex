@@ -43,11 +43,11 @@ use crate::plan::optimizer::PlanParentReduceRule;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::plan::pipeline::ops::OnceSource;
 use crate::plan::pipeline::ops::PackSource;
 use crate::plan::pipeline::ops::WrapStage;
 use crate::plan::pipeline::ops::empty_struct;
-use crate::segments::SegmentId;
 
 /// Assembles a struct from one child per field, plus an optional trailing validity child.
 #[derive(Clone, Debug)]
@@ -258,7 +258,7 @@ impl PlanVTable for Pack {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         for child in plan.children().iter() {
             child?.reach(rows.clone(), at, visit)?;

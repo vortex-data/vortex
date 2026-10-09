@@ -54,6 +54,7 @@ use vortex_session::VortexSession;
 pub use self::compile::Chain;
 pub use self::compile::Compiler;
 pub use self::compile::Reach;
+pub use self::compile::Shared;
 pub(crate) use self::compile::overlapping;
 use self::port::Arena;
 pub use self::port::Inlet;

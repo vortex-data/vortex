@@ -859,3 +859,13 @@ differences, each made for cost or simplicity:
   concatenation of many chunks linear in its chunks. A source that produced a batch is asked
   again in the same run rather than requeued, so a source finishes or blocks without a trip
   through the scheduler.
+- **Caches are scoped to the scan.** A dictionary's values are a shared whole-plan output of the
+  scan (`Compiler::whole`): one pipeline reads, joins and canonicalizes them once, and every
+  split reading the codes reads them from its own port; they are dropped with the last split that
+  may read them. Values evaluated with a dynamic comparison are read per split. Zone tables and
+  the zones each proof prunes are kept by the scan and dropped with it. Nothing data-bearing is
+  kept on a plan across scans; a proof, an expression built from the predicate alone, is.
+- **Columns shared by the filter and the projection are decoded once per split.** The conjunct
+  stage that reads a column first builds its decoding pipeline with a port for the projection
+  stage, which claims it when it compiles; a stage that never runs drops its port when the split
+  finishes.

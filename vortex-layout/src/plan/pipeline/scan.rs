@@ -7,6 +7,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -35,6 +36,7 @@ use super::port::PipelineId;
 use super::port::PortId;
 use super::port::Reader;
 use super::query::QueryRun;
+use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::plan::PlanRef;
 use crate::plan::Query;
 use crate::plan::QueryPlan;
@@ -249,6 +251,10 @@ pub(crate) struct Core {
     dirty: Vec<usize>,
     dirty_flags: Vec<bool>,
     pub(crate) shares: Shares,
+    /// The zone tables the scan has read, by their plan's address, kept while it runs.
+    pub(crate) zone_maps: FxHashMap<usize, Arc<ZoneMap>>,
+    /// The zones each proof prunes, by the proof's address, proven once per scan.
+    pub(crate) pruned: FxHashMap<usize, Mask>,
     /// The split being compiled, whose shared readers a compile claims. `usize::MAX` when no
     /// split is, as when a source asks for a plan mid-run.
     pub(crate) split: usize,
@@ -270,6 +276,8 @@ impl Core {
             dirty: Vec::new(),
             dirty_flags: Vec::new(),
             shares: Shares::new(splits),
+            zone_maps: FxHashMap::default(),
+            pruned: FxHashMap::default(),
             split: usize::MAX,
         }
     }

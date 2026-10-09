@@ -27,7 +27,7 @@ use crate::plan::display::PlanTreeDisplay;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
-use crate::segments::SegmentId;
+use crate::plan::pipeline::Shared;
 
 /// The combined allocation behind [`PlanRef`].
 ///
@@ -166,7 +166,7 @@ impl PlanRef {
         &self,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         if rows.start >= rows.end {
             return Ok(());
@@ -401,7 +401,7 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
         plan: &PlanRef,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()>;
 }
 
@@ -450,7 +450,7 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
         plan: &PlanRef,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         V::reach(plan.as_::<V>(), rows, at, visit)
     }

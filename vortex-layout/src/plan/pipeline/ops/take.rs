@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Shared;
 use vortex_array::arrays::SharedArray;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 
 use super::*;
@@ -21,6 +22,9 @@ use crate::plan::pipeline::Source;
 use crate::plan::pipeline::Step;
 
 /// Wraps each batch of codes as a dictionary over the values, once the values inlet has ended.
+///
+/// The values usually arrive as one shared array, read once for the whole scan; values read
+/// for this take alone are joined and shared here.
 pub(crate) struct TakeSource {
     plan: TakePlan,
     values: Option<ArrayRef>,
@@ -30,9 +34,9 @@ const CODES: usize = 0;
 const VALUES: usize = 1;
 
 impl TakeSource {
-    /// A take over `values`, or over what its values inlet produces when `None`.
-    pub(crate) fn new(plan: TakePlan, values: Option<ArrayRef>) -> Self {
-        Self { plan, values }
+    /// A take of its codes inlet's batches over its values inlet's.
+    pub(crate) fn new(plan: TakePlan) -> Self {
+        Self { plan, values: None }
     }
 }
 
@@ -45,13 +49,7 @@ impl Operator for TakeSource {
                 if !inlet.closed() {
                     return Ok(Step::Blocked(Blocked::Inlet(VALUES)));
                 }
-                let values = join(self.plan.values()?.dtype(), drain(&mut inlet))?;
-                let values = if values.is::<Shared>() {
-                    values
-                } else {
-                    SharedArray::new(values).into_array()
-                };
-                let values = self.plan.cache_values(values);
+                let values = shared(join(self.plan.values()?.dtype(), drain(&mut inlet))?);
                 self.values = Some(values.clone());
                 values
             }
@@ -75,7 +73,7 @@ impl Operator for TakeSource {
 
 impl Source for TakeSource {
     fn inlet_count(&self) -> usize {
-        if self.values.is_some() { 1 } else { 2 }
+        2
     }
 
     fn capacity(&self, inlet: usize) -> usize {
@@ -83,6 +81,46 @@ impl Source for TakeSource {
             UNBOUNDED
         } else {
             DEFAULT_CAPACITY
+        }
+    }
+}
+
+/// `array` as a [`SharedArray`], so however many dictionaries use it, it is canonicalized once.
+fn shared(array: ArrayRef) -> ArrayRef {
+    if array.is::<Shared>() {
+        array
+    } else {
+        SharedArray::new(array).into_array()
+    }
+}
+
+/// Joins every batch of a plan's whole output into one shared array, emitted at the end.
+pub(crate) struct WholeStage {
+    dtype: DType,
+    batches: Vec<ArrayRef>,
+}
+
+impl WholeStage {
+    pub(crate) fn new(dtype: DType) -> Self {
+        Self {
+            dtype,
+            batches: Vec::new(),
+        }
+    }
+}
+
+impl Operator for WholeStage {
+    fn compute(&mut self, input: Input, _cx: &mut Cx<'_>) -> VortexResult<Step> {
+        match input {
+            Input::Chunk(batch) => {
+                self.batches.push(batch);
+                Ok(Step::Consumed)
+            }
+            Input::End => {
+                let batches = std::mem::take(&mut self.batches);
+                Ok(Step::Last(shared(join(&self.dtype, batches)?)))
+            }
+            Input::None => Ok(Step::Consumed),
         }
     }
 }

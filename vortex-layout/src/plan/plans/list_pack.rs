@@ -23,8 +23,8 @@ use crate::plan::PlanVTable;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::plan::pipeline::ops::ListPackSource;
-use crate::segments::SegmentId;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -170,7 +170,7 @@ impl PlanVTable for ListPack {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
         // The elements' range is known only once the offsets are read, so a list's segments
         // are read by the list alone.

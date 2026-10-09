@@ -590,11 +590,11 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
 
 /// A take reads its values over their whole domain and its codes over the selection, including
 /// when a predicate has been pushed onto the values, and emits nothing before the values are
-/// whole. Later scans of the plan reuse the values and read only the codes.
+/// whole. The splits of one scan share the values, read once.
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]
-fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> VortexResult<()> {
+fn take_waits_for_whole_values_and_shares_them(#[case] predicate: bool) -> VortexResult<()> {
     let mut store = Store::default();
     let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
@@ -627,10 +627,28 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
     );
     assert_view(&expected, &(0..10), &mask, first.arrays)?;
 
-    // The values are kept on the plan, so the next scan reads only its codes.
-    let second = run(&store, &plan, 10..ROWS, mask.clone(), scripted(&[1]))?;
-    assert_eq!(reads(&second.events), 1);
-    assert_view(&expected, &(10..ROWS), &mask, second.arrays)?;
+    // The values are kept for the scan, not the plan: two splits of one scan read them once,
+    // and a later scan reads them again.
+    let splits = vec![
+        Split {
+            rows: 0..10,
+            mask: mask.clone(),
+        },
+        Split {
+            rows: 10..ROWS,
+            mask: mask.clone(),
+        },
+    ];
+    let scan = Scan::try_new(SESSION.clone(), plan, splits)?;
+    let both = drive(&store, scan, delivery(Delivery::Fifo))?;
+    assert_eq!(
+        both.leftover,
+        (0, 0),
+        "the values are dropped with the last split"
+    );
+    // The codes are one segment the two splits share too.
+    assert_eq!(segments_read(&both.events), [0, 1]);
+    assert_view(&expected, &(10..ROWS), &mask, both.splits[1].clone())?;
     Ok(())
 }
 
@@ -1037,7 +1055,7 @@ fn zoned_column() -> VortexResult<(Store, PlanRef)> {
 }
 
 /// A query over a zoned column prunes the zones its conjunct cannot match before reading any
-/// data, reads the zone table once per plan, and reads nothing for a split its zones rule out.
+/// data, reads the zone table once per scan, and reads nothing for a split its zones rule out.
 #[test]
 fn query_prunes_zones_before_reading_data() -> VortexResult<()> {
     let (store, source) = zoned_column()?;
@@ -1067,7 +1085,8 @@ fn query_prunes_zones_before_reading_data() -> VortexResult<()> {
     let expected = buffer![7_i32, 8, 9].into_array();
     assert_arrays_eq!(join(expected.dtype(), first.arrays)?, expected, &mut ctx);
 
-    // The zone table and its proof are kept on the plan: only the chunk is read again.
+    // The zone table is kept for the scan, not the plan: a later scan reads it again, and the
+    // splits of one scan read it once.
     let second = run(
         &store,
         &plan,
@@ -1075,9 +1094,18 @@ fn query_prunes_zones_before_reading_data() -> VortexResult<()> {
         Mask::new_true(ROWS_ZONED as usize),
         delivery(Delivery::Fifo),
     )?;
-    assert_eq!(reads(&second.events), 1);
+    assert_eq!(segments_read(&second.events), [2, 3]);
+    let splits = vec![
+        Split::all(0..3),
+        Split::all(3..6),
+        Split::all(6..ROWS_ZONED),
+    ];
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), splits)?;
+    let three = drive(&store, scan, delivery(Delivery::Fifo))?;
+    assert_eq!(three.leftover, (0, 0));
+    assert_eq!(segments_read(&three.events), [2, 3]);
 
-    // A split whose zones are all pruned reads nothing and produces nothing.
+    // A split whose zones are all pruned reads the zone table and no data, and produces nothing.
     let pruned = run(
         &store,
         &plan,
@@ -1085,7 +1113,7 @@ fn query_prunes_zones_before_reading_data() -> VortexResult<()> {
         Mask::new_true(6),
         delivery(Delivery::Fifo),
     )?;
-    assert!(pruned.events.is_empty(), "{:?}", pruned.events);
+    assert_eq!(pruned.events, [Event::Io(vec![3]), Event::Delivered(3)]);
     Ok(())
 }
 

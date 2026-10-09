@@ -20,6 +20,7 @@ use crate::plan::check_child_count;
 use crate::plan::pipeline::Chain;
 use crate::plan::pipeline::Compiler;
 use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::Shared;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -113,9 +114,9 @@ impl PlanVTable for SegmentScan {
         plan: &Plan<Self>,
         rows: Range<u64>,
         at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+        visit: &mut dyn FnMut(Shared, Range<u64>),
     ) -> VortexResult<()> {
-        visit(plan.segment_id(), at.root(&rows));
+        visit(Shared::Segment(plan.segment_id()), at.root(&rows));
         Ok(())
     }
 }
