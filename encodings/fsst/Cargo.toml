@@ -60,5 +60,9 @@ required-features = ["_test-harness"]
 name = "fsst_take"
 harness = false
 
+[[bench]]
+name = "take_sweep"
+harness = false
+
 [package.metadata.cargo-shear]
 ignored = ["fsst-rs"]
