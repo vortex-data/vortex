@@ -154,35 +154,83 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         let codes_primitive = codes.clone().execute::<PrimitiveArray>(ctx)?;
         let values_len = self.values().len();
 
-        let init_value = !referenced;
-        let referenced_value = referenced;
-
-        let mut values_vec = vec![init_value; values_len];
-        match codes_validity.bit_buffer() {
-            AllOr::All => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    for idx in codes_primitive.as_slice::<P>() {
-                        let idxu: usize = idx.as_();
-                        values_vec[idxu] = referenced_value;
-                    }
-                });
-            }
-            AllOr::None => {}
-            AllOr::Some(mask) => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    let codes = codes_primitive.as_slice::<P>();
-                    mask.set_indices().for_each(|idx| {
-                        let idxu: usize = codes[idx].as_();
-                        values_vec[idxu] = referenced_value;
-                    });
-                });
-            }
+        let mut values_vec = vec![!referenced; values_len];
+        let saturated = match codes_validity.bit_buffer() {
+            AllOr::All => match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                mark_codes(&mut values_vec, referenced, codes_primitive.as_slice::<P>())
+            }),
+            AllOr::None => false,
+            AllOr::Some(mask) => match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                mark_masked_codes(
+                    &mut values_vec,
+                    referenced,
+                    codes_primitive.as_slice::<P>(),
+                    mask,
+                )
+            }),
+        };
+        if saturated {
+            return Ok(BitBuffer::full(referenced, values_len));
         }
 
         Ok(BitBuffer::from(values_vec))
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
+
+/// Number of codes visited between checks for whether every dictionary value is referenced.
+const EARLY_EXIT_CHUNK: usize = 2048;
+
+/// Sets `values[code]` to `referenced` for every code, returning `true` early once every entry
+/// of `values` is `referenced`, since further codes cannot change the result.
+fn mark_codes<P: AsPrimitive<usize>>(values: &mut [bool], referenced: bool, codes: &[P]) -> bool {
+    let mut cursor = 0;
+    for chunk in codes.chunks(EARLY_EXIT_CHUNK) {
+        for code in chunk {
+            values[code.as_()] = referenced;
+        }
+        if is_saturated(values, &mut cursor, referenced) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Like [`mark_codes`], but only for the codes at the set positions of `mask`.
+fn mark_masked_codes<P: AsPrimitive<usize>>(
+    values: &mut [bool],
+    referenced: bool,
+    codes: &[P],
+    mask: &BitBuffer,
+) -> bool {
+    let mut cursor = 0;
+    let mut indices = mask.set_indices();
+    loop {
+        let mut visited = 0;
+        for idx in indices.by_ref().take(EARLY_EXIT_CHUNK) {
+            values[codes[idx].as_()] = referenced;
+            visited += 1;
+        }
+        if visited == 0 {
+            return false;
+        }
+        if is_saturated(values, &mut cursor, referenced) {
+            return true;
+        }
+    }
+}
+
+/// Advances `cursor` past the entries of `values` equal to `referenced` and returns whether that
+/// is all of them. Callers share one cursor that only moves forward, so repeated checks cost
+/// `O(values.len())` in total.
+#[inline]
+fn is_saturated(values: &[bool], cursor: &mut usize, referenced: bool) -> bool {
+    *cursor += values[*cursor..]
+        .iter()
+        .take_while(|&&v| v == referenced)
+        .count();
+    *cursor == values.len()
+}
 
 /// Concrete parts of a [`DictArray`](super::DictArray) after iterative execution.
 pub struct DictParts {
@@ -301,6 +349,7 @@ mod test {
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::dict::DictArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::VarBinBuilder;
     use crate::builders::builder_with_capacity_in;
@@ -509,5 +558,47 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    /// Covers the early exit taken once every value is referenced, including when that happens
+    /// after the first chunk, alongside cases that never saturate.
+    #[rstest::rstest]
+    #[case::saturates_in_first_chunk(16, 5000, 16, None)]
+    #[case::saturates_in_later_chunk(4096, 60_000, 4096, None)]
+    #[case::never_saturates(1024, 10_000, 1000, None)]
+    #[case::saturates_with_nulls(64, 10_000, 64, Some(0.5))]
+    #[case::never_saturates_with_nulls(64, 10_000, 63, Some(0.5))]
+    fn referenced_values_mask_matches_reference(
+        #[case] num_values: u32,
+        #[case] num_codes: usize,
+        #[case] referenced_range: u32,
+        #[case] valid_fraction: Option<f64>,
+        #[values(true, false)] referenced: bool,
+    ) -> VortexResult<()> {
+        let mut rng = StdRng::seed_from_u64(0);
+        let codes: Vec<Option<u32>> = (0..num_codes)
+            .map(|_| {
+                valid_fraction
+                    .is_none_or(|f| rng.random_bool(f))
+                    .then(|| rng.random_range(0..referenced_range))
+            })
+            .collect();
+
+        let mut expected = vec![!referenced; num_values as usize];
+        for code in codes.iter().flatten() {
+            expected[*code as usize] = referenced;
+        }
+
+        let codes = match valid_fraction {
+            Some(_) => PrimitiveArray::from_option_iter(codes).into_array(),
+            None => PrimitiveArray::from_iter(codes.into_iter().flatten()).into_array(),
+        };
+        let dict =
+            DictArray::try_new(codes, PrimitiveArray::from_iter(0..num_values).into_array())?;
+        let mut ctx = array_session().create_execution_ctx();
+        let mask = dict.compute_referenced_values_mask(referenced, &mut ctx)?;
+
+        assert_eq!(mask, BitBuffer::from(expected));
+        Ok(())
     }
 }
