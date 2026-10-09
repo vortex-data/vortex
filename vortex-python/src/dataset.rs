@@ -11,9 +11,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
-use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::PrimitiveArray;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
@@ -35,6 +32,7 @@ use crate::arrow::ToPyArrow;
 use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::file::row_indices;
 use crate::install_module;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
@@ -56,9 +54,8 @@ pub fn read_array_from_reader(
     vortex_file: &VortexFile,
     projection: Expression,
     filter: Option<Expression>,
-    indices: Option<ArrayRef>,
+    indices: Option<StrictSortedBuffer<u64>>,
     row_range: Option<(u64, u64)>,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let projection = projection.bind(vortex_file.dtype())?.optimize_recursive()?;
     let filter = filter
@@ -71,9 +68,7 @@ pub fn read_array_from_reader(
     }
 
     if let Some(indices) = indices {
-        let primitive = indices.execute::<PrimitiveArray>(ctx)?;
-        let indices = primitive.into_buffer();
-        scan = scan.with_row_indices(StrictSortedBuffer::try_new(indices)?);
+        scan = scan.with_row_indices(indices);
     }
 
     if let Some((l, r)) = row_range {
@@ -167,13 +162,10 @@ impl PyVortexDataset {
         let vxf = self.vxf.clone();
         let projection = projection_from_python(columns, vxf.dtype())?;
         let filter = filter_from_python(row_filter);
-        let indices = indices.map(|i| i.into_inner());
+        let indices = row_indices(py, indices)?;
 
-        let array = py.detach(move || {
-            let session = session();
-            let mut ctx = session.create_execution_ctx();
-            read_array_from_reader(&vxf, projection, filter, indices, row_range, &mut ctx)
-        })?;
+        let array = py
+            .detach(move || read_array_from_reader(&vxf, projection, filter, indices, row_range))?;
         Ok(PyArrayRef::from(array))
     }
 }

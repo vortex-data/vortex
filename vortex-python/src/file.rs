@@ -483,7 +483,7 @@ impl PyVortexFile {
 }
 
 /// Decode row indices into a sorted `u64` buffer, releasing the GIL since this is O(n).
-fn row_indices(
+pub(crate) fn row_indices(
     py: Python,
     indices: Option<PyArrayRef>,
 ) -> VortexResult<Option<StrictSortedBuffer<u64>>> {
