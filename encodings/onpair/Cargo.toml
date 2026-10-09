@@ -36,3 +36,11 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 [[bench]]
 name = "decode"
 harness = false
+
+[[bench]]
+name = "take"
+harness = false
+
+[[bench]]
+name = "take_sweep"
+harness = false

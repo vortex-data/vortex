@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::dict::take_referenced_canonical;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
@@ -19,67 +20,63 @@ use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 
-/// Below this many rows, decoding all of them costs less than gathering token runs.
-const MIN_GATHER_LEN: usize = 1024;
-
-/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers token runs.
-/// A denser take decodes every row once and gathers the decoded strings instead: gathering
-/// decodes a row again for every index that repeats it, and costs more per row than decoding
-/// in bulk.
-const SPARSE_TAKE_DENOMINATOR: usize = 4;
-
 impl TakeExecute for OnPair {
+    /// Gathers token runs for a sparse take, decodes each referenced row once for a repetitive
+    /// one, and otherwise leaves execution to decode every row and gather the decoded strings.
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if array.len() < MIN_GATHER_LEN
-            || indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) >= array.len()
-        {
-            return Ok(None);
-        }
-
-        // SAFETY: `codes_offsets` delimit the token runs in `codes`, as for the filter kernel.
-        let codes = unsafe {
-            ListArray::new_unchecked(
-                array.codes().clone(),
-                array.codes_offsets().clone(),
-                Validity::NonNullable,
-            )
-        };
-        let taken_codes = <List as TakeExecute>::take(codes.as_view(), indices, ctx)?
-            .vortex_expect("List take kernel always returns Some")
-            .try_downcast::<List>()
-            .ok()
-            .vortex_expect("List take returns a List");
-
-        // Null indices take a zero length, matching their empty token runs.
-        let uncompressed_lengths = array.uncompressed_lengths().clone();
-        let zero = Scalar::zero_value(uncompressed_lengths.dtype());
-        let uncompressed_lengths = uncompressed_lengths
-            .take(indices.clone())?
-            .fill_null(zero)?;
-        let validity = array.array_validity().take(indices)?;
-
-        Ok(Some(
-            // SAFETY: the dictionary is unchanged and the codes, lengths and validity were all
-            // taken with the same indices, so every row still decodes to its original string.
-            unsafe {
-                OnPair::new_unchecked(
-                    array
-                        .dtype()
-                        .clone()
-                        .union_nullability(indices.dtype().nullability()),
-                    array.data().clone(),
-                    array.dict_offsets().clone(),
-                    taken_codes.elements().clone(),
-                    taken_codes.offsets().clone(),
-                    uncompressed_lengths,
-                    validity,
-                )
-            }
-            .into_array(),
-        ))
+        take_referenced_canonical(array.array(), indices, ctx, |ctx| {
+            take_token_runs(array, indices, ctx)
+        })
     }
+}
+
+/// Takes the token runs, sharing the pair dictionary, without decoding.
+fn take_token_runs(
+    array: ArrayView<'_, OnPair>,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    // SAFETY: `codes_offsets` delimit the token runs in `codes`, as for the filter kernel.
+    let codes = unsafe {
+        ListArray::new_unchecked(
+            array.codes().clone(),
+            array.codes_offsets().clone(),
+            Validity::NonNullable,
+        )
+    };
+    let taken_codes = <List as TakeExecute>::take(codes.as_view(), indices, ctx)?
+        .vortex_expect("List take kernel always returns Some")
+        .try_downcast::<List>()
+        .ok()
+        .vortex_expect("List take returns a List");
+
+    // Null indices take a zero length, matching their empty token runs.
+    let uncompressed_lengths = array.uncompressed_lengths().clone();
+    let zero = Scalar::zero_value(uncompressed_lengths.dtype());
+    let uncompressed_lengths = uncompressed_lengths
+        .take(indices.clone())?
+        .fill_null(zero)?;
+    let validity = array.array_validity().take(indices)?;
+
+    // SAFETY: the dictionary is unchanged and the codes, lengths and validity were all taken
+    // with the same indices, so every row still decodes to its original string.
+    Ok(unsafe {
+        OnPair::new_unchecked(
+            array
+                .dtype()
+                .clone()
+                .union_nullability(indices.dtype().nullability()),
+            array.data().clone(),
+            array.dict_offsets().clone(),
+            taken_codes.elements().clone(),
+            taken_codes.offsets().clone(),
+            uncompressed_lengths,
+            validity,
+        )
+    }
+    .into_array())
 }
