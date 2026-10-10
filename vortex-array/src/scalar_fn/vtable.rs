@@ -45,6 +45,8 @@ pub enum ReduceNodeValidity<T: ReduceNode> {
     /// expression reduce node, one example is byte_length(x).
     /// validity(byte_length(x)) can be symbolically reduced to validity(x)
     /// since byte_length doesn't change validity.
+    ///
+    /// Reducing does not evaluate T, so the reduced node can skip the semantic errors of T.
     Reduced(T),
     /// Validity of T can't be symbolically reduced to anything, and all
     /// further reductions require evaluating T first. For an expression reduce
@@ -269,7 +271,8 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// Returning `true` permits optimizations that evaluate the function over values that no input
     /// row references. Dictionary push-down, for example, evaluates every dictionary value, so a
-    /// fallible function could error on a value that row-wise evaluation would never reach.
+    /// fallible function could error on a value that row-wise evaluation would never reach. It also
+    /// permits null checks to skip evaluating the function.
     ///
     /// This applies only to the scalar function, not its child expressions, and only to inputs
     /// accepted by [`ScalarFnVTable::return_dtype`]. The default is conservatively `false`.
@@ -310,6 +313,28 @@ pub trait ReduceNode: Clone {
 
     /// Produce a new constant node in the same scope as "self"
     fn new_constant(&self, value: Scalar) -> Self;
+
+    /// Returns whether evaluating this subtree can raise a semantic error.
+    ///
+    /// This is `true` if any scalar function in the subtree is not
+    /// [infallible](ScalarFnVTable::is_infallible), including one below an infallible parent, as
+    /// in `cast(x, i8) < 5`. Array encodings and expression roots raise no errors of their own.
+    fn contains_fallible(&self) -> bool {
+        // A recursive search can overflow the call stack on deep expression trees.
+        let mut pending = vec![self.clone()];
+        while let Some(node) = pending.pop() {
+            if node
+                .scalar_fn()
+                .is_some_and(|scalar_fn| !scalar_fn.signature().is_infallible())
+            {
+                return true;
+            }
+
+            pending.extend((0..node.child_count()).map(|idx| node.child(idx)));
+        }
+
+        false
+    }
 
     /// Symbolic validity of this node. Reduced() if you can get from node's
     /// validity to validity of its children or a constant without evaluating

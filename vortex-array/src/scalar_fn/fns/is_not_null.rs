@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ScalarFnArray;
@@ -16,6 +17,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
+use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
@@ -35,6 +37,9 @@ use crate::scalar_fn::is_not_null_node;
 /// IsNull(x) -> if !x.nullable lit(false) else not(x.validity())
 /// IsNotNull(x) -> if !x.nullable lit(true) or x.validity()
 ///
+/// These rewrites never evaluate x, so they require that x cannot fail
+/// ([`ReduceNode::contains_fallible`]).
+///
 /// In expression and array contexts for x, y where x is nullable but y is not,
 /// reduce
 ///
@@ -46,19 +51,22 @@ use crate::scalar_fn::is_not_null_node;
 /// Latter optimizations make sense because calculating IsNull(x)/IsNotNull(x)
 /// is at most expensive as calculating x, but usually much cheaper. Although
 /// in two cases you exchange 4 computations to 4 computations, the latter
-/// four are cheaper.
+/// four are cheaper. They still evaluate x and y, so they need no fallibility
+/// check.
 pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResult<Option<T>> {
     let child = node.child(0);
-    if !child.node_dtype()?.is_nullable() {
-        return Ok(Some(node.new_constant((!is_null).into())));
-    }
+    if !child.contains_fallible() {
+        if !child.node_dtype()?.is_nullable() {
+            return Ok(Some(node.new_constant((!is_null).into())));
+        }
 
-    if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
-        return Ok(Some(if is_null {
-            validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?
-        } else {
-            validity
-        }));
+        if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
+            return Ok(Some(if is_null {
+                validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?
+            } else {
+                validity
+            }));
+        }
     }
 
     let Some(child_fn) = child.scalar_fn() else {
@@ -101,6 +109,22 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
     };
     let combine = if is_null { Operator::And } else { Operator::Or };
     Ok(Some(node.new_node(Binary.bind(combine), &[left, right])?))
+}
+
+/// Executes the input of a null check to columnar form if evaluating it can fail.
+///
+/// [`ArrayRef::validity`] alone does not evaluate the array, so it misses the errors of a fallible
+/// input. Columnar form keeps a constant input constant. The null check discards the computed
+/// values, so a plan that also reads them evaluates the input twice.
+pub(crate) fn execute_if_fallible(
+    input: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if !ArrayReduceNode::new(&input).contains_fallible() {
+        return Ok(input);
+    }
+
+    input.execute_until::<AnyColumnar>(ctx)
 }
 
 /// Expression that checks for non-null values.
@@ -166,9 +190,11 @@ impl ScalarFnVTable for IsNotNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        Ok(args.get(0)?.validity()?.to_array(args.row_count()))
+        let input = execute_if_fallible(args.get(0)?, ctx)?;
+
+        Ok(input.validity()?.to_array(args.row_count()))
     }
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
@@ -189,18 +215,28 @@ impl ScalarFnVTable for IsNotNull {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexError;
     use vortex_error::VortexExpect as _;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::Canonical;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::BoolArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::expr::BoundExpression;
     use crate::expr::Expression;
@@ -218,10 +254,12 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::operators::Operator;
     use crate::scalar_fn::internal::row_count::RowCount;
     use crate::stats::StatsSession;
     use crate::stats::all_null;
     use crate::stats::null_count;
+    use crate::validity::Validity;
 
     static STATS_SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
@@ -411,6 +449,101 @@ mod tests {
                 .bind(&dtype)?
             )
         );
+        Ok(())
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum NullCheck {
+        IsNull,
+        IsNotNull,
+    }
+
+    /// Runs the check through the array builtins, so the reduction rules apply before the kernel.
+    fn run_null_check(
+        input: &ArrayRef,
+        check: NullCheck,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BoolArray> {
+        let result = match check {
+            NullCheck::IsNull => input.is_null()?,
+            NullCheck::IsNotNull => input.is_not_null()?,
+        };
+
+        result.execute::<BoolArray>(ctx)
+    }
+
+    /// Returns the error text without the backtrace that `RUST_BACKTRACE` appends.
+    fn without_backtrace(error: &VortexError) -> String {
+        let text = error.to_string();
+        match text.split_once("\nBacktrace:") {
+            Some((message, _)) => message.to_string(),
+            None => text,
+        }
+    }
+
+    /// Covers `reduce_null` on a non-nullable input.
+    fn null_into_non_nullable_cast() -> VortexResult<ArrayRef> {
+        PrimitiveArray::from_option_iter([Some(1i64), None])
+            .into_array()
+            .cast(PType::I64.into())
+    }
+
+    /// Covers a fallible input below an infallible parent.
+    fn comparison_with_failing_cast() -> VortexResult<ArrayRef> {
+        PrimitiveArray::from_option_iter([Some(1i64), None])
+            .into_array()
+            .binary(null_into_non_nullable_cast()?, Operator::Lt)
+    }
+
+    /// Covers a fallible input below an encoding.
+    fn dictionary_of_failing_cast() -> VortexResult<ArrayRef> {
+        let codes = PrimitiveArray::from_option_iter([Some(0u8), None]).into_array();
+        Ok(DictArray::try_new(codes, null_into_non_nullable_cast()?)?.into_array())
+    }
+
+    /// The out-of-range value is null, so the cast succeeds.
+    fn successful_cast() -> VortexResult<ArrayRef> {
+        PrimitiveArray::new(buffer![300i64, 1], Validity::from_iter([false, true]))
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::Nullable))
+    }
+
+    /// A Kleene `and` over two nullable inputs has irreducible validity.
+    fn kleene_and() -> VortexResult<ArrayRef> {
+        let lhs = BoolArray::from_iter([Some(false), None, None, Some(true)]).into_array();
+        let rhs = BoolArray::from_iter([None, Some(false), None, Some(true)]).into_array();
+        lhs.binary(rhs, Operator::And)
+    }
+
+    /// A null check over a lazy input must match the check over the evaluated input, including any
+    /// error.
+    #[rstest]
+    #[case::null_into_non_nullable_cast(null_into_non_nullable_cast)]
+    #[case::comparison_with_failing_cast(comparison_with_failing_cast)]
+    #[case::dictionary_of_failing_cast(dictionary_of_failing_cast)]
+    #[case::successful_cast(successful_cast)]
+    #[case::kleene_and(kleene_and)]
+    fn null_checks_match_eager_evaluation(
+        #[case] input: fn() -> VortexResult<ArrayRef>,
+        #[values(NullCheck::IsNull, NullCheck::IsNotNull)] check: NullCheck,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let input = input()?;
+
+        let expected = input
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .and_then(|evaluated| run_null_check(&evaluated.into_array(), check, &mut ctx));
+        let actual = run_null_check(&input, check, &mut ctx);
+
+        match (actual, expected) {
+            (Ok(actual), Ok(expected)) => assert_arrays_eq!(actual, expected, &mut ctx),
+            (Err(actual), Err(expected)) => {
+                assert_eq!(without_backtrace(&actual), without_backtrace(&expected));
+            }
+            (actual, expected) => panic!("expected {expected:?}, got {actual:?}"),
+        }
+
         Ok(())
     }
 }
