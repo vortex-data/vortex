@@ -108,7 +108,7 @@ impl DataSource for LayoutReaderDataSource {
         _data: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<PartitionRef> {
-        vortex_bail!("LayoutReader splits are not yet serializable");
+        vortex_bail!(Serde: "LayoutReader splits are not yet serializable");
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {

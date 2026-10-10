@@ -92,7 +92,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
         vortex_ensure_eq!(
             value.dtype(),
             &self.dtype,
-            "MapBuilder received a map scalar with the wrong dtype"
+            MismatchedTypes: "MapBuilder received a map scalar with the wrong dtype"
         );
 
         if value.is_null() {
@@ -126,7 +126,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
         vortex_ensure_eq!(
             array.dtype(),
             self.dtype(),
-            "MapBuilder received a map array with the wrong dtype"
+            MismatchedTypes: "MapBuilder received a map array with the wrong dtype"
         );
         self.entries_builder
             .append_listview_array(array.entries().as_::<ListView>(), ctx)
@@ -162,7 +162,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for MapBuilder<O
         vortex_ensure_eq!(
             scalar.dtype(),
             self.dtype(),
-            "MapBuilder received a scalar with the wrong dtype"
+            MismatchedTypes: "MapBuilder received a scalar with the wrong dtype"
         );
         self.append_value(scalar.as_map())
     }

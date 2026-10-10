@@ -82,7 +82,7 @@ mod tests {
         let sliced = delta.slice(1000..1050)?;
 
         let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(validity, expected_validity(1000..1050), &mut ctx);
         Ok(())
@@ -101,7 +101,7 @@ mod tests {
         let sliced = delta.slice(range.clone())?;
 
         let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(validity, expected_validity(range.clone()), &mut ctx);
         assert_arrays_eq!(sliced, primitive.slice(range)?, &mut ctx);
@@ -116,7 +116,7 @@ mod tests {
         let sliced = delta.slice(100..2400)?.slice(900..1500)?;
 
         let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(validity, expected_validity(1000..1600), &mut ctx);
         assert_arrays_eq!(sliced, primitive.slice(1000..1600)?, &mut ctx);
@@ -132,7 +132,7 @@ mod tests {
         let (bases, deltas) = delta_compress(&primitive, &mut ctx)?;
 
         let Validity::Array(validity) = primitive.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         let lazy_validity = SliceArray::try_new(validity, 0..primitive.len())?.into_array();
         let delta = Delta::try_new(
@@ -144,7 +144,7 @@ mod tests {
         )?;
 
         let Validity::Array(validity) = delta.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(
             validity,
@@ -162,7 +162,7 @@ mod tests {
         let (bases, deltas) = delta_compress(&primitive, &mut ctx)?;
 
         let Validity::Array(validity) = primitive.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         let bits = validity.execute::<BoolArray>(&mut ctx)?.into_bit_buffer();
         let unaligned = BoolArray::new(misalign_bits(bits), Validity::NonNullable).into_array();
@@ -175,14 +175,14 @@ mod tests {
         )?;
 
         let Validity::Array(validity) = delta.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(validity, expected_validity(0..LEN), &mut ctx);
         assert_arrays_eq!(delta, primitive, &mut ctx);
 
         let sliced = delta.slice(1000..1050)?;
         let Validity::Array(sliced_validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(sliced_validity, expected_validity(1000..1050), &mut ctx);
         Ok(())
@@ -199,7 +199,7 @@ mod tests {
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
 
         let Validity::Array(validity) = delta.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(validity, expected_validity(0..len as usize), &mut ctx);
         assert_arrays_eq!(delta, primitive, &mut ctx);

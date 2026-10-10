@@ -169,11 +169,9 @@ impl Validity {
         Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
-            Self::Array(a) => a
-                .execute_scalar(index, ctx)?
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("validity value at index {index} is null"))?,
+            Self::Array(a) => a.execute_scalar(index, ctx)?.as_bool().value().ok_or_else(
+                || vortex_err!(AssertionFailed: "validity value at index {index} is null"),
+            )?,
         })
     }
 
@@ -346,10 +344,10 @@ impl Validity {
         match (&self, patches) {
             (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
-                vortex_bail!("Can't patch a non-nullable validity with nullable validity")
+                vortex_bail!(InvalidArgument: "Can't patch a non-nullable validity with nullable validity")
             }
             (_, Validity::NonNullable) => {
-                vortex_bail!("Can't patch a nullable validity with non-nullable validity")
+                vortex_bail!(InvalidArgument: "Can't patch a nullable validity with non-nullable validity")
             }
             (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
             (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),

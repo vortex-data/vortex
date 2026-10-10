@@ -234,7 +234,7 @@ pub fn trace_op_with<T>(
     ACTIVE_TRACE.with(|active| {
         let mut active = active.borrow_mut();
         if active.is_some() {
-            return Err(vortex_err!("trace_op captures cannot be nested"));
+            return Err(vortex_err!(InvalidArgument: "trace_op captures cannot be nested"));
         }
         *active = Some(TraceRecorder::new(options));
         Ok(())

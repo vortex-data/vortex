@@ -26,13 +26,13 @@ impl OperationsVTable<FoR> for FoR {
         let array = state.array();
         let encoded_pvalue = state
             .slot(FoRSlots::ENCODED)?
-            .ok_or_else(|| vortex_err!("FoR encoded slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "FoR encoded slot is missing"))?
             .execute_scalar(index, ctx)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
         let reference = state
             .slot(FoRSlots::REFERENCES)?
-            .ok_or_else(|| vortex_err!("FoR references slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "FoR references slot is missing"))?
             .execute_scalar(chunk, ctx)?;
         let reference = reference.as_primitive();
 

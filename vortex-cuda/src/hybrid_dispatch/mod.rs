@@ -87,7 +87,7 @@ pub async fn try_gpu_dispatch(
         return ctx
             .cuda_session()
             .kernel(&array.encoding_id())
-            .ok_or_else(|| vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id()))?
+            .ok_or_else(|| vortex_err!(NotImplemented: "No CUDA kernel for encoding {:?}", array.encoding_id()))?
             .execute(array.clone(), ctx)
             .await;
     }
@@ -98,7 +98,7 @@ pub async fn try_gpu_dispatch(
             ctx.cuda_session()
                 .kernel(&array.encoding_id())
                 .ok_or_else(|| {
-                    vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id())
+                    vortex_err!(NotImplemented: "No CUDA kernel for encoding {:?}", array.encoding_id())
                 })?
                 .execute(array.clone(), ctx)
                 .await
@@ -132,7 +132,7 @@ pub async fn try_gpu_dispatch(
             // In dyn-dispatch-only mode, don't fall back to standalone kernels.
             if ctx.dispatch_mode() == CudaDispatchMode::DynDispatchOnly {
                 return Err(vortex_err!(
-                    "Array with encoding {:?} is not dyn-dispatch-compatible",
+                    NotImplemented: "Array with encoding {:?} is not dyn-dispatch-compatible",
                     array.encoding_id()
                 ));
             }
@@ -141,7 +141,7 @@ pub async fn try_gpu_dispatch(
             ctx.cuda_session()
                 .kernel(&array.encoding_id())
                 .ok_or_else(|| {
-                    vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id())
+                    vortex_err!(NotImplemented: "No CUDA kernel for encoding {:?}", array.encoding_id())
                 })?
                 .execute(array.clone(), ctx)
                 .await

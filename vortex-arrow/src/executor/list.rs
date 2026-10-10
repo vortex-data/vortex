@@ -55,7 +55,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     vortex_ensure!(
         matches!(array.dtype(), DType::List(..)),
-        "Cannot convert Vortex array with dtype {} to an Arrow list array",
+        MismatchedTypes: "Cannot convert Vortex array with dtype {} to an Arrow list array",
         array.dtype()
     );
 
@@ -123,7 +123,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
-        "Cannot convert to non-nullable Arrow array with null elements"
+        InvalidArgument: "Cannot convert to non-nullable Arrow array with null elements"
     );
 
     let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
@@ -199,7 +199,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
-        "Cannot convert to non-nullable Arrow array with null elements"
+        InvalidArgument: "Cannot convert to non-nullable Arrow array with null elements"
     );
 
     let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;

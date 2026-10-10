@@ -240,12 +240,12 @@ impl ExtVTable for FloatExtension {
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
-        vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
+        vortex_ensure!(metadata.len() == 1, AssertionFailed: "expected one metadata byte");
         Ok(metadata[0])
     }
 
     fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(dtype.storage_dtype().is_float(), "expected float storage");
+        vortex_ensure!(dtype.storage_dtype().is_float(), AssertionFailed: "expected float storage");
         Ok(())
     }
 

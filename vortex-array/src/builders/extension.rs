@@ -119,7 +119,7 @@ impl ArrayBuilder for ExtensionBuilder {
         vortex_ensure_eq!(
             scalar.dtype(),
             self.dtype(),
-            "ExtensionBuilder received a scalar with the wrong dtype"
+            MismatchedTypes: "ExtensionBuilder received a scalar with the wrong dtype"
         );
 
         self.append_value(scalar.as_extension())

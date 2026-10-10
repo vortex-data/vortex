@@ -96,7 +96,7 @@ impl VTable for Constant {
         vortex_ensure_eq!(
             data.scalar.dtype(),
             dtype,
-            "ConstantArray scalar dtype does not match outer dtype",
+            MismatchedTypes: "ConstantArray scalar dtype does not match outer dtype",
         );
         Ok(())
     }
@@ -110,7 +110,7 @@ impl VTable for Constant {
             0 => BufferHandle::new_host(
                 ScalarValue::to_proto_bytes::<Vec<u8>>(array.scalar.value()).into(),
             ),
-            _ => vortex_panic!("ConstantArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "ConstantArray buffer index {idx} out of bounds"),
         }
     }
 
@@ -130,7 +130,7 @@ impl VTable for Constant {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ConstantArray slot_name index {idx} out of bounds")
     }
 
     fn serialize(
@@ -152,7 +152,7 @@ impl VTable for Constant {
         _children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
+        vortex_ensure_eq!(buffers.len(), 1, InvalidArgument);
 
         let buffer = buffers[0].clone().try_to_host_sync()?;
         let bytes: &[u8] = buffer.as_ref();

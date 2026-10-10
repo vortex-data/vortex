@@ -110,7 +110,7 @@ unsafe fn data_source_new(
 
     let opts = unsafe { &*opts };
     vortex_ensure!(!opts.paths.is_null());
-    vortex_ensure!(opts.paths_len > 0, "empty paths");
+    vortex_ensure!(opts.paths_len > 0, InvalidArgument: "empty paths");
 
     let paths = unsafe { slice::from_raw_parts(opts.paths, opts.paths_len) };
     let mut data_source = MultiFileDataSource::new(session.clone());

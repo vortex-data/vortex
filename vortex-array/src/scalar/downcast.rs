@@ -221,7 +221,7 @@ impl ScalarValue {
     pub fn as_bool(&self) -> bool {
         match self {
             ScalarValue::Bool(b) => *b,
-            _ => vortex_panic!("ScalarValue is not a Bool"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Bool"),
         }
     }
 
@@ -230,7 +230,7 @@ impl ScalarValue {
     pub fn as_primitive(&self) -> &PValue {
         match self {
             ScalarValue::Primitive(p) => p,
-            _ => vortex_panic!("ScalarValue is not a Primitive"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Primitive"),
         }
     }
 
@@ -239,7 +239,7 @@ impl ScalarValue {
     pub fn as_decimal(&self) -> &DecimalValue {
         match self {
             ScalarValue::Decimal(d) => d,
-            _ => vortex_panic!("ScalarValue is not a Decimal"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Decimal"),
         }
     }
 
@@ -247,7 +247,7 @@ impl ScalarValue {
     pub fn as_utf8(&self) -> &BufferString {
         match self {
             ScalarValue::Utf8(s) => s,
-            _ => vortex_panic!("ScalarValue is not a Utf8"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Utf8"),
         }
     }
 
@@ -255,7 +255,7 @@ impl ScalarValue {
     pub fn as_binary(&self) -> &ByteBuffer {
         match self {
             ScalarValue::Binary(b) => b,
-            _ => vortex_panic!("ScalarValue is not a Binary"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Binary"),
         }
     }
 
@@ -263,7 +263,7 @@ impl ScalarValue {
     pub fn as_list(&self) -> &[Option<ScalarValue>] {
         match self {
             ScalarValue::Tuple(elements) => elements,
-            _ => vortex_panic!("ScalarValue is not a Tuple"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Tuple"),
         }
     }
 
@@ -271,7 +271,7 @@ impl ScalarValue {
     pub fn into_bool(self) -> bool {
         match self {
             ScalarValue::Bool(b) => b,
-            _ => vortex_panic!("ScalarValue is not a Bool"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Bool"),
         }
     }
 
@@ -280,7 +280,7 @@ impl ScalarValue {
     pub fn into_primitive(self) -> PValue {
         match self {
             ScalarValue::Primitive(p) => p,
-            _ => vortex_panic!("ScalarValue is not a Primitive"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Primitive"),
         }
     }
 
@@ -289,7 +289,7 @@ impl ScalarValue {
     pub fn into_decimal(self) -> DecimalValue {
         match self {
             ScalarValue::Decimal(d) => d,
-            _ => vortex_panic!("ScalarValue is not a Decimal"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Decimal"),
         }
     }
 
@@ -297,7 +297,7 @@ impl ScalarValue {
     pub fn into_utf8(self) -> BufferString {
         match self {
             ScalarValue::Utf8(s) => s,
-            _ => vortex_panic!("ScalarValue is not a Utf8"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Utf8"),
         }
     }
 
@@ -305,7 +305,7 @@ impl ScalarValue {
     pub fn into_binary(self) -> ByteBuffer {
         match self {
             ScalarValue::Binary(b) => b,
-            _ => vortex_panic!("ScalarValue is not a Binary"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Binary"),
         }
     }
 
@@ -313,7 +313,7 @@ impl ScalarValue {
     pub fn into_list(self) -> Vec<Option<ScalarValue>> {
         match self {
             ScalarValue::Tuple(elements) => elements,
-            _ => vortex_panic!("ScalarValue is not a Tuple"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Tuple"),
         }
     }
 
@@ -321,7 +321,7 @@ impl ScalarValue {
     pub fn as_union(&self) -> &UnionValue {
         match self {
             ScalarValue::Union(value) => value,
-            _ => vortex_panic!("ScalarValue is not a Union"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Union"),
         }
     }
 
@@ -329,7 +329,7 @@ impl ScalarValue {
     pub fn into_union(self) -> UnionValue {
         match self {
             ScalarValue::Union(value) => value,
-            _ => vortex_panic!("ScalarValue is not a Union"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Union"),
         }
     }
 
@@ -338,7 +338,7 @@ impl ScalarValue {
     pub fn as_variant(&self) -> &Scalar {
         match self {
             ScalarValue::Variant(value) => value,
-            _ => vortex_panic!("ScalarValue is not a Variant"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Variant"),
         }
     }
 
@@ -347,7 +347,7 @@ impl ScalarValue {
     pub fn into_variant(self) -> Scalar {
         match self {
             ScalarValue::Variant(value) => *value,
-            _ => vortex_panic!("ScalarValue is not a Variant"),
+            _ => vortex_panic!(MismatchedTypes: "ScalarValue is not a Variant"),
         }
     }
 }

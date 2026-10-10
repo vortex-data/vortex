@@ -13,14 +13,14 @@ pub fn trimmed_ends_iter<E: IntegerPType>(
 ) -> impl Iterator<Item = usize> + use<'_, E> {
     let offset_e = E::from_usize(offset).unwrap_or_else(|| {
         vortex_panic!(
-            "offset {} cannot be converted to {}",
+            Overflow: "offset {} cannot be converted to {}",
             offset,
             std::any::type_name::<E>()
         )
     });
     let length_e = E::from_usize(length).unwrap_or_else(|| {
         vortex_panic!(
-            "length {} cannot be converted to {}",
+            Overflow: "length {} cannot be converted to {}",
             length,
             std::any::type_name::<E>()
         )
@@ -30,7 +30,7 @@ pub fn trimmed_ends_iter<E: IntegerPType>(
         .copied()
         .map(move |v| {
             if v < offset_e {
-                vortex_panic!("run end {v} must be >= offset {offset}");
+                vortex_panic!(AssertionFailed: "run end {v} must be >= offset {offset}");
             }
             v - offset_e
         })

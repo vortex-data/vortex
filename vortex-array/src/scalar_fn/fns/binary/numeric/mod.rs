@@ -38,7 +38,7 @@ pub(crate) fn execute_numeric(
 ) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         lhs.dtype().eq_ignore_nullability(rhs.dtype()),
-        "numeric operator requires matching types, got {} and {}",
+        MismatchedTypes: "numeric operator requires matching types, got {} and {}",
         lhs.dtype(),
         rhs.dtype()
     );
@@ -46,14 +46,14 @@ pub(crate) fn execute_numeric(
     let dtype = lhs.dtype();
     vortex_ensure!(
         matches!(dtype, DType::Primitive(..) | DType::Decimal(..)),
-        "numeric operator is not supported for dtype {}",
+        MismatchedTypes: "numeric operator is not supported for dtype {}",
         dtype
     );
 
     vortex_ensure_eq!(
         lhs.len(),
         rhs.len(),
-        "numeric operator requires equal lengths"
+        InvalidArgument: "numeric operator requires equal lengths"
     );
 
     if lhs.is_empty() {

@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn next_fn_reports_constructor_errors() {
         let next: Next<u32> = next_fn(|input: u32| -> VortexResult<Finished> {
-            vortex_bail!("constructor rejected {input}")
+            vortex_bail!(InvalidArgument: "constructor rejected {input}")
         });
         let err = next(7).err().map(|e| e.to_string());
         assert!(

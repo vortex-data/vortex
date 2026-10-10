@@ -60,9 +60,9 @@ impl ArrayPlugin for FoRPlugin {
         array: &ArrayRef,
         _session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        let view = array
-            .as_opt::<FoR>()
-            .ok_or_else(|| vortex_err!("FoR plugin cannot serialize {}", array.encoding_id()))?;
+        let view = array.as_opt::<FoR>().ok_or_else(
+            || vortex_err!(Serde: "FoR plugin cannot serialize {}", array.encoding_id()),
+        )?;
         Ok(Some(match view.constant_reference() {
             Some(reference) => v1::serialize(view, &reference),
             None => v2::serialize(view),
@@ -80,7 +80,7 @@ impl ArrayPlugin for FoRPlugin {
             v2::deserialize(parts)
         } else {
             vortex_bail!(
-                "FoR plugin does not recognize serialized ID {}",
+                Serde: "FoR plugin does not recognize serialized ID {}",
                 parts.serialized_id
             )
         }

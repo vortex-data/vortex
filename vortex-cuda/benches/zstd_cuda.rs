@@ -77,10 +77,10 @@ async fn execute_zstd_kernel(
 
     let start_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("Failed to create start event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to create start event: {:?}", e))?;
     start_event
         .record(stream)
-        .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to record start event: {:?}", e))?;
 
     let (_device_output_ptr, record_device_output) = exec.device_output.device_ptr_mut(stream);
     let (device_actual_sizes_ptr, record_actual_sizes) =
@@ -102,7 +102,7 @@ async fn execute_zstd_kernel(
             device_statuses_ptr as _,
             stream.cu_stream().cast(),
         )
-        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
+        .map_err(|e| vortex_err!(Io: "nvcomp decompress_async failed: {}", e))?;
     }
     drop((
         record_device_output,
@@ -113,15 +113,15 @@ async fn execute_zstd_kernel(
 
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("Failed to create end event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to create end event: {:?}", e))?;
 
     end_event
         .record(stream)
-        .map_err(|e| vortex_err!("Failed to record end event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to record end event: {:?}", e))?;
 
     let elapsed_ms = start_event
         .elapsed_ms(&end_event)
-        .map_err(|e| vortex_err!("Failed to get elapsed time: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to get elapsed time: {:?}", e))?;
 
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }

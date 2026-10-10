@@ -131,11 +131,11 @@ impl ScalarFnVTable for ReplaceTimeZone {
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input = timestamp_options(&arg_dtypes[0])?;
         if input.unit == TimeUnit::Days {
-            vortex_bail!("Timestamp cannot use day units");
+            vortex_bail!(InvalidArgument: "Timestamp cannot use day units");
         }
         if !matches!(arg_dtypes[1], DType::Utf8(_) | DType::Null) {
             vortex_bail!(
-                "replace_time_zone() requires a UTF-8 ambiguity policy, got {}",
+                MismatchedTypes: "replace_time_zone() requires a UTF-8 ambiguity policy, got {}",
                 arg_dtypes[1]
             );
         }
@@ -238,7 +238,7 @@ fn replace_scalar(
         let policy = policy
             .as_utf8()
             .value()
-            .ok_or_else(|| vortex_err!("Missing ambiguity policy"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Missing ambiguity policy"))?;
         replace(
             i64::try_from(&storage)?,
             metadata.unit,
@@ -261,7 +261,7 @@ fn timestamp_options(dtype: &DType) -> VortexResult<&TimestampOptions> {
     {
         return Ok(options);
     }
-    vortex_bail!("replace_time_zone() requires Timestamp, got {dtype}")
+    vortex_bail!(MismatchedTypes: "replace_time_zone() requires Timestamp, got {dtype}")
 }
 
 fn replace(
@@ -274,7 +274,7 @@ fn replace(
 ) -> VortexResult<Option<i64>> {
     if !matches!(policy, "raise" | "earliest" | "latest" | "null") {
         vortex_bail!(
-            "Invalid ambiguity policy {policy:?}: expected raise, earliest, latest, or null"
+            InvalidArgument: "Invalid ambiguity policy {policy:?}: expected raise, earliest, latest, or null"
         );
     }
     // Keeping the same timezone does not introduce a new ambiguity to reject.
@@ -286,7 +286,7 @@ fn replace(
         TimeUnit::Milliseconds => JiffTimestamp::from_millisecond(value)?,
         TimeUnit::Microseconds => JiffTimestamp::from_microsecond(value)?,
         TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value))?,
-        TimeUnit::Days => vortex_bail!("Timestamp cannot use day units"),
+        TimeUnit::Days => vortex_bail!(InvalidArgument: "Timestamp cannot use day units"),
     };
     let wall_time = source.to_datetime(timestamp);
     let ambiguous = target.to_ambiguous_timestamp(wall_time);
@@ -306,7 +306,7 @@ fn replace(
         TimeUnit::Milliseconds => timestamp.as_millisecond(),
         TimeUnit::Microseconds => timestamp.as_microsecond(),
         TimeUnit::Nanoseconds => i64::try_from(timestamp.as_nanosecond())
-            .map_err(|e| vortex_err!("Timestamp overflow: {e}"))?,
+            .map_err(|e| vortex_err!(Overflow: "Timestamp overflow: {e}"))?,
         TimeUnit::Days => unreachable!(),
     }))
 }
@@ -476,9 +476,9 @@ mod tests {
         let optimized = expr.bind(&scope)?.optimize()?;
 
         // Stats pruning only matches bare literal operands, so the replacement must fold.
-        let scalar = optimized
-            .as_opt::<Literal>()
-            .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
+        let scalar = optimized.as_opt::<Literal>().ok_or_else(
+            || vortex_err!(MismatchedTypes: "expected a bare literal, got {optimized}"),
+        )?;
         assert_eq!(
             scalar,
             &Scalar::extension_ref(

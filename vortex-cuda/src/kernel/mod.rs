@@ -72,13 +72,13 @@ impl<S: ?Sized + LaunchStrategy> LaunchStrategyExt for S {
 
         let before = stream
             .record_event(Some(flags))
-            .map_err(|e| vortex_err!("record_event: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "record_event: {e}"))?;
 
         func()?;
 
         let after = stream
             .record_event(Some(flags))
-            .map_err(|e| vortex_err!("record_event: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "record_event: {e}"))?;
 
         self.on_complete(
             &CudaKernelEvents {
@@ -183,10 +183,10 @@ pub(crate) fn launch_cuda_kernel_with_config(
     unsafe {
         launch_builder
             .launch(config)
-            .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))
+            .map_err(|e| vortex_err!(Io: "Failed to launch kernel: {}", e))
             .and_then(|events| {
                 events
-                    .ok_or_else(|| vortex_err!("CUDA events not recorded"))
+                    .ok_or_else(|| vortex_err!(AssertionFailed: "CUDA events not recorded"))
                     .map(|(before_launch, after_launch)| CudaKernelEvents {
                         before_launch,
                         after_launch,
@@ -246,7 +246,7 @@ impl KernelLoader {
         // Load the CUDA function from the compiled module.
         module
             .load_function(&kernel_name)
-            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
+            .map_err(|e| vortex_err!(Io: "Failed to load kernel function '{}': {}", kernel_name, e))
     }
 
     /// Loads a CUDA module from a fatbin embedded in the binary.
@@ -254,13 +254,13 @@ impl KernelLoader {
         module_name: &str,
         cuda_context: &Arc<CudaContext>,
     ) -> VortexResult<Arc<CudaModule>> {
-        let fatbin = embedded_kernels::embedded_kernel(module_name).ok_or_else(|| {
-            vortex_err!("CUDA module {module_name} was not embedded at build time")
-        })?;
+        let fatbin = embedded_kernels::embedded_kernel(module_name).ok_or_else(
+            || vortex_err!(NotFound: "CUDA module {module_name} was not embedded at build time"),
+        )?;
 
         cuda_context
             .load_module(Ptx::from_binary(fatbin.to_vec()))
-            .map_err(|e| vortex_err!("Failed to load embedded CUDA module {module_name}: {e}"))
+            .map_err(|e| vortex_err!(Io: "Failed to load embedded CUDA module {module_name}: {e}"))
     }
 }
 

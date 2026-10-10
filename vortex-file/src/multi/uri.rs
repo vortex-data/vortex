@@ -71,10 +71,10 @@ pub fn parse_uri_or_path(uri_or_path: &str) -> VortexResult<Url> {
     target_os = "hermit"
 ))]
 fn file_path_to_url(path: &str) -> VortexResult<Url> {
-    let abs =
-        absolute(Path::new(path)).map_err(|e| vortex_err!("failed to absolutize {path}: {e}"))?;
+    let abs = absolute(Path::new(path))
+        .map_err(|e| vortex_err!(Io: "failed to absolutize {path}: {e}"))?;
     Url::from_file_path(normalize_path(abs))
-        .map_err(|_| vortex_err!("neither URL nor path: {path}"))
+        .map_err(|_| vortex_err!(InvalidArgument: "neither URL nor path: {path}"))
 }
 
 /// `Url::from_file_path` does not exist on targets without a filesystem, such as
@@ -88,7 +88,7 @@ fn file_path_to_url(path: &str) -> VortexResult<Url> {
 )))]
 fn file_path_to_url(path: &str) -> VortexResult<Url> {
     Err(vortex_err!(
-        "bare file paths are not supported on this platform: {path}"
+        InvalidArgument: "bare file paths are not supported on this platform: {path}"
     ))
 }
 

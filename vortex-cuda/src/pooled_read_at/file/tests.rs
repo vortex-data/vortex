@@ -70,7 +70,7 @@ impl FileReadBackend for FakeFileReadBackend {
         self.requests.lock().push((offset, length));
         let end = offset
             .checked_add(u64::try_from(length)?)
-            .ok_or_else(|| vortex_err!("overflow reached fake backend"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "overflow reached fake backend"))?;
         let alignment = if self.padded { 4096 } else { 1 };
         let prefix = usize::try_from(offset % alignment as u64)?;
         let source_len = (prefix + length).next_multiple_of(alignment);
@@ -91,9 +91,9 @@ impl FileReadBackend for FakeFileReadBackend {
                     release,
                     finished: completion,
                 })
-                .map_err(|_| vortex_err!("fake read controller dropped"))?;
+                .map_err(|_| vortex_err!(Io: "fake read controller dropped"))?;
             wait.recv_timeout(WAIT)
-                .map_err(|error| vortex_err!("fake read was not released: {error}"))?;
+                .map_err(|error| vortex_err!(Io: "fake read was not released: {error}"))?;
             Some(finished)
         } else {
             None

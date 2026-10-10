@@ -37,7 +37,7 @@ impl FoRData {
         let min = array_ref
             .statistics()
             .compute_stat(Stat::Min, ctx)?
-            .ok_or_else(|| vortex_err!("Min stat not found"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             encode_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
@@ -351,7 +351,7 @@ mod test {
         let compressed = FoRData::encode(array.clone(), &mut ctx)?;
         let reference = compressed
             .constant_reference()
-            .ok_or_else(|| vortex_err!("expected a constant reference"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "expected a constant reference"))?;
         assert_eq!(i32::try_from(&reference)?, 1_001);
 
         let encoded = compressed

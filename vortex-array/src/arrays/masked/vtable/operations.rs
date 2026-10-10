@@ -25,7 +25,7 @@ impl OperationsVTable<Masked> for Masked {
         }
         Ok(state
             .slot(MaskedSlots::CHILD)?
-            .ok_or_else(|| vortex_err!("Masked child slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Masked child slot is missing"))?
             .execute_scalar(index, ctx)?
             .into_nullable())
     }

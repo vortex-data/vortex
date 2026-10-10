@@ -71,13 +71,13 @@ impl ZonedReader {
         // A zone count that disagrees with `row_count` / `zone_len` would index past the mask.
         vortex_ensure!(
             zone_len > 0,
-            "zoned layout reader requires a non-zero zone length"
+            InvalidArgument: "zoned layout reader requires a non-zero zone length"
         );
         let expected_zones = row_count.div_ceil(zone_len as u64);
         vortex_ensure_eq!(
             zone_count as u64,
             expected_zones,
-            "zoned layout zone count must cover {row_count} rows of {zone_len}-row zones"
+            Serde: "zoned layout zone count must cover {row_count} rows of {zone_len}-row zones"
         );
 
         Ok(Self {

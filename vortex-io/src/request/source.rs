@@ -50,7 +50,7 @@ impl<R: BlockingRuntime + Send + Sync> IoSource for ReadAtIoSource<R> {
             if let IoTarget::Range { offset, len, .. } = &request.target
                 && offset.checked_add(*len as u64).is_none()
             {
-                vortex_bail!("ReadAtIoSource: range overflow for {:?}", request.request);
+                vortex_bail!(Overflow: "ReadAtIoSource: range overflow for {:?}", request.request);
             }
         }
         self.queued.lock().extend(
@@ -72,11 +72,9 @@ impl<R: BlockingRuntime + Send + Sync> IoSource for ReadAtIoSource<R> {
     }
 
     fn wait(&self) -> VortexResult<Completion> {
-        let (work, request) = self
-            .queued
-            .lock()
-            .pop_front()
-            .ok_or_else(|| vortex_err!("ReadAtIoSource: wait with nothing outstanding"))?;
+        let (work, request) = self.queued.lock().pop_front().ok_or_else(
+            || vortex_err!(AssertionFailed: "ReadAtIoSource: wait with nothing outstanding"),
+        )?;
         let result = match request.target {
             IoTarget::Size => self.runtime.block_on(self.read.size()).map(IoResult::Size),
             IoTarget::Range {

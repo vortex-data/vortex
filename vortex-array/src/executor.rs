@@ -50,16 +50,17 @@ use crate::trace_op;
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> =
-        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
-            Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
-                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
+    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+        match std::env::var("VORTEX_MAX_ITERATIONS") {
+            Ok(val) => val.parse::<usize>().unwrap_or_else(|e|  {
+                vortex_panic!(InvalidArgument: "VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
             Err(VarError::NotPresent) => 2 << 21, // 2 ^ 22
             Err(VarError::NotUnicode(_)) => {
-                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
+                vortex_panic!(InvalidArgument: "VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
-        });
+        }
+    });
     *MAX_ITERATIONS
 }
 
@@ -330,7 +331,7 @@ impl ArrayRef {
         }
 
         vortex_bail!(
-            "Exceeded maximum execution iterations ({}) while executing array",
+            AssertionFailed: "Exceeded maximum execution iterations ({}) while executing array",
             max_iterations,
         )
     }
@@ -603,13 +604,13 @@ fn finalize_done(
         vortex_ensure_eq!(
             output.len(),
             expected_len,
-            "Result length mismatch for {:?}",
+            AssertionFailed: "Result length mismatch for {:?}",
             encoding_id
         );
         vortex_ensure_eq!(
             output.dtype(),
             &expected_dtype,
-            "Executed canonical dtype mismatch for {:?}",
+            AssertionFailed: "Executed canonical dtype mismatch for {:?}",
             encoding_id
         );
     }
@@ -635,12 +636,12 @@ fn execute_parent_for_child(
                     vortex_ensure_eq!(
                         result.len(),
                         parent.len(),
-                        "Executed parent canonical length mismatch"
+                        AssertionFailed: "Executed parent canonical length mismatch"
                     );
                     vortex_ensure_eq!(
                         result.dtype(),
                         parent.dtype(),
-                        "Executed parent canonical dtype mismatch"
+                        AssertionFailed: "Executed parent canonical dtype mismatch"
                     );
                 }
                 log_parent_rewrite(ctx, phase, slot_idx, parent, child, &result);

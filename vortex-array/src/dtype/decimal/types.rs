@@ -256,7 +256,9 @@ impl TryFrom<PType> for DecimalType {
             | PType::U64
             | PType::F16
             | PType::F32
-            | PType::F64) => vortex_bail!("cannot convert ptype {p} to DecimalType"),
+            | PType::F64) => {
+                vortex_bail!(MismatchedTypes: "cannot convert ptype {p} to DecimalType")
+            }
         })
     }
 }

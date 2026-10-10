@@ -156,9 +156,9 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                     self.values.extend_from_slice(val);
                 }
 
-                let next_code = Code::from_usize(next_code).unwrap_or_else(|| {
-                    vortex_panic!("{next_code} has to fit into {}", Code::PTYPE)
-                });
+                let next_code = Code::from_usize(next_code).unwrap_or_else(
+                    || vortex_panic!(Overflow: "{next_code} has to fit into {}", Code::PTYPE),
+                );
                 Some(*vacant.insert(next_code).get())
             }
         }
@@ -181,7 +181,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         self.views.push(BinaryView::default());
         self.values_nulls.append_false();
         let code = Code::from_usize(code)
-            .unwrap_or_else(|| vortex_panic!("{} has to fit into {}", code, Code::PTYPE));
+            .unwrap_or_else(|| vortex_panic!(Overflow: "{} has to fit into {}", code, Code::PTYPE));
         self.null_code
             .set(code)
             .ok()

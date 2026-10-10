@@ -101,7 +101,7 @@ fn validate_read_result(
     result.and_then(|buffer| {
         if request.len() != buffer.len() {
             return Err(vortex_err!(
-                "FileSegmentSource: expected buffer of length {} but received {}. {:?}",
+                MismatchedTypes: "FileSegmentSource: expected buffer of length {} but received {}. {:?}",
                 request.len(),
                 buffer.len(),
                 request
@@ -164,7 +164,7 @@ impl Stream for ReadRangeResults {
                         return Poll::Ready(None);
                     };
                     let error = vortex_err!(
-                        "FileSegmentSource: read_ranges ended before resolving request. {:?}",
+                        Io: "FileSegmentSource: read_ranges ended before resolving request. {:?}",
                         req
                     );
                     return Poll::Ready(Some((req, Err(error))));
@@ -269,7 +269,7 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
             }
             Poll::Ready(None) if this.num_active == 0 => Poll::Pending,
             Poll::Ready(None) => {
-                vortex_panic!("read result streams ended with active requests")
+                vortex_panic!(AssertionFailed: "read result streams ended with active requests")
             }
             Poll::Pending => Poll::Pending,
         }
@@ -316,7 +316,7 @@ impl FileSegmentSource {
         let concurrency = reader.concurrency();
         if concurrency == 0 {
             vortex_panic!(
-                "VortexReadAt::concurrency returned 0 (uri={:?}); this would stall I/O",
+                AssertionFailed: "VortexReadAt::concurrency returned 0 (uri={:?}); this would stall I/O",
                 reader.uri()
             );
         }
@@ -368,7 +368,8 @@ impl SegmentSource for FileSegmentSource {
         let spec = *match self.segments.get(*id as usize) {
             Some(spec) => spec,
             None => {
-                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+                return future::ready(Err(vortex_err!(NotFound: "Missing segment: {}", id)))
+                    .boxed();
             }
         };
 
@@ -390,7 +391,8 @@ impl SegmentSource for FileSegmentSource {
 
         // If we fail to submit the event, we create a future that has failed.
         if let Err(e) = self.events.unbounded_send(event) {
-            return future::ready(Err(vortex_err!("Failed to submit read request: {e}"))).boxed();
+            return future::ready(Err(vortex_err!(Io: "Failed to submit read request: {e}")))
+                .boxed();
         }
 
         let fut = ReadFuture {
@@ -445,7 +447,7 @@ impl Future for ReadFuture {
                     if let Some(panic) = self.driver_panic.lock().take() {
                         std::panic::resume_unwind(panic);
                     }
-                    Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")))
+                    Poll::Ready(Err(vortex_err!(Io: "ReadRequest dropped by runtime: {e}")))
                 }
                 Poll::Pending => Poll::Pending,
             },
@@ -454,7 +456,9 @@ impl Future for ReadFuture {
                 // Notify the I/O stream that this request has been polled.
                 match self.events.unbounded_send(ReadEvent::Polled(self.id)) {
                     Ok(()) => Poll::Pending,
-                    Err(e) => Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}"))),
+                    Err(e) => {
+                        Poll::Ready(Err(vortex_err!(Io: "ReadRequest dropped by runtime: {e}")))
+                    }
                 }
             }
             _ => Poll::Pending,
@@ -538,7 +542,8 @@ impl SegmentSource for BufferSegmentSource {
         let spec = match self.segments.get(*id as usize) {
             Some(spec) => spec,
             None => {
-                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+                return future::ready(Err(vortex_err!(NotFound: "Missing segment: {}", id)))
+                    .boxed();
             }
         };
 
@@ -546,7 +551,7 @@ impl SegmentSource for BufferSegmentSource {
         let end = start + spec.length as usize;
         if end > self.buffer.len() {
             return future::ready(Err(vortex_err!(
-                "Segment {} range {}..{} out of bounds for buffer of length {}",
+                OutOfBounds: "Segment {} range {}..{} out of bounds for buffer of length {}",
                 *id,
                 start,
                 end,
@@ -836,7 +841,7 @@ mod tests {
                     let permits = Arc::clone(&self.permits);
                     async move {
                         let Ok(permit) = permits.acquire_owned().await else {
-                            vortex_panic!("test semaphore unexpectedly closed");
+                            vortex_panic!(AssertionFailed: "test semaphore unexpectedly closed");
                         };
                         permit.forget();
                         active.fetch_sub(1, Ordering::SeqCst);
@@ -1006,7 +1011,7 @@ mod tests {
                 for _ in 0..(offset as usize % 5 + 1) {
                     tokio::task::yield_now().await;
                 }
-                vortex_bail!("slow read done")
+                vortex_bail!(Io: "slow read done")
             }
             .boxed()
         }

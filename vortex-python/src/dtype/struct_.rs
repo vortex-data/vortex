@@ -18,7 +18,7 @@ impl PyStructDType {
     /// Returns the names of the struct fields.
     pub fn names(self_: PyRef<'_, Self>) -> PyResult<Vec<String>> {
         let DType::Struct(dtype, _) = self_.as_ref().deref() else {
-            vortex_panic!("Not a struct DType");
+            vortex_panic!(MismatchedTypes: "Not a struct DType");
         };
 
         Ok(dtype.names().iter().map(|name| name.to_string()).collect())
@@ -27,7 +27,7 @@ impl PyStructDType {
     /// Returns the field DTypes of the struct.
     pub fn fields(self_: PyRef<'_, Self>) -> PyResult<Vec<Bound<'_, PyDType>>> {
         let DType::Struct(dtype, _) = self_.as_ref().deref() else {
-            vortex_panic!("Not a struct DType");
+            vortex_panic!(MismatchedTypes: "Not a struct DType");
         };
 
         let mut fields = Vec::with_capacity(dtype.names().len());

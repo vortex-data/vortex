@@ -115,7 +115,7 @@ async fn exec_layout_tree(
     if json {
         let tree = layout_to_json(Arc::clone(footer.layout()))?;
         let json_output = serde_json::to_string_pretty(&tree)
-            .map_err(|e| vortex::error::vortex_err!("Failed to serialize JSON: {e}"))?;
+            .map_err(|e| vortex::error::vortex_err!(Serde: "Failed to serialize JSON: {e}"))?;
         println!("{json_output}");
     } else if verbose {
         // In verbose mode, fetch segments to display buffer sizes.

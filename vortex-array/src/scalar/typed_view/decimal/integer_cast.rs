@@ -54,7 +54,7 @@ impl<T: IntegerPType + BigCast> DecimalToIntegerCast<T> {
 
     pub(crate) fn error(&self, value: i256) -> VortexError {
         vortex_err!(
-            "Decimal value {} at scale {} out of range for {}",
+            OutOfBounds: "Decimal value {} at scale {} out of range for {}",
             value,
             self.scale,
             T::PTYPE

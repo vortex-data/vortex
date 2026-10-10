@@ -68,7 +68,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
             .collect::<VortexResult<_>>()?;
 
         let Some(first) = converted.first() else {
-            vortex_bail!("list_to_vector_ext: chunked input has no chunks");
+            vortex_bail!(InvalidArgument: "list_to_vector_ext: chunked input has no chunks");
         };
 
         let dtype = first.dtype().clone();
@@ -84,7 +84,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 
     let Some(list) = input.as_opt::<List>() else {
         vortex_bail!(
-            "list_to_vector_ext: expected a List array, got dtype {}",
+            MismatchedTypes: "list_to_vector_ext: expected a List array, got dtype {}",
             input.dtype()
         );
     };
@@ -94,20 +94,20 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
         Validity::NonNullable | Validity::AllValid
     ) {
         vortex_bail!(
-            "list_to_vector_ext: list rows must be non-nullable for Vector extension wrapping"
+            InvalidArgument: "list_to_vector_ext: list rows must be non-nullable for Vector extension wrapping"
         );
     }
 
     let element_dtype = list.element_dtype().clone();
     let DType::Primitive(ptype, elem_nullability) = &element_dtype else {
         vortex_bail!(
-            "list_to_vector_ext: element dtype must be a primitive float, got {}",
+            MismatchedTypes: "list_to_vector_ext: element dtype must be a primitive float, got {}",
             element_dtype
         );
     };
     if !ptype.is_float() {
         vortex_bail!(
-            "list_to_vector_ext: element type must be float (f16/f32/f64), got {}",
+            InvalidArgument: "list_to_vector_ext: element type must be float (f16/f32/f64), got {}",
             ptype
         );
     }
@@ -118,7 +118,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 
     let num_rows = input.len();
     if num_rows == 0 {
-        vortex_bail!("list_to_vector_ext: cannot infer vector dimension from empty input");
+        vortex_bail!(InvalidArgument: "list_to_vector_ext: cannot infer vector dimension from empty input");
     }
 
     // Walk the offsets array once, reusing the previous iteration's `end` as the
@@ -131,10 +131,10 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     let first_end = list.offset_at(1)?;
 
     let dim = first_end.checked_sub(prev_end).ok_or_else(|| {
-        vortex_err!("list_to_vector_ext: offsets are not monotonically increasing")
+        vortex_err!(InvalidArgument: "list_to_vector_ext: offsets are not monotonically increasing")
     })?;
     if dim == 0 {
-        vortex_bail!("list_to_vector_ext: first row has zero elements");
+        vortex_bail!(InvalidArgument: "list_to_vector_ext: first row has zero elements");
     }
 
     prev_end = first_end;
@@ -147,7 +147,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
             .vortex_expect("list offsets must be monotonically increasing");
         if row_len != dim {
             vortex_bail!(
-                "list_to_vector_ext: row {} has length {} but expected {}",
+                InvalidArgument: "list_to_vector_ext: row {} has length {} but expected {}",
                 i,
                 row_len,
                 dim
@@ -157,12 +157,12 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
         prev_end = end;
     }
 
-    let expected_elements = num_rows
-        .checked_mul(dim)
-        .ok_or_else(|| vortex_err!("list_to_vector_ext: num_rows * dim overflows usize"))?;
+    let expected_elements = num_rows.checked_mul(dim).ok_or_else(
+        || vortex_err!(Overflow: "list_to_vector_ext: num_rows * dim overflows usize"),
+    )?;
     if raw_elements.len() != expected_elements {
         vortex_bail!(
-            "list_to_vector_ext: elements buffer has length {} but expected {}",
+            InvalidArgument: "list_to_vector_ext: elements buffer has length {} but expected {}",
             raw_elements.len(),
             expected_elements
         );
@@ -177,7 +177,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     let elements = if elem_nullability.is_nullable() {
         let primitive = raw_elements.as_opt::<Primitive>().ok_or_else(|| {
             vortex_err!(
-                "list_to_vector_ext: expected nullable-float elements to downcast to \
+                MismatchedTypes: "list_to_vector_ext: expected nullable-float elements to downcast to \
                  Primitive, got dtype {}",
                 raw_elements.dtype()
             )
@@ -193,13 +193,13 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
             }
             Validity::AllInvalid => {
                 vortex_bail!(
-                    "list_to_vector_ext: list has nullable element dtype with all-invalid \
+                    InvalidArgument: "list_to_vector_ext: list has nullable element dtype with all-invalid \
                      elements; Vector extension elements must be non-null"
                 );
             }
             Validity::Array(_) => {
                 vortex_bail!(
-                    "list_to_vector_ext: list has nullable element dtype with one or more \
+                    InvalidArgument: "list_to_vector_ext: list has nullable element dtype with one or more \
                      actual null elements; Vector extension elements must be non-null"
                 );
             }
@@ -208,8 +208,9 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
         raw_elements
     };
 
-    let dim_u32 = u32::try_from(dim)
-        .map_err(|_| vortex_err!("list_to_vector_ext: dimension {dim} does not fit in u32"))?;
+    let dim_u32 = u32::try_from(dim).map_err(
+        |_| vortex_err!(Overflow: "list_to_vector_ext: dimension {dim} does not fit in u32"),
+    )?;
 
     // Finally, construct the `FixedSizeListArray` and wrap it in a Vector array.
     let fsl = FixedSizeListArray::try_new(elements, dim_u32, Validity::NonNullable, num_rows)?;

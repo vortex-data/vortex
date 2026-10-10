@@ -147,7 +147,11 @@ where
 
     /// Replace the partition expressions and update every root dtype in the recombination tree.
     pub fn replace_partitions(&mut self, partitions: Box<[BoundExpression]>) -> VortexResult<()> {
-        vortex_ensure_eq!(partitions.len(), self.partition_names.len());
+        vortex_ensure_eq!(
+            partitions.len(),
+            self.partition_names.len(),
+            InvalidArgument
+        );
 
         let root_dtype = partition_root_dtype(&self.partition_names, &partitions);
         let root = replace_root_dtype(self.root.clone(), root_dtype)?;

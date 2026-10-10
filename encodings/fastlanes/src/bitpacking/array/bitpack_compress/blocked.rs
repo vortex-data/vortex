@@ -322,7 +322,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexError;
+    use vortex_error::VortexErrorKind;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -345,7 +345,7 @@ mod tests {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
         let BitWidthsView::Blocked(offsets) = array.bit_widths() else {
-            vortex_bail!("expected block offsets");
+            vortex_bail!(AssertionFailed: "expected block offsets");
         };
         offsets.clone().execute::<PrimitiveArray>(ctx)
     }
@@ -424,7 +424,7 @@ mod tests {
 
         let patches = array
             .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected patches"))?;
         assert_arrays_eq!(
             patches
                 .indices()
@@ -444,7 +444,7 @@ mod tests {
         let chunk_offsets = patches
             .chunk_offsets()
             .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected chunk offsets"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(
@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(array.packed().len(), 0);
         let patches = array
             .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected patches"))?;
         assert_eq!(patches.num_patches(), 10);
         Ok(())
     }
@@ -482,7 +482,7 @@ mod tests {
         )?;
 
         let BitWidthsView::Blocked(offsets) = array.bit_widths() else {
-            vortex_bail!("expected block offsets");
+            vortex_bail!(AssertionFailed: "expected block offsets");
         };
         assert!(offsets.is::<Primitive>());
         assert_arrays_eq!(
@@ -532,14 +532,18 @@ mod tests {
     #[case::float(PrimitiveArray::from_iter([1.0f32, 2.0]))]
     fn encode_blocked_rejects_invalid_values(#[case] array: PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
-        assert!(matches!(
-            bitpack_blocked_to_best_bit_widths(&array, &mut ctx).unwrap_err(),
-            VortexError::InvalidArgument(_, _)
-        ));
-        assert!(matches!(
-            BitPackedData::encode_blocked(&array.into_array(), &[1], &mut ctx).unwrap_err(),
-            VortexError::InvalidArgument(_, _)
-        ));
+        assert_eq!(
+            bitpack_blocked_to_best_bit_widths(&array, &mut ctx)
+                .unwrap_err()
+                .kind(),
+            VortexErrorKind::InvalidArgument
+        );
+        assert_eq!(
+            BitPackedData::encode_blocked(&array.into_array(), &[1], &mut ctx)
+                .unwrap_err()
+                .kind(),
+            VortexErrorKind::InvalidArgument
+        );
     }
 
     #[rstest]
@@ -554,7 +558,7 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap_err();
-        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+        assert_eq!(err.kind(), VortexErrorKind::InvalidArgument);
     }
 
     #[test]

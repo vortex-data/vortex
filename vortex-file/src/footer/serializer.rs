@@ -176,7 +176,7 @@ impl FooterSerializer {
         let postscript_buffer = postscript.write_flatbuffer_bytes()?;
         if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
             Err(vortex_err!(
-                "Postscript is too large ({} bytes); max postscript size is {}",
+                Overflow: "Postscript is too large ({} bytes); max postscript size is {}",
                 postscript_buffer.len(),
                 MAX_POSTSCRIPT_SIZE
             ))?;
@@ -225,7 +225,7 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
 ) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
     let buffer = flatbuffer.write_flatbuffer_bytes()?;
     let length = u32::try_from(buffer.len())
-        .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
+        .map_err(|_| vortex_err!(Serde: "flatbuffer length exceeds maximum u32"))?;
 
     let segment = PostscriptSegment {
         offset: *offset,
@@ -243,7 +243,7 @@ fn write_buffer(
     buffer: ByteBuffer,
 ) -> VortexResult<(Vec<ByteBuffer>, PostscriptSegment)> {
     let length = u32::try_from(buffer.len())
-        .map_err(|_| vortex_err!("metadata segment length exceeds maximum u32"))?;
+        .map_err(|_| vortex_err!(Overflow: "metadata segment length exceeds maximum u32"))?;
     let alignment = buffer.alignment();
 
     let padding = offset.next_multiple_of(alignment.as_usize() as u64) - *offset;

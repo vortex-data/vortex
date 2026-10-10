@@ -86,7 +86,7 @@ impl VTable for Chunked {
     ) -> VortexResult<()> {
         vortex_ensure!(
             !slots.is_empty(),
-            "ChunkedArray must have at least a chunk offsets slot"
+            InvalidArgument: "ChunkedArray must have at least a chunk offsets slot"
         );
         let chunk_offsets = slots[ChunkedSlots::CHUNK_OFFSETS]
             .as_ref()
@@ -94,17 +94,17 @@ impl VTable for Chunked {
         vortex_ensure_eq!(
             chunk_offsets.dtype(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
-            "ChunkedArray chunk offsets must be non-nullable u64",
+            MismatchedTypes: "ChunkedArray chunk offsets must be non-nullable u64",
         );
         vortex_ensure_eq!(
             chunk_offsets.len(),
             data.chunk_offsets.len(),
-            "ChunkedArray chunk offsets slot length does not match cached offsets length",
+            InvalidArgument: "ChunkedArray chunk offsets slot length does not match cached offsets length",
         );
         vortex_ensure_eq!(
             data.chunk_offsets.len(),
             slots.len() - ChunkedSlots::CHUNKS_OFFSET + 1,
-            "ChunkedArray must have one more chunk offset than chunks",
+            InvalidArgument: "ChunkedArray must have one more chunk offset than chunks",
         );
         vortex_ensure_eq!(
             data.chunk_offsets
@@ -112,7 +112,7 @@ impl VTable for Chunked {
                 .copied()
                 .vortex_expect("chunked arrays always have a leading 0 offset"),
             len,
-            "ChunkedArray length does not match outer length",
+            InvalidArgument: "ChunkedArray length does not match outer length",
         );
         for (idx, (start, end)) in data
             .chunk_offsets
@@ -127,12 +127,12 @@ impl VTable for Chunked {
             vortex_ensure_eq!(
                 chunk.dtype(),
                 dtype,
-                "ChunkedArray chunk dtype does not match outer dtype",
+                MismatchedTypes: "ChunkedArray chunk dtype does not match outer dtype",
             );
             vortex_ensure_eq!(
                 chunk.len(),
                 end - start,
-                "ChunkedArray chunk {idx} len does not match offsets span",
+                InvalidArgument: "ChunkedArray chunk {idx} len does not match offsets span",
             );
         }
         Ok(())
@@ -143,11 +143,11 @@ impl VTable for Chunked {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ChunkedArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ChunkedArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -176,12 +176,12 @@ impl VTable for Chunked {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "ChunkedArray expects empty metadata, got {} bytes",
+                InvalidArgument: "ChunkedArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
         if children.is_empty() {
-            vortex_bail!("Chunked array needs at least one child");
+            vortex_bail!(InvalidArgument: "Chunked array needs at least one child");
         }
 
         let nchunks = children.len() - 1;
@@ -200,7 +200,7 @@ impl VTable for Chunked {
             .copied()
             .map(|offset| {
                 usize::try_from(offset)
-                    .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
+                    .map_err(|_| vortex_err!(Overflow: "chunk offset {offset} exceeds usize range"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
         let mut slots = SmallVec::with_capacity(children.len());
@@ -250,7 +250,7 @@ impl VTable for Chunked {
         match array.dtype() {
             DType::Union(..) => {
                 vortex_bail!(
-                    "TODO(connor)[Union]: canonicalize chunked Union arrays by packing type IDs \
+                    NotImplemented: "TODO(connor)[Union]: canonicalize chunked Union arrays by packing type IDs \
                      and every sparse child along identical chunk boundaries"
                 )
             }

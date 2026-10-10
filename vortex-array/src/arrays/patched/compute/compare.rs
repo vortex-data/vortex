@@ -262,7 +262,7 @@ mod tests {
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
-            .map_err(|_| vortex_err!("expected patched array"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "expected patched array"))?;
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
 
@@ -272,7 +272,7 @@ mod tests {
             CompareOperator::Eq,
             &mut ctx,
         )?
-        .ok_or_else(|| vortex_err!("expected compare result"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected compare result"))?;
 
         let expected = BoolArray::from_indices(512, [510], Validity::NonNullable).into_array();
 
@@ -296,7 +296,7 @@ mod tests {
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
-            .map_err(|_| vortex_err!("expected patched array"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "expected patched array"))?;
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 
@@ -306,7 +306,7 @@ mod tests {
             CompareOperator::Eq,
             &mut ctx,
         )?
-        .ok_or_else(|| vortex_err!("expected compare result"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected compare result"))?;
 
         let expected = BoolArray::from_indices(10, [7], Validity::NonNullable).into_array();
 

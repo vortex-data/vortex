@@ -51,7 +51,7 @@ impl CompareKernel for VarBin {
                 .vortex_expect("RHS should not be null")
                 .as_str()
                 .as_bytes(),
-            _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+            _ => vortex_bail!(MismatchedTypes: "VarBinArray can only have type of Binary or Utf8"),
         };
 
         let buffer = if rhs_bytes.is_empty() {

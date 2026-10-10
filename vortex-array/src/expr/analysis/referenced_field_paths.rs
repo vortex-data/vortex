@@ -85,7 +85,7 @@ impl NodeFolderContext for ReferencedFieldPaths {
             let child_fields = node.children()[0]
                 .dtype()
                 .as_struct_fields_opt()
-                .ok_or_else(|| vortex_err!("Select child is not a struct"))?;
+                .ok_or_else(|| vortex_err!(MismatchedTypes: "Select child is not a struct"))?;
             let included_fields = selection.normalize_to_included_fields(child_fields.names())?;
 
             let mut narrowed = Vec::with_capacity(requested.len());

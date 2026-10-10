@@ -73,33 +73,33 @@ impl VTable for Variant {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(slots.len(), VariantSlots::COUNT);
+        vortex_ensure_eq!(slots.len(), VariantSlots::COUNT, InvalidArgument);
         vortex_ensure!(
             slots[VariantSlots::CORE_STORAGE].is_some(),
-            "VariantArray core_storage slot must be present"
+            InvalidArgument: "VariantArray core_storage slot must be present"
         );
         let core_storage = slots[VariantSlots::CORE_STORAGE]
             .as_ref()
             .vortex_expect("validated core_storage slot presence");
         vortex_ensure!(
             matches!(dtype, DType::Variant(_)),
-            "Expected Variant DType, got {dtype}"
+            MismatchedTypes: "Expected Variant DType, got {dtype}"
         );
         vortex_ensure_eq!(
             core_storage.dtype(),
             dtype,
-            "VariantArray core_storage dtype does not match outer dtype",
+            MismatchedTypes: "VariantArray core_storage dtype does not match outer dtype",
         );
         vortex_ensure_eq!(
             core_storage.len(),
             len,
-            "VariantArray core_storage length does not match outer length",
+            InvalidArgument: "VariantArray core_storage length does not match outer length",
         );
         if let Some(shredded) = slots[VariantSlots::SHREDDED].as_ref() {
             vortex_ensure_eq!(
                 shredded.len(),
                 len,
-                "VariantArray shredded length does not match outer length",
+                InvalidArgument: "VariantArray shredded length does not match outer length",
             );
         }
         Ok(())
@@ -110,7 +110,7 @@ impl VTable for Variant {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("VariantArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "VariantArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -149,7 +149,7 @@ impl VTable for Variant {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "VariantArray expects 0 buffers, got {}",
+            InvalidArgument: "VariantArray expects 0 buffers, got {}",
             buffers.len()
         );
         let proto = VariantMetadataProto::decode(metadata)?;
@@ -158,9 +158,9 @@ impl VTable for Variant {
             .as_ref()
             .map(|dtype| DType::from_proto(dtype, session))
             .transpose()?;
-        vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
+        vortex_ensure!(matches!(dtype, DType::Variant(_)), MismatchedTypes: "Expected Variant DType");
         let expected_children = 1 + usize::from(shredded_dtype.is_some());
-        vortex_ensure_eq!(children.len(), expected_children);
+        vortex_ensure_eq!(children.len(), expected_children, InvalidArgument);
         let core_storage = children.get(0, dtype, len)?;
         let shredded = shredded_dtype
             .map(|dtype| children.get(1, &dtype, len))
@@ -181,7 +181,7 @@ impl VTable for Variant {
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match VariantSlots::NAMES.get(idx) {
             Some(name) => (*name).to_string(),
-            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
+            None => vortex_panic!(OutOfBounds: "VariantArray slot_name index {idx} out of bounds"),
         }
     }
 

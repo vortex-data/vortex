@@ -95,7 +95,7 @@ impl SumV2 {
                 sum.dtype(),
                 DType::Primitive(PType::U64 | PType::I64 | PType::F64, _)
             ),
-            "Expected a widened primitive sum, got {}",
+            MismatchedTypes: "Expected a widened primitive sum, got {}",
             sum.dtype(),
         );
 
@@ -291,7 +291,9 @@ impl AggregateFnVTable for SumV2 {
                 Canonical::Decimal(array) => {
                     accumulate_decimal(&mut partial.sum, args.return_dtype, array, ctx)
                 }
-                _ => vortex_bail!("Unsupported canonical type for sum_v2: {}", batch.dtype()),
+                _ => {
+                    vortex_bail!(InvalidArgument: "Unsupported canonical type for sum_v2: {}", batch.dtype())
+                }
             },
             Columnar::Constant(_) => unreachable!(),
         };
@@ -403,23 +405,25 @@ fn decode_partial_scalar<'a>(
     scalar: &'a Scalar,
     return_dtype: &DType,
 ) -> VortexResult<(&'a ScalarValue, bool, bool)> {
-    vortex_ensure!(!scalar.is_null(), "SumV2 partial must not be null");
+    vortex_ensure!(!scalar.is_null(), InvalidArgument: "SumV2 partial must not be null");
 
     let (DType::Struct(fields, _), Some(ScalarValue::Tuple(values))) =
         (scalar.dtype(), scalar.value())
     else {
-        vortex_bail!("SumV2 partial must be a struct, got {}", scalar.dtype());
+        vortex_bail!(MismatchedTypes: "SumV2 partial must be a struct, got {}", scalar.dtype());
     };
 
     let field_index = |name: &str| {
         fields
             .find(name)
-            .ok_or_else(|| vortex_err!("SumV2 partial is missing the {name} field"))
+            .ok_or_else(|| vortex_err!(NotFound: "SumV2 partial is missing the {name} field"))
     };
     let bool_field = |name: &str| -> VortexResult<bool> {
         match &values[field_index(name)?] {
             Some(ScalarValue::Bool(value)) => Ok(*value),
-            _ => vortex_bail!("SumV2 partial field {name} must be a non-null bool"),
+            _ => {
+                vortex_bail!(MismatchedTypes: "SumV2 partial field {name} must be a non-null bool")
+            }
         }
     };
 
@@ -432,7 +436,7 @@ fn decode_partial_scalar<'a>(
 
     let sum = values[sum_index]
         .as_ref()
-        .ok_or_else(|| vortex_err!("SumV2 partial sum must not be null"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "SumV2 partial sum must not be null"))?;
 
     Ok((
         sum,
@@ -445,7 +449,7 @@ fn validate_sum_field_dtype(sum_dtype: &DType, return_dtype: &DType) -> VortexRe
     vortex_ensure!(
         sum_dtype.nullability() == Nullability::NonNullable
             && sum_dtype.eq_ignore_nullability(return_dtype),
-        "SumV2 partial value has dtype {}, expected {}",
+        MismatchedTypes: "SumV2 partial value has dtype {}, expected {}",
         sum_dtype,
         return_dtype.as_nonnullable(),
     );
@@ -457,9 +461,9 @@ fn checked_add_sum_state(
     return_dtype: &DType,
     other: &Scalar,
 ) -> VortexResult<bool> {
-    let other = other
-        .value()
-        .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))?;
+    let other = other.value().ok_or_else(
+        || vortex_err!(InvalidArgument: "Can't extract present value from null scalar"),
+    )?;
     checked_add_sum_value(state, return_dtype, other)
 }
 
@@ -491,7 +495,9 @@ fn checked_add_sum_value(
                 Some(_) | None => true,
             }
         }
-        (_, other) => vortex_bail!("SumV2 cannot add {other} to a {return_dtype} sum"),
+        (_, other) => {
+            vortex_bail!(MismatchedTypes: "SumV2 cannot add {other} to a {return_dtype} sum")
+        }
     })
 }
 

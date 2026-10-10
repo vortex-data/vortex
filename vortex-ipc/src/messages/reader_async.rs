@@ -81,7 +81,7 @@ fn poll_fill_buffer<R: AsyncRead>(
     Poll::Ready(if bytes_read == 0 {
         if *total_bytes_read > 0 {
             Err(vortex_err!(
-                "unexpected EOF during partial read: read {total_bytes_read} of {} expected bytes",
+                InvalidArgument: "unexpected EOF during partial read: read {total_bytes_read} of {} expected bytes",
                 buffer.len()
             ))
         } else {

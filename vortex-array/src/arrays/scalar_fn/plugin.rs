@@ -83,7 +83,7 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
         vortex_ensure_eq!(
             parts.serialized_id,
             self.id(),
-            "scalar function array plugin does not recognize serialized ID",
+            Serde: "scalar function array plugin does not recognize serialized ID",
         );
         let len = parts.len;
         let scalar_parts = <V as ScalarFnArrayVTable>::deserialize(

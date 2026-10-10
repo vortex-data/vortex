@@ -80,7 +80,7 @@ impl ScalarFnVTable for RowCount {
         _args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!("RowCount must be substituted before evaluation")
+        vortex_bail!(InvalidArgument: "RowCount must be substituted before evaluation")
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -122,12 +122,12 @@ pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexRe
         vortex_ensure_eq!(
             replacement.len(),
             array.len(),
-            "RowCount replacement length does not match scope length",
+            AssertionFailed: "RowCount replacement length does not match scope length",
         );
         vortex_ensure_eq!(
             replacement.dtype(),
             array.dtype(),
-            "RowCount replacement dtype does not match scope dtype",
+            AssertionFailed: "RowCount replacement dtype does not match scope dtype",
         );
         return Ok(replacement.clone());
     }

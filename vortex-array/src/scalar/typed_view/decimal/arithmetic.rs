@@ -69,7 +69,7 @@ pub(crate) fn decimal_numeric_result_dtype(
                 .filter(|scale| *scale <= MAX_SCALE)
             else {
                 vortex_bail!(
-                    "output scale {result_scale} of {input} {op} {input} is outside the \
+                    Overflow: "output scale {result_scale} of {input} {op} {input} is outside the \
                      representable scale range of {} to {MAX_SCALE}",
                     i8::MIN
                 );

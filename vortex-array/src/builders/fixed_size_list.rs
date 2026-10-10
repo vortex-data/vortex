@@ -122,8 +122,8 @@ impl FixedSizeListBuilder {
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(array.dtype(), self.element_dtype());
-        vortex_ensure_eq!(array.len(), self.list_size() as usize);
+        vortex_ensure_eq!(array.dtype(), self.element_dtype(), MismatchedTypes);
+        vortex_ensure_eq!(array.len(), self.list_size() as usize, InvalidArgument);
 
         self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
@@ -147,8 +147,8 @@ impl FixedSizeListBuilder {
         n: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(array.dtype(), self.element_dtype());
-        vortex_ensure_eq!(array.len(), self.list_size() as usize);
+        vortex_ensure_eq!(array.dtype(), self.element_dtype(), MismatchedTypes);
+        vortex_ensure_eq!(array.len(), self.list_size() as usize, InvalidArgument);
 
         if n == 0 {
             return Ok(());
@@ -200,7 +200,7 @@ impl FixedSizeListBuilder {
 
         if value.len() != self.list_size() as usize {
             vortex_bail!(
-                "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` \
+                InvalidArgument: "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` \
                     with fixed size of {}",
                 value.len(),
                 self.list_size()
@@ -241,7 +241,7 @@ impl FixedSizeListBuilder {
     pub fn element_dtype(&self) -> &DType {
         let DType::FixedSizeList(element_dtype, ..) = &self.dtype else {
             vortex_panic!(
-                "`FixedSizeListBuilder` has an incorrect dtype: {}",
+                AssertionFailed: "`FixedSizeListBuilder` has an incorrect dtype: {}",
                 self.dtype
             );
         };
@@ -253,7 +253,7 @@ impl FixedSizeListBuilder {
     pub fn list_size(&self) -> u32 {
         let DType::FixedSizeList(_, list_size, _) = self.dtype else {
             vortex_panic!(
-                "`FixedSizeListBuilder` has an incorrect dtype: {}",
+                AssertionFailed: "`FixedSizeListBuilder` has an incorrect dtype: {}",
                 self.dtype
             );
         };
@@ -308,7 +308,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
         vortex_ensure_eq!(
             scalar.dtype(),
             self.dtype(),
-            "FixedSizeListBuilder received a scalar with the wrong dtype"
+            MismatchedTypes: "FixedSizeListBuilder received a scalar with the wrong dtype"
         );
 
         let list_scalar = scalar.as_list();

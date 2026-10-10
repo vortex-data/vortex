@@ -75,7 +75,7 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
         _metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        vortex_bail!("Expression {} is not deserializable", self.id())
+        vortex_bail!(Serde: "Expression {} is not deserializable", self.id())
     }
 
     /// Choose element types for these input dtypes and visit the framework with them.

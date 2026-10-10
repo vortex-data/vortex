@@ -63,7 +63,8 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
     }
 
     // Generate fresh fixtures into a temp directory.
-    let tmp_dir = tempfile::tempdir().map_err(|e| vortex_err!("failed to create temp dir: {e}"))?;
+    let tmp_dir =
+        tempfile::tempdir().map_err(|e| vortex_err!(Io: "failed to create temp dir: {e}"))?;
 
     eprintln!("generating fresh fixtures for comparison...");
     for fixture in &fixtures {
@@ -72,7 +73,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     // Collect .vortex files in the check directory.
     let dir_files: Vec<String> = std::fs::read_dir(dir)
-        .map_err(|e| vortex_err!("failed to read dir {}: {e}", dir.display()))?
+        .map_err(|e| vortex_err!(Io: "failed to read dir {}: {e}", dir.display()))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let name = entry.file_name().to_string_lossy().to_string();
@@ -82,7 +83,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     // Collect all fixture names (each fixture may produce multiple files).
     let fresh_files: Vec<String> = std::fs::read_dir(tmp_dir.path())
-        .map_err(|e| vortex_err!("failed to read tmp dir: {e}"))?
+        .map_err(|e| vortex_err!(Io: "failed to read tmp dir: {e}"))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let name = entry.file_name().to_string_lossy().to_string();
@@ -199,7 +200,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     // Print JSON result to stdout.
     let json = serde_json::to_string_pretty(&result)
-        .map_err(|e| vortex_err!("failed to serialize result: {e}"))?;
+        .map_err(|e| vortex_err!(Serde: "failed to serialize result: {e}"))?;
     println!("{json}");
 
     // Summary to stderr.
@@ -214,7 +215,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
         for f in &result.failed {
             eprintln!("  FAIL {}: {}", f.name, f.error);
         }
-        vortex_bail!("{} fixture(s) failed", result.failed.len());
+        vortex_bail!(AssertionFailed: "{} fixture(s) failed", result.failed.len());
     }
 
     Ok(())

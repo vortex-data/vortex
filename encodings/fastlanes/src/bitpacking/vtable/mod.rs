@@ -109,7 +109,7 @@ impl VTable for BitPacked {
                 data.packed.len(),
             )?,
             _ => {
-                vortex_bail!("BitPacked needs exactly one of a global bit width and block offsets")
+                vortex_bail!(InvalidArgument: "BitPacked needs exactly one of a global bit width and block offsets")
             }
         }
 
@@ -134,7 +134,7 @@ impl VTable for BitPacked {
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.packed().clone(),
-            _ => vortex_panic!("BitPackedArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "BitPackedArray buffer index {idx} out of bounds"),
         }
     }
 
@@ -150,7 +150,7 @@ impl VTable for BitPacked {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
+        vortex_ensure_eq!(buffers.len(), 1, InvalidArgument);
         let mut data = array.data().clone();
         data.packed = buffers[0].clone();
         Ok(ArrayParts::new(
@@ -166,7 +166,7 @@ impl VTable for BitPacked {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("BitPacked serialization requires BitPackedPlugin")
+        vortex_bail!(Serde: "BitPacked serialization requires BitPackedPlugin")
     }
 
     fn deserialize(
@@ -178,7 +178,7 @@ impl VTable for BitPacked {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("BitPacked deserialization requires BitPackedPlugin")
+        vortex_bail!(Serde: "BitPacked deserialization requires BitPackedPlugin")
     }
 
     fn append_to_builder(

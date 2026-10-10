@@ -57,12 +57,13 @@ impl CudaExecute for FoRExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
+        let array = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected FoRArray"))?;
 
         // Per-chunk references have no CUDA kernel yet, so decode them on the CPU.
         // TODO(mk): implement CUDA FoR decoding for non-constant references.
         let Some(reference) = array.constant_reference() else {
-            vortex_bail!("CUDA FoR decoding requires a constant reference")
+            vortex_bail!(NotImplemented: "CUDA FoR decoding requires a constant reference")
         };
 
         // Fuse FOR + BP => FFOR
@@ -103,11 +104,13 @@ where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
+    vortex_ensure!(array_len > 0, InvalidArgument: "FoR encoded array must not be empty");
 
     let reference: P = array
         .constant_reference()
-        .ok_or_else(|| vortex_err!("CUDA FoR decoding requires a constant reference"))?
+        .ok_or_else(
+            || vortex_err!(NotImplemented: "CUDA FoR decoding requires a constant reference"),
+        )?
         .as_primitive()
         .as_::<P>()
         .vortex_expect("Cannot have a null reference");

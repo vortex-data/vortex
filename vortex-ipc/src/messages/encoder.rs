@@ -76,7 +76,7 @@ impl MessageEncoder {
                     &mut fbb,
                     &fb::ArrayMessageArgs {
                         row_count: u32::try_from(array.len())
-                            .map_err(|_| vortex_err!("Array length must fit into u32"))?,
+                            .map_err(|_| vortex_err!(Overflow: "Array length must fit into u32"))?,
                         encodings: Some(array_encodings),
                     },
                 )
@@ -127,7 +127,7 @@ impl MessageEncoder {
         let (fbv, pos) = fbb.collapse();
         let fb_buffer = FlatBuffer::copy_from(&fbv[pos..]);
         let fb_buffer_len = u32::try_from(fb_buffer.len())
-            .map_err(|_| vortex_err!("Array flatbuffer length must fit into u32"))?;
+            .map_err(|_| vortex_err!(Overflow: "Array flatbuffer length must fit into u32"))?;
 
         buffers[0] = Bytes::from(fb_buffer_len.to_le_bytes().to_vec());
         buffers[1] = fb_buffer.into_inner().into_bytes();

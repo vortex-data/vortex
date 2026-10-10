@@ -124,7 +124,7 @@ impl LazyBitBufferBuilder {
             (NonNullable, None) => Validity::NonNullable,
             (Nullable, None) => Validity::AllValid,
             (Nullable, Some(arr)) => Validity::from(arr),
-            _ => vortex_panic!("Invalid nullability/nulls combination"),
+            _ => vortex_panic!(AssertionFailed: "Invalid nullability/nulls combination"),
         }
     }
 

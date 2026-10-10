@@ -36,7 +36,7 @@ impl OperationsVTable<ALP> for ALP {
 
         let encoded_val = state
             .slot(ALPSlots::ENCODED)?
-            .ok_or_else(|| vortex_err!("ALP encoded slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "ALP encoded slot is missing"))?
             .execute_scalar(index, ctx)?;
 
         Ok(match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {

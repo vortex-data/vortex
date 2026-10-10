@@ -507,7 +507,7 @@ mod tests {
         assert!(copy.allocator().ptr_eq(&allocator));
         let mut buffer = buffer
             .try_into_mut()
-            .map_err(|_| vortex_err!("unique buffer"))?;
+            .map_err(|_| vortex_err!(AssertionFailed: "unique buffer"))?;
         buffer.reserve(0);
         assert!(buffer.is_empty());
         assert!(buffer.allocator().ptr_eq(&allocator));

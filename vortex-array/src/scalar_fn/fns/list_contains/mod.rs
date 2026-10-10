@@ -173,13 +173,13 @@ impl ScalarFnVTable for ListContains {
 
         let DType::List(element_dtype, _) = list_dtype else {
             vortex_bail!(
-                "First argument to ListContains must be a List, got {:?}",
+                MismatchedTypes: "First argument to ListContains must be a List, got {:?}",
                 list_dtype
             );
         };
         if !element_dtype.eq_ignore_nullability(needle_dtype) {
             vortex_bail!(
-                "Element type {} of list does not match search value {}",
+                MismatchedTypes: "Element type {} of list does not match search value {}",
                 element_dtype,
                 needle_dtype,
             );
@@ -227,7 +227,7 @@ fn compute_contains_scalar(
 ) -> VortexResult<Scalar> {
     if !matches!(list.dtype(), DType::List(..)) {
         vortex_bail!(
-            "First argument to ListContains must be a List, got {}",
+            MismatchedTypes: "First argument to ListContains must be a List, got {}",
             list.dtype()
         );
     }
@@ -240,7 +240,7 @@ fn compute_contains_scalar(
     let list_scalar = list.as_list();
     let elements = list_scalar
         .elements()
-        .ok_or_else(|| vortex_err!("Expected non-null list"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected non-null list"))?;
 
     if needle.is_null() {
         return Ok(if elements.is_empty() && !options.sql_null_semantics {
@@ -264,11 +264,11 @@ fn compute_list_contains(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let DType::List(elem_dtype, _) = array.dtype() else {
-        vortex_bail!("Array must be of List type");
+        vortex_bail!(InvalidArgument: "Array must be of List type");
     };
     if !elem_dtype.as_ref().eq_ignore_nullability(value.dtype()) {
         vortex_bail!(
-            "Element type {} of list does not match search value {}",
+            MismatchedTypes: "Element type {} of list does not match search value {}",
             elem_dtype,
             value.dtype(),
         );
@@ -294,7 +294,7 @@ fn compute_list_contains(
         return constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, options);
     }
 
-    vortex_bail!("unsupported list contains with list and element as arrays")
+    vortex_bail!(NotImplemented: "unsupported list contains with list and element as arrays")
 }
 
 /// There is a constant list scalar (haystack) being compared to an array of needles.

@@ -58,11 +58,11 @@ fn validate_envelope_operands(dtypes: &[DType]) -> VortexResult<()> {
     vortex_ensure_eq!(
         dtypes.len(),
         1,
-        "spatial: envelope requires exactly one geometry operand"
+        InvalidArgument: "spatial: envelope requires exactly one geometry operand"
     );
     vortex_ensure!(
         is_native_geometry(&dtypes[0]),
-        "spatial: envelope operand {} is not a native geometry type",
+        MismatchedTypes: "spatial: envelope operand {} is not a native geometry type",
         dtypes[0]
     );
     Ok(())
@@ -151,7 +151,7 @@ fn envelope_array(
     let is_rect = array
         .dtype()
         .as_extension_opt()
-        .ok_or_else(|| vortex_err!("spatial: envelope operand is not a geometry extension type"))?
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "spatial: envelope operand is not a geometry extension type"))?
         .is::<Rect>();
     let storage = array
         .execute::<ExtensionArray>(ctx)?
@@ -562,7 +562,9 @@ mod tests {
         let points = ConstantArray::new(scalar, 3).into_array();
         let result = boxes(points)?.execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(boxes) = result else {
-            return Err(vortex_err!("envelope of a constant should remain constant"));
+            return Err(
+                vortex_err!(AssertionFailed: "envelope of a constant should remain constant"),
+            );
         };
         assert_eq!(boxes.len(), 3);
 

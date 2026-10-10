@@ -267,18 +267,18 @@ impl BoolData {
         len: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        vortex_ensure!(offset < 8, "BitBuffer offset must be <8, got {}", offset);
+        vortex_ensure!(offset < 8, InvalidArgument: "BitBuffer offset must be <8, got {}", offset);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,
                 len,
-                "BoolArray validity length does not match array length",
+                InvalidArgument: "BoolArray validity length does not match array length",
             );
         }
 
         vortex_ensure!(
             bits.len() * 8 >= (len + offset),
-            "provided BufferHandle with offset {offset} len {len} had size {} bits",
+            InvalidArgument: "provided BufferHandle with offset {offset} len {len} had size {} bits",
             bits.len() * 8,
         );
 
@@ -304,7 +304,7 @@ impl BoolData {
     pub(super) fn validate(bits: &BitBuffer, validity: &Validity) -> VortexResult<()> {
         vortex_ensure!(
             bits.offset() < 8,
-            "BitBuffer offset must be <8, got {}",
+            InvalidArgument: "BitBuffer offset must be <8, got {}",
             bits.offset()
         );
 
@@ -312,7 +312,7 @@ impl BoolData {
             vortex_ensure_eq!(
                 validity_len,
                 bits.len(),
-                "BoolArray validity length does not match array length",
+                InvalidArgument: "BoolArray validity length does not match array length",
             );
         }
 

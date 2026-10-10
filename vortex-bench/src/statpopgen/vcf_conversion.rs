@@ -29,13 +29,17 @@ pub fn builder_from_info(info: &Map<Info>) -> InfoArrayBuilder {
         (Number::Count(1), Type::Float) => InfoArrayBuilder::Float(Default::default()),
         (Number::Count(0), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
         (Number::Count(1), Type::Character) => {
-            vortex_panic!("Character INFO fields are not supported")
+            vortex_panic!(NotImplemented: "Character INFO fields are not supported")
         }
         (Number::Count(1), Type::String) => InfoArrayBuilder::String(Default::default()),
         (_, Type::Integer) => InfoArrayBuilder::ListInteger(Default::default()),
         (_, Type::Float) => InfoArrayBuilder::ListFloat(Default::default()),
-        (_, Type::Flag) => vortex_panic!("Flag INFO fields with a count are not supported"),
-        (_, Type::Character) => vortex_panic!("Character INFO fields are not supported"),
+        (_, Type::Flag) => {
+            vortex_panic!(NotImplemented: "Flag INFO fields with a count are not supported")
+        }
+        (_, Type::Character) => {
+            vortex_panic!(NotImplemented: "Character INFO fields are not supported")
+        }
         (_, Type::String) => InfoArrayBuilder::ListString(Default::default()),
     }
 }
@@ -50,13 +54,17 @@ pub fn data_type_from_info(info: &Map<Info>) -> DataType {
         (Number::Count(1), Type::Float) => Float32,
         (Number::Count(0), Type::Flag) => Boolean,
         (Number::Count(1), Type::Character) => {
-            vortex_panic!("Character INFO fields are not supported")
+            vortex_panic!(NotImplemented: "Character INFO fields are not supported")
         }
         (Number::Count(1), Type::String) => Utf8,
         (_, Type::Integer) => list(Int32),
         (_, Type::Float) => list(Float32),
-        (_, Type::Flag) => vortex_panic!("Flag INFO fields with a count are not supported"),
-        (_, Type::Character) => vortex_panic!("Character INFO fields are not supported"),
+        (_, Type::Flag) => {
+            vortex_panic!(NotImplemented: "Flag INFO fields with a count are not supported")
+        }
+        (_, Type::Character) => {
+            vortex_panic!(NotImplemented: "Character INFO fields are not supported")
+        }
         (_, Type::String) => list(Utf8),
     }
 }
@@ -66,7 +74,7 @@ pub fn value_int32(v: Option<Value>) -> VortexResult<Option<i32>> {
         None => None,
 
         Some(Value::Integer(x)) => Some(x),
-        _ => vortex_bail!("expected int32 {:?}", v),
+        _ => vortex_bail!(MismatchedTypes: "expected int32 {:?}", v),
     })
 }
 
@@ -74,7 +82,7 @@ pub fn value_float32(v: Option<Value>) -> VortexResult<Option<f32>> {
     Ok(match v {
         None => None,
         Some(Value::Float(x)) => Some(x),
-        _ => vortex_bail!("expected f64 {:?}", v),
+        _ => vortex_bail!(InvalidArgument: "expected f64 {:?}", v),
     })
 }
 
@@ -82,7 +90,7 @@ pub fn value_string(v: Option<Value>) -> VortexResult<Option<Cow<str>>> {
     Ok(match v {
         None => None,
         Some(Value::String(x)) => Some(x),
-        _ => vortex_bail!("expected string {:?}", v),
+        _ => vortex_bail!(InvalidArgument: "expected string {:?}", v),
     })
 }
 
@@ -90,7 +98,7 @@ pub fn value_boolean(v: Option<Value>) -> VortexResult<bool> {
     Ok(match v {
         None => false,
         Some(Value::Flag) => true,
-        _ => vortex_bail!("expected bool {:?}", v),
+        _ => vortex_bail!(MismatchedTypes: "expected bool {:?}", v),
     })
 }
 
@@ -101,9 +109,9 @@ pub fn value_list_int32<'a>(
         None => None,
         Some(Value::Array(a)) => match a {
             Array::Integer(values) => Some(values),
-            v => vortex_bail!("expected int32 {:?}", v),
+            v => vortex_bail!(MismatchedTypes: "expected int32 {:?}", v),
         },
-        v => vortex_bail!("expected int32 {:?}", v),
+        v => vortex_bail!(MismatchedTypes: "expected int32 {:?}", v),
     })
 }
 
@@ -114,9 +122,9 @@ pub fn value_list_float32<'a>(
         None => None,
         Some(Value::Array(a)) => match a {
             Array::Float(values) => Some(values),
-            v => vortex_bail!("expected int32 {:?}", v),
+            v => vortex_bail!(MismatchedTypes: "expected int32 {:?}", v),
         },
-        v => vortex_bail!("expected f64 {:?}", v),
+        v => vortex_bail!(InvalidArgument: "expected f64 {:?}", v),
     })
 }
 
@@ -127,9 +135,9 @@ pub fn value_list_string<'a>(
         None => None,
         Some(Value::Array(a)) => match a {
             Array::String(values) => Some(values),
-            v => vortex_bail!("expected int32 {:?}", v),
+            v => vortex_bail!(MismatchedTypes: "expected int32 {:?}", v),
         },
-        v => vortex_bail!("expected string {:?}", v),
+        v => vortex_bail!(InvalidArgument: "expected string {:?}", v),
     })
 }
 
@@ -138,7 +146,7 @@ pub fn parse_genotype(gt: Option<EntryValue>) -> VortexResult<Option<u64>> {
         return Ok(None);
     };
     let EntryValue::Genotype(gt) = gt else {
-        vortex_bail!("expected genotype {:?}", gt)
+        vortex_bail!(InvalidArgument: "expected genotype {:?}", gt)
     };
     match gt
         .iter()
@@ -146,7 +154,7 @@ pub fn parse_genotype(gt: Option<EntryValue>) -> VortexResult<Option<u64>> {
     {
         [None, None] => Ok(None),
         [Some(l), Some(r)] => Ok(Some(l as u64 + r as u64)),
-        _ => vortex_bail!("wtf {:?}", gt),
+        _ => vortex_bail!(AssertionFailed: "wtf {:?}", gt),
     }
 }
 
@@ -155,7 +163,7 @@ pub fn parse_int32_format(x: Option<EntryValue>) -> VortexResult<Option<i32>> {
         return Ok(None);
     };
     let EntryValue::Integer(x) = x else {
-        vortex_bail!("expected int32 {:?}", x)
+        vortex_bail!(MismatchedTypes: "expected int32 {:?}", x)
     };
     Ok(Some(x))
 }
@@ -171,7 +179,7 @@ pub fn parse_pgt_format(x: Option<EntryValue>) -> VortexResult<Option<i32>> {
         EntryValue::String(x) if x == "0|1" => Some(1),
         EntryValue::String(x) if x == "1|0" => Some(2),
         EntryValue::String(x) if x == "1|1" => Some(3),
-        _ => vortex_bail!("expected biallelic phased genotype {:?}", x),
+        _ => vortex_bail!(InvalidArgument: "expected biallelic phased genotype {:?}", x),
     })
 }
 
@@ -181,7 +189,7 @@ pub fn parse_string_format<'a>(x: Option<EntryValue<'a>>) -> VortexResult<Option
     };
     match x {
         EntryValue::String(x) => Ok(Some(x)),
-        _ => vortex_bail!("expected string {:?}", x),
+        _ => vortex_bail!(InvalidArgument: "expected string {:?}", x),
     }
 }
 
@@ -197,8 +205,8 @@ pub fn parse_list_int32_format(x: Option<EntryValue>) -> VortexResult<Option<Vec
                     .map(|x| x.expect("no io errors"))
                     .collect::<Vec<_>>(),
             )),
-            _ => vortex_bail!("expected list int32 {:?}", x),
+            _ => vortex_bail!(MismatchedTypes: "expected list int32 {:?}", x),
         },
-        _ => vortex_bail!("expected list list int32 {:?}", x),
+        _ => vortex_bail!(MismatchedTypes: "expected list list int32 {:?}", x),
     }
 }

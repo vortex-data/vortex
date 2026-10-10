@@ -24,7 +24,7 @@ impl OperationsVTable<Extension> for Extension {
         let ext_dtype = state.array().ext_dtype().clone();
         let storage = state
             .slot(ExtensionSlots::STORAGE)?
-            .ok_or_else(|| vortex_err!("Extension storage slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Extension storage slot is missing"))?
             .execute_scalar(index, ctx)?;
         Ok(Scalar::extension_ref(ext_dtype, storage))
     }

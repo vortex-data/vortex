@@ -358,7 +358,7 @@ fn into_parts_preserves_block_offsets(#[case] offsets: ArrayRef) -> VortexResult
     )?;
     let parts = BitPacked::into_parts(array);
     let BitWidths::Blocked(block_offsets) = parts.bit_widths else {
-        vortex_bail!("expected block offsets");
+        vortex_bail!(AssertionFailed: "expected block offsets");
     };
     assert!(ArrayRef::ptr_eq(&offsets, &block_offsets));
     let rebuilt = BitPacked::try_new_with_block_offsets(

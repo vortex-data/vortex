@@ -132,7 +132,7 @@ impl ScalarFnVTable for StatFn {
 fn stat_dtype(aggregate_fn: &AggregateFnRef, input_dtype: &DType) -> VortexResult<DType> {
     let Some(dtype) = aggregate_fn.state_dtype(input_dtype) else {
         vortex_bail!(
-            "Aggregate function {} does not support input dtype {}",
+            InvalidArgument: "Aggregate function {} does not support input dtype {}",
             aggregate_fn,
             input_dtype
         );

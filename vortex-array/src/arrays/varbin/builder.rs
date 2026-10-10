@@ -161,7 +161,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) -> VortexResult<()> {
         let value = value.as_ref();
         let Some(num_bytes) = value.len().checked_mul(n) else {
-            vortex_bail!("Byte count overflow: {} values of {} bytes", n, value.len());
+            vortex_bail!(Overflow: "Byte count overflow: {} values of {} bytes", n, value.len());
         };
         // Checking the total up front is what keeps `push_value` below from panicking.
         self.check_offset_limit(self.data.len(), num_bytes)?;
@@ -201,7 +201,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         vortex_ensure_eq!(
             scalar.dtype(),
             &self.dtype,
-            "VarBinBuilder scalar dtype does not match builder dtype",
+            MismatchedTypes: "VarBinBuilder scalar dtype does not match builder dtype",
         );
         match &self.dtype {
             DType::Utf8(_) => match scalar.as_utf8().value() {
@@ -212,7 +212,9 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
                 Some(value) => self.append_n_values(value, n)?,
                 None => self.push_nulls(n),
             },
-            dtype => vortex_bail!("VarBinBuilder cannot append scalar of dtype {dtype}"),
+            dtype => {
+                vortex_bail!(MismatchedTypes: "VarBinBuilder cannot append scalar of dtype {dtype}")
+            }
         }
         Ok(())
     }
@@ -282,7 +284,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         usize: AsPrimitive<O>,
     {
         let Some(capacity) = num_bytes.checked_add(slack) else {
-            vortex_bail!("Decoded size overflow: {num_bytes} + {slack}");
+            vortex_bail!(Overflow: "Decoded size overflow: {num_bytes} + {slack}");
         };
         // Checked before decoding: an `i32` builder that the decoded bytes would overflow should
         // not pay for the decompression first.
@@ -294,7 +296,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         vortex_ensure_eq!(
             written,
             num_bytes,
-            "Decoded byte count does not match expected byte count",
+            InvalidArgument: "Decoded byte count does not match expected byte count",
         );
 
         // The decoded bytes live in spare capacity until `set_len` below, so an invalid `lengths`
@@ -501,12 +503,12 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         let mut previous = 0usize;
         for slot in spare.iter_mut() {
             let Some(end) = end_offsets.next() else {
-                vortex_bail!("End offset count is less than the validity length {count}");
+                vortex_bail!(InvalidArgument: "End offset count is less than the validity length {count}");
             };
             let end = end.as_();
             vortex_ensure!(
                 end >= previous && end <= num_bytes,
-                "End offsets must be monotonically increasing within {num_bytes} bytes, \
+                InvalidArgument: "End offsets must be monotonically increasing within {num_bytes} bytes, \
                  got {end} after {previous}"
             );
             slot.write((data_start + end).as_());
@@ -514,12 +516,12 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         }
         vortex_ensure!(
             end_offsets.next().is_none(),
-            "End offset count exceeds the validity length {count}"
+            InvalidArgument: "End offset count exceeds the validity length {count}"
         );
         vortex_ensure_eq!(
             previous,
             num_bytes,
-            "Final end offset does not match the value byte count",
+            InvalidArgument: "Final end offset does not match the value byte count",
         );
 
         // SAFETY: the loop initialized the first `count` spare slots.
@@ -581,7 +583,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         vortex_ensure_eq!(
             data.len(),
             data_start + num_bytes,
-            "Value slices byte count does not match expected byte count",
+            InvalidArgument: "Value slices byte count does not match expected byte count",
         );
 
         // SAFETY: every branch above initialized all `count` spare slots.
@@ -592,11 +594,11 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     /// Checks that an offset past `num_bytes` more bytes is representable as an `O`.
     fn check_offset_limit(&self, data_start: usize, num_bytes: usize) -> VortexResult<()> {
         let Some(limit) = data_start.checked_add(num_bytes) else {
-            vortex_bail!("Byte offset overflow: {data_start} + {num_bytes}");
+            vortex_bail!(Overflow: "Byte offset overflow: {data_start} + {num_bytes}");
         };
         vortex_ensure!(
             u64::try_from(limit).is_ok_and(|limit| limit <= O::max_value_as_u64()),
-            "Byte offset {limit} does not fit in {}",
+            Overflow: "Byte offset {limit} does not fit in {}",
             std::any::type_name::<O>()
         );
         Ok(())
@@ -709,7 +711,7 @@ macro_rules! __match_varbin_builder_arms {
 #[inline(never)]
 fn offset_overflow(data_len: usize, value_len: usize, offset_type: &'static str) -> ! {
     vortex_panic!(
-        "Failed to convert sum of {data_len} and {value_len} to offset of type {offset_type}"
+        Overflow: "Failed to convert sum of {data_len} and {value_len} to offset of type {offset_type}"
     )
 }
 

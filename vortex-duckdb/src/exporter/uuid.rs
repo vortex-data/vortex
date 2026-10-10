@@ -44,7 +44,7 @@ pub(crate) fn new_exporter(
     vortex_ensure_eq!(
         bytes.len(),
         len * UUID_BYTE_LEN,
-        "UUID storage byte length mismatch"
+        InvalidArgument: "UUID storage byte length mismatch"
     );
 
     let exporter = Box::new(UuidExporter { bytes });

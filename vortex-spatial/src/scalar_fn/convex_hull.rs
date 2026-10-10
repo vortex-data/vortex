@@ -34,17 +34,17 @@ fn convex_hull_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     vortex_ensure_eq!(
         dtypes.len(),
         1,
-        "spatial: convex_hull requires exactly one MultiPoint operand"
+        InvalidArgument: "spatial: convex_hull requires exactly one MultiPoint operand"
     );
     let Some(input) = dtypes[0].as_extension_opt() else {
         vortex_bail!(
-            "spatial: convex_hull operand {} is not a native MultiPoint",
+            MismatchedTypes: "spatial: convex_hull operand {} is not a native MultiPoint",
             dtypes[0]
         );
     };
     vortex_ensure!(
         input.is::<MultiPoint>(),
-        "spatial: convex_hull operand {} is not a native MultiPoint",
+        MismatchedTypes: "spatial: convex_hull operand {} is not a native MultiPoint",
         dtypes[0]
     );
 
@@ -209,7 +209,7 @@ mod tests {
         let result = SpatialConvexHull::try_new(input)?.into_array();
         let Columnar::Constant(constant) = result.clone().execute::<Columnar>(&mut ctx)? else {
             return Err(vortex_err!(
-                "convex_hull of a constant should remain constant"
+                AssertionFailed: "convex_hull of a constant should remain constant"
             ));
         };
         assert_eq!(constant.len(), 3);

@@ -150,7 +150,7 @@ fn test_batch_const_unwraps_filtered_masked_constant() -> VortexResult<()> {
     let filtered = masked.filter(Mask::from_iter([true, true, false]))?;
 
     let Some(const_array) = batch_const(&filtered) else {
-        vortex_bail!("filtered masked constant must remain batch-constant");
+        vortex_bail!(AssertionFailed: "filtered masked constant must remain batch-constant");
     };
 
     assert!(const_array.is::<Constant>());
@@ -165,7 +165,7 @@ fn test_batch_const_preserves_filtered_extension() -> VortexResult<()> {
     let filtered = extension.filter(Mask::from_iter([true, false, true]))?;
 
     let Some(const_array) = batch_const(&filtered) else {
-        vortex_bail!("filtered extension storage must remain batch-constant");
+        vortex_bail!(AssertionFailed: "filtered extension storage must remain batch-constant");
     };
 
     assert_eq!(const_array.dtype(), extension.dtype());

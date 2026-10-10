@@ -68,11 +68,11 @@ impl ArrayPlugin for BitPackedPlugin {
         array: &ArrayRef,
         _session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        let view = array.as_opt::<BitPacked>().ok_or_else(|| {
-            vortex_err!("BitPacked plugin cannot serialize {}", array.encoding_id())
-        })?;
+        let view = array.as_opt::<BitPacked>().ok_or_else(
+            || vortex_err!(Serde: "BitPacked plugin cannot serialize {}", array.encoding_id()),
+        )?;
         let BitWidthsView::Global(bit_width) = view.bit_widths() else {
-            vortex_bail!("BitPacked plugin cannot serialize per-block bit widths");
+            vortex_bail!(Serde: "BitPacked plugin cannot serialize per-block bit widths");
         };
         let metadata = BitPackedMetadata {
             bit_width: u32::from(bit_width),
@@ -98,7 +98,7 @@ impl ArrayPlugin for BitPackedPlugin {
         vortex_ensure_eq!(
             parts.serialized_id,
             self.id(),
-            "BitPacked plugin does not recognize serialized ID"
+            Serde: "BitPacked plugin does not recognize serialized ID"
         );
         let ArrayDeserialization {
             dtype,
@@ -111,7 +111,7 @@ impl ArrayPlugin for BitPackedPlugin {
 
         let metadata = BitPackedMetadata::decode(metadata)?;
         if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+            vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
         }
         let packed = buffers[0].clone();
 
@@ -123,7 +123,7 @@ impl ArrayPlugin for BitPackedPlugin {
                 Ok(Validity::Array(validity))
             } else {
                 vortex_bail!(
-                    "Expected {} or {} children, got {}",
+                    InvalidArgument: "Expected {} or {} children, got {}",
                     child_idx,
                     child_idx + 1,
                     children.len()
@@ -165,13 +165,13 @@ impl ArrayPlugin for BitPackedPlugin {
             patches,
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
-                    "BitPackedMetadata bit_width {} does not fit in u8",
+                    Overflow: "BitPackedMetadata bit_width {} does not fit in u8",
                     metadata.bit_width
                 )
             })?,
             u16::try_from(metadata.offset).map_err(|_| {
                 vortex_err!(
-                    "BitPackedMetadata offset {} does not fit in u16",
+                    Overflow: "BitPackedMetadata offset {} does not fit in u16",
                     metadata.offset
                 )
             })?,
@@ -217,13 +217,13 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         vortex_ensure_eq!(
             parts.serialized_id,
             self.id(),
-            "BitPacked plugin does not recognize serialized ID"
+            Serde: "BitPacked plugin does not recognize serialized ID"
         );
         let bitpacked: BitPackedArray = BitPackedPlugin
             .deserialize(parts, session)?
             .try_downcast()
             .map_err(|_| {
-                vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked")
+                vortex_err!(Serde: "BitPacked plugin should only deserialize fastlanes.bitpacked")
             })?;
 
         // Create a new BitPackedArray without the interior patches installed.
@@ -235,7 +235,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
         let BitWidthsView::Global(bw) = bitpacked.bit_widths() else {
-            vortex_panic!("BitPacked plugin always deserializes a global bit width");
+            vortex_panic!(AssertionFailed: "BitPacked plugin always deserializes a global bit width");
         };
         let len = bitpacked.len();
         let offset = bitpacked.offset();
@@ -334,15 +334,13 @@ mod tests {
             &SESSION,
         )?;
 
-        let patched: PatchedArray = deserialized
-            .try_downcast()
-            .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
+        let patched: PatchedArray = deserialized.try_downcast().map_err(
+            |a| vortex_err!(MismatchedTypes: "Expected Patched, got {}", a.encoding_id()),
+        )?;
 
-        let inner_bitpacked: BitPackedArray = patched
-            .inner()
-            .clone()
-            .try_downcast()
-            .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
+        let inner_bitpacked: BitPackedArray = patched.inner().clone().try_downcast().map_err(
+            |a| vortex_err!(MismatchedTypes: "Expected inner BitPacked, got {}", a.encoding_id()),
+        )?;
 
         assert!(
             inner_bitpacked.patches().is_none(),
@@ -387,9 +385,9 @@ mod tests {
             &SESSION,
         )?;
 
-        let result = deserialized
-            .try_downcast::<BitPacked>()
-            .map_err(|a| vortex_err!("Expected deserialize BitPacked, got {}", a.encoding_id()))?;
+        let result = deserialized.try_downcast::<BitPacked>().map_err(
+            |a| vortex_err!(Serde: "Expected deserialize BitPacked, got {}", a.encoding_id()),
+        )?;
 
         assert!(result.patches().is_none(), "Result should not have patches");
 
@@ -470,7 +468,7 @@ mod tests {
         let view = array.as_::<BitPacked>();
         let serialization = PLUGIN_SESSION
             .array_serialize(&array)?
-            .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "BitPacked must serialize"))?;
         assert_eq!(serialization.serialized_id, BitPackedPlugin.id());
         let metadata = BitPackedMetadata::decode(serialization.metadata.as_slice())?;
         assert_eq!(metadata.bit_width, u32::from(bit_width));

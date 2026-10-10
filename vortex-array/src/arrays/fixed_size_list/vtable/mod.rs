@@ -76,11 +76,11 @@ impl VTable for FixedSizeList {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("FixedSizeListArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "FixedSizeListArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("FixedSizeListArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "FixedSizeListArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -113,9 +113,9 @@ impl VTable for FixedSizeList {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(slots.len(), FixedSizeListSlots::COUNT);
+        vortex_ensure_eq!(slots.len(), FixedSizeListSlots::COUNT, InvalidArgument);
         let DType::FixedSizeList(_, list_size, nullability) = dtype else {
-            vortex_bail!("Expected `DType::FixedSizeList`, got {dtype:?}");
+            vortex_bail!(MismatchedTypes: "Expected `DType::FixedSizeList`, got {dtype:?}");
         };
         let elements = slots[FixedSizeListSlots::ELEMENTS]
             .as_ref()
@@ -126,7 +126,7 @@ impl VTable for FixedSizeList {
             } else {
                 elements.len() / *list_size as usize == len
             },
-            "FixedSizeListArray length {} does not match outer length {}",
+            InvalidArgument: "FixedSizeListArray length {} does not match outer length {}",
             len,
             len
         );
@@ -136,7 +136,7 @@ impl VTable for FixedSizeList {
         vortex_ensure_eq!(
             &actual_dtype,
             dtype,
-            "FixedSizeListArray dtype does not match outer dtype",
+            MismatchedTypes: "FixedSizeListArray dtype does not match outer dtype",
         );
 
         Ok(())
@@ -154,22 +154,22 @@ impl VTable for FixedSizeList {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "FixedSizeListArray expects empty metadata, got {} bytes",
+                InvalidArgument: "FixedSizeListArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
         vortex_ensure!(
             buffers.is_empty(),
-            "`FixedSizeList::build` expects no buffers"
+            InvalidArgument: "`FixedSizeList::build` expects no buffers"
         );
 
         let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
-            vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
+            vortex_bail!(MismatchedTypes: "Expected `DType::FixedSizeList`, got {:?}", dtype);
         };
 
         let validity = {
             if children.len() > 2 {
-                vortex_bail!("`FixedSizeList::build` method expected 1 or 2 children")
+                vortex_bail!(InvalidArgument: "`FixedSizeList::build` method expected 1 or 2 children")
             }
 
             if children.len() == 2 {
@@ -210,7 +210,7 @@ impl VTable for FixedSizeList {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
-            vortex_bail!("append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
+            vortex_bail!(InvalidArgument: "append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
         };
         builder.append_fixed_size_list_array(&array.into_owned(), ctx)
     }

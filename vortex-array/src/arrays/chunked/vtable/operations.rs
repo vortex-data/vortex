@@ -25,7 +25,7 @@ impl OperationsVTable<Chunked> for Chunked {
         let slot = ChunkedSlots::CHUNKS_OFFSET + chunk_index;
         state
             .slot(slot)?
-            .ok_or_else(|| vortex_err!("Chunked chunk slot {slot} is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Chunked chunk slot {slot} is missing"))?
             .execute_scalar(chunk_offset, ctx)
     }
 

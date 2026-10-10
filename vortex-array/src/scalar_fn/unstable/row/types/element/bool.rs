@@ -38,7 +38,7 @@ unsafe impl InputElement for bool {
     fn validate(dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Bool(_)),
-            "expected a Bool column, got {dtype}",
+            MismatchedTypes: "expected a Bool column, got {dtype}",
         );
         Ok(())
     }
@@ -50,13 +50,13 @@ unsafe impl InputElement for bool {
     fn decode_constant(array: ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
         let Some(constant) = array.as_opt::<Constant>() else {
             vortex_bail!(
-                "a Boolean batch constant must use the Constant encoding, got {}",
+                MismatchedTypes: "a Boolean batch constant must use the Constant encoding, got {}",
                 array.encoding_id()
             );
         };
         let scalar = constant.scalar();
         let Some(ScalarValue::Bool(value)) = scalar.value() else {
-            vortex_bail!("a Boolean batch constant must contain a non-null value, got {scalar}");
+            vortex_bail!(InvalidArgument: "a Boolean batch constant must contain a non-null value, got {scalar}");
         };
 
         Ok(*value)

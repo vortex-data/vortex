@@ -29,7 +29,7 @@ impl CudaExecute for SliceExecutor {
     ) -> VortexResult<Canonical> {
         let slice_array = array.try_downcast::<Slice>().map_err(|array| {
             vortex_err!(
-                "SliceExecutor requires input of SliceArray, was {}",
+                InvalidArgument: "SliceExecutor requires input of SliceArray, was {}",
                 array.encoding_id()
             )
         })?;
@@ -62,7 +62,7 @@ impl CudaExecute for SliceExecutor {
                 .into_array()
                 .slice(range)?
                 .execute::<Canonical>(ctx.execution_ctx()),
-            c => vortex_bail!("Slice kernel not implemented for {}", c.dtype()),
+            c => vortex_bail!(NotImplemented: "Slice kernel not implemented for {}", c.dtype()),
         }
     }
 }

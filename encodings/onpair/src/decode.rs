@@ -52,9 +52,9 @@ pub(crate) fn collect_widened_range<T: NativePType>(
             primitive.as_slice::<P>()[range]
                 .iter()
                 .map(|&value| {
-                    T::from(value).ok_or_else(|| {
-                        vortex_err!("OnPair value {value} does not fit {}", T::PTYPE)
-                    })
+                    T::from(value).ok_or_else(
+                        || vortex_err!(Overflow: "OnPair value {value} does not fit {}", T::PTYPE),
+                    )
                 })
                 .collect::<VortexResult<Vec<T>>>()
                 .map(Buffer::from)
@@ -78,7 +78,7 @@ pub(crate) fn code_boundary_at(
         .as_primitive()
         .as_opt::<usize>()
         .flatten()
-        .ok_or_else(|| vortex_err!("OnPair codes_offsets[{index}] is null, negative, or too large"))
+        .ok_or_else(|| vortex_err!(InvalidArgument: "OnPair codes_offsets[{index}] is null, negative, or too large"))
 }
 
 /// A validated, materialised window over an array's `codes`: the widened
@@ -122,17 +122,17 @@ pub(crate) fn collect_codes_window(
     vortex_ensure_eq!(
         offsets.len(),
         len + 1,
-        "OnPair codes_offsets must have len + 1 entries"
+        InvalidArgument: "OnPair codes_offsets must have len + 1 entries"
     );
     vortex_ensure!(
         offsets.is_sorted(),
-        "OnPair codes_offsets must be nondecreasing"
+        InvalidArgument: "OnPair codes_offsets must be nondecreasing"
     );
     let code_start = usize::try_from(offsets[0]).vortex_expect("code offset fits usize");
     let code_end = usize::try_from(offsets[len]).vortex_expect("code offset fits usize");
     vortex_ensure!(
         code_end <= array.codes().len(),
-        "OnPair codes_offsets end {} exceeds codes len {}",
+        InvalidArgument: "OnPair codes_offsets end {} exceeds codes len {}",
         code_end,
         array.codes().len()
     );
