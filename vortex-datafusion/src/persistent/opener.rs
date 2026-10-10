@@ -23,6 +23,8 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -43,6 +45,8 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::expr::and_collect;
+use vortex::expr::bound;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -55,6 +59,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
+use crate::convert::dynamic::dynamic_filter_to_vortex;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
@@ -358,6 +363,21 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
+            // Dynamic filters (TopK, hash join, ...) become Vortex comparisons that track the
+            // DataFusion filter. They are only an optimization, so any we can't convert (e.g.
+            // after the expression adapter rewrote their columns) are dropped.
+            let (dynamic_filters, filter): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) = filter
+                .iter()
+                .flat_map(split_conjunction)
+                .cloned()
+                .partition(|expr| expr.downcast_ref::<DynamicFilterPhysicalExpr>().is_some());
+            let filter = (!filter.is_empty()).then(|| conjunction(filter));
+            let dynamic_filter = vxf.dtype().as_struct_fields_opt().and_then(|fields| {
+                and_collect(dynamic_filters.iter().filter_map(|expr| {
+                    dynamic_filter_to_vortex(expr, fields, vxf.file_stats(), &session)
+                }))
+            });
+
             let filter = filter
                 .and_then(|f| {
                     // Verify that all filters we've accepted from DataFusion get pushed down.
@@ -394,11 +414,25 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
-            if let Some(limit) = limit
+            // The scan limit counts rows before filtering, so it is only valid without a filter.
+            // Prefer it over a dynamic filter, which is purely an optimization.
+            let filter = if let Some(limit) = limit
                 && filter.is_none()
             {
                 scan_builder = scan_builder.with_limit(limit);
-            }
+                None
+            } else {
+                let dynamic_filter = dynamic_filter
+                    .map(|f| f.bind(vxf.dtype())?.optimize_recursive())
+                    .transpose()
+                    .map_err(|e| {
+                        exec_datafusion_err!("Couldn't bind Vortex dynamic filter: {e}")
+                    })?;
+                match (filter, dynamic_filter) {
+                    (Some(filter), Some(dynamic)) => Some(bound::and(filter, dynamic)),
+                    (filter, dynamic) => filter.or(dynamic),
+                }
+            };
 
             if let Some(concurrency) = scan_concurrency {
                 scan_builder = scan_builder.with_concurrency(concurrency);

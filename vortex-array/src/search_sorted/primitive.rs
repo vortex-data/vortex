@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::array::RepeatedArrayProbe;
 use crate::dtype::NativePType;
 use crate::search_sorted::IndexOrd;
 
@@ -18,8 +19,11 @@ use crate::search_sorted::IndexOrd;
 /// Values can be searched as `T`, `Option<T>`, or `usize`. Searching as `T` or `usize` treats
 /// null elements as `T::zero()`; use `Option<T>` when the array may contain nulls, in which case
 /// nulls sort before all non-null values.
+///
+/// Elements are read through a retained probe, so an encoding that must decode a block to serve
+/// one element (such as Pco) decodes it once for the whole search rather than once per probe.
 pub struct SearchSortedPrimitiveArray<'a, T>(
-    &'a ArrayRef,
+    RefCell<RepeatedArrayProbe>,
     RefCell<&'a mut ExecutionCtx>,
     PhantomData<T>,
 );
@@ -27,23 +31,32 @@ pub struct SearchSortedPrimitiveArray<'a, T>(
 impl<'a, T: NativePType> SearchSortedPrimitiveArray<'a, T> {
     /// Wraps `array` for searching, panicking if the array's [`PType`](crate::dtype::PType) is
     /// not `T::PTYPE`.
-    pub fn new(array: &'a ArrayRef, ctx: &'a mut ExecutionCtx) -> Self {
+    pub fn new(array: &ArrayRef, ctx: &'a mut ExecutionCtx) -> Self {
         assert_eq!(
             array.dtype().as_ptype(),
             T::PTYPE,
             "Array PType must match primitive type"
         );
-        Self(array, RefCell::new(ctx), PhantomData)
+        Self(
+            RefCell::new(RepeatedArrayProbe::new(array.clone())),
+            RefCell::new(ctx),
+            PhantomData,
+        )
     }
 
     /// Returns the value at `idx`, with nulls mapped to `T::zero()`.
     fn value(&self, idx: usize) -> VortexResult<T> {
         Ok(self
             .0
+            .borrow_mut()
             .execute_scalar(idx, &mut self.1.borrow_mut())?
             .as_primitive()
             .typed_value::<T>()
             .unwrap_or_else(|| T::zero()))
+    }
+
+    fn len(&self) -> usize {
+        self.0.borrow().array().len()
     }
 }
 
@@ -54,14 +67,17 @@ impl<T: NativePType> IndexOrd<T> for SearchSortedPrimitiveArray<'_, T> {
     }
 
     fn index_len(&self) -> usize {
-        self.0.len()
+        self.len()
     }
 }
 
 impl<T: NativePType> IndexOrd<Option<T>> for SearchSortedPrimitiveArray<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &Option<T>) -> VortexResult<Option<Ordering>> {
-        // The borrow must end before `self.value` re-borrows the ctx.
-        let valid = self.0.is_valid(idx, &mut self.1.borrow_mut())?;
+        // The borrows must end before `self.value` re-borrows the probe and ctx.
+        let valid = self
+            .0
+            .borrow_mut()
+            .execute_is_valid(idx, &mut self.1.borrow_mut())?;
         let value = valid.then(|| self.value(idx)).transpose()?;
 
         Ok(match (value, elem.as_ref()) {
@@ -73,7 +89,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchSortedPrimitiveArray<'_, T> {
     }
 
     fn index_len(&self) -> usize {
-        self.0.len()
+        self.len()
     }
 }
 
@@ -89,7 +105,7 @@ impl<T: NativePType> IndexOrd<usize> for SearchSortedPrimitiveArray<'_, T> {
     }
 
     fn index_len(&self) -> usize {
-        self.0.len()
+        self.len()
     }
 }
 

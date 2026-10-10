@@ -177,8 +177,8 @@ physical_plan
 17)--------------------------------CoalescePartitionsExec
 18)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_bill_addr_sk@4, ws_ext_sales_price@5, d_year@1, d_qoy@2]
 19)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_qoy], file_type=vortex, predicate: d_qoy@10 = 1 AND d_year@6 = 2000
-20)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex
-21)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex
+20)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ]
+21)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex, predicate: DynamicFilter [ empty ]
 22)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_county@3, ca_county@0)], projection=[ca_county@0, d_year@1, store_sales@2, store_sales@4, store_sales@6]
 23)--------------------CoalescePartitionsExec
 24)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_county@0, ca_county@0)]
@@ -188,28 +188,28 @@ physical_plan
 28)------------------------------RepartitionExec: partitioning=Hash([ca_county@0, d_qoy@1, d_year@2], 4), input_partitions=4
 29)--------------------------------AggregateExec: mode=Partial, gby=[ca_county@3 as ca_county, d_qoy@2 as d_qoy, d_year@1 as d_year], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 30)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@0)], projection=[ss_ext_sales_price@3, d_year@4, d_qoy@5, ca_county@1]
-31)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex
+31)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex, predicate: DynamicFilter [ empty ]
 32)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_addr_sk@4, ss_ext_sales_price@5, d_year@1, d_qoy@2]
 33)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_qoy], file_type=vortex, predicate: d_qoy@10 = 1 AND d_year@6 = 2000
-34)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex
+34)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 35)------------------------ProjectionExec: expr=[ca_county@0 as ca_county, sum(store_sales.ss_ext_sales_price)@3 as store_sales]
 36)--------------------------AggregateExec: mode=FinalPartitioned, gby=[ca_county@0 as ca_county, d_qoy@1 as d_qoy, d_year@2 as d_year], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 37)----------------------------RepartitionExec: partitioning=Hash([ca_county@0, d_qoy@1, d_year@2], 4), input_partitions=4
 38)------------------------------AggregateExec: mode=Partial, gby=[ca_county@3 as ca_county, d_qoy@2 as d_qoy, d_year@1 as d_year], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 39)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@0)], projection=[ss_ext_sales_price@3, d_year@4, d_qoy@5, ca_county@1]
-40)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex
+40)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex, predicate: DynamicFilter [ empty ]
 41)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_addr_sk@4, ss_ext_sales_price@5, d_year@1, d_qoy@2]
 42)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_qoy], file_type=vortex, predicate: d_qoy@10 = 2 AND d_year@6 = 2000
-43)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex
+43)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 44)--------------------ProjectionExec: expr=[ca_county@0 as ca_county, sum(store_sales.ss_ext_sales_price)@3 as store_sales]
 45)----------------------AggregateExec: mode=FinalPartitioned, gby=[ca_county@0 as ca_county, d_qoy@1 as d_qoy, d_year@2 as d_year], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 46)------------------------RepartitionExec: partitioning=Hash([ca_county@0, d_qoy@1, d_year@2], 4), input_partitions=4
 47)--------------------------AggregateExec: mode=Partial, gby=[ca_county@3 as ca_county, d_qoy@2 as d_qoy, d_year@1 as d_year], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 48)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@0)], projection=[ss_ext_sales_price@3, d_year@4, d_qoy@5, ca_county@1]
-49)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex
+49)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex, predicate: DynamicFilter [ empty ]
 50)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_addr_sk@4, ss_ext_sales_price@5, d_year@1, d_qoy@2]
 51)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_qoy], file_type=vortex, predicate: d_qoy@10 = 3 AND d_year@6 = 2000
-52)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex
+52)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 53)--------------ProjectionExec: expr=[ca_county@0 as ca_county, sum(web_sales.ws_ext_sales_price)@3 as web_sales]
 54)----------------AggregateExec: mode=FinalPartitioned, gby=[ca_county@0 as ca_county, d_qoy@1 as d_qoy, d_year@2 as d_year], aggr=[sum(web_sales.ws_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 55)------------------RepartitionExec: partitioning=Hash([ca_county@0, d_qoy@1, d_year@2], 4), input_partitions=4
@@ -219,8 +219,8 @@ physical_plan
 59)--------------------------CoalescePartitionsExec
 60)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_bill_addr_sk@4, ws_ext_sales_price@5, d_year@1, d_qoy@2]
 61)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_qoy], file_type=vortex, predicate: d_qoy@10 = 2 AND d_year@6 = 2000
-62)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex
-63)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex
+62)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ]
+63)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 64)----------ProjectionExec: expr=[ca_county@0 as ca_county, sum(web_sales.ws_ext_sales_price)@3 as web_sales]
 65)------------AggregateExec: mode=FinalPartitioned, gby=[ca_county@0 as ca_county, d_qoy@1 as d_qoy, d_year@2 as d_year], aggr=[sum(web_sales.ws_ext_sales_price)], ordering_mode=PartiallySorted([1, 2])
 66)--------------RepartitionExec: partitioning=Hash([ca_county@0, d_qoy@1, d_year@2], 4), input_partitions=4
@@ -230,5 +230,5 @@ physical_plan
 70)----------------------CoalescePartitionsExec
 71)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_bill_addr_sk@4, ws_ext_sales_price@5, d_year@1, d_qoy@2]
 72)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_qoy], file_type=vortex, predicate: d_qoy@10 = 3 AND d_year@6 = 2000
-73)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex
-74)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex
+73)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex, predicate: DynamicFilter [ empty ]
+74)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county], file_type=vortex, predicate: DynamicFilter [ empty ] AND DynamicFilter [ empty ]
