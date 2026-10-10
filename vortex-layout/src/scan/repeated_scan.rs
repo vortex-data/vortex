@@ -334,30 +334,32 @@ fn limit_rows(
     limit: RowLimit,
 ) -> BoxStream<'static, VortexResult<ArrayRef>> {
     let mut arrays = Some(arrays);
-    stream::poll_fn(move |cx| loop {
-        if limit.is_exhausted() {
-            arrays = None;
-        }
-        let Some(stream) = arrays.as_mut() else {
-            return Poll::Ready(None);
-        };
-        let array = match ready!(stream.poll_next_unpin(cx)) {
-            Some(Ok(array)) => array,
-            end => {
+    stream::poll_fn(move |cx| {
+        loop {
+            if limit.is_exhausted() {
                 arrays = None;
-                return Poll::Ready(end);
             }
-        };
-        let granted = limit.take(array.len());
-        if limit.is_exhausted() {
-            arrays = None;
-        }
-        if granted != 0 {
-            return Poll::Ready(Some(if granted < array.len() {
-                array.slice(0..granted)
-            } else {
-                Ok(array)
-            }));
+            let Some(stream) = arrays.as_mut() else {
+                return Poll::Ready(None);
+            };
+            let array = match ready!(stream.poll_next_unpin(cx)) {
+                Some(Ok(array)) => array,
+                end => {
+                    arrays = None;
+                    return Poll::Ready(end);
+                }
+            };
+            let granted = limit.take(array.len());
+            if limit.is_exhausted() {
+                arrays = None;
+            }
+            if granted != 0 {
+                return Poll::Ready(Some(if granted < array.len() {
+                    array.slice(0..granted)
+                } else {
+                    Ok(array)
+                }));
+            }
         }
     })
     .boxed()
@@ -435,7 +437,11 @@ mod tests {
         let arrays = stream::iter([Ok(array)]).chain(pending).boxed();
         let mut limited = limit_rows(arrays, RowLimit::new(rows as u64));
 
-        let array = limited.next().now_or_never().expect("ready").expect("array")?;
+        let array = limited
+            .next()
+            .now_or_never()
+            .expect("ready")
+            .expect("array")?;
         assert_eq!(array.len(), rows);
         assert!(dropped.upgrade().is_none());
         assert!(matches!(limited.next().now_or_never(), Some(None)));

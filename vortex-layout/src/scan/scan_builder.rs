@@ -427,12 +427,10 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let task = handle.spawn_cpu(move || builder.prepare()?.execute_stream(None));
                     self.state = LazyScanState::Preparing(task);
                 }
-                LazyScanState::Preparing(task) => {
-                    match ready!(Pin::new(task).poll(cx)) {
-                        Ok(stream) => self.state = LazyScanState::Stream(stream),
-                        Err(err) => self.state = LazyScanState::Error(Some(err)),
-                    }
-                }
+                LazyScanState::Preparing(task) => match ready!(Pin::new(task).poll(cx)) {
+                    Ok(stream) => self.state = LazyScanState::Stream(stream),
+                    Err(err) => self.state = LazyScanState::Error(Some(err)),
+                },
                 LazyScanState::Stream(stream) => return stream.as_mut().poll_next(cx),
                 LazyScanState::Error(err) => return Poll::Ready(err.take().map(Err)),
             }
@@ -927,11 +925,8 @@ mod test {
             .with_row_range(range_start..range_start + 1)
             .into_stream()?;
 
-        assert!(matches!(
-            futures::StreamExt::next(&mut stream).await,
-            Some(Err(_))
-        ));
-        assert!(futures::StreamExt::next(&mut stream).await.is_none());
+        assert!(matches!(stream.next().await, Some(Err(_))));
+        assert!(stream.next().await.is_none());
 
         Ok(())
     }

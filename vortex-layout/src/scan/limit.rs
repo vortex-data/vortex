@@ -64,6 +64,7 @@ impl RowLimit {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
                 Some(remaining.saturating_sub(requested))
             })
+            .ok()
             .vortex_expect("row reservation always updates the budget");
         remaining.min(requested)
     }
