@@ -126,23 +126,15 @@ impl DataSource for LayoutReaderDataSource {
             .transpose()?;
         let dtype = projection.dtype().clone();
 
-        // If the dtype is an empty struct, and there is no filter, we can return a special
-        // length-only scan.
-        if let DType::Struct(fields, Nullability::NonNullable) = &dtype
-            && fields.nfields() == 0
-            && filter.is_none()
+        if filter.is_none()
+            && let Some(empty) = length_only_scan(
+                &dtype,
+                &scan_request.selection,
+                &row_range,
+                scan_request.limit,
+            )
         {
-            // FIXME(ngates): extract out maybe?
-            let row_count = scan_request.selection.row_count_in_range(&row_range);
-
-            // Apply the limit.
-            let row_count = if let Some(limit) = scan_request.limit {
-                row_count.min(limit)
-            } else {
-                row_count
-            };
-
-            return Ok(Box::new(Empty { dtype, row_count }));
+            return Ok(Box::new(empty));
         }
 
         // Check file-level pruning: if the filter can be proven false for the entire row range
@@ -362,6 +354,31 @@ impl Partition for LayoutReaderSplit {
             dtype, stream,
         )))
     }
+}
+
+/// Returns a length-only scan when the projection is an empty struct, since its output then
+/// depends only on how many rows are selected.
+///
+/// Callers must only use this for unfiltered scans, where the selected row count is exact.
+fn length_only_scan(
+    dtype: &DType,
+    selection: &Selection,
+    row_range: &Range<u64>,
+    limit: Option<u64>,
+) -> Option<Empty> {
+    let DType::Struct(fields, Nullability::NonNullable) = dtype else {
+        return None;
+    };
+    if fields.nfields() != 0 {
+        return None;
+    }
+
+    let row_count = selection.row_count_in_range(row_range);
+    let row_count = limit.map_or(row_count, |limit| row_count.min(limit));
+    Some(Empty {
+        dtype: dtype.clone(),
+        row_count,
+    })
 }
 
 /// A scan that produces no data, only empty arrays with the correct row count.

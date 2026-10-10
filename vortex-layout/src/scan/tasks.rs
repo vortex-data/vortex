@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::expr::BoundExpression;
@@ -90,22 +92,29 @@ fn build_filter_mask(
     let filter_row_range = row_range.clone();
     MaskFuture::new(row_mask.len(), async move {
         let mut mask = row_mask;
-        let mut dynamic_versions = vec![None; filter.conjuncts().len()];
+        if mask.all_false() {
+            return Ok(mask);
+        }
 
-        // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-        for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
+        // Store the latest version of each dynamic expression prior to pruning.
+        // We will re-run the pruning later if the version has changed in the meantime.
+        let mut dynamic_versions: Vec<_> = (0..filter.conjuncts().len())
+            .map(|idx| filter.dynamic_updates(idx).map(|du| du.version()))
+            .collect();
+
+        // Prune with every conjunct concurrently, intersecting the masks as they resolve. Each
+        // pruning sees only the input mask, and the remaining evaluations are dropped once the
+        // intersection rules out every row.
+        let mut pruning: FuturesUnordered<_> = filter
+            .conjuncts()
+            .iter()
+            .map(|conjunct| reader.pruning_evaluation(&filter_row_range, conjunct, mask.clone()))
+            .collect::<VortexResult<_>>()?;
+        while let Some(conjunct_mask) = pruning.try_next().await? {
+            mask = mask.bitand(&conjunct_mask);
             if mask.all_false() {
                 return Ok(mask);
             }
-
-            // Store the latest version of the dynamic expression prior to pruning.
-            // We will re-run the pruning later if the version has changed in the meantime.
-            dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
-
-            let conjunct_mask = reader
-                .pruning_evaluation(&filter_row_range, conjunct, mask.clone())?
-                .await?;
-            mask = mask.bitand(&conjunct_mask);
         }
 
         // Now we loop through the conjuncts in the preferred order and evaluate them.
