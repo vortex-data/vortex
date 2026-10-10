@@ -77,8 +77,14 @@ impl VTable for FoR {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         for_v2_id()
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(

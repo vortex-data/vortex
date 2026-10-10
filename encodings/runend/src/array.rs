@@ -88,9 +88,15 @@ impl VTable for RunEnd {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.runend");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     #[allow(clippy::disallowed_methods)]

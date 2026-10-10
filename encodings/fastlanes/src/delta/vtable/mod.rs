@@ -77,9 +77,15 @@ impl VTable for Delta {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("fastlanes.delta");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(

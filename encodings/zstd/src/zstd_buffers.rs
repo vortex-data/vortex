@@ -409,9 +409,15 @@ impl VTable for ZstdBuffers {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.zstd_buffers");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(

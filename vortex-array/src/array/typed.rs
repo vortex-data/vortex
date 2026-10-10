@@ -9,13 +9,14 @@
 //! operate over any encoding, and downcast to [`Array<V>`] or [`ArrayView<V>`] only when it needs
 //! encoding-specific state.
 
-use std::any::Any;
+use std::any::TypeId;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
@@ -28,6 +29,7 @@ use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::canonical::reserved_vtable_type_id;
 use crate::dtype::DType;
 use crate::legacy_session;
 use crate::stats::ArrayStats;
@@ -154,6 +156,17 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         encoding_id: ArrayId,
         stats: ArrayStats,
     ) -> Arc<Self> {
+        debug_assert!(
+            V::static_id().is_none_or(|id| id == encoding_id),
+            "VTable::static_id does not match VTable::id"
+        );
+        // Matchers trust reserved IDs without checking the vtable type. For a vtable with a
+        // reserved ID this folds away at compile time.
+        assert!(
+            !encoding_id.is_canonical_or_constant()
+                || reserved_vtable_type_id(encoding_id) == Some(TypeId::of::<V>()),
+            "encoding ID {encoding_id} is reserved for a built-in vtable"
+        );
         let ArrayParts {
             vtable,
             dtype,
@@ -398,11 +411,10 @@ impl<V: VTable> Array<V> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn downcast_inner(&self) -> &ArrayData<V> {
-        let any = self.inner.dyn_array().as_any();
-        // NOTE(ngates): use downcast_unchecked when it becomes stable
-        debug_assert!(any.is::<ArrayData<V>>());
-        // SAFETY: caller guarantees that T is the correct type
-        unsafe { &*(any as *const dyn Any as *const ArrayData<V>) }
+        debug_assert!(self.inner.is::<V>());
+        // SAFETY: `Array<V>` is only constructed around arrays whose concrete vtable is `V`, so
+        // the data pointer of the `dyn DynArrayData` points at an `ArrayData<V>`.
+        unsafe { &*ptr::from_ref(self.inner.dyn_array()).cast::<ArrayData<V>>() }
     }
 }
 

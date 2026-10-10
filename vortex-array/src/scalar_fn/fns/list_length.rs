@@ -24,7 +24,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::matcher::Matcher;
+use crate::matcher::vtable_set_matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -126,22 +126,22 @@ pub(crate) fn list_length(
 ) -> VortexResult<ArrayRef> {
     let any_list = array.clone().execute_until::<AnyList>(ctx)?;
 
-    let (lengths, validity) = if let Some(fsl) = any_list.as_opt::<FixedSizeList>() {
-        // The length of fixed-size list is constant, so just need to carry over validity
-        let size = fsl.list_size() as u64;
-        let lengths =
-            ConstantArray::new(Scalar::primitive(size, Nullability::NonNullable), fsl.len())
-                .into_array();
-        (lengths, fsl.validity()?)
-    } else if let Some(lv) = any_list.as_opt::<ListView>() {
+    let (lengths, validity) = match any_list.as_opt::<AnyList>() {
+        Some(ListMatch::FixedSizeList(fsl)) => {
+            // The length of fixed-size list is constant, so just need to carry over validity
+            let size = fsl.list_size() as u64;
+            let lengths =
+                ConstantArray::new(Scalar::primitive(size, Nullability::NonNullable), fsl.len())
+                    .into_array();
+            (lengths, fsl.validity()?)
+        }
         // Length array is exactly the sizes child
-        (lv.sizes().clone(), lv.listview_validity())
-    } else if let Some(l) = any_list.as_opt::<List>() {
-        let lengths = list_length_from_offsets(l)?;
-        (lengths, l.list_validity())
-    } else {
-        let dtype = any_list.dtype();
-        vortex_bail!("list_length() requires List, ListView, or FixedSizeList but got {dtype}")
+        Some(ListMatch::ListView(lv)) => (lv.sizes().clone(), lv.listview_validity()),
+        Some(ListMatch::List(l)) => (list_length_from_offsets(l)?, l.list_validity()),
+        None => {
+            let dtype = any_list.dtype();
+            vortex_bail!("list_length() requires List, ListView, or FixedSizeList but got {dtype}")
+        }
     };
 
     // Cast to `U64`
@@ -167,17 +167,14 @@ fn list_length_from_offsets(list: ArrayView<'_, List>) -> VortexResult<ArrayRef>
         .binary(offsets.slice(0..n)?, Operator::Sub)
 }
 
-/// Matches an `Array<List>`, `Array<ListView>`, or `Array<FixedSizeList>`
-struct AnyList;
+vtable_set_matcher! {
+    /// Matches an `Array<List>`, `Array<ListView>`, or `Array<FixedSizeList>`.
+    struct AnyList;
 
-impl Matcher for AnyList {
-    type Match<'a> = ();
-
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.as_opt::<List>().is_some()
-            || array.as_opt::<ListView>().is_some()
-            || array.as_opt::<FixedSizeList>().is_some())
-        .then_some(())
+    enum ListMatch {
+        List(List),
+        ListView(ListView),
+        FixedSizeList(FixedSizeList),
     }
 }
 
