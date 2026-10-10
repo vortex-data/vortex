@@ -20,11 +20,8 @@ use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 /// Check list-contains without reading buffers (metadata-only).
 ///
 /// This trait dispatches on the **element** (needle) child at index 1 of the `ListContains`
-/// expression. `Self::Array` is the concrete element encoding, while the list (haystack) is
-/// passed as an opaque `&ArrayRef`.
-///
-/// A future `ListContainsListReduce` could dispatch on the list side (child 0) for encodings
-/// with specialized list representations.
+/// expression. `Self` is the concrete element encoding, while the list (haystack) is passed as an
+/// opaque `&ArrayRef`.
 ///
 /// Return `None` if the operation cannot be resolved from metadata alone.
 pub trait ListContainsElementReduce: VTable {
@@ -40,6 +37,16 @@ pub trait ListContainsElementReduce: VTable {
 /// Like [`ListContainsElementReduce`], this dispatches on the **element** (needle) child at
 /// index 1. Unlike the reduce variant, implementations may read and execute on buffers via
 /// the provided [`ExecutionCtx`].
+///
+/// The list of an optimized node is a [`PreparedSetArray`], so a kernel can get the prepared set
+/// with `list.as_opt::<PreparedSet>()` and probe its own values with
+/// [`PreparedSetData::contains`] or [`PreparedSetData::contains_scalar`], or make its result from
+/// matches it found another way with [`PreparedSetData::result_from_bits`].
+///
+/// [`PreparedSetArray`]: crate::scalar_fn::fns::list_contains::PreparedSetArray
+/// [`PreparedSetData::contains`]: crate::scalar_fn::fns::list_contains::PreparedSetData::contains
+/// [`PreparedSetData::contains_scalar`]: crate::scalar_fn::fns::list_contains::PreparedSetData::contains_scalar
+/// [`PreparedSetData::result_from_bits`]: crate::scalar_fn::fns::list_contains::PreparedSetData::result_from_bits
 pub trait ListContainsElementKernel: VTable {
     fn list_contains(
         list: &ArrayRef,
