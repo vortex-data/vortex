@@ -18,6 +18,10 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::expr::get_item;
+use vortex_array::expr::gt;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
@@ -31,11 +35,15 @@ use super::*;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
+use crate::plan::EvalPlan;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScan;
+use crate::plan::Take;
 use crate::plan::lower;
+use crate::plan::optimize;
 use crate::segments::SegmentId;
 use crate::test::SESSION;
 
@@ -567,6 +575,68 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
         assert_view(&values, &rows, &mask, kept.arrays)?;
     }
     Ok(())
+}
+
+/// A take reads its values over their whole domain and its codes over the selection, including
+/// when a predicate has been pushed onto the values, and emits nothing before the values are
+/// whole. Later scans of the plan reuse the values and read only the codes.
+#[rstest]
+#[case::values(false)]
+#[case::predicate(true)]
+fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+    let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let mut plan = lower(&layout)?;
+    let mut expected = values.take(codes)?;
+    if predicate {
+        let expression = gt(root(), lit("a"))
+            .bind(plan.dtype())?
+            .optimize_recursive()?;
+        expected = expected.apply_bound(&expression)?;
+        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
+    }
+    assert!(plan.is::<Take>());
+
+    let mask = Sel::EveryOther.mask(10);
+    // Codes (segment 1) land first; nothing comes out until the values (segment 0) do.
+    let first = run(&store, &plan, 0..10, mask.clone(), scripted(&[1, 0]))?;
+    assert_eq!(reads(&first.events), 2);
+    let first_piece = first
+        .events
+        .iter()
+        .position(|e| matches!(e, Event::Piece(_)))
+        .vortex_expect("a piece");
+    assert!(
+        first.events[first_piece..]
+            .iter()
+            .all(|e| !matches!(e, Event::Delivered(_))),
+        "the only array must follow both deliveries"
+    );
+    assert_view(&expected, &(0..10), &mask, first.arrays)?;
+
+    Ok(())
+}
+
+#[test]
+fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, expected) = two_columns(&mut store)?;
+    let expression = gt(get_item("a", root()), lit(4_i32)).bind(plan.dtype())?;
+    let expected = expected.apply_bound(&expression)?;
+    let plan = EvalPlan::try_new(expression, plan)?.into_plan();
+
+    let rows = 2..18;
+    let mask = Sel::EveryOther.mask(16);
+    let run = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Lifo),
+    )?;
+    assert_view(&expected, &rows, &mask, run.arrays)
 }
 
 /// A column read by two fields of one struct is read and decoded once, and both fields get it.

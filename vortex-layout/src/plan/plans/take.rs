@@ -2,12 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
+use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -20,6 +24,12 @@ use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::OnceSource;
+use crate::plan::pipeline::ops::TakeSource;
+use crate::segments::SegmentId;
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
@@ -116,6 +126,40 @@ impl PlanVTable for Take {
             VALUES => Cow::Borrowed("values"),
             _ => Cow::Owned(format!("child[{index}]")),
         }
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let values = plan.values()?;
+        let values_rows = 0..values.row_count();
+        let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
+            return Ok(None);
+        };
+        let len = usize::try_from(values_rows.end)?;
+        let values = match compiler.compile(&values, values_rows, &Mask::new_true(len))? {
+            Some(values) => values,
+            None => Chain::new(OnceSource::new(
+                Canonical::empty(values.dtype()).into_array(),
+            )),
+        };
+        let source = TakeSource::new(plan.clone(), None);
+        Ok(Some(compiler.join(vec![codes, values], source)))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        let values = plan.values()?;
+        let len = values.row_count();
+        values.reach(0..len, &at.fixed(&rows), visit)?;
+        plan.codes()?.reach(rows, at, visit)
     }
 }
 

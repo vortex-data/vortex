@@ -7,24 +7,33 @@
 //! twice, holds more than the batches it must join, or scans inlets it does not read.
 
 mod concat;
+mod eval;
 mod filter;
 mod pack;
 mod port;
 mod scan;
+mod take;
 
 pub(crate) use concat::*;
+pub(crate) use eval::*;
 pub(crate) use filter::*;
 pub(crate) use pack::*;
 pub(crate) use port::*;
 pub(crate) use scan::*;
 use smallvec::SmallVec;
+pub(crate) use take::*;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::plan::pipeline::Inlet;
+
+/// An inlet capacity that never blocks the writer, for a reader that needs its inlet whole.
+const UNBOUNDED: usize = usize::MAX;
 
 /// Takes the first `len` rows of the inlet, across as many batches as hold them, slicing the last
 /// and leaving its rest in place. Rows spanning batches come back chunked, not copied.
@@ -50,4 +59,22 @@ pub(crate) fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<Array
     let dtype = pieces[0].dtype().clone();
     // SAFETY: the pieces come from one inlet, whose batches share its writer's dtype.
     Ok(unsafe { ChunkedArray::new_unchecked(pieces, dtype) }.into_array())
+}
+
+/// Joins arrays covering consecutive rows into one.
+pub(crate) fn join(dtype: &DType, mut arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+    match arrays.len() {
+        0 => Ok(Canonical::empty(dtype).into_array()),
+        1 => Ok(arrays.remove(0)),
+        _ => Ok(ChunkedArray::try_new(arrays, dtype.clone())?.into_array()),
+    }
+}
+
+/// Takes every batch of a closed inlet.
+pub(crate) fn drain(inlet: &mut Inlet<'_>) -> Vec<ArrayRef> {
+    let mut batches = Vec::with_capacity(inlet.len());
+    while let Some(batch) = inlet.take() {
+        batches.push(batch);
+    }
+    batches
 }
