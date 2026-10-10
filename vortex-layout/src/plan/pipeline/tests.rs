@@ -31,6 +31,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::and;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::root;
@@ -1155,5 +1156,48 @@ fn query_over_pruned_zones_returns_the_passing_rows() -> VortexResult<()> {
     assert_eq!(reads(&run.events), 3);
     let expected = buffer![3_i32].into_array();
     assert_arrays_eq!(join(expected.dtype(), run.arrays)?, expected, &mut ctx);
+    Ok(())
+}
+
+/// Once a split has gone on to project, later splits read their projection's segments ahead,
+/// with their conjuncts', rather than after the conjuncts finish. The first split, with no
+/// split seen yet, reads them only once its conjunct has run.
+///
+/// Segments: a0=0, a1=1, c0=2, c1=3.
+#[test]
+fn later_splits_read_their_projection_ahead() -> VortexResult<()> {
+    let mut store = Store::default();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let c = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
+    let dtype = StructArray::from_fields(&[("a", a.clone()), ("c", c.clone())])?
+        .dtype()
+        .clone();
+    let layout = StructLayout::new(
+        ROWS,
+        dtype,
+        vec![store.chunked(&a, &[10, 10])?, store.chunked(&c, &[10, 10])?],
+    )
+    .into_layout();
+    let source = lower(&layout)?;
+    let filter = gt_eq(get_item("a", root()), lit(0_i32)).bind(source.dtype())?;
+    let projection = select(FieldNames::from(["c"]), root()).bind(source.dtype())?;
+    let plan = QueryPlan::try_new(Some(filter), projection, source)?.into_plan();
+
+    let splits = vec![Split::all(0..10), Split::all(10..ROWS)];
+    let scan = Scan::try_new(SESSION.clone(), plan, splits)?.with_max_active(1);
+    let run = drive(&store, scan, delivery(Delivery::Fifo))?;
+    let batches: Vec<Vec<u32>> = run
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Io(segments) => {
+                let mut segments = segments.clone();
+                segments.sort_unstable();
+                Some(segments)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(batches, [vec![0], vec![2], vec![1, 3]]);
     Ok(())
 }

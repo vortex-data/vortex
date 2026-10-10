@@ -10,6 +10,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -94,6 +95,12 @@ pub enum Turn {
 enum State {
     Runnable,
     Blocked(Blocked),
+}
+
+/// A segment read ahead: in flight, with the pipeline that asked for it since, or arrived.
+enum Prefetch {
+    InFlight(Option<PipelineId>),
+    Arrived(BufferHandle),
 }
 
 /// A source, its stages, and the ports they read and write.
@@ -251,7 +258,19 @@ pub(crate) struct Core {
     /// Runnable pipelines, last in first out, so data a pipeline just produced is consumed
     /// before more is produced.
     ready: Vec<PipelineId>,
-    reads: FxHashMap<ReadId, (PipelineId, SegmentId)>,
+    /// Reads in flight: the pipeline that asked, or `None` for a prefetch, and the segment.
+    reads: FxHashMap<ReadId, (Option<PipelineId>, SegmentId)>,
+    /// Segments read ahead of the stage that reads them, until a pipeline asks for them.
+    prefetched: FxHashMap<SegmentId, Prefetch>,
+    /// By split: the segments it prefetched, dropped when it finishes if no stage took them.
+    prefetched_by: FxHashMap<usize, Vec<SegmentId>>,
+    /// Segments a pipeline has asked for or that were prefetched, so none is prefetched twice.
+    requested: FxHashSet<SegmentId>,
+    /// By split: segments to prefetch once splits are seen to read them.
+    held: FxHashMap<usize, Vec<SegmentId>>,
+    /// Splits that went on to project, and splits whose conjuncts left no row.
+    projected: usize,
+    emptied: usize,
     next_read: u64,
     new_reads: VecDeque<ReadRequest>,
     /// Split slots whose stage output has something new, with a flag per slot so a slot is
@@ -279,6 +298,12 @@ impl Core {
             free_pipelines: Vec::new(),
             ready: Vec::new(),
             reads: FxHashMap::default(),
+            prefetched: FxHashMap::default(),
+            prefetched_by: FxHashMap::default(),
+            requested: FxHashSet::default(),
+            held: FxHashMap::default(),
+            projected: 0,
+            emptied: 0,
             next_read: 0,
             new_reads: VecDeque::new(),
             dirty: Vec::new(),
@@ -378,15 +403,25 @@ impl Core {
         match &progress {
             Progress::Read(segments) => {
                 for &segment_id in segments {
-                    let read = ReadId(self.next_read);
-                    self.next_read += 1;
-                    self.reads.insert(read, (id, segment_id));
-                    self.new_reads.push_back(ReadRequest {
-                        id: read,
-                        segment_id,
-                    });
+                    self.requested.insert(segment_id);
+                    match self.prefetched.get_mut(&segment_id) {
+                        Some(Prefetch::Arrived(_)) => {
+                            if let Some(Prefetch::Arrived(bytes)) =
+                                self.prefetched.remove(&segment_id)
+                            {
+                                self.pipeline_mut(id).bytes.push_back((segment_id, bytes));
+                            }
+                        }
+                        Some(Prefetch::InFlight(waiter @ None)) => *waiter = Some(id),
+                        _ => self.read(Some(id), segment_id),
+                    }
                 }
-                self.pipeline_mut(id).state = State::Blocked(Blocked::Io);
+                // A prefetched segment that has arrived is computed at once.
+                if self.pipeline(id).bytes.is_empty() {
+                    self.pipeline_mut(id).state = State::Blocked(Blocked::Io);
+                } else {
+                    self.make_runnable(id);
+                }
             }
             Progress::Ran => self.make_runnable(id),
             // Nothing changes a port while its reader computes, so the condition the source
@@ -481,13 +516,97 @@ impl Core {
     }
 
     fn deliver(&mut self, read: ReadId, bytes: BufferHandle) -> VortexResult<()> {
-        let (id, segment) = self
+        let (owner, segment) = self
             .reads
             .remove(&read)
             .ok_or_else(|| vortex_err!("Unknown read {read:?}"))?;
-        self.pipeline_mut(id).bytes.push_back((segment, bytes));
-        self.make_runnable(id);
+        let owner = match owner {
+            Some(id) => Some(id),
+            None => match self.prefetched.get_mut(&segment) {
+                Some(Prefetch::InFlight(Some(id))) => {
+                    let id = *id;
+                    self.prefetched.remove(&segment);
+                    Some(id)
+                }
+                Some(entry @ Prefetch::InFlight(None)) => {
+                    *entry = Prefetch::Arrived(bytes);
+                    return Ok(());
+                }
+                // Dropped with its split, or taken by another reader.
+                _ => return Ok(()),
+            },
+        };
+        if let Some(id) = owner {
+            self.pipeline_mut(id).bytes.push_back((segment, bytes));
+            self.make_runnable(id);
+        }
         Ok(())
+    }
+
+    /// Issues a read of `segment` for `owner`, or for no pipeline yet.
+    fn read(&mut self, owner: Option<PipelineId>, segment_id: SegmentId) {
+        let read = ReadId(self.next_read);
+        self.next_read += 1;
+        self.reads.insert(read, (owner, segment_id));
+        self.new_reads.push_back(ReadRequest {
+            id: read,
+            segment_id,
+        });
+    }
+
+    /// Reads `segments` ahead of the stages of split `split` that will read them, so their
+    /// reads overlap the stages before. Until splits are seen to go on to project, so the read
+    /// is likely to be needed, the segments are held, not read: a conjunct that empties a split
+    /// still stops it reading the rest.
+    pub(crate) fn prefetch(&mut self, split: usize, segments: Vec<SegmentId>) {
+        if self.prefetching() {
+            self.read_ahead(split, segments);
+        } else {
+            self.held.insert(split, segments);
+        }
+    }
+
+    /// Records whether a split's conjuncts left rows to project, and starts the held reads once
+    /// most splits do.
+    pub(crate) fn split_projects(&mut self, split: usize, projects: bool) {
+        self.held.remove(&split);
+        if projects {
+            self.projected += 1;
+        } else {
+            self.emptied += 1;
+        }
+        if self.prefetching() {
+            for (split, segments) in std::mem::take(&mut self.held) {
+                self.read_ahead(split, segments);
+            }
+        }
+    }
+
+    fn prefetching(&self) -> bool {
+        self.projected > 0 && self.projected >= self.emptied
+    }
+
+    fn read_ahead(&mut self, split: usize, segments: Vec<SegmentId>) {
+        for segment in segments {
+            if self.requested.insert(segment) {
+                self.prefetched.insert(segment, Prefetch::InFlight(None));
+                self.prefetched_by.entry(split).or_default().push(segment);
+                self.read(None, segment);
+            }
+        }
+    }
+
+    /// Drops what split `split` prefetched and no stage took.
+    fn drop_prefetched(&mut self, split: usize) {
+        self.held.remove(&split);
+        for segment in self.prefetched_by.remove(&split).unwrap_or_default() {
+            if matches!(
+                self.prefetched.get(&segment),
+                Some(Prefetch::Arrived(_) | Prefetch::InFlight(None))
+            ) {
+                self.prefetched.remove(&segment);
+            }
+        }
     }
 
     fn describe_blocked(&self) -> String {
@@ -672,6 +791,7 @@ impl Scan {
         };
         if output.is_none() {
             self.core.shares.finish(index, &mut self.core.arena);
+            self.core.drop_prefetched(index);
         } else {
             self.active[slot] = Some(Active {
                 index,
@@ -714,6 +834,7 @@ impl Scan {
             };
         }
         self.core.shares.finish(active.index, &mut self.core.arena);
+        self.core.drop_prefetched(active.index);
         self.active[slot] = None;
         self.live -= 1;
         Ok(())
