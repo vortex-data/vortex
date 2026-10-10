@@ -10,10 +10,50 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::search_sorted::SearchResult;
+use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedPrimitiveArray;
+use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::Pco;
+
+#[rstest]
+fn search_sorted_across_pages(
+    #[values(false, true)] nullable: bool,
+    #[values(false, true)] sliced: bool,
+) -> VortexResult<()> {
+    let mut ctx = vortex_array::array_session().create_execution_ctx();
+    let expected: Vec<Option<u32>> = (0..4096u32)
+        .map(|i| (!nullable || i >= 32).then_some(i / 3))
+        .collect();
+    let input = if nullable {
+        PrimitiveArray::from_option_iter(expected.iter().copied())
+    } else {
+        PrimitiveArray::from_iter((0..4096u32).map(|i| i / 3))
+    };
+    let encoded = Pco::from_primitive(input.as_view(), 3, 128, &mut ctx)?.into_array();
+    let range = if sliced { 17..3333 } else { 0..4096 };
+    let source = encoded.slice(range.clone())?;
+    let expected = &expected[range];
+    let searcher = SearchSortedPrimitiveArray::<u32>::new_repeated(&source, &mut ctx);
+    for needle in [None, Some(0), Some(511), Some(1365), Some(100), Some(2048)] {
+        for side in [SearchSortedSide::Left, SearchSortedSide::Right] {
+            let index = expected.partition_point(|value| match side {
+                SearchSortedSide::Left => value < &needle,
+                SearchSortedSide::Right => value <= &needle,
+            });
+            let result = if expected.contains(&needle) {
+                SearchResult::Found(index)
+            } else {
+                SearchResult::NotFound(index)
+            };
+            assert_eq!(searcher.search_sorted(&needle, side)?, result);
+        }
+    }
+    Ok(())
+}
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.
 fn probe_for<'a>(

@@ -63,6 +63,6 @@ physical_plan
 11)--------------------CoalescePartitionsExec
 12)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_partkey@0, ps_partkey@0)], projection=[ps_suppkey@5, p_brand@1, p_type@2, p_size@3]
 13)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey, p_brand, p_type, p_size], file_type=vortex, predicate: p_brand@3 != Brand#45 AND p_size@5 IN (SET) ([49, 14, 23, 45, 19, 3, 36, 9]) AND p_type@4 NOT LIKE MEDIUM POLISHED%
-14)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey], file_type=vortex
+14)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey], file_type=vortex, dynamic_filter: DynamicFilter [ empty ]
 15)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
 16)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey], file_type=vortex, predicate: s_comment@6 LIKE %Customer%Complaints%

@@ -33,8 +33,12 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::iter::trimmed_ends_iter;
+
+/// Prefilling costs more than sequential validity expansion when there are very few runs.
+const PREFILL_VALIDITY_RUN_THRESHOLD: usize = 32;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
 pub fn runend_encode(
@@ -242,38 +246,58 @@ fn runend_decode_slice<T: Copy + Default>(
         }
         Mask::AllFalse(_) => (Buffer::<T>::zeroed(length), Validity::AllInvalid),
         Mask::Values(mask) => {
-            let mut decoded = BufferMut::with_capacity(length);
-            let mut decoded_validity = BitBufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(
-                values
-                    .iter()
-                    .zip(mask.bit_buffer().iter())
-                    .map(|(&v, is_valid)| is_valid.then_some(v)),
-            ) {
-                assert!(
-                    end >= decoded.len(),
-                    "Runend ends must be monotonic, got {end} after {}",
-                    decoded.len()
-                );
-                assert!(end <= length, "Runend end must be less than overall length");
-                match value {
-                    None => {
-                        decoded_validity.append_n(false, end - decoded.len());
-                        // SAFETY:
-                        // We preallocate enough capacity because we know the total length
-                        unsafe { decoded.push_n_unchecked(T::default(), end - decoded.len()) };
-                    }
-                    Some(value) => {
-                        decoded_validity.append_n(true, end - decoded.len());
-                        // SAFETY:
-                        // We preallocate enough capacity because we know the total length
-                        unsafe { decoded.push_n_unchecked(value, end - decoded.len()) };
-                    }
-                }
+            if values.len() < PREFILL_VALIDITY_RUN_THRESHOLD {
+                runend_decode_nullable_slice::<T, false>(run_ends, values, &mask, length)
+            } else {
+                runend_decode_nullable_slice::<T, true>(run_ends, values, &mask, length)
             }
-            (decoded.into(), Validity::from(decoded_validity.freeze()))
         }
     }
+}
+
+// Inlining both nullable variants into `runend_decode_slice` slows its non-nullable loop by up
+// to 2x in the `run_end_decode` benchmarks.
+#[inline(never)]
+fn runend_decode_nullable_slice<T: Copy + Default, const PREFILL: bool>(
+    run_ends: impl Iterator<Item = usize>,
+    values: &[T],
+    mask: &MaskValues,
+    length: usize,
+) -> (Buffer<T>, Validity) {
+    let mut decoded = BufferMut::with_capacity(length);
+    // Initialize the bitmap once and only overwrite runs with the minority validity.
+    // Appending every run repeatedly grows the byte length and rewrites shared bytes.
+    let prefill_valid = PREFILL && mask.true_count() > mask.len() - mask.true_count();
+    let mut decoded_validity = if PREFILL {
+        BitBufferMut::full(prefill_valid, length)
+    } else {
+        BitBufferMut::with_capacity(length)
+    };
+    for (end, (&value, is_valid)) in run_ends.zip_eq(values.iter().zip(mask.bit_buffer().iter())) {
+        let start = decoded.len();
+        assert!(
+            end >= start,
+            "Runend ends must be monotonic, got {end} after {start}"
+        );
+        assert!(end <= length, "Runend end must be less than overall length");
+        if PREFILL {
+            if is_valid != prefill_valid {
+                decoded_validity.fill_range(start, end, is_valid);
+            }
+        } else {
+            decoded_validity.append_n(is_valid, end - start);
+        }
+
+        if is_valid {
+            // SAFETY: start <= end <= length, and decoded has capacity for length elements.
+            unsafe { decoded.push_n_unchecked(value, end - start) };
+        } else {
+            // Keep null runs separate so the compiler can use a bulk zero fill.
+            // SAFETY: start <= end <= length, and decoded has capacity for length elements.
+            unsafe { decoded.push_n_unchecked(T::default(), end - start) };
+        }
+    }
+    (decoded.into(), Validity::from(decoded_validity.freeze()))
 }
 
 pub fn runend_decode_typed_primitive<T: NativePType>(
@@ -369,16 +393,20 @@ pub fn runend_decode_varbinview(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::compress::runend_decode_primitive;
+    use crate::compress::runend_decode_typed_primitive;
     use crate::compress::runend_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -447,6 +475,74 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(vec![1u32, 2, 3], vec![1i64, 2, 3])]
+    #[case(vec![1u32, 2, 4], vec![1i64, 2, 3])]
+    #[case(vec![1u32, 3, 4], vec![1i64, 2, 2])]
+    fn decode_unit_runs_and_truncated_tail(
+        #[case] ends: Vec<u32>,
+        #[case] expected: Vec<i64>,
+        #[values(0, 3)] offset: u32,
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let values = if nullable {
+            PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)])
+        } else {
+            PrimitiveArray::from_iter([1i64, 2, 3])
+        };
+        let expected = if nullable {
+            PrimitiveArray::from_option_iter(
+                expected
+                    .into_iter()
+                    .map(|value| (value != 2).then_some(value)),
+            )
+        } else {
+            PrimitiveArray::from_iter(expected)
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = runend_decode_primitive(
+            PrimitiveArray::from_iter(ends.into_iter().map(|end| end + offset)),
+            values,
+            offset as usize,
+            3,
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    fn decode_nullable_with_sliced_validity(
+        #[values(16, 65)] run_count: usize,
+        #[values(1, 2, 3, 64, 4096)] run_length: usize,
+        #[values(10, 50, 99, 100)] valid_percent: usize,
+        #[values(0, 3)] validity_offset: usize,
+    ) -> VortexResult<()> {
+        let values: Vec<i64> = (1..).take(run_count).collect();
+        let length = run_count * run_length - 1;
+        let validity = BitBuffer::from_iter(
+            (0..run_count + validity_offset).map(|i| (i * 37) % 100 < valid_percent),
+        )
+        .slice(validity_offset..run_count + validity_offset);
+        let expected = PrimitiveArray::from_option_iter(
+            values
+                .iter()
+                .zip(validity.iter())
+                .flat_map(|(&value, valid)| std::iter::repeat_n(valid.then_some(value), run_length))
+                .take(length),
+        );
+        let decoded = runend_decode_typed_primitive(
+            (1..=run_count).map(|i| (i * run_length).min(length)),
+            &values,
+            Mask::from(validity),
+            Nullability::Nullable,
+            length,
+        );
+
+        assert_arrays_eq!(decoded, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 }

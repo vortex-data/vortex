@@ -11,9 +11,16 @@ use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
+use vortex_mask::Mask;
+use vortex_runend::compress::runend_decode_primitive;
+use vortex_runend::compress::runend_decode_typed_primitive;
 use vortex_runend::decompress_bool::runend_decode_bools;
 use vortex_session::VortexSession;
 
@@ -387,5 +394,103 @@ fn decode_bool_nullable(bencher: Bencher, args: NullableBoolBenchArgs) {
         .with_inputs(|| (ends.clone(), values.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(ends, values, ctx)| {
             runend_decode_bools(ends.clone(), values.clone(), 0, total_length, ctx)
+        });
+}
+
+#[derive(Clone, Copy)]
+struct PrimitiveBenchArgs {
+    run_length: usize,
+    valid_percent: usize,
+    validity_offset: usize,
+}
+
+impl fmt::Display for PrimitiveBenchArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "run_{}_valid_{}_offset_{}",
+            self.run_length, self.valid_percent, self.validity_offset
+        )
+    }
+}
+
+const PRIMITIVE_ARGS: [PrimitiveBenchArgs; 30] = {
+    let mut args = [PrimitiveBenchArgs {
+        run_length: 1,
+        valid_percent: 99,
+        validity_offset: 0,
+    }; 30];
+    let lengths = [1, 2, 16, 128, 4096];
+    let validities = [10, 50, 99];
+    let mut i = 0;
+    while i < args.len() {
+        args[i] = PrimitiveBenchArgs {
+            run_length: lengths[i / 6],
+            valid_percent: validities[(i / 2) % 3],
+            validity_offset: (i % 2) * 3,
+        };
+        i += 1;
+    }
+    args
+};
+
+#[divan::bench(types = [u16, i64], args = PRIMITIVE_ARGS)]
+fn decode_primitive_nullable<T: NativePType>(bencher: Bencher, args: PrimitiveBenchArgs) {
+    let length = 65_536usize;
+    let run_count = length.div_ceil(args.run_length);
+    let values: Vec<T> = (0..run_count)
+        .map(|i| T::from_usize(i % 1024).vortex_expect("benchmark value fits"))
+        .collect();
+    let validity = BitBuffer::from_iter(
+        (0..run_count + args.validity_offset).map(|i| (i * 37) % 100 < args.valid_percent),
+    )
+    .slice(args.validity_offset..run_count + args.validity_offset);
+    let validity = Mask::from(validity);
+    bencher.bench(|| {
+        runend_decode_typed_primitive(
+            (1..=run_count).map(|i| (i * args.run_length).min(length)),
+            &values,
+            validity.clone(),
+            Nullability::Nullable,
+            length,
+        )
+    });
+}
+
+#[divan::bench(types = [u16, i64], args = [1usize, 2, 16, 128, 4096])]
+fn decode_primitive_non_nullable<T: NativePType>(bencher: Bencher, run_length: usize) {
+    let length = 65_536usize;
+    let run_count = length.div_ceil(run_length);
+    let values: Vec<T> = (0..run_count)
+        .map(|i| T::from_usize(i % 1024).vortex_expect("benchmark value fits"))
+        .collect();
+    bencher.bench(|| {
+        runend_decode_typed_primitive(
+            (1..=run_count).map(|i| (i * run_length).min(length)),
+            &values,
+            Mask::AllTrue(run_count),
+            Nullability::NonNullable,
+            length,
+        )
+    });
+}
+
+#[divan::bench(types = [u16, i64], args = [1usize, 2, 16, 128, 4096])]
+fn decode_primitive_array<T: NativePType>(bencher: Bencher, run_length: usize) {
+    let length = 65_536usize;
+    let run_count = length.div_ceil(run_length);
+    let ends =
+        PrimitiveArray::from_iter((1..=run_count).map(|i| (i * run_length).min(length) as u32));
+    let values = PrimitiveArray::new(
+        Buffer::from_iter(
+            (0..run_count).map(|i| T::from_usize(i % 1024).vortex_expect("benchmark value fits")),
+        ),
+        Validity::NonNullable,
+    );
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            runend_decode_primitive(ends.clone(), values.clone(), 0, length, ctx)
+                .vortex_expect("benchmark decode succeeds")
         });
 }

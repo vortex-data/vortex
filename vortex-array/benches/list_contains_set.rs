@@ -38,7 +38,7 @@ fn main() {
 // Sized to keep CodSpeed simulation under 1ms per benchmark.
 const ROWS: usize = 1_024;
 const CHUNKS: usize = 4;
-const SET_LENS: &[usize] = &[256];
+const SET_LENS: &[usize] = &[4, 8, 16, 32, 64, 256];
 /// A nested set compares whole rows to sort its elements and to probe them, so it stays smaller.
 const NESTED_SET_LENS: &[usize] = &[32];
 

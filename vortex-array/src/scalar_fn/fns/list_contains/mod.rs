@@ -5,6 +5,7 @@ mod kernel;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
 use std::ops::BitOr;
 
 use arrow_buffer::bit_iterator::BitIndexIterator;
@@ -18,6 +19,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::ArrayRef;
@@ -41,6 +43,7 @@ use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::proto::expr as pb;
 use crate::scalar::ListScalar;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -48,6 +51,8 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
@@ -291,7 +296,13 @@ fn compute_list_contains(
     }
 
     if let Some(list_scalar) = array.as_constant() {
-        return constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, options);
+        return constant_list_scalar_contains(
+            &list_scalar.as_list(),
+            value,
+            nullability,
+            options,
+            ctx,
+        );
     }
 
     vortex_bail!("unsupported list contains with list and element as arrays")
@@ -299,15 +310,24 @@ fn compute_list_contains(
 
 /// There is a constant list scalar (haystack) being compared to an array of needles.
 ///
-/// The result stays lazy. `Or` is Kleene, so under SQL null semantics the disjunction of the raw
-/// comparisons is already the `IN` answer.
+/// Small sets retain encoding-specific comparisons. Larger integer sets use one decode and
+/// one membership lookup per row instead of comparing the whole column for every element.
 fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &ArrayRef,
     nullability: Nullability,
     options: &ListContainsOptions,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let elements = list_scalar.elements().vortex_expect("non null");
+    if elements.len() >= 4
+        && let DType::Primitive(ptype, _) = values.dtype()
+        && ptype.is_int()
+    {
+        return match_each_integer_ptype!(*ptype, |T| {
+            integer_set_contains::<T>(&elements, values, nullability, options, ctx)
+        });
+    }
     let len = values.len();
     let false_scalar = Scalar::bool(false, nullability);
 
@@ -348,6 +368,58 @@ fn constant_list_scalar_contains(
     }
 
     Ok(result)
+}
+
+fn integer_set_contains<T: IntegerPType + Hash + Into<PValue>>(
+    elements: &[Scalar],
+    values: &ArrayRef,
+    nullability: Nullability,
+    options: &ListContainsOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mut set = HashSet::with_capacity(elements.len());
+    let mut has_null = false;
+    for element in elements {
+        match element.as_primitive().try_typed_value::<T>()? {
+            Some(value) => {
+                set.insert(value);
+            }
+            None => has_null = true,
+        }
+    }
+
+    if !(options.sql_null_semantics && has_null)
+        && let (Some(&min), Some(&max)) = (set.iter().min(), set.iter().max())
+        && max.to_i128().vortex_expect("integer fits i128")
+            - min.to_i128().vortex_expect("integer fits i128")
+            == (set.len() - 1) as i128
+    {
+        // Consecutive keys, such as all dates in a year, are exactly a range. Preserve
+        // compressed comparisons rather than decoding the needles for a hash lookup.
+        return values.clone().between(
+            ConstantArray::new(Scalar::primitive(min, nullability), values.len()).into_array(),
+            ConstantArray::new(Scalar::primitive(max, nullability), values.len()).into_array(),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+    }
+
+    let values = values.clone().execute::<PrimitiveArray>(ctx)?;
+    let needles = values.as_slice::<T>();
+    let matches = BitBuffer::collect_bool_in(
+        needles.len(),
+        |i| set.contains(&needles[i]),
+        ctx.allocator().clone(),
+    );
+    let mut validity = values.validity()?;
+    if options.sql_null_semantics && has_null {
+        // A matching non-null needle decides IN even when the list contains null. All
+        // other needles are unknown; physical values in null rows must never decide it.
+        validity = validity.and(Validity::from(matches.clone()))?;
+    }
+    Ok(BoolArray::new(matches, validity.union_nullability(nullability)).into_array())
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
@@ -613,8 +685,10 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::Expression;
@@ -1297,6 +1371,146 @@ mod tests {
             needles.apply(&crate::expr::not(in_list(root(), lit(set)))),
             [None, Some(false), None, Some(false)],
         )
+    }
+
+    #[rstest]
+    #[case::default(ListContainsOptions::default())]
+    #[case::sql(SQL)]
+    fn large_integer_set_preserves_null_semantics(
+        #[case] options: ListContainsOptions,
+        #[values(
+            PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, I32, PType::I64
+        )]
+        ptype: PType,
+        #[values(4, 16)] set_len: i32,
+        #[values(false, true)] has_null: bool,
+        #[values(0, 3)] offset: usize,
+    ) -> VortexResult<()> {
+        let dtype = DType::Primitive(ptype, Nullability::Nullable);
+        let mut elements = (0..set_len)
+            .map(|value| Scalar::from(2 * value + 1).cast(&dtype))
+            .collect::<VortexResult<Vec<_>>>()?;
+        elements.push(Scalar::from(7i32).cast(&dtype)?);
+        if has_null {
+            elements.push(Scalar::null(dtype.clone()));
+        }
+        let set = Scalar::list(Arc::new(dtype.clone()), elements, Nullability::NonNullable);
+        // The null needle deliberately has the physical value of a member.
+        let needles = PrimitiveArray::new(
+            buffer![99i32, 99, 99, 7, 7, 22, 1],
+            Validity::from(BitBuffer::from_iter([
+                true, true, true, true, false, true, true,
+            ])),
+        )
+        .into_array()
+        .slice(offset..7)?
+        .cast(dtype)?;
+        let result = needles.apply(&list_contains_opts(lit(set), root(), options))?;
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
+        let miss = if options.sql_null_semantics && has_null {
+            None
+        } else {
+            Some(false)
+        };
+        let expected = [miss, miss, miss, Some(true), None, miss, Some(true)];
+        assert_result(Ok(result), expected[offset..].iter().copied())
+    }
+
+    #[rstest]
+    #[case::default(ListContainsOptions::default(), Some(false))]
+    #[case::sql(SQL, None)]
+    fn large_integer_set_of_only_nulls(
+        #[case] options: ListContainsOptions,
+        #[case] non_null_result: Option<bool>,
+    ) -> VortexResult<()> {
+        let needles = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
+        assert_result(
+            needles.apply(&list_contains_opts(
+                lit(i32_set(vec![None; 16])),
+                root(),
+                options,
+            )),
+            [non_null_result, None],
+        )
+    }
+
+    #[rstest]
+    #[case::default(ListContainsOptions::default())]
+    #[case::sql(SQL)]
+    fn consecutive_integer_set_preserves_null_semantics(
+        #[case] options: ListContainsOptions,
+        #[values(
+            PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, I32, PType::I64
+        )]
+        ptype: PType,
+        #[values(false, true)] has_null: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::Primitive(ptype, Nullability::Nullable);
+        let mut elements = [10i32, 7, 8, 9, 7]
+            .into_iter()
+            .map(|value| Scalar::from(value).cast(&dtype))
+            .collect::<VortexResult<Vec<_>>>()?;
+        if has_null {
+            elements.push(Scalar::null(dtype.clone()));
+        }
+        let set = Scalar::list(Arc::new(dtype.clone()), elements, Nullability::NonNullable);
+        let needles = PrimitiveArray::from_option_iter([
+            Some(6i32),
+            Some(7),
+            Some(8),
+            Some(10),
+            Some(11),
+            None,
+        ])
+        .into_array()
+        .cast(dtype)?;
+        let result = needles.apply(&list_contains_opts(lit(set), root(), options))?;
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
+        let miss = if options.sql_null_semantics && has_null {
+            None
+        } else {
+            Some(false)
+        };
+        assert_result(
+            Ok(result),
+            [miss, Some(true), Some(true), Some(true), miss, None],
+        )
+    }
+
+    #[rstest]
+    #[case::minimum(vec![i64::MIN, i64::MIN + 1, i64::MIN + 2, i64::MIN + 3])]
+    #[case::maximum(vec![i64::MAX - 3, i64::MAX - 2, i64::MAX - 1, i64::MAX])]
+    #[case::gap(vec![-5, -3, -1, 1])]
+    #[case::duplicates(vec![7, 7, 7, 7])]
+    #[case::wide(vec![i64::MIN, -1, 0, i64::MAX])]
+    fn integer_set_range_boundaries(#[case] elements: Vec<i64>) -> VortexResult<()> {
+        let needles = [
+            i64::MIN,
+            i64::MIN + 1,
+            -5,
+            -4,
+            0,
+            1,
+            7,
+            8,
+            i64::MAX - 1,
+            i64::MAX,
+        ];
+        let expected = needles.map(|value| elements.contains(&value));
+        let set = Scalar::list(
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            elements.into_iter().map(Scalar::from).collect(),
+            Nullability::NonNullable,
+        );
+        let result = PrimitiveArray::from_iter(needles)
+            .into_array()
+            .apply(&list_contains_opts(lit(set), root(), SQL))?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter(expected),
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
     }
 
     #[test]

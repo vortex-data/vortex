@@ -87,7 +87,7 @@ physical_plan
 12)------------------AggregateExec: mode=Partial, gby=[ss_store_sk@1 as ss_store_sk, ss_item_sk@0 as ss_item_sk], aggr=[sum(store_sales.ss_sales_price)]
 13)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_sales_price@4]
 14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1176 AND d_month_seq@3 <= 1187
-15)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex
+15)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ] AND DynamicFilter [ empty ]
 16)------ProjectionExec: expr=[ss_store_sk@0 as ss_store_sk, avg(sa.revenue)@1 as ave]
 17)--------AggregateExec: mode=FinalPartitioned, gby=[ss_store_sk@0 as ss_store_sk], aggr=[avg(sa.revenue)]
 18)----------RepartitionExec: partitioning=Hash([ss_store_sk@0], 4), input_partitions=4
@@ -98,4 +98,4 @@ physical_plan
 23)--------------------AggregateExec: mode=Partial, gby=[ss_store_sk@1 as ss_store_sk, ss_item_sk@0 as ss_item_sk], aggr=[sum(store_sales.ss_sales_price)]
 24)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_sales_price@4]
 25)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1176 AND d_month_seq@3 <= 1187
-26)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex
+26)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex, dynamic_filter: DynamicFilter [ empty ] AND DynamicFilter [ empty ]

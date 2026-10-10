@@ -46,7 +46,7 @@ pub fn find_slice_end_index(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<usize> {
     let result = match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        SearchSortedPrimitiveArray::<T>::new(array, ctx)
+        SearchSortedPrimitiveArray::<T>::new_repeated(array, ctx)
             .search_sorted(&index, SearchSortedSide::Right)?
     });
     Ok(match result {
@@ -68,7 +68,7 @@ pub fn find_physical_index(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<usize> {
     match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        Ok(SearchSortedPrimitiveArray::<T>::new(array, ctx)
+        Ok(SearchSortedPrimitiveArray::<T>::new_repeated(array, ctx)
             .search_sorted(&index, SearchSortedSide::Right)?
             .to_ends_index(array.len()))
     })
