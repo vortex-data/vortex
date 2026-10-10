@@ -139,6 +139,7 @@ def render_report(
     base_rows: list[dict[str, object]],
     pr_rows: list[dict[str, object]],
     benchmark_name: str,
+    format_group: str | None = None,
 ) -> str:
     repo = git_repo_with_one_commit(tmp_path / "repo")
     head_commit = subprocess.run(
@@ -155,7 +156,14 @@ def render_report(
     pr_path.write_text("".join(f"{json.dumps(row)}\n" for row in pr_rows), encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), benchmark_name],
+        [
+            sys.executable,
+            str(COMPARE_SCRIPT),
+            str(base_path),
+            str(pr_path),
+            benchmark_name,
+            *([format_group] if format_group is not None else []),
+        ],
         cwd=repo,
         check=False,
         capture_output=True,
@@ -435,6 +443,52 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
         "new timing/fixture",
         "3.125 / — / no baseline",
     ]
+
+
+def format_group_rows(commit: str, formats: tuple[str, ...]) -> list[dict[str, object]]:
+    return [
+        stored_timing_row(commit, f"tpch_q01/datafusion:{file_format}", 100, file_format=file_format)
+        for file_format in formats
+    ]
+
+
+def test_format_groups_split_vortex_compact_into_its_own_report(tmp_path: Path) -> None:
+    formats = ("parquet", "vortex", "vortex-compact")
+    base_rows = format_group_rows("base-sha", formats)
+    pr_rows = format_group_rows("pr-sha", formats)
+
+    vortex = render_report(tmp_path / "vortex", base_rows, pr_rows, "TPC-H", "vortex")
+    compact = render_report(tmp_path / "compact", base_rows, pr_rows, "TPC-H", "compact")
+
+    assert "datafusion / vortex-file-compressed / ns" in vortex
+    assert "datafusion / parquet / ns" in vortex
+    assert "vortex-compact" not in vortex
+    assert "datafusion / vortex-compact / ns" in compact
+    assert "datafusion / parquet / ns" in compact
+    assert "vortex-file-compressed" not in compact
+
+
+def test_format_group_without_its_own_rows_renders_nothing(tmp_path: Path) -> None:
+    rows = format_group_rows("sha", ("parquet", "vortex"))
+
+    assert render_report(tmp_path, rows, rows, "TPC-H", "compact") == ""
+
+
+def test_format_groups_route_file_size_rows_by_format() -> None:
+    compare = load_compare_module()
+    pr = pd.DataFrame(
+        [
+            file_size_record_for("pr-sha", 10, "tpch", "1", file_format, "part-0")
+            for file_format in ("parquet", "vortex", "vortex-compact")
+        ]
+    )
+
+    def formats(group: str) -> set[str]:
+        selected = compare.select_format_group(pr, group)
+        return {row["format"] for row in selected["file_size"]}
+
+    assert formats("vortex") == {"parquet", "vortex"}
+    assert formats("compact") == {"parquet", "vortex-compact"}
 
 
 def test_comparison_report_handles_missing_benchmark_baseline(tmp_path: Path) -> None:
