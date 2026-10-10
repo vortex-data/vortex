@@ -87,6 +87,7 @@ fn roaring_mask(roaring: &roaring::RoaringTreemap, range: &Range<u64>, range_len
     if selected == 0 {
         return Mask::new_false(range_len);
     }
+
     if selected == range_len as u64 {
         return Mask::new_true(range_len);
     }
@@ -97,6 +98,7 @@ fn roaring_mask(roaring: &roaring::RoaringTreemap, range: &Range<u64>, range_len
     for idx in iter.take_while(|&idx| idx < range.end) {
         bits.set(relativize(range, idx));
     }
+
     Mask::from_buffer(bits.freeze())
 }
 

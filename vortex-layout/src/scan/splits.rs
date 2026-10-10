@@ -37,6 +37,7 @@ pub fn attempt_split_ranges(
     if row_range.is_some_and(|row_range| row_range.is_empty()) {
         return Some(Vec::new());
     }
+
     let row_range = row_range.cloned().unwrap_or(0..u64::MAX);
 
     match selection {
