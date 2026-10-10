@@ -101,7 +101,8 @@ where
         match self.lookup.entry(NativeValue(v)) {
             Entry::Occupied(o) => Some(*o.get()),
             Entry::Vacant(vac) => {
-                if self.values.len() >= self.max_dict_len {
+                // Admit the first entry even if it exceeds the budget, so the caller makes progress.
+                if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
                     return None;
                 }
                 let next_code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
@@ -121,7 +122,7 @@ where
             return Some(*code);
         }
 
-        if self.values.len() >= self.max_dict_len {
+        if !self.values.is_empty() && self.values.len() >= self.max_dict_len {
             return None;
         }
 
