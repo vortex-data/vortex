@@ -297,6 +297,28 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
     }
 
+    /// Moves this builder's configuration into the alternative scan builder.
+    // TODO(joe): Remove once the V2 migration is complete.
+    pub(crate) fn into_parts(self) -> ScanParts<A> {
+        ScanParts {
+            session: self.session,
+            layout_reader: self.layout_reader,
+            projection: self.projection,
+            filter: self.filter,
+            ordered: self.ordered,
+            row_range: self.row_range,
+            selection: self.selection,
+            split_by: self.split_by,
+            natural_splits: self.natural_splits,
+            concurrency: self.concurrency,
+            map_fn: self.map_fn,
+            metrics_registry: self.metrics_registry,
+            file_stats: self.file_stats,
+            limit: self.limit,
+            row_offset: self.row_offset,
+        }
+    }
+
     /// Optimize expressions, compute split ranges, and return an executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
@@ -388,6 +410,26 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let stream = self.into_stream()?;
         Ok(runtime.block_on_stream(stream))
     }
+}
+
+/// Configuration transferred to the alternative scan builder.
+// TODO(joe): Remove once the V2 migration is complete.
+pub(crate) struct ScanParts<A> {
+    pub(crate) session: VortexSession,
+    pub(crate) layout_reader: LayoutReaderRef,
+    pub(crate) projection: BoundExpression,
+    pub(crate) filter: Option<BoundExpression>,
+    pub(crate) ordered: bool,
+    pub(crate) row_range: Option<Range<u64>>,
+    pub(crate) selection: Selection,
+    pub(crate) split_by: SplitBy,
+    pub(crate) natural_splits: Option<Arc<[u64]>>,
+    pub(crate) concurrency: usize,
+    pub(crate) map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    pub(crate) metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    pub(crate) file_stats: Option<Arc<[StatsSet]>>,
+    pub(crate) limit: Option<u64>,
+    pub(crate) row_offset: u64,
 }
 
 enum LazyScanState<A: 'static + Send> {
