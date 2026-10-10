@@ -391,13 +391,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
 enum LazyScanState<A: 'static + Send> {
     Builder(Option<Box<ScanBuilder<A>>>),
-    Preparing(PreparingScan<A>),
+    Preparing(Task<VortexResult<BoxStream<'static, VortexResult<A>>>>),
     Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
-}
-
-struct PreparingScan<A: 'static + Send> {
-    task: Task<VortexResult<BoxStream<'static, VortexResult<A>>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {
@@ -429,10 +425,10 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     // This also keeps construction errors on the Preparing -> Error path rather
                     // than running construction on the caller's executor.
                     let task = handle.spawn_cpu(move || builder.prepare()?.execute_stream(None));
-                    self.state = LazyScanState::Preparing(PreparingScan { task });
+                    self.state = LazyScanState::Preparing(task);
                 }
-                LazyScanState::Preparing(preparing) => {
-                    match ready!(Pin::new(&mut preparing.task).poll(cx)) {
+                LazyScanState::Preparing(task) => {
+                    match ready!(Pin::new(task).poll(cx)) {
                         Ok(stream) => self.state = LazyScanState::Stream(stream),
                         Err(err) => self.state = LazyScanState::Error(Some(err)),
                     }
@@ -480,6 +476,7 @@ mod test {
     use std::time::Duration;
 
     use futures::Stream;
+    use futures::StreamExt;
     use futures::task::noop_waker_ref;
     use parking_lot::Mutex;
     use rstest::rstest;
@@ -862,8 +859,11 @@ mod test {
         Ok(())
     }
 
+    #[rstest]
+    #[case::eager(false)]
+    #[case::filtered_limit(true)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn into_stream_constructs_tasks_off_the_poller() -> VortexResult<()> {
+    async fn scan_constructs_tasks_off_the_poller(#[case] filtered: bool) -> VortexResult<()> {
         let gate = Arc::new(Mutex::new(()));
         let guard = gate.lock();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -876,7 +876,18 @@ mod test {
 
         let runtime = TokioRuntime::new(tokio::runtime::Handle::current());
         let session = session_with_handle(runtime.handle());
-        let mut stream = ScanBuilder::new(session, reader).into_stream()?;
+        let filter = is_not_null(root()).bind(reader.dtype())?;
+        let builder = ScanBuilder::new(session, reader);
+        let mut stream = if filtered {
+            // Drive the prepared stream directly so its first poll must construct a split.
+            builder
+                .with_filter(filter)
+                .with_limit(1)
+                .prepare()?
+                .execute_stream(None)?
+        } else {
+            builder.into_stream()?.boxed()
+        };
 
         let (poll_send, poll_recv) = mpsc::channel();
         let (release_send, release_recv) = mpsc::channel();

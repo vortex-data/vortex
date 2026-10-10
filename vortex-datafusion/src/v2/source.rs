@@ -94,11 +94,12 @@ use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use datafusion_physical_plan::limit::LimitStream;
+use datafusion_physical_plan::metrics::BaselineMetrics;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
-use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::future;
 use futures::future::try_join_all;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
@@ -372,28 +373,6 @@ impl fmt::Debug for VortexDataSource {
     }
 }
 
-/// Trim `stream` to its first `limit` rows, ending it once they have been yielded.
-fn fetch_rows(
-    stream: impl Stream<Item = DFResult<RecordBatch>>,
-    limit: usize,
-) -> impl Stream<Item = DFResult<RecordBatch>> {
-    stream.scan(limit, |remaining, batch| {
-        if *remaining == 0 {
-            return future::ready(None);
-        }
-        let batch = batch.map(|batch| {
-            let rows = batch.num_rows().min(*remaining);
-            *remaining -= rows;
-            if rows < batch.num_rows() {
-                batch.slice(0, rows)
-            } else {
-                batch
-            }
-        });
-        future::ready(Some(batch))
-    })
-}
-
 impl DataSource for VortexDataSource {
     fn open(
         &self,
@@ -405,6 +384,13 @@ impl DataSource for VortexDataSource {
         if partition != 0 {
             return Err(DataFusionError::Internal(format!(
                 "VortexScanSource: expected partition 0, got {partition}"
+            )));
+        }
+
+        if self.limit == Some(0) {
+            return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(&self.leftover_schema),
+                futures::stream::empty(),
             )));
         }
 
@@ -477,7 +463,13 @@ impl DataSource for VortexDataSource {
             // fetch must be exact here. Unordered scans share the limit across partitions, but
             // ordered partitions each apply it locally and rely on this trim.
             let stream = match limit {
-                Some(limit) => fetch_rows(stream, limit).boxed(),
+                Some(limit) => LimitStream::new(
+                    Box::pin(RecordBatchStreamAdapter::new(projected_schema, stream)),
+                    0,
+                    Some(limit),
+                    BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
+                )
+                .boxed(),
                 None => stream.boxed(),
             };
 
@@ -717,12 +709,9 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_array::Int32Array;
-    use arrow_array::RecordBatch;
     use arrow_array::cast::AsArray;
     use arrow_array::types::Int32Type;
     use datafusion::prelude::SessionContext;
-    use futures::TryStreamExt;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::arrays::StructArray;
@@ -734,28 +723,7 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
 
-    use super::fetch_rows;
     use crate::v2::VortexTable;
-
-    fn int_batch(values: impl IntoIterator<Item = i32>) -> RecordBatch {
-        let column: Int32Array = values.into_iter().collect();
-        RecordBatch::try_from_iter([("a", Arc::new(column) as _)]).unwrap()
-    }
-
-    #[tokio::test]
-    async fn fetch_rows_slices_the_last_batch_and_ends() -> anyhow::Result<()> {
-        let batches = futures::stream::iter([
-            Ok(int_batch(0..4)),
-            Ok(int_batch(4..8)),
-            Ok(int_batch(8..12)),
-        ]);
-        let rows = fetch_rows(batches, 6)
-            .map_ok(|batch| batch.num_rows())
-            .try_collect::<Vec<_>>()
-            .await?;
-        assert_eq!(rows, [4, 2]);
-        Ok(())
-    }
 
     /// The source enforces a pushed-down `LIMIT` itself: DataFusion removes its limit operator
     /// once the fetch is accepted, so a filtered scan over several partitions must still return

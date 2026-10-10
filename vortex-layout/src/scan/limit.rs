@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 /// A cloneable row budget shared by all work that can contribute rows to one scan.
@@ -58,19 +59,13 @@ impl RowLimit {
     }
 
     fn reserve(&self, requested: u64) -> u64 {
-        let mut remaining = self.0.load(Ordering::Relaxed);
-        loop {
-            let granted = remaining.min(requested);
-            match self.0.compare_exchange_weak(
-                remaining,
-                remaining - granted,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return granted,
-                Err(actual) => remaining = actual,
-            }
-        }
+        let remaining = self
+            .0
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                Some(remaining.saturating_sub(requested))
+            })
+            .vortex_expect("row reservation always updates the budget");
+        remaining.min(requested)
     }
 }
 
