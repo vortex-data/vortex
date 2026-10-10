@@ -19,12 +19,27 @@ use crate::OnPair;
 use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 
+/// Below this many rows, decoding all of them costs less than gathering token runs.
+const MIN_GATHER_LEN: usize = 1024;
+
+/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers token runs.
+/// A denser take decodes every row once and gathers the decoded strings instead: gathering
+/// decodes a row again for every index that repeats it, and costs more per row than decoding
+/// in bulk.
+const SPARSE_TAKE_DENOMINATOR: usize = 4;
+
 impl TakeExecute for OnPair {
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if array.len() < MIN_GATHER_LEN
+            || indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) >= array.len()
+        {
+            return Ok(None);
+        }
+
         // SAFETY: `codes_offsets` delimit the token runs in `codes`, as for the filter kernel.
         let codes = unsafe {
             ListArray::new_unchecked(

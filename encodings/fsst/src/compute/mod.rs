@@ -21,12 +21,27 @@ use crate::FSST;
 use crate::FSSTArrayExt;
 use crate::FSSTArraySlotsExt;
 
+/// Below this many rows, decoding all of them costs less than gathering compressed rows.
+const MIN_GATHER_LEN: usize = 1024;
+
+/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers compressed
+/// rows. A denser take decodes every row once and gathers the decoded strings instead: gathering
+/// decodes a row again for every index that repeats it, and costs more per row than decoding
+/// in bulk.
+const SPARSE_TAKE_DENOMINATOR: usize = 4;
+
 impl TakeExecute for FSST {
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if array.len() < MIN_GATHER_LEN
+            || indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) >= array.len()
+        {
+            return Ok(None);
+        }
+
         Ok(Some(
             FSST::try_new_with_symbol_table(
                 array
