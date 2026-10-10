@@ -58,7 +58,7 @@ jobs:
           - { shard: 5, name: "Core & encodings", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file vortex-alp vortex-bytebool vortex-datetime-parts" }
           - { shard: 6, name: "Main library & storage", packages: "vortex vortex-btrblocks vortex-compressor vortex-row" }
           - { shard: 7, name: "FastLanes & decimals", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
-          - { shard: 8, name: "Encodings & layout", packages: "vortex-pco vortex-runend vortex-sequence vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
+          - { shard: 8, name: "Encodings & layout", packages: "vortex-elias-fano vortex-pco vortex-runend vortex-sequence vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
           - { shard: 9, name: "Strings, tensor & spatial", packages: "vortex-fsst vortex-tensor vortex-spatial", features: "--features _test-harness" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
