@@ -34,39 +34,46 @@ pub fn attempt_split_ranges(
     selection: &Selection,
     row_range: Option<&Range<u64>>,
 ) -> Option<Vec<Range<u64>>> {
-    let Selection::IncludeByIndex(buffer) = selection else {
-        return None;
-    };
-
-    let indices = buffer.as_slice();
-    let indices = if let Some(row_range) = row_range {
-        if row_range.is_empty() {
-            return Some(Vec::new());
-        }
-
-        let start = indices.partition_point(|&index| index < row_range.start);
-        let end = indices.partition_point(|&index| index < row_range.end);
-        &indices[start..end]
-    } else {
-        indices
-    };
-
-    if indices.is_empty() {
+    if row_range.is_some_and(|row_range| row_range.is_empty()) {
         return Some(Vec::new());
     }
 
-    debug_assert!(indices.is_sorted());
+    let row_range = row_range.cloned().unwrap_or(0..u64::MAX);
+
+    match selection {
+        Selection::IncludeByIndex(buffer) => {
+            let indices = buffer.as_slice();
+            let start = indices.partition_point(|&index| index < row_range.start);
+            let end = indices.partition_point(|&index| index < row_range.end);
+            debug_assert!(indices[start..end].is_sorted());
+            sparse_ranges(indices[start..end].iter().copied())
+        }
+        Selection::IncludeRoaring(roaring) => {
+            let mut iter = roaring.iter();
+            iter.advance_to(row_range.start);
+            sparse_ranges(iter.take_while(|&index| index < row_range.end))
+        }
+        _ => None,
+    }
+}
+
+/// Builds ranges covering the sorted, unique `indices`, or returns `None` if they are too dense
+/// for exact ranges to beat the natural splits.
+fn sparse_ranges(mut indices: impl Iterator<Item = u64>) -> Option<Vec<Range<u64>>> {
+    let Some(first) = indices.next() else {
+        return Some(Vec::new());
+    };
 
     // We need to create ranges that will represent splits that cover our indices.
     // We want to make sure that we do not create too many splits. We also want to make sure our
     // splits do not cover too much as they would overlap column chunk boundaries.
 
-    let mut ranges = Vec::with_capacity((indices.len() as u64 / MAX_RANGE_SIZE) as usize);
-    let mut curr_start = indices[0];
-    let mut curr_end = indices[0] + 1; // Ranges are exclusive at the end.
+    let mut ranges = Vec::new();
+    let mut curr_start = first;
+    let mut curr_end = first + 1; // Ranges are exclusive at the end.
 
     // Build the ranges by iterating over the indices and attempting to extend the current range.
-    for &idx in &indices[1..] {
+    for idx in indices {
         // Check what the new range size would be if we extend the current range.
         let new_range_size = (idx + 1) - curr_start;
         let gap = (idx + 1) - curr_end;
@@ -115,6 +122,26 @@ mod tests {
 
         assert_eq!(ranges.len(), 1);
         assert_eq!(ranges[0], 3..8);
+    }
+
+    #[test]
+    fn roaring_split_ranges_match_index_split_ranges() {
+        let indices = [1u64, 3, 5, MAX_RANGE_SIZE * 2 + MIN_GAP_BETWEEN_RANGES];
+        let roaring = Selection::IncludeRoaring(indices.into_iter().collect());
+
+        for row_range in [None, Some(3..9), Some(6..9), Some(0..u64::MAX)] {
+            assert_eq!(
+                attempt_split_ranges(&roaring, row_range.as_ref()),
+                attempt_split_ranges(&include(indices), row_range.as_ref()),
+                "row range {row_range:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dense_roaring_selection_uses_natural_splits() {
+        let roaring = Selection::IncludeRoaring((0..MAX_RANGE_SIZE * 2).collect());
+        assert_eq!(attempt_split_ranges(&roaring, None), None);
     }
 
     #[test]
