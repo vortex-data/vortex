@@ -40,6 +40,23 @@ use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 use crate::trace;
 
+/// The outcome of [`CascadingCompressor::choose_and_compress`].
+enum Selection {
+    /// A scheme, or the compressor's own empty, null or constant handling, produced a new array.
+    Compressed(ArrayRef),
+    /// Nothing beat the input, which is handed back as it was.
+    Unchanged(ArrayRef),
+}
+
+impl Selection {
+    /// Returns the array, compressed or not.
+    fn into_array(self) -> ArrayRef {
+        match self {
+            Selection::Compressed(array) | Selection::Unchanged(array) => array,
+        }
+    }
+}
+
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
     ///
@@ -110,15 +127,15 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
-            Canonical::Bool(bool_array) => {
-                self.choose_and_compress(Canonical::Bool(bool_array), compress_ctx, exec_ctx)
-            }
-            Canonical::Primitive(primitive) => {
-                self.choose_and_compress(Canonical::Primitive(primitive), compress_ctx, exec_ctx)
-            }
-            Canonical::Decimal(decimal) => {
-                self.choose_and_compress(Canonical::Decimal(decimal), compress_ctx, exec_ctx)
-            }
+            Canonical::Bool(bool_array) => self
+                .choose_and_compress(Canonical::Bool(bool_array), compress_ctx, exec_ctx)
+                .map(Selection::into_array),
+            Canonical::Primitive(primitive) => self
+                .choose_and_compress(Canonical::Primitive(primitive), compress_ctx, exec_ctx)
+                .map(Selection::into_array),
+            Canonical::Decimal(decimal) => self
+                .choose_and_compress(Canonical::Decimal(decimal), compress_ctx, exec_ctx)
+                .map(Selection::into_array),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
@@ -165,12 +182,12 @@ impl CascadingCompressor {
                 )?
                 .into_array())
             }
-            Canonical::VarBinView(varbinview) => {
-                self.choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
-            }
+            Canonical::VarBinView(varbinview) => self
+                .choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
+                .map(Selection::into_array),
             Canonical::Extension(ext_array) => {
                 // Try scheme-based compression first.
-                let scheme_compressed = self.choose_and_compress(
+                let selection = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
                     compress_ctx,
                     exec_ctx,
@@ -178,13 +195,13 @@ impl CascadingCompressor {
 
                 // A constant extension array (that might be masked) is already in its terminal
                 // representation, and compressing the storage separately cannot do better.
-                if scheme_compressed.is::<Constant>() {
-                    return Ok(scheme_compressed);
-                }
-                if let Some(masked) = scheme_compressed.as_opt::<Masked>()
-                    && masked.child().is::<Constant>()
+                if let Selection::Compressed(compressed) = &selection
+                    && (compressed.is::<Constant>()
+                        || compressed
+                            .as_opt::<Masked>()
+                            .is_some_and(|masked| masked.child().is::<Constant>()))
                 {
-                    return Ok(scheme_compressed);
+                    return Ok(selection.into_array());
                 }
 
                 // Also compress the underlying storage array. Some extension schemes can beat the
@@ -194,10 +211,15 @@ impl CascadingCompressor {
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
 
-                if scheme_compressed.nbytes() < storage_compressed.nbytes() {
-                    Ok(scheme_compressed)
-                } else {
-                    Ok(storage_compressed)
+                match selection {
+                    Selection::Compressed(scheme_compressed)
+                        if scheme_compressed.nbytes() < storage_compressed.nbytes() =>
+                    {
+                        Ok(scheme_compressed)
+                    }
+                    // A canonical extension array's storage is only canonical at its top level,
+                    // so an unchanged input can still hold lazy, unserializable arrays.
+                    Selection::Compressed(_) | Selection::Unchanged(_) => Ok(storage_compressed),
                 }
             }
             Canonical::Variant(variant_array) => {
@@ -227,7 +249,9 @@ impl CascadingCompressor {
     /// ratio.
     ///
     /// If a winner is found and its compressed output is actually smaller, that output is
-    /// returned. Otherwise, the original array is returned unchanged.
+    /// returned as [`Selection::Compressed`]. Otherwise, the original array is returned as
+    /// [`Selection::Unchanged`], and the caller decides whether it is a valid result: it is for
+    /// leaf arrays, but not for arrays like extensions whose children have yet to be compressed.
     ///
     /// Empty, all-null, and constant arrays are handled by the compressor itself before any
     /// scheme evaluation (constant detection is skipped while compressing samples).
@@ -239,7 +263,7 @@ impl CascadingCompressor {
         canonical: Canonical,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Selection> {
         let eligible_schemes: Vec<&'static dyn Scheme> = self
             .schemes
             .iter()
@@ -250,13 +274,13 @@ impl CascadingCompressor {
         let array: ArrayRef = canonical.into();
 
         if array.is_empty() {
-            return Ok(array);
+            return Ok(Selection::Unchanged(array));
         }
 
         if array.all_invalid(exec_ctx)? {
-            return Ok(
+            return Ok(Selection::Compressed(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
-            );
+            ));
         }
 
         // Constant detection is built into the compressor: a constant leaf always short-circuits
@@ -265,7 +289,7 @@ impl CascadingCompressor {
         //
         // Compare valid values directly so even nullable constants avoid distinct-value counting.
         if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
-            return constant::compress_as_constant(array, exec_ctx);
+            return constant::compress_as_constant(array, exec_ctx).map(Selection::Compressed);
         }
 
         let before_nbytes = array.nbytes();
@@ -280,13 +304,13 @@ impl CascadingCompressor {
         let data = ArrayAndStats::new(array, merged_opts);
 
         if eligible_schemes.is_empty() {
-            return Ok(data.into_array());
+            return Ok(Selection::Unchanged(data.into_array()));
         }
 
         let Some((winner, winner_estimate)) =
             self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
-            return Ok(data.into_array());
+            return Ok(Selection::Unchanged(data.into_array()));
         };
 
         // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
@@ -315,9 +339,9 @@ impl CascadingCompressor {
         );
 
         if accepted {
-            Ok(compressed)
+            Ok(Selection::Compressed(compressed))
         } else {
-            Ok(data.into_array())
+            Ok(Selection::Unchanged(data.into_array()))
         }
     }
 }
