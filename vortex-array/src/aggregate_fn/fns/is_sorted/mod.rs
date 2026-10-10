@@ -135,15 +135,12 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
 
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
-
-    Ok(result)
+    // The accumulator caches the result as statistics.
+    Ok(result_scalar.as_bool().value().unwrap_or(false))
 }
 
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
+/// Cache an (optionally strict) is_sorted `result`, with what it implies for the other stat.
+pub(crate) fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
     let array_stats = array.statistics();
     if strict {
         if result {

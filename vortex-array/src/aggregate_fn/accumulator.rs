@@ -18,6 +18,7 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::is_sorted::cache_is_sorted;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
@@ -179,8 +180,11 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 enum StatSlot {
     /// The stat holds the aggregate's partial scalar.
     Partial(Stat),
-    /// The stat holds the aggregate's boolean result, which is narrower than its partial.
-    Verdict(Stat),
+    /// `Stat::IsConstant` holds the boolean result, which is narrower than the partial.
+    IsConstant,
+    /// `Stat::IsSorted` and `Stat::IsStrictSorted` hold the boolean results, which are narrower
+    /// than the partial. Each run also reads and writes what its result implies for the other.
+    IsSorted { strict: bool },
 }
 
 impl StatSlot {
@@ -189,15 +193,13 @@ impl StatSlot {
             return Some(Self::Partial(stat));
         }
         if aggregate_fn.is::<IsConstant>() {
-            return Some(Self::Verdict(Stat::IsConstant));
+            return Some(Self::IsConstant);
         }
-        aggregate_fn.as_opt::<IsSorted>().map(|options| {
-            Self::Verdict(if options.strict {
-                Stat::IsStrictSorted
-            } else {
-                Stat::IsSorted
+        aggregate_fn
+            .as_opt::<IsSorted>()
+            .map(|options| Self::IsSorted {
+                strict: options.strict,
             })
-        })
     }
 }
 
@@ -289,18 +291,26 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                     return self.fold_partial_scalar(&partial);
                 }
             }
-            StatSlot::Verdict(stat) => {
-                // A cached `false` settles the result. A cached `true` does not determine the
-                // values that merging with neighbouring batches needs, so the batch is computed.
-                if batch.statistics().get_as::<bool>(stat) == Precision::Exact(false) {
-                    let partial = match stat {
-                        Stat::IsConstant => IsConstant::not_constant_partial(&self.dtypes.dtype),
-                        _ => IsSorted::not_sorted_partial(
-                            &self.dtypes.dtype,
-                            stat == Stat::IsStrictSorted,
-                        ),
-                    };
-                    return self.fold_partial_scalar(&partial);
+            // A cached `false` settles the result. A cached `true` does not determine the values
+            // that merging with neighbouring batches needs, so the batch is computed.
+            StatSlot::IsConstant => {
+                if batch.statistics().get_as::<bool>(Stat::IsConstant) == Precision::Exact(false) {
+                    return self.fold_partial_scalar(&IsConstant::not_constant_partial(
+                        &self.dtypes.dtype,
+                    ));
+                }
+            }
+            StatSlot::IsSorted { strict } => {
+                let stats = batch.statistics();
+                // A batch that is not sorted is not strictly sorted either.
+                if stats.get_as::<bool>(Stat::IsSorted) == Precision::Exact(false)
+                    || (strict
+                        && stats.get_as::<bool>(Stat::IsStrictSorted) == Precision::Exact(false))
+                {
+                    return self.fold_partial_scalar(&IsSorted::not_sorted_partial(
+                        &self.dtypes.dtype,
+                        strict,
+                    ));
                 }
             }
         }
@@ -320,17 +330,26 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         // A null partial, e.g. an overflowed sum, the minimum of an all-null batch or the verdict
         // of an empty batch, has no exact stat value.
         if !batch_result.is_null() {
-            let (stat, value) = match slot {
-                StatSlot::Partial(stat) => (stat, batch_result.into_value()),
-                StatSlot::Verdict(stat) => (
-                    stat,
-                    self.vtable
+            match slot {
+                StatSlot::Partial(stat) => {
+                    if let Some(value) = batch_result.into_value() {
+                        batch.statistics().set(stat, Precision::Exact(value));
+                    }
+                }
+                StatSlot::IsConstant | StatSlot::IsSorted { .. } => {
+                    let verdict = self
+                        .vtable
                         .finalize_scalar(args, &batch_partial)?
-                        .into_value(),
-                ),
-            };
-            if let Some(value) = value {
-                batch.statistics().set(stat, Precision::Exact(value));
+                        .as_bool()
+                        .value()
+                        .unwrap_or(false);
+                    match slot {
+                        StatSlot::IsSorted { strict } => cache_is_sorted(batch, strict, verdict),
+                        _ => batch
+                            .statistics()
+                            .set(Stat::IsConstant, Precision::Exact(verdict.into())),
+                    }
+                }
             }
         }
         self.fold_partial(batch_partial)
@@ -429,6 +448,8 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::SessionExt;
@@ -753,6 +774,57 @@ mod tests {
         assert_eq!(
             finish_on(&mut is_sorted, &batch)?.as_bool().value(),
             Some(false)
+        );
+        Ok(())
+    }
+
+    /// A sorted run caches its own stat and what its result implies for the other one.
+    #[rstest]
+    #[case::strictly_sorted(buffer![1i32, 2, 3], true, Some(true), Some(true))]
+    #[case::not_strictly_sorted(buffer![1i32, 1, 2], true, None, Some(false))]
+    #[case::sorted(buffer![1i32, 1, 2], false, Some(true), None)]
+    #[case::not_sorted(buffer![2i32, 1, 3], false, Some(false), Some(false))]
+    fn caches_is_sorted_and_is_strict_sorted(
+        #[case] values: Buffer<i32>,
+        #[case] strict: bool,
+        #[case] is_sorted: Option<bool>,
+        #[case] is_strict_sorted: Option<bool>,
+    ) -> VortexResult<()> {
+        let batch = values.into_array();
+        let mut acc =
+            Accumulator::try_new(IsSorted, IsSortedOptions { strict }, batch.dtype().clone())?;
+        finish_on(&mut acc, &batch)?;
+
+        let stats = batch.statistics();
+        assert_eq!(stats.get_as::<bool>(Stat::IsSorted).as_exact(), is_sorted);
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsStrictSorted).as_exact(),
+            is_strict_sorted
+        );
+        Ok(())
+    }
+
+    /// A planted `false` on strictly sorted data proves which cached stats a sorted run reads.
+    /// A batch that is not strictly sorted may still be sorted, so the last case scans.
+    #[rstest]
+    #[case::strict_reads_is_strict_sorted(Stat::IsStrictSorted, true, false)]
+    #[case::strict_reads_is_sorted(Stat::IsSorted, true, false)]
+    #[case::non_strict_reads_is_sorted(Stat::IsSorted, false, false)]
+    #[case::non_strict_ignores_is_strict_sorted(Stat::IsStrictSorted, false, true)]
+    fn reads_cached_is_sorted_and_is_strict_sorted(
+        #[case] planted: Stat,
+        #[case] strict: bool,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let batch = buffer![1i32, 2, 3].into_array();
+        batch
+            .statistics()
+            .set(planted, Precision::Exact(false.into()));
+        let mut acc =
+            Accumulator::try_new(IsSorted, IsSortedOptions { strict }, batch.dtype().clone())?;
+        assert_eq!(
+            finish_on(&mut acc, &batch)?.as_bool().value(),
+            Some(expected)
         );
         Ok(())
     }
