@@ -19,7 +19,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
-use crate::match_each_decimal_value_type;
+use crate::match_decimal_unary;
 use crate::scalar::DecimalValue;
 
 /// Accumulate a decimal array into the sum state.
@@ -47,17 +47,15 @@ pub(crate) fn accumulate_decimal(
         .vortex_expect("decimal sum result dtype");
 
     let values_type = DecimalType::smallest_decimal_value_type(dtype);
-    match_each_decimal_value_type!(d.values_type(), |T| {
-        match_each_decimal_value_type!(values_type, |I| {
-            let initial: I = value
-                .cast()
-                .vortex_expect("cannot fail to cast initial value");
-            match sum_decimal_value(initial, d.buffer::<T>(), validity, *dtype) {
-                Some(v) => *value = v,
-                None => return Ok(true),
-            }
-            Ok(false)
-        })
+    match_decimal_unary!(d.values_type(), values_type, |T, I| {
+        let initial: I = value
+            .cast()
+            .vortex_expect("cannot fail to cast initial value");
+        match sum_decimal_value(initial, d.buffer::<T>(), validity, *dtype) {
+            Some(v) => *value = v,
+            None => return Ok(true),
+        }
+        Ok(false)
     })
 }
 
