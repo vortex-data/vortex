@@ -106,7 +106,7 @@ jobs:
           cp ../libvortex_jni_aarch64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-aarch64
           cp ../libvortex_jni_x86_64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
           cp ../libvortex_jni_x86_64-pc-windows-msvc.zip/libvortex_jni.dll ./vortex-jni/src/main/resources/native/win-amd64
-      - name: Build Java
+      - name: Build all Java release artifacts
         run: ./gradlew shadowJar
       - name: Publish to Maven Central
         run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache
