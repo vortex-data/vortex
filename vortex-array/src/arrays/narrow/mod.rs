@@ -13,6 +13,8 @@ pub(crate) use aggregates::register_aggregate_kernels;
 
 mod compare;
 mod encoding;
+mod merge;
+mod numeric;
 mod rules;
 mod vtable;
 
@@ -85,6 +87,7 @@ pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<
 }
 
 pub(crate) fn initialize(session: &VortexSession) {
+    numeric::initialize(session);
     compare::initialize(session);
 }
 
