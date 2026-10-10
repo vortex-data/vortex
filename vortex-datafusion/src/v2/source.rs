@@ -94,6 +94,9 @@ use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use datafusion_physical_plan::limit::LimitStream;
+use datafusion_physical_plan::metrics::BaselineMetrics;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -384,6 +387,13 @@ impl DataSource for VortexDataSource {
             )));
         }
 
+        if self.limit == Some(0) {
+            return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(&self.leftover_schema),
+                futures::stream::empty(),
+            )));
+        }
+
         // Build the scan request with pushed-down projection, filter, and limit.
         // The projection is included so the scan can prune columns at the I/O level.
         let scan_request = ScanRequest {
@@ -403,6 +413,7 @@ impl DataSource for VortexDataSource {
         ));
         let session = self.session.clone();
         let num_partitions = self.num_partitions;
+        let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
         let leftover_projector = self
@@ -447,6 +458,20 @@ impl DataSource for VortexDataSource {
                 })
                 .buffered(num_partitions)
                 .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+
+            // DataFusion drops its own limit operator once `with_fetch` accepts the limit, so the
+            // fetch must be exact here. Unordered scans share the limit across partitions, but
+            // ordered partitions each apply it locally and rely on this trim.
+            let stream = match limit {
+                Some(limit) => LimitStream::new(
+                    Box::pin(RecordBatchStreamAdapter::new(projected_schema, stream)),
+                    0,
+                    Some(limit),
+                    BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
+                )
+                .boxed(),
+                None => stream.boxed(),
+            };
 
             // Apply leftover projection (expressions that couldn't be pushed into Vortex).
             let stream = if let Some(projector) = leftover_projector {
@@ -677,5 +702,76 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
         Precision::Exact(v) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Inexact(v) => DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Absent => DFPrecision::Absent,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::Int32Type;
+    use datafusion::prelude::SessionContext;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::buffer::buffer;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::layout::scan::layout::LayoutReaderDataSource;
+    use vortex::session::VortexSession;
+    use vortex_arrow::ArrowSessionExt;
+
+    use crate::v2::VortexTable;
+
+    /// The source enforces a pushed-down `LIMIT` itself: DataFusion removes its limit operator
+    /// once the fetch is accepted, so a filtered scan over several partitions must still return
+    /// exactly `LIMIT` rows.
+    #[tokio::test]
+    async fn filtered_limit_returns_exactly_limit_rows() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let array = StructArray::from_fields(&[(
+            "a",
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].into_array(),
+        )])?
+        .into_array();
+        let mut buf = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(buf)?;
+        let data_source = Arc::new(
+            LayoutReaderDataSource::new(file.layout_reader()?, session.clone())
+                .with_split_max_row_count(3),
+        );
+        let schema = session.arrow().to_arrow_schema(file.dtype())?;
+
+        let ctx = SessionContext::new();
+        ctx.register_table(
+            "t",
+            Arc::new(VortexTable::new(data_source, session, Arc::new(schema))),
+        )?;
+        let batches = ctx
+            .sql("SELECT a FROM t WHERE a >= 4 LIMIT 5")
+            .await?
+            .collect()
+            .await?;
+
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values.len(), 5);
+        assert!(values.iter().all(|value| *value >= 4));
+        Ok(())
     }
 }

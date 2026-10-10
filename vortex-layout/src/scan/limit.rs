@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+
+use vortex_error::VortexExpect;
+use vortex_mask::Mask;
+
+/// A cloneable row budget shared by all work that can contribute rows to one scan.
+///
+/// Filterless scans reserve each split's selected rows before constructing its projection, so
+/// rows past the limit are never decoded. Filtered scans cannot know a split's row count up front,
+/// so they take rows from the budget as arrays are emitted and discard the excess. Either way,
+/// the order in which rows are taken decides which rows are returned: an ordered scan takes them
+/// in split order, an unordered one in completion order.
+#[derive(Clone)]
+pub(crate) struct RowLimit(Arc<AtomicU64>);
+
+/// The row limit of a scan.
+#[derive(Clone)]
+pub(crate) enum ScanLimit {
+    /// A fresh budget of this many rows for every execution of the scan.
+    PerExecution(u64),
+    /// A budget shared with the sibling partitions of an unordered scan.
+    Shared(RowLimit),
+}
+
+impl ScanLimit {
+    /// The budget for one execution of the scan.
+    pub(crate) fn budget(&self) -> RowLimit {
+        match self {
+            Self::PerExecution(limit) => RowLimit::new(*limit),
+            Self::Shared(limit) => limit.clone(),
+        }
+    }
+}
+
+impl RowLimit {
+    pub(crate) fn new(limit: u64) -> Self {
+        Self(Arc::new(AtomicU64::new(limit)))
+    }
+
+    /// Reserve rows selected by `mask` and retain only the earliest granted rows in that mask.
+    pub(crate) fn limit(&self, mask: Mask) -> Mask {
+        let granted = self.take(mask.true_count());
+        mask.limit(granted)
+    }
+
+    /// Reserve up to `rows` rows, returning how many the remaining budget granted.
+    pub(crate) fn take(&self, rows: usize) -> usize {
+        let requested = u64::try_from(rows).unwrap_or(u64::MAX);
+        usize::try_from(self.reserve(requested)).unwrap_or(usize::MAX)
+    }
+
+    pub(crate) fn is_exhausted(&self) -> bool {
+        self.0.load(Ordering::Relaxed) == 0
+    }
+
+    fn reserve(&self, requested: u64) -> u64 {
+        let remaining = self
+            .0
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                Some(remaining.saturating_sub(requested))
+            })
+            .ok()
+            .vortex_expect("row reservation always updates the budget");
+        remaining.min(requested)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+    use std::thread;
+
+    use vortex_mask::Mask;
+
+    use super::RowLimit;
+
+    #[test]
+    fn reserve_grants_up_to_the_remaining_budget() {
+        let limit = RowLimit::new(5);
+        assert_eq!(limit.reserve(3), 3);
+        assert!(!limit.is_exhausted());
+        // Only two rows remain, so a larger request saturates at what is left.
+        assert_eq!(limit.reserve(10), 2);
+        assert!(limit.is_exhausted());
+        // Once exhausted, further requests grant nothing.
+        assert_eq!(limit.reserve(1), 0);
+    }
+
+    #[test]
+    fn limit_keeps_the_earliest_granted_rows() {
+        let limit = RowLimit::new(2);
+        // Rows 0, 2, 3, 5 are selected; only the first two survive the budget of 2.
+        let mask = Mask::from_iter([true, false, true, true, false, true]);
+        let limited = limit.limit(mask);
+
+        assert_eq!(limited.true_count(), 2);
+        assert!(limited.value(0));
+        assert!(limited.value(2));
+        assert!(!limited.value(3));
+        assert!(!limited.value(5));
+        assert!(limit.is_exhausted());
+    }
+
+    #[test]
+    fn concurrent_reservations_never_exceed_the_budget() {
+        const THREADS: usize = 8;
+        const PER_THREAD: u64 = 10_000;
+        const LIMIT: u64 = 25_000;
+
+        let limit = RowLimit::new(LIMIT);
+        let granted_total = Arc::new(AtomicU64::new(0));
+        let barrier = Arc::new(Barrier::new(THREADS));
+
+        thread::scope(|scope| {
+            for _ in 0..THREADS {
+                let limit = limit.clone();
+                let granted_total = Arc::clone(&granted_total);
+                let barrier = Arc::clone(&barrier);
+                scope.spawn(move || {
+                    // Start all threads together to maximize contention on the atomic.
+                    barrier.wait();
+                    let mut local = 0;
+                    for _ in 0..PER_THREAD {
+                        local += limit.reserve(1);
+                    }
+                    granted_total.fetch_add(local, Ordering::Relaxed);
+                });
+            }
+        });
+
+        // Total requested (THREADS * PER_THREAD = 80_000) exceeds the budget, so exactly the
+        // budget is granted across all threads — no double-grant, over-grant, or lost reservation.
+        assert_eq!(granted_total.load(Ordering::Relaxed), LIMIT);
+        assert!(limit.is_exhausted());
+    }
+}

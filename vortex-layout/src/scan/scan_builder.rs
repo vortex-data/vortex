@@ -9,7 +9,6 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
-use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
@@ -20,26 +19,24 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
-use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
-use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::scan::limit::RowLimit;
+use crate::scan::limit::ScanLimit;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -77,10 +74,8 @@ pub struct ScanBuilder<A> {
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
-    /// Should we try to prune the file (using stats) on open.
-    file_stats: Option<Arc<[StatsSet]>>,
-    /// Maximal number of rows to read (after filtering)
-    limit: Option<u64>,
+    /// Maximal number of rows to read after filtering.
+    limit: Option<ScanLimit>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
@@ -105,7 +100,6 @@ impl ScanBuilder<ArrayRef> {
             concurrency: 4,
             map_fn: Arc::new(Ok),
             metrics_registry: None,
-            file_stats: None,
             limit: None,
             row_offset: 0,
         }
@@ -251,14 +245,23 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Add or clear the maximum number of rows returned after filtering.
+    ///
+    /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
     pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
-        self.limit = limit;
+        self.limit = limit.map(ScanLimit::PerExecution);
         self
     }
 
     /// Set the maximum number of rows returned after filtering.
-    pub fn with_limit(mut self, limit: u64) -> Self {
-        self.limit = Some(limit);
+    ///
+    /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
+    pub fn with_limit(self, limit: u64) -> Self {
+        self.with_some_limit(Some(limit))
+    }
+
+    /// Draw rows from a budget shared with sibling partitions instead of a limit of its own.
+    pub(crate) fn with_shared_limit(mut self, limit: RowLimit) -> Self {
+        self.limit = Some(ScanLimit::Shared(limit));
         self
     }
 
@@ -290,7 +293,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             natural_splits: self.natural_splits,
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
-            file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -300,10 +302,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Optimize expressions, compute split ranges, and return an executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
-
-        if self.filter.is_some() && self.limit.is_some() {
-            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
-        }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
@@ -364,16 +362,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
+    ///
+    /// Scans with row limits must use [`Self::into_stream`] or [`Self::into_iter`] so the scan
+    /// can coordinate the limit across splits.
     pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        // The ultimate short circuit
-        if self.limit.is_some_and(|l| l == 0) {
-            return Ok(vec![]);
-        }
-
         self.prepare()?.execute(None)
     }
 
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
+    ///
+    /// Preparation and initial stream construction begin on the first poll. Errors from either
+    /// step are returned as the stream's next item.
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
@@ -392,18 +391,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
 enum LazyScanState<A: 'static + Send> {
     Builder(Option<Box<ScanBuilder<A>>>),
-    Preparing(PreparingScan<A>),
+    Preparing(Task<VortexResult<BoxStream<'static, VortexResult<A>>>>),
     Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
-}
-
-type PreparedScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
-
-struct PreparingScan<A: 'static + Send> {
-    ordered: bool,
-    concurrency: usize,
-    handle: Handle,
-    task: Task<VortexResult<PreparedScanTasks<A>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {
@@ -428,40 +418,19 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
-                    let ordered = builder.ordered;
-                    let num_workers = get_available_parallelism().unwrap_or(1);
-                    let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle
-                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
-                    self.state = LazyScanState::Preparing(PreparingScan {
-                        ordered,
-                        concurrency,
-                        handle,
-                        task,
-                    });
+                    // IMPORTANT: Building the stream can synchronously walk the layout and
+                    // register I/O for every split. Keep it with preparation in this CPU
+                    // task: poll_next must only wait for and poll an already-constructed stream.
+                    // This also keeps construction errors on the Preparing -> Error path rather
+                    // than running construction on the caller's executor.
+                    let task = handle.spawn_cpu(move || builder.prepare()?.execute_stream(None));
+                    self.state = LazyScanState::Preparing(task);
                 }
-                LazyScanState::Preparing(preparing) => {
-                    match ready!(Pin::new(&mut preparing.task).poll(cx)) {
-                        Ok(tasks) => {
-                            let ordered = preparing.ordered;
-                            let concurrency = preparing.concurrency;
-                            let handle = preparing.handle.clone();
-                            let stream =
-                                futures::stream::iter(tasks).map(move |task| handle.spawn(task));
-                            let stream = if ordered {
-                                stream.buffered(concurrency).boxed()
-                            } else {
-                                stream.buffer_unordered(concurrency).boxed()
-                            };
-                            let stream = stream
-                                .filter_map(|chunk| async move { chunk.transpose() })
-                                .boxed();
-                            self.state = LazyScanState::Stream(stream);
-                        }
-                        Err(err) => self.state = LazyScanState::Error(Some(err)),
-                    }
-                }
+                LazyScanState::Preparing(task) => match ready!(Pin::new(task).poll(cx)) {
+                    Ok(stream) => self.state = LazyScanState::Stream(stream),
+                    Err(err) => self.state = LazyScanState::Error(Some(err)),
+                },
                 LazyScanState::Stream(stream) => return stream.as_mut().poll_next(cx),
                 LazyScanState::Error(err) => return Poll::Ready(err.take().map(Err)),
             }
@@ -505,8 +474,10 @@ mod test {
     use std::time::Duration;
 
     use futures::Stream;
+    use futures::StreamExt;
     use futures::task::noop_waker_ref;
     use parking_lot::Mutex;
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
@@ -530,6 +501,7 @@ mod test {
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
@@ -538,7 +510,13 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
+    use crate::scan::limit::RowLimit;
     use crate::scan::test::SCAN_SESSION;
+    use crate::scan::test::TestLayoutReader;
+    use crate::scan::test::collect_scan_values;
+    use crate::scan::test::drain_runtime;
+    use crate::scan::test::keep_all;
+    use crate::scan::test::keep_odd;
     use crate::scan::test::session_with_handle;
 
     fn nested_dtype() -> DType {
@@ -720,6 +698,13 @@ mod test {
         dtype: DType,
         row_count: u64,
         register_splits_calls: Arc<AtomicUsize>,
+        blocking_projection: Option<BlockingProjection>,
+    }
+
+    #[derive(Debug)]
+    struct BlockingProjection {
+        started: mpsc::Sender<()>,
+        gate: Arc<Mutex<()>>,
     }
 
     impl SplittingLayoutReader {
@@ -729,7 +714,18 @@ mod test {
                 dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
                 row_count: 4,
                 register_splits_calls,
+                blocking_projection: None,
             }
+        }
+
+        fn with_blocking_projection(
+            register_splits_calls: Arc<AtomicUsize>,
+            gate: Arc<Mutex<()>>,
+            started: mpsc::Sender<()>,
+        ) -> Self {
+            let mut reader = Self::new(register_splits_calls);
+            reader.blocking_projection = Some(BlockingProjection { started, gate });
+            reader
         }
     }
 
@@ -783,6 +779,14 @@ mod test {
             _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
+            if let Some(blocking_projection) = &self.blocking_projection {
+                blocking_projection
+                    .started
+                    .send(())
+                    .map_err(|_| vortex_err!("test projection-start receiver dropped"))?;
+                let _guard = blocking_projection.gate.lock();
+            }
+
             let start = usize::try_from(row_range.start)
                 .map_err(|_| vortex_err!("row_range.start must fit in usize"))?;
             let end = usize::try_from(row_range.end)
@@ -853,6 +857,187 @@ mod test {
         Ok(())
     }
 
+    #[rstest]
+    #[case::eager(false)]
+    #[case::filtered_limit(true)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn scan_constructs_tasks_off_the_poller(#[case] filtered: bool) -> VortexResult<()> {
+        let gate = Arc::new(Mutex::new(()));
+        let guard = gate.lock();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (started_send, started_recv) = mpsc::channel();
+        let reader = Arc::new(SplittingLayoutReader::with_blocking_projection(
+            Arc::clone(&calls),
+            Arc::clone(&gate),
+            started_send,
+        ));
+
+        let runtime = TokioRuntime::new(tokio::runtime::Handle::current());
+        let session = session_with_handle(runtime.handle());
+        let filter = is_not_null(root()).bind(reader.dtype())?;
+        let builder = ScanBuilder::new(session, reader);
+        let mut stream = if filtered {
+            // Drive the prepared stream directly so its first poll must construct a split.
+            builder
+                .with_filter(filter)
+                .with_limit(1)
+                .prepare()?
+                .execute_stream(None)?
+        } else {
+            builder.into_stream()?.boxed()
+        };
+
+        let (poll_send, poll_recv) = mpsc::channel();
+        let (release_send, release_recv) = mpsc::channel();
+        let join = std::thread::spawn(move || {
+            let waker = noop_waker_ref();
+            let mut cx = Context::from_waker(waker);
+            let poll = Pin::new(&mut stream).poll_next(&mut cx);
+            let _ = poll_send.send(matches!(poll, Poll::Pending));
+            let _ = release_recv.recv();
+        });
+
+        let poll_result = poll_recv.recv_timeout(Duration::from_secs(1));
+        let projection_started = started_recv.recv_timeout(Duration::from_secs(1));
+
+        // Release the task and join its caller before reporting a failed assertion.
+        drop(guard);
+        let _ = release_send.send(());
+        drop(join.join());
+
+        assert!(
+            poll_result.is_ok_and(|poll_pending| poll_pending),
+            "first poll must return while scan task construction is blocked"
+        );
+        projection_started
+            .map_err(|_| vortex_err!("stream construction did not begin in the background"))?;
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn into_stream_reports_stream_construction_errors() -> VortexResult<()> {
+        let range_start = i32::MAX as u64 + 1;
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0))));
+        let session = session_with_handle(TokioRuntime::current());
+        let mut stream = ScanBuilder::new(session, reader)
+            .with_row_range(range_start..range_start + 1)
+            .into_stream()?;
+
+        assert!(matches!(stream.next().await, Some(Err(_))));
+        assert!(stream.next().await.is_none());
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::limit_below_matches(8, keep_all, 3, &[0, 1, 2])]
+    #[case::limit_zero(8, keep_all, 0, &[])]
+    #[case::limit_exceeds_matches(8, keep_odd, 100, &[1, 3, 5, 7])]
+    #[case::empty_input(0, keep_all, 3, &[])]
+    fn filtered_limit_yields_expected_rows(
+        #[case] row_count: u64,
+        #[case] keep_row: fn(u64) -> bool,
+        #[case] limit: u64,
+        #[case] expected: &[i32],
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = Arc::new(
+            TestLayoutReader::new(row_count)
+                .with_split_size(2)
+                .with_keep_row(keep_row),
+        );
+        let filter = root().bind(reader.dtype())?;
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_limit(limit)
+            .into_stream()?;
+        let values = collect_scan_values(runtime.block_on_stream(stream))?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values.as_slice(), expected);
+        Ok(())
+    }
+
+    /// An ordered filtered limit takes rows in split order, so it returns the earliest matching
+    /// rows even when later splits finish first.
+    #[test]
+    fn ordered_filtered_limit_returns_the_earliest_rows() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = Arc::new(TestLayoutReader::new(12).with_split_size(4));
+        let filter = root().bind(reader.dtype())?;
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_limit(6)
+            .into_stream()?;
+        let values = collect_scan_values(runtime.block_on_stream(stream))?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, [0, 1, 2, 3, 4, 5]);
+        Ok(())
+    }
+
+    /// `map` applies to every emitted split, including the trimmed output of a filtered limit.
+    #[rstest]
+    #[case::unlimited(None, 8)]
+    #[case::limited(Some(3), 3)]
+    fn map_applies_to_every_emitted_split(
+        #[case] limit: Option<u64>,
+        #[case] expected_rows: usize,
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
+        let filter = root().bind(reader.dtype())?;
+
+        let rows = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_some_limit(limit)
+            .map(|array| Ok(array.len()))
+            .into_iter(&runtime)?
+            .sum::<VortexResult<usize>>()?;
+        drain_runtime(&runtime);
+
+        assert_eq!(rows, expected_rows);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::filter_error(true, None)]
+    #[case::filter_error_with_limit(true, Some(2))]
+    #[case::projection_error(false, None)]
+    #[case::projection_error_with_limit(false, Some(2))]
+    fn errors_end_the_scan(
+        #[case] fail_filter: bool,
+        #[case] limit: Option<u64>,
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = TestLayoutReader::new(2).with_split_size(1);
+        let reader = Arc::new(if fail_filter {
+            reader.with_fail_first_filter()
+        } else {
+            reader.with_fail_first_projection()
+        });
+        let filter = root().bind(reader.dtype())?;
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_some_limit(limit)
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        assert!(matches!(iter.next(), Some(Err(_))));
+        assert!(iter.next().is_none());
+        drop(iter);
+        drain_runtime(&runtime);
+        Ok(())
+    }
+
     #[test]
     fn full_file_splits_ignore_row_range() -> VortexResult<()> {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -863,6 +1048,96 @@ mod test {
             .full_file_splits()?;
 
         assert_eq!(splits, [0, 1, 2, 3, 4]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn projection_errors_are_stream_items() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let projection_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(
+            TestLayoutReader::new(1)
+                .with_projection_masks(Arc::clone(&projection_masks))
+                .with_projection_error(),
+        );
+        let filter = root().bind(reader.dtype())?;
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_limit(1)
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        assert!(matches!(iter.next(), Some(Err(_))));
+        assert!(iter.next().is_none());
+        assert_eq!(projection_masks.lock().as_slice(), [1]);
+        Ok(())
+    }
+
+    #[test]
+    fn prepared_scan_limits_filtered_results() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader = Arc::new(
+            TestLayoutReader::new(8)
+                .with_split_size(2)
+                .with_keep_row(keep_odd),
+        );
+        let filter = root().bind(reader.dtype())?;
+
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_limit(3)
+            .prepare()?;
+        let values = collect_scan_values(scan.execute_array_iter(None, &runtime)?)?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, [1, 3, 5]);
+        Ok(())
+    }
+
+    #[test]
+    fn prepared_scan_split_futures_can_be_polled_in_reverse() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let projection_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(
+            TestLayoutReader::new(8)
+                .with_split_size(2)
+                .with_keep_row(keep_odd)
+                .with_projection_masks(Arc::clone(&projection_masks)),
+        );
+        let filter = root().bind(reader.dtype())?;
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .prepare()?;
+        let tasks = scan.execute(Some(1..7))?;
+        assert!(projection_masks.lock().is_empty());
+
+        let mut arrays = Vec::new();
+        for task in tasks.into_iter().rev() {
+            if let Some(array) = runtime.block_on(task)? {
+                arrays.push(Ok(array));
+            }
+        }
+        assert_eq!(collect_scan_values(arrays)?, [5, 3, 1]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn prepared_scan_split_futures_reject_limits(#[case] shared: bool) -> VortexResult<()> {
+        let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
+        let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader);
+        let builder = if shared {
+            builder.with_shared_limit(RowLimit::new(1))
+        } else {
+            builder.with_limit(1)
+        };
+
+        assert!(builder.prepare()?.execute(None).is_err());
         Ok(())
     }
 

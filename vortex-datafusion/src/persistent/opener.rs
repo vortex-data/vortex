@@ -394,9 +394,10 @@ impl FileOpener for VortexOpener {
                 .transpose()
                 .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
-            if let Some(limit) = limit
-                && filter.is_none()
-            {
+            // Applying the limit after our filter is only correct because pushed-down filters are
+            // reported as exact: DataFusion pushes a limit into the scan only when no `FilterExec`
+            // remains above it to drop further rows.
+            if let Some(limit) = limit {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
@@ -680,6 +681,7 @@ mod tests {
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
+    use futures::TryStreamExt;
     use insta::assert_snapshot;
     use itertools::Itertools;
     use object_store::ObjectStore;
@@ -1045,6 +1047,48 @@ mod tests {
                 .map(|metric| metric.as_usize()),
             Some(1)
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_applies_limit_after_filtering() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "filtered-limit/file.vortex";
+        let batch = record_batch!((
+            "a",
+            Int32,
+            vec![Some(1), Some(2), Some(3), Some(4), Some(5), Some(6)]
+        ))
+        .unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from(batch.schema());
+        // `a > 3` excludes the first three rows, so a limit applied *before* filtering would take
+        // rows [1, 2, 3] and filter them all out (yielding nothing), whereas a limit applied
+        // *after* filtering yields the first three matching rows [4, 5, 6]. Asserting the values
+        // (not just the count) is what makes this test able to detect a pre-filter regression.
+        let filter = logical2physical(&col("a").gt(lit(3_i32)), table_schema.table_schema());
+
+        let mut opener = make_opener(object_store, table_schema, Some(filter));
+        opener.limit = Some(3);
+
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .expect("projected column should be Int32")
+                    .values()
+                    .to_vec()
+            })
+            .collect::<Vec<i32>>();
+
+        assert_eq!(values, [4, 5, 6]);
 
         Ok(())
     }
