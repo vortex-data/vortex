@@ -172,6 +172,32 @@ impl CascadingCompressor {
             }
             Canonical::Map(map_array) => self.compress_map_array(map_array, compress_ctx, exec_ctx),
             Canonical::FixedSizeList(fsl_array) => {
+                // Canonicalize the elements first, so that schemes see the list's real size and
+                // their output is accepted only if it beats it.
+                let elements = fsl_array
+                    .elements()
+                    .clone()
+                    .execute::<CanonicalValidity>(exec_ctx)?
+                    .0
+                    .compact(exec_ctx)?
+                    .into_array();
+                let fsl_array = FixedSizeListArray::try_new(
+                    elements,
+                    fsl_array.list_size(),
+                    fsl_array.validity()?,
+                    fsl_array.len(),
+                )?;
+
+                // Schemes over the whole list can drop the elements of null rows, which
+                // compressing the elements alone has to keep.
+                if let Selection::Compressed(compressed) = self.choose_and_compress(
+                    Canonical::FixedSizeList(fsl_array.clone()),
+                    compress_ctx,
+                    exec_ctx,
+                )? {
+                    return Ok(compressed);
+                }
+
                 let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
 
                 Ok(FixedSizeListArray::try_new(
