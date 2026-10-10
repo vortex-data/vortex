@@ -127,15 +127,20 @@ fn avx2_kernels_match_scalar() {
 
         let mut out = vec![T::default(); mask.true_count() + SLACK_BYTES / size_of::<T>()];
         // SAFETY: AVX2 was detected above and the output has a vector of slack.
-        let written =
-            unsafe { kernel_out_of_place(values.as_ptr().cast(), out.as_mut_ptr().cast(), mask) };
+        let written = unsafe {
+            kernel_out_of_place(
+                values.as_ptr().cast(),
+                out.as_mut_ptr().cast(),
+                MaskBits::Mask(mask),
+            )
+        };
         assert_eq!(written, mask.true_count());
         assert_eq!(&out[..written], expected.as_slice());
 
         let mut compacted = values.to_vec();
         let ptr = compacted.as_mut_ptr().cast::<u8>();
         // SAFETY: AVX2 was detected above; in-place compaction stays within the slice.
-        let written = unsafe { kernel_in_place(ptr.cast_const(), ptr, mask) };
+        let written = unsafe { kernel_in_place(ptr.cast_const(), ptr, MaskBits::Mask(mask)) };
         assert_eq!(written, mask.true_count());
         assert_eq!(&compacted[..written], expected.as_slice());
     }
