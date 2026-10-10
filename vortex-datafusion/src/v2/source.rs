@@ -264,7 +264,6 @@ impl VortexDataSourceBuilder {
             data_source: self.data_source,
             session: self.session,
             initial_schema: Arc::clone(&arrow_schema),
-            initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
             projected_projection: projection.clone(),
             projected_schema: Arc::clone(&arrow_schema),
@@ -318,15 +317,13 @@ pub struct VortexDataSource {
     // --- Phase 1: Initial (from the builder, before any optimizer pushdown) ---
     /// The Arrow schema of the data source before any DataFusion projection pushdown.
     initial_schema: SchemaRef,
-    /// The initial Vortex projection expression (e.g. column selection from the builder).
-    initial_projection: Expression,
     /// Column statistics for the initial projection columns.
     #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
 
     // --- Phase 2: Projected (pushed into the Vortex scan) ---
     /// The Vortex projection expression sent in the [`ScanRequest`].
-    /// Composed with `initial_projection` so it operates on the original source columns.
+    /// Composed across optimizer passes so it operates on the original source columns.
     projected_projection: Expression,
     /// The Arrow schema of the Vortex scan output (before any leftover projection).
     projected_schema: SchemaRef,
@@ -534,8 +531,8 @@ impl DataSource for VortexDataSource {
         self.limit
     }
 
-    // Note that we're explicitly "swapping" the projection. That means everything we do must
-    // be computed over the original input schema, rather than the projected output schema.
+    // Optimizer passes may swap multiple projections into the same source. Each
+    // incoming projection refers to the current output, including leftover expressions.
     fn try_swapping_with_projection(
         &self,
         projection: &ProjectionExprs,
@@ -546,8 +543,12 @@ impl DataSource for VortexDataSource {
         );
 
         let convertor = DefaultExpressionConvertor::default();
-        let input_schema = self.initial_schema.as_ref();
-        let projected_schema = projection.project_schema(input_schema)?;
+        let projected_schema = projection.project_schema(&self.leftover_schema)?;
+        let projection = match &self.leftover_projection {
+            Some(previous) => previous.try_merge(projection)?,
+            None => projection.clone(),
+        };
+        let input_schema = self.projected_schema.as_ref();
 
         // Use the shared ExpressionConvertor to split the projection into a Vortex
         // scan_projection and a leftover DataFusion projection for expressions that
@@ -557,9 +558,9 @@ impl DataSource for VortexDataSource {
             leftover_projection,
         } = convertor.split_projection(projection.clone(), input_schema, &projected_schema)?;
 
-        // Compose with the initial projection so the scan operates on the original
-        // source columns, not the initial projection's output columns.
-        let scan_projection = replace(scan_projection, &root(), self.initial_projection.clone());
+        // Compose with the current scan projection to resolve aliases introduced by
+        // earlier optimizer passes back to the original source columns.
+        let scan_projection = replace(scan_projection, &root(), self.projected_projection.clone());
 
         // Compute the scan output schema from the Vortex expression's return dtype.
         let scan_dtype = scan_projection
@@ -677,5 +678,89 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
         Precision::Exact(v) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Inexact(v) => DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Absent => DFPrecision::Absent,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use datafusion_physical_expr::projection::ProjectionExpr;
+    use datafusion_physical_plan::expressions::Column;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::struct_::StructArrayExt;
+    use vortex::array::dtype::FieldNames;
+    use vortex::array::stats::StatsSet;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::buffer;
+    use vortex::scan::DataSource as VortexScanDataSource;
+    use vortex::scan::DataSourceScanRef;
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct ProjectionTestSource(DType);
+
+    #[async_trait]
+    impl VortexScanDataSource for ProjectionTestSource {
+        fn dtype(&self) -> &DType {
+            &self.0
+        }
+
+        async fn scan(&self, _request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+            unreachable!("projection planning must not scan")
+        }
+
+        async fn field_statistics(&self, _field: &FieldPath) -> VortexResult<StatsSet> {
+            Ok(StatsSet::default())
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_projection_swap_uses_current_output() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let rows = StructArray::new(
+            FieldNames::from(["a", "b", "c"]),
+            vec![
+                buffer![1i32, 2].into_array(),
+                buffer![10i32, 20].into_array(),
+                buffer![100i32, 200].into_array(),
+            ],
+            2,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let source = VortexDataSource::builder(
+            Arc::new(ProjectionTestSource(rows.dtype().clone())),
+            session.clone(),
+        )
+        .with_projection(vec![2, 0])
+        .build()
+        .await?;
+
+        let first = ProjectionExprs::new([
+            ProjectionExpr::new(Arc::new(Column::new("a", 1)), "x"),
+            ProjectionExpr::new(Arc::new(Column::new("c", 0)), "y"),
+        ]);
+        let source = source.try_swapping_with_projection(&first)?.unwrap();
+        let second = ProjectionExprs::new([ProjectionExpr::new(
+            Arc::new(Column::new("y", 1)),
+            "selected",
+        )]);
+        let source = source.try_swapping_with_projection(&second)?.unwrap();
+        let source = source.downcast_ref::<VortexDataSource>().unwrap();
+
+        let selected = rows
+            .apply(&source.projected_projection)?
+            .execute::<StructArray>(&mut session.create_execution_ctx())?;
+        let values = selected
+            .unmasked_field_by_name("selected")?
+            .clone()
+            .execute::<PrimitiveArray>(&mut session.create_execution_ctx())?;
+        assert_eq!(values.as_slice::<i32>(), &[100, 200]);
+        assert_eq!(source.leftover_schema.field(0).name(), "selected");
+        Ok(())
     }
 }
