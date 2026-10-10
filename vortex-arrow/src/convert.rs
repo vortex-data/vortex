@@ -677,19 +677,21 @@ pub(crate) fn map_from_arrow_parts(
     Ok(MapArray::try_new(map_dtype, entries)?.into_array())
 }
 
+/// Select the child entries that the map offsets reference, and rebase the offsets.
+pub(crate) fn trim_map_entries(array: &ArrowMapArray) -> (ArrowStructArray, OffsetBuffer<i32>) {
+    let (offsets, referenced) = trim_offsets(array.offsets());
+    let entries = array.entries().slice(referenced.start, referenced.len());
+    (entries, offsets)
+}
+
 /// Conversion of an Arrow map array into a Vortex `Map` array.
 pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<ArrayRef> {
     let DataType::Map(_, keys_sorted) = array.data_type() else {
         vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
     };
-    let entries = from_arrow_struct(array.entries(), false)?;
-    map_from_arrow_parts(
-        entries,
-        array.offsets(),
-        array.nulls(),
-        *keys_sorted,
-        nullable,
-    )
+    let (entries, offsets) = trim_map_entries(array);
+    let entries = from_arrow_struct(&entries, false)?;
+    map_from_arrow_parts(entries, &offsets, array.nulls(), *keys_sorted, nullable)
 }
 
 impl FromArrowArray<&ArrowMapArray> for ArrayRef {

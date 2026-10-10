@@ -76,6 +76,7 @@ use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
+use crate::convert::trim_map_entries;
 use crate::convert::trim_offsets;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
@@ -722,11 +723,12 @@ impl ArrowSession {
             }
             DataType::Map(entries_field, keys_sorted) => {
                 let map = array.as_map();
-                let entries_array: ArrowArrayRef = Arc::new(map.entries().clone());
+                let (entries, offsets) = trim_map_entries(map);
+                let entries_array: ArrowArrayRef = Arc::new(entries);
                 let entries = self.from_arrow_array_inner(entries_array, entries_field.as_ref())?;
                 map_from_arrow_parts(
                     entries,
-                    map.offsets(),
+                    &offsets,
                     map.nulls(),
                     *keys_sorted,
                     field.is_nullable(),
@@ -777,8 +779,7 @@ impl ArrowSession {
             .as_any()
             .downcast_ref::<RunArray<R>>()
             .ok_or_else(|| vortex_err!("expected an Arrow RunArray, got {}", array.data_type()))?;
-        let values =
-            self.from_arrow_array_inner(ArrowArrayRef::clone(run_array.values()), values_field)?;
+        let values = self.from_arrow_array_inner(run_array.values_slice(), values_field)?;
         run_end_from_arrow(run_array, values)
     }
 }
