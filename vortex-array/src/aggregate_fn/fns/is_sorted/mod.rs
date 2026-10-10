@@ -61,7 +61,20 @@ impl Display for IsSortedOptions {
 /// Returns `true` for empty arrays and arrays of length 1.
 /// Returns `false` for struct, list, and fixed-size list arrays.
 pub fn is_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    is_sorted_impl(array, false, ctx)
+    is_sorted_impl(array, false, CacheResult::Yes, ctx)
+}
+
+/// Compute whether an array is sorted in increasing order, without caching the answer on `array`.
+///
+/// [`is_sorted`] records its result as a statistic on the array it inspects. That is the right trade
+/// for a query, but wrong for *validation*: cached statistics are serialised into written files, so a
+/// check that annotates its input changes the bytes that are later written. A
+/// `debug_assertions`-gated check doing so made written files differ between debug and release builds
+/// of the same writer.
+///
+/// Use this wherever sortedness is being asserted rather than asked.
+pub fn is_sorted_uncached(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+    is_sorted_impl(array, false, CacheResult::No, ctx)
 }
 
 /// Compute whether an array is strictly sorted in increasing order (no duplicates).
@@ -69,10 +82,22 @@ pub fn is_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool>
 /// Returns `true` for empty arrays and arrays of length 1.
 /// Returns `false` for struct, list, and fixed-size list arrays.
 pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    is_sorted_impl(array, true, ctx)
+    is_sorted_impl(array, true, CacheResult::Yes, ctx)
 }
 
-fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+/// Whether [`is_sorted_impl`] may record its answer as a statistic on the array it inspects.
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum CacheResult {
+    Yes,
+    No,
+}
+
+fn is_sorted_impl(
+    array: &ArrayRef,
+    strict: bool,
+    cache: CacheResult,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
     let stat = if strict {
         Stat::IsStrictSorted
     } else {
@@ -92,7 +117,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
         let result = !strict;
-        cache_is_sorted(array, strict, result);
+        maybe_cache_is_sorted(array, strict, cache, result);
         return Ok(result);
     }
 
@@ -118,12 +143,12 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
             // If we have a potential null value - it has to be the first one.
             1 => {
                 if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false);
+                    maybe_cache_is_sorted(array, strict, cache, false);
                     return Ok(false);
                 }
             }
             _ => {
-                cache_is_sorted(array, strict, false);
+                maybe_cache_is_sorted(array, strict, cache, false);
                 return Ok(false);
             }
         }
@@ -138,9 +163,16 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
     // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
+    maybe_cache_is_sorted(array, strict, cache, result);
 
     Ok(result)
+}
+
+/// Record the result only when the caller asked for it (see [`CacheResult`]).
+fn maybe_cache_is_sorted(array: &ArrayRef, strict: bool, cache: CacheResult, result: bool) {
+    if cache == CacheResult::Yes {
+        cache_is_sorted(array, strict, result);
+    }
 }
 
 fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {

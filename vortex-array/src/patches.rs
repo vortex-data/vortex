@@ -275,10 +275,13 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::aggregate_fn::fns::is_sorted::is_sorted;
+                // `is_sorted_uncached`, not `is_sorted`: the latter records its answer as a
+                // statistic on `indices`, and cached statistics are serialised into written files,
+                // so asserting here would make the written bytes depend on `debug_assertions`.
+                use crate::aggregate_fn::fns::is_sorted::is_sorted_uncached;
                 let mut ctx = legacy_session().create_execution_ctx();
                 assert!(
-                    is_sorted(&indices, &mut ctx).unwrap_or(false),
+                    is_sorted_uncached(&indices, &mut ctx).unwrap_or(false),
                     "Patch indices must be sorted"
                 );
             }
@@ -1353,6 +1356,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -1361,6 +1365,49 @@ mod test {
     use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
     use crate::validity::Validity;
+
+    /// Constructing `Patches` must not cache statistics on the indices array.
+    ///
+    /// The `debug_assertions`-only sortedness check calls `is_sorted`, which caches its result as a
+    /// statistic on the array it is given. Cached statistics are serialised into written files, so
+    /// that annotation made the bytes of a written file depend on whether the writer was built with
+    /// `debug_assertions`: a debug build and a release build produced different bytes for the same
+    /// input. Validation must be observationally pure.
+    ///
+    /// The whole statistics set is compared, not just `IsSorted`, so that any statistic cached as a
+    /// side effect of executing the array is caught too.
+    #[test]
+    fn new_does_not_cache_statistics_on_indices() {
+        fn snapshot(array: &ArrayRef) -> Vec<String> {
+            let mut entries: Vec<String> = array
+                .statistics()
+                .to_owned()
+                .iter()
+                .map(|(stat, value)| format!("{stat:?}={value:?}"))
+                .collect();
+            entries.sort();
+            entries
+        }
+
+        let indices = buffer![10u32, 11, 20].into_array();
+        let before = snapshot(&indices);
+
+        let _patches = Patches::new(
+            100,
+            0,
+            indices.clone(),
+            buffer![100, 110, 200].into_array(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            snapshot(&indices),
+            before,
+            "Patches::new cached statistics on the indices array; cached statistics are written \
+             into files, so this makes the written bytes depend on debug_assertions"
+        );
+    }
 
     #[test]
     fn test_filter() {
