@@ -29,7 +29,7 @@ impl OperationsVTable<ALP> for ALP {
         }
         let array = state.array();
         if let Some(patches) = array.patches()
-            && let Some(patch) = patches.get_patched(index)?
+            && let Some(patch) = patches.get_patched(index, ctx)?
         {
             return patch.cast(array.dtype());
         }
