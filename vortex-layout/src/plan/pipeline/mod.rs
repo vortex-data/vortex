@@ -15,8 +15,28 @@
 //!
 //! The owner of a scan answers reads: [`Scan::step`] returns each read as a [`Turn::Read`], and
 //! [`Scan::deliver`] hands its bytes back. Nothing in a scan awaits.
+//!
+//! # Masks
+//!
+//! Every mask a scan applies is known when the pipelines that apply it are compiled: the split's
+//! selection, and the rows the earlier conjuncts kept. The
+//! compiler places the mask in the stage that reads the rows, so chunks a mask selects nothing
+//! of are never built and never read.
+//!
+//! # Sharing
+//!
+//! A segment several readers decode is decoded once. Before the scan starts, one pass over the
+//! plans every split's stages run records the rows each segment is read for, so the splits that
+//! will read it are found by binary search over the splits. The first reader of a segment read
+//! more than once builds one pipeline that decodes it and fans the decoded array out into one
+//! single-use port per reader, tagged with the reader's split: a reader in the same stage, a
+//! later stage of a query, or a later split claims its own port. A split's ports it never
+//! claims, because its rows were pruned or a stage never ran, are dropped when it finishes, and
+//! a claimed port is dropped once its reader has drained it, so a decoded segment lives only as
+//! long as a split that may still read it.
 
 mod compile;
+pub(crate) mod ops;
 mod port;
 mod scan;
 pub mod synthetic;
@@ -32,6 +52,7 @@ use vortex_session::VortexSession;
 pub use self::compile::Chain;
 pub use self::compile::Compiler;
 pub use self::compile::Reach;
+pub(crate) use self::compile::overlapping;
 use self::port::Arena;
 pub use self::port::Inlet;
 use self::port::PortId;
@@ -166,3 +187,5 @@ impl Cx<'_> {
 
 #[cfg(test)]
 mod scheduling_tests;
+#[cfg(test)]
+mod tests;

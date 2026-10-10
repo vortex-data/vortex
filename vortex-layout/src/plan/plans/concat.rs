@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -19,6 +21,12 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::ConcatSource;
+use crate::plan::pipeline::overlapping;
+use crate::segments::SegmentId;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -141,6 +149,53 @@ impl PlanVTable for Concat {
 
     fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         Cow::Owned(format!("chunks[{index}]"))
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let mut chains = Vec::with_capacity(overlapping(plan, &rows).size_hint().1.unwrap_or(0));
+        for (index, start, local) in overlapping(plan, &rows) {
+            let local_mask = mask.slice(
+                usize::try_from(local.start - rows.start)?
+                    ..usize::try_from(local.end - rows.start)?,
+            );
+            // A chunk the mask selects nothing of is never built, so never read.
+            if local_mask.all_false() {
+                continue;
+            }
+            let chunk = plan.child_required(index)?;
+            if let Some(chain) =
+                compiler.compile(&chunk, local.start - start..local.end - start, &local_mask)?
+            {
+                chains.push(chain);
+            }
+        }
+        Ok(match chains.len() {
+            0 => None,
+            // Rows inside one chunk are that chunk's rows: no concatenation is built.
+            1 => chains.pop(),
+            count => Some(compiler.join(chains, ConcatSource::new(count))),
+        })
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        for (index, start, local) in overlapping(plan, &rows) {
+            plan.child_required(index)?.reach(
+                local.start - start..local.end - start,
+                &at.shift(start),
+                visit,
+            )?;
+        }
+        Ok(())
     }
 }
 

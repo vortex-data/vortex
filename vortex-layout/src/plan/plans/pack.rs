@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -27,6 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -38,6 +40,14 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::optimizer::PlanParentReduceRule;
+use crate::plan::pipeline::Chain;
+use crate::plan::pipeline::Compiler;
+use crate::plan::pipeline::Reach;
+use crate::plan::pipeline::ops::OnceSource;
+use crate::plan::pipeline::ops::PackSource;
+use crate::plan::pipeline::ops::WrapStage;
+use crate::plan::pipeline::ops::empty_struct;
+use crate::segments::SegmentId;
 
 /// Assembles a struct from one child per field, plus an optional trailing validity child.
 #[derive(Clone, Debug)]
@@ -203,6 +213,55 @@ impl PlanVTable for Pack {
             return Cow::Borrowed(name.as_ref());
         }
         Cow::Borrowed("validity")
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        let count = plan.children().len();
+        if count == 0 {
+            // A struct with no fields still has rows, so no child can carry them.
+            let array = empty_struct(
+                plan.fields().clone(),
+                plan.dtype().nullability(),
+                mask.true_count(),
+            )?;
+            return Ok(Some(Chain::new(OnceSource::new(array))));
+        }
+        if mask.all_false() {
+            return Ok(None);
+        }
+        let mut chains = Vec::with_capacity(count);
+        for child in plan.children().iter() {
+            chains.push(
+                compiler
+                    .compile(&child?, rows.clone(), mask)?
+                    .ok_or_else(|| vortex_err!("A Pack field produced no rows"))?,
+            );
+        }
+        let nullable = plan.dtype().is_nullable();
+        if count == 1 && !nullable {
+            // One field needs no zip: each of its batches is wrapped as it passes.
+            let chain = chains.remove(0);
+            return Ok(Some(chain.with(WrapStage::new(plan.fields().clone()))));
+        }
+        let source = PackSource::new(plan.fields().clone(), nullable, count);
+        Ok(Some(compiler.join(chains, source)))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        for child in plan.children().iter() {
+            child?.reach(rows.clone(), at, visit)?;
+        }
+        Ok(())
     }
 }
 

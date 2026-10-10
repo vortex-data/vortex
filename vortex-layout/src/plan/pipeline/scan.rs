@@ -29,6 +29,7 @@ use super::Operator;
 use super::Source;
 use super::Step;
 use super::compile::Chain;
+use super::compile::Shares;
 use super::port::Arena;
 use super::port::PipelineId;
 use super::port::PortId;
@@ -252,10 +253,14 @@ pub(crate) struct Core {
     /// queued once.
     dirty: Vec<usize>,
     dirty_flags: Vec<bool>,
+    pub(crate) shares: Shares,
+    /// The split being compiled, whose shared readers a compile claims. `usize::MAX` when no
+    /// split is, as when a source asks for a plan mid-run.
+    pub(crate) split: usize,
 }
 
 impl Core {
-    fn new(session: VortexSession, row_offset: u64) -> Self {
+    fn new(session: VortexSession, row_offset: u64, splits: Vec<Range<u64>>) -> Self {
         Self {
             exec: session.create_execution_ctx(),
             session,
@@ -269,6 +274,8 @@ impl Core {
             new_reads: VecDeque::new(),
             dirty: Vec::new(),
             dirty_flags: Vec::new(),
+            shares: Shares::new(splits),
+            split: usize::MAX,
         }
     }
 
@@ -316,8 +323,10 @@ impl Core {
         mask: &Mask,
         (slot, split): (usize, usize),
     ) -> VortexResult<Option<PortId>> {
-        let _ = split;
-        let Some(chain) = self.compile(plan, rows, mask)? else {
+        self.split = split;
+        let chain = self.compile(plan, rows, mask);
+        self.split = usize::MAX;
+        let Some(chain) = chain? else {
             return Ok(None);
         };
         let port = self
@@ -544,7 +553,15 @@ impl Scan {
             );
         }
         let root = Root::Plan(plan);
-        let mut core = Core::new(session, 0);
+        let mut core = Core::new(
+            session,
+            0,
+            splits.iter().map(|split| split.rows.clone()).collect(),
+        );
+        match &root {
+            Root::Plan(plan) => core.shares.add(plan, 0..plan.row_count())?,
+        }
+        core.shares.retain_shared();
         core.dirty_flags = vec![false; 1];
         Ok(Self {
             core,
@@ -630,6 +647,8 @@ impl Scan {
         if output.is_some() {
             self.active[slot] = Some(Active { index, output });
             self.live += 1;
+        } else {
+            self.core.shares.finish(index, &mut self.core.arena);
         }
         Ok(())
     }
@@ -651,6 +670,7 @@ impl Scan {
             self.core.arena.drop_reader(port);
             active.output = None;
         }
+        self.core.shares.finish(active.index, &mut self.core.arena);
         self.active[slot] = None;
         self.live -= 1;
         Ok(())
@@ -660,5 +680,11 @@ impl Scan {
     #[cfg(test)]
     pub(crate) fn live_ports(&self) -> usize {
         self.core.arena.live()
+    }
+
+    /// Shared ports not yet claimed or dropped.
+    #[cfg(test)]
+    pub(crate) fn pending_shares(&self) -> usize {
+        self.core.shares.pending()
     }
 }
