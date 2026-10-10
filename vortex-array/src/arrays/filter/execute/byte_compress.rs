@@ -7,6 +7,8 @@
 //! permutation table compacts the selected bytes in a single indexed copy,
 //! avoiding the overhead of materializing indices or slices.
 
+use std::mem::MaybeUninit;
+
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -124,31 +126,84 @@ fn filter_chunk_into<T: Copy>(
     out: &mut BufferMut<T>,
     write_pos: &mut usize,
 ) {
+    debug_assert_eq!(mask_byte & !low_bits_mask(chunk.len()), 0);
+    // SAFETY: the mask byte selects only elements of `chunk`, and the output has capacity for
+    // every selected element.
+    *write_pos += unsafe {
+        compress_byte(
+            chunk,
+            mask_byte,
+            out.spare_capacity_mut().get_unchecked_mut(*write_pos..),
+        )
+    };
+}
+
+/// Copy the elements of `src` selected by the first `src.len()` bits of `words` to `dst` and
+/// return the number copied.
+///
+/// # Safety
+///
+/// `words` must hold at least `src.len()` bits with any bits past `src.len()` cleared, and `dst`
+/// must hold at least one value for each selected element.
+pub(super) unsafe fn compress_words<T: Copy>(
+    src: &[T],
+    words: &[u64],
+    dst: &mut [MaybeUninit<T>],
+) -> usize {
+    let mut written = 0;
+    for (word, src) in words.iter().zip(src.chunks(64)) {
+        let (chunks, tail) = src.as_chunks::<8>();
+        let mask_bytes = word.to_le_bytes();
+
+        for (chunk, &mask_byte) in chunks.iter().zip(&mask_bytes) {
+            // SAFETY: the mask byte selects only elements of `chunk`, and `dst` has room for
+            // every selected element.
+            written += unsafe { compress_byte(chunk, mask_byte, dst.get_unchecked_mut(written..)) };
+        }
+
+        if !tail.is_empty() {
+            // SAFETY: the bits past `src.len()` are cleared, so the mask byte selects only
+            // elements of `tail`.
+            written += unsafe {
+                compress_byte(
+                    tail,
+                    mask_bytes[chunks.len()],
+                    dst.get_unchecked_mut(written..),
+                )
+            };
+        }
+    }
+    written
+}
+
+/// Copy the elements of `chunk` selected by `mask_byte` to `dst` and return the number copied.
+///
+/// # Safety
+///
+/// `mask_byte` must select only elements of `chunk`, and `dst` must hold at least one value for
+/// each selected element.
+#[inline]
+unsafe fn compress_byte<T: Copy>(chunk: &[T], mask_byte: u8, dst: &mut [MaybeUninit<T>]) -> usize {
     if mask_byte == 0 {
-        return;
+        return 0;
     }
 
     if chunk.len() == 8 && mask_byte == 0xFF {
         // All 8 selected, so bulk copy.
-        out.spare_capacity_mut()[*write_pos..][..8].write_copy_of_slice(chunk);
-        *write_pos += 8;
-        return;
+        dst[..8].write_copy_of_slice(chunk);
+        return 8;
     }
 
-    let out_ptr = out.spare_capacity_mut().as_mut_ptr();
     let (perm, count) = &BYTE_COMPRESS_LUT[mask_byte as usize];
     let count = *count as usize;
-    debug_assert_eq!(mask_byte & !low_bits_mask(chunk.len()), 0);
-    // SAFETY: perm indices are all < chunk.len(), write_pos + count <= capacity.
+    // SAFETY: perm indices are all below `chunk.len()`, and `dst` has room for `count` values.
     unsafe {
         for j in 0..count {
-            out_ptr
-                .add(*write_pos + j)
-                .cast::<T>()
+            dst.get_unchecked_mut(j)
                 .write(*chunk.get_unchecked(*perm.get_unchecked(j) as usize));
         }
     }
-    *write_pos += count;
+    count
 }
 
 fn low_bits_mask(bits: usize) -> u8 {
