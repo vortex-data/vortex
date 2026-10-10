@@ -59,11 +59,16 @@ def test_arrow_indices_apply_limit(indexed_file):
     assert reader.read_all().equals(table.select(["payload"]).slice(0, 1))
 
 
-def test_arrow_indices_use_scan_filter_limit_validation(indexed_file):
-    file, _ = indexed_file
-    reader = file.to_arrow(indices=vx.array([0, 2, 5, 8]), expr=ve.column("id") >= 4, limit=1)
-    with pytest.raises(pa.ArrowInvalid, match="doesn't support scans with both a filter and a limit"):
-        reader.read_all()
+def test_arrow_indices_apply_filter_then_limit(indexed_file):
+    file, table = indexed_file
+    reader = file.to_arrow(
+        ["payload"],
+        indices=vx.array([0, 2, 5, 8]),
+        expr=ve.column("id") >= 4,
+        limit=1,
+        schema=pa.schema([("payload", pa.string())]),
+    )
+    assert reader.read_all().equals(table.select(["payload"]).take(pa.array([5])))
 
 
 @pytest.mark.parametrize("indices", [[2, 1], [1, 1], [None, 1]])
