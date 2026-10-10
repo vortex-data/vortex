@@ -354,13 +354,12 @@ class VortexFile:
             reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
 
             for batch in reader:
-                batch = pl.DataFrame._from_arrow(batch, rechunk=False)
                 # TODO(ngates): set sortedness on DataFrame based on stats?
-                yield batch
+                yield pl.DataFrame(batch)
 
             # Make sure we always yield at least one empty DataFrame
-            yield pl.DataFrame._from_arrow(
-                data=pa.RecordBatch.from_arrays(
+            yield pl.DataFrame(
+                pa.RecordBatch.from_arrays(
                     [pa.array([], type=field.type) for field in reader.schema],
                     schema=reader.schema,
                 ),
