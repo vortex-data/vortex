@@ -18,6 +18,8 @@ use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use super::Reach;
+use super::Shared;
 use super::port::PortId;
 use super::scan::Core;
 use crate::layouts::zoned::zone_map::ZoneMap;
@@ -73,6 +75,8 @@ pub(crate) struct QueryRun {
     folded: BitBufferMut,
     /// The zone table read so far.
     zones: Vec<ArrayRef>,
+    /// Whether the scan has been told if this split projects.
+    reported: bool,
 }
 
 impl QueryRun {
@@ -87,6 +91,7 @@ impl QueryRun {
             current: None,
             folded: BitBufferMut::with_capacity(0),
             zones: Vec::new(),
+            reported: false,
         }
     }
 
@@ -231,6 +236,37 @@ impl QueryRun {
 
     /// Compiles the next stage that has rows to read, and returns its output port, or `None`
     /// once the split is done.
+    /// Reads ahead every segment the conjuncts and the projection read for the rows the zones
+    /// kept, so the reads overlap the stages that run before the ones that read them.
+    fn prefetch(&self, core: &mut Core, split: usize) -> VortexResult<()> {
+        let rows = &self.rows;
+        let mask = &self.mask;
+        let mut segments = Vec::new();
+        let mut visit = |key: Shared, read: Range<u64>| {
+            let Shared::Segment(segment) = key else {
+                return;
+            };
+            let start = read.start.max(rows.start) - rows.start;
+            let end = read.end.min(rows.end).saturating_sub(rows.start);
+            if start < end
+                && let (Ok(start), Ok(end)) = (usize::try_from(start), usize::try_from(end))
+                && !mask.slice(start..end).all_false()
+            {
+                segments.push(segment);
+            }
+        };
+        for index in 0..self.plan.conjunct_count() {
+            self.plan
+                .conjunct(index)?
+                .reach(rows.clone(), &Reach::Offset(0), &mut visit)?;
+        }
+        self.plan
+            .projection()?
+            .reach(rows.clone(), &Reach::Offset(0), &mut visit)?;
+        core.prefetch(split, segments);
+        Ok(())
+    }
+
     pub(crate) fn next_stage(
         &mut self,
         core: &mut Core,
@@ -238,12 +274,17 @@ impl QueryRun {
     ) -> VortexResult<Option<PortId>> {
         loop {
             if self.mask.all_false() {
+                if self.phase == Phase::Conjuncts && !self.reported {
+                    self.reported = true;
+                    core.split_projects(slot.1, false);
+                }
                 self.phase = Phase::Done;
                 return Ok(None);
             }
             match self.phase {
                 Phase::Pruning(index) if index == self.plan.conjunct_count() => {
                     self.phase = Phase::Conjuncts;
+                    self.prefetch(core, slot.1)?;
                 }
                 Phase::Pruning(index) => {
                     self.phase = Phase::Pruning(index + 1);
@@ -290,6 +331,10 @@ impl QueryRun {
                     self.finish_stage(core)?;
                 }
                 Phase::Projecting => {
+                    if !self.reported {
+                        self.reported = true;
+                        core.split_projects(slot.1, true);
+                    }
                     self.phase = Phase::Done;
                     self.current = Some(Current::Projection);
                     let projection = self.plan.projection()?;
