@@ -201,7 +201,9 @@ impl_from_arrow_primitive!(Float16Type);
 impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
-/// Zero-copy conversion of an Arrow `Decimal32` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal32` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal32(
     array: &ArrowPrimitiveArray<Decimal32Type>,
     nullable: bool,
@@ -209,7 +211,7 @@ pub fn from_arrow_decimal32(
     let decimal_type = DecimalDType::new(array.precision(), array.scale());
     let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
@@ -221,7 +223,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
     }
 }
 
-/// Zero-copy conversion of an Arrow `Decimal64` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal64` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal64(
     array: &ArrowPrimitiveArray<Decimal64Type>,
     nullable: bool,
@@ -229,7 +233,7 @@ pub fn from_arrow_decimal64(
     let decimal_type = DecimalDType::new(array.precision(), array.scale());
     let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
@@ -241,7 +245,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
     }
 }
 
-/// Zero-copy conversion of an Arrow `Decimal128` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal128` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal128(
     array: &ArrowPrimitiveArray<Decimal128Type>,
     nullable: bool,
@@ -249,7 +255,7 @@ pub fn from_arrow_decimal128(
     let decimal_type = DecimalDType::new(array.precision(), array.scale());
     let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
@@ -261,7 +267,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
     }
 }
 
-/// Zero-copy conversion of an Arrow `Decimal256` array into a Vortex decimal array.
+/// Converts an Arrow `Decimal256` array into a Vortex decimal array.
+///
+/// Zero-copy unless the Arrow storage is wider than the type required by its precision.
 pub fn from_arrow_decimal256(
     array: &ArrowPrimitiveArray<Decimal256Type>,
     nullable: bool,
@@ -273,7 +281,7 @@ pub fn from_arrow_decimal256(
     //  of either type.
     let buffer = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
     let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    Ok(DecimalArray::try_new_narrowed(buffer, decimal_type, validity)?.into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {

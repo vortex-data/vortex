@@ -38,11 +38,9 @@ use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
-use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
-use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -104,15 +102,12 @@ pub(crate) fn constant_canonicalize(
                 return Ok(Canonical::Decimal(all_null));
             };
 
-            let decimal_array = match_each_decimal_value!(value, |value| {
-                // SAFETY: Constant decimal values with correct type and validity.
-                unsafe {
-                    DecimalArray::new_unchecked(
-                        Buffer::full(value, array.len()),
-                        *decimal_type,
-                        validity,
-                    )
-                }
+            let storage = value.decimal_type().min(size);
+            let decimal_array = match_each_decimal_value_type!(storage, |D| {
+                let value = value
+                    .cast::<D>()
+                    .vortex_expect("decimal scalar fits its precision");
+                DecimalArray::new(Buffer::full(value, array.len()), *decimal_type, validity)
             });
             Canonical::Decimal(decimal_array)
         }

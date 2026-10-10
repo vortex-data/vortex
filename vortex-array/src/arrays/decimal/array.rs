@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
@@ -71,8 +72,12 @@ pub struct DecimalSlots {
 /// values with precision that does not match this exactly. For example, a valid DecimalArray with
 /// precision=39 may store its values in an `i8` if all of the actual values fit into it.
 ///
-/// Similarly, a `DecimalArray` can be built that stores a set of precision=2 values in a
-/// `Buffer<i256>`.
+/// The physical value type must be no wider than
+/// [`DecimalType::smallest_decimal_value_type`] for the array's precision. Thus precision=2
+/// requires `i8` storage, while precision=39 permits any supported storage type. Compute kernels
+/// can widen storage to the type selected by the precision without handling larger inputs.
+/// Checked constructors narrow oversized host buffers to this bound; unchecked constructors
+/// require it already to hold. Device buffers must already satisfy the bound.
 ///
 /// ## Precision and Scale
 ///
@@ -187,6 +192,9 @@ impl DecimalData {
 
     /// Creates a new [`DecimalArray`] using a host-native buffer.
     ///
+    /// Oversized storage is narrowed to the type required by the precision. Non-null values
+    /// must fit the declared precision; their range is not checked.
+    ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented in
@@ -231,7 +239,9 @@ impl DecimalData {
 
     /// Constructs a new `DecimalArray` with validation from a [`BufferHandle`].
     ///
-    /// This pathway allows building new decimal arrays that may come from host or device memory.
+    /// Storage must be no wider than the type required by the precision; wider storage is
+    /// rejected rather than narrowed. Non-null values must fit the declared precision; their
+    /// range is not checked.
     ///
     /// # Errors
     ///
@@ -242,9 +252,52 @@ impl DecimalData {
         decimal_dtype: DecimalDType,
     ) -> VortexResult<Self> {
         Self::validate(&values, values_type)?;
+        let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+        vortex_ensure!(
+            values_type <= maximum,
+            InvalidArgument: "decimal storage {values_type} exceeds precision storage {maximum} for {decimal_dtype}",
+        );
 
-        // SAFETY: validate ensures all invariants are met.
+        // SAFETY: buffer layout is validated and storage is bounded by the precision.
         Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype) })
+    }
+
+    /// Narrows host storage wider than the type required by `decimal_dtype` down to that type.
+    ///
+    /// Storage already within the bound is returned unchanged, without copying. Non-null values
+    /// must already fit the declared precision; null payloads are unspecified and may be
+    /// truncated along with the buffer. Importers of external storage layouts use this before
+    /// constructing an array, since the constructors reject oversized storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer layout is invalid for `values_type`, or if oversized
+    /// storage lives on a device, where it cannot be narrowed.
+    pub fn narrow_to_precision(
+        values: BufferHandle,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+    ) -> VortexResult<(BufferHandle, DecimalType)> {
+        Self::validate(&values, values_type)?;
+        let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+        if values_type <= maximum {
+            return Ok((values, values_type));
+        }
+        vortex_ensure!(
+            values.is_on_host(),
+            InvalidArgument: "decimal device storage {values_type} exceeds precision storage {maximum}",
+        );
+        let narrowed = match_each_decimal_value_type!(values_type, |In| {
+            let buffer = Buffer::<In>::from_byte_buffer(values.unwrap_host());
+            match_each_decimal_value_type!(maximum, |Out| {
+                buffer
+                    .iter()
+                    .map(|value| value.as_())
+                    .collect::<Buffer<Out>>()
+                    .into_byte_buffer()
+            })
+        });
+        Ok((BufferHandle::new_host(narrowed), maximum))
     }
 
     /// Creates a new [`DecimalArray`] without validation from these components:
@@ -257,6 +310,8 @@ impl DecimalData {
     ///
     /// The caller must ensure all of the following invariants are satisfied:
     ///
+    /// - `T::DECIMAL_TYPE` must be no wider than
+    ///   [`DecimalType::smallest_decimal_value_type`] for `decimal_dtype`.
     /// - All non-null values in `buffer` must be representable within the specified precision.
     /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
@@ -280,6 +335,8 @@ impl DecimalData {
     ///
     /// The caller must ensure all of the following invariants are satisfied:
     ///
+    /// - `values_type` must be no wider than
+    ///   [`DecimalType::smallest_decimal_value_type`] for `decimal_dtype`.
     /// - All non-null values in `values` must be representable within the specified precision.
     /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
@@ -288,6 +345,10 @@ impl DecimalData {
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
     ) -> Self {
+        debug_assert!(
+            values_type <= DecimalType::smallest_decimal_value_type(&decimal_dtype),
+            "decimal storage {values_type} exceeds the storage required by {decimal_dtype}",
+        );
         Self {
             decimal_dtype,
             values,
@@ -323,6 +384,8 @@ impl DecimalData {
     /// # Safety
     ///
     /// The caller must ensure:
+    /// - `values_type` is no wider than
+    ///   [`DecimalType::smallest_decimal_value_type`] for `decimal_dtype`
     /// - The `byte_buffer` contains valid data for the specified `values_type`
     /// - The buffer length is compatible with the `values_type` (i.e., divisible by the type size)
     /// - All non-null values are representable within the specified precision
@@ -403,6 +466,9 @@ impl Array<Decimal> {
 
 impl Array<Decimal> {
     /// Creates a new [`DecimalArray`] using a host-native buffer.
+    ///
+    /// Oversized storage is narrowed to the type required by the precision. Non-null values
+    /// must fit the declared precision; their range is not checked.
     pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -440,6 +506,21 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
         Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+    }
+
+    /// Creates a new [`DecimalArray`] from a host-native buffer, narrowing storage wider than
+    /// the type required by the precision.
+    ///
+    /// See [`DecimalData::narrow_to_precision`] for the narrowing contract.
+    pub fn try_new_narrowed<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let values = BufferHandle::new_host(buffer.into_byte_buffer());
+        let (values, values_type) =
+            DecimalData::narrow_to_precision(values, T::DECIMAL_TYPE, decimal_dtype)?;
+        Self::try_new_handle(values, values_type, decimal_dtype, validity)
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -607,3 +688,7 @@ where
 
     DecimalData::new(buffer.freeze(), decimal_dtype)
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

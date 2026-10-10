@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn test_between_decimal() {
         let ctx = &mut SESSION.create_execution_ctx();
-        let values = buffer![100i128, 200i128, 300i128, 400i128];
+        let values = buffer![100i16, 200i16, 300i16, 400i16];
         let decimal_type = DecimalDType::new(3, 2);
         let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
 

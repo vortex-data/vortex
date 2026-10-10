@@ -2254,35 +2254,6 @@ mod tests {
         .await
     }
 
-    #[crate::test]
-    async fn test_export_decimal_narrowing_errors() -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
-        let array = DecimalArray::from_iter([i256::from_parts(0, 1)], DecimalDType::new(38, 0))
-            .into_array();
-
-        let err = array
-            .export_device_array_with_schema(&mut ctx)
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("narrowing would require"));
-        Ok(())
-    }
-
-    #[crate::test]
-    async fn test_export_decimal_narrowing_from_arrow_import() -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
-        let array = DecimalArray::from_iter([0i128, 1, -2], DecimalDType::new(10, 2)).into_array();
-
-        let err = array
-            .export_device_array_with_schema(&mut ctx)
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("narrowing would require"));
-        Ok(())
-    }
-
     #[rstest]
     #[case::i64(
         DecimalArray::from_iter([i64::MIN, -1i64, 1, i64::MAX], DecimalDType::new(39, 0)).into_array(),

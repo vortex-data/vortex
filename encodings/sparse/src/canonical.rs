@@ -1135,7 +1135,7 @@ mod test {
         let indices = buffer![0u32, 1u32, 7u32, 8u32].into_array();
         let decimal_dtype = DecimalDType::new(3, 2);
         let patch_values = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 4000i128],
+            buffer![100i16, 200i16, 300i16, 4000i16],
             decimal_dtype,
             Validity::from_iter([true, true, true, false]),
         )
@@ -1148,7 +1148,7 @@ mod test {
             .arrow()
             .execute_arrow(
                 DecimalArray::new(
-                    buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
+                    buffer![100i16, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
                     decimal_dtype,
                     // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
                     Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),

@@ -448,14 +448,13 @@ where
 /// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
 /// the same precision and scale.
 ///
-/// This is useful when you need to widen the underlying storage type to accommodate operations
-/// that might overflow the current representation, or to match the physical type expected by
-/// downstream consumers.
+/// The requested storage must remain no wider than the type required by the precision.
+/// Kernels needing a wider working type should widen the buffer without constructing an array.
 ///
 /// # Errors
 ///
-/// Returns an error if `to_values_type` is narrower than the array's current values type.
-/// Only upcasting (widening) is supported.
+/// Returns an error if `to_values_type` is narrower than the current storage or wider than
+/// [`DecimalType::smallest_decimal_value_type`] for the array's precision.
 pub fn upcast_decimal_values(
     array: ArrayView<'_, Decimal>,
     to_values_type: DecimalType,
@@ -477,6 +476,9 @@ pub fn upcast_decimal_values(
     }
 
     let decimal_dtype = array.decimal_dtype();
+    if to_values_type > DecimalType::smallest_decimal_value_type(&decimal_dtype) {
+        vortex_bail!("Cannot widen decimal storage to {to_values_type} for {decimal_dtype}");
+    }
     let validity = array.validity()?;
 
     // Use match_each_decimal_value_type to dispatch based on source and target types
@@ -583,10 +585,20 @@ mod tests {
         target: PType,
     ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
-        let decimal_dtype = DecimalDType::new(3, 1);
+        // The widest precision each storage type may back keeps every case within the storage
+        // bound while exercising that width.
+        let precision = match storage {
+            DecimalType::I8 => 2,
+            DecimalType::I16 => 4,
+            DecimalType::I32 => 9,
+            DecimalType::I64 => 18,
+            DecimalType::I128 => 38,
+            DecimalType::I256 => 76,
+        };
+        let decimal_dtype = DecimalDType::new(precision, 1);
         let array = match_each_decimal_value_type!(storage, |F| {
             DecimalArray::from_option_iter(
-                [Some(19i8), None, Some(123)].map(|value| value.and_then(<F as BigCast>::from)),
+                [Some(19i8), None, Some(99)].map(|value| value.and_then(<F as BigCast>::from)),
                 decimal_dtype,
             )
         });
@@ -598,10 +610,10 @@ mod tests {
         match_each_integer_ptype!(target, |T| {
             assert_arrays_eq!(
                 casted,
-                PrimitiveArray::from_option_iter([Some(1 as T), None, Some(12 as T)]),
+                PrimitiveArray::from_option_iter([Some(1 as T), None, Some(9 as T)]),
                 &mut ctx
             );
-            for (value, expected) in [(19i8, 1 as T), (123, 12 as T)] {
+            for (value, expected) in [(19i8, 1 as T), (99, 9 as T)] {
                 let scalar = Scalar::decimal(value.into(), decimal_dtype, Nullability::Nullable);
                 assert_eq!(
                     scalar.cast(&dtype)?,
@@ -727,7 +739,7 @@ mod tests {
         }
         let huge = DecimalArray::new(
             buffer![i256::ONE],
-            DecimalDType::new(1, -128),
+            DecimalDType::new(39, -128),
             Validity::NonNullable,
         );
         assert!(
@@ -1046,7 +1058,7 @@ mod tests {
 
     #[test]
     fn upcast_decimal_values_i64_to_i128() {
-        let decimal_dtype = DecimalDType::new(18, 4);
+        let decimal_dtype = DecimalDType::new(19, 4);
         let array = DecimalArray::new(
             buffer![10000i64, 20000, 30000],
             decimal_dtype,
@@ -1108,6 +1120,16 @@ mod tests {
         let buffer = casted.buffer::<i64>();
         assert_eq!(buffer[0], 100);
         assert_eq!(buffer[2], 300);
+    }
+
+    #[test]
+    fn upcast_decimal_values_exceeding_precision_fails() {
+        let array = DecimalArray::new(
+            buffer![100i64],
+            DecimalDType::new(18, 2),
+            Validity::NonNullable,
+        );
+        assert!(upcast_decimal_values(array.as_view(), DecimalType::I128).is_err());
     }
 
     #[test]

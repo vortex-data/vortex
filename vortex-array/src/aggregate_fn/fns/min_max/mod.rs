@@ -934,7 +934,7 @@ mod tests {
     #[test]
     fn test_decimal() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 2000i32, 200i32],
+            buffer![100i16, 2000i16, 200i16],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),
         );
