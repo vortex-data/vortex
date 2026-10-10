@@ -303,8 +303,11 @@ impl VortexDataSource {
 /// current projection, pushed filters, ordering hints, and row limit.
 ///
 /// This integration intentionally reports a single DataFusion output partition.
-/// Vortex then handles split-level concurrency internally by polling multiple
-/// split streams concurrently.
+/// Vortex then handles split-level concurrency internally: when ordering is not
+/// requested it polls multiple split streams concurrently, and when ordering is
+/// requested it emits split output in partition order. In both cases it enforces
+/// the fetch limit globally across the combined output of all splits, so sources
+/// do not need their own cross-partition coordinator.
 ///
 /// Use [`crate::VortexSource`] instead when DataFusion should discover and plan
 /// `.vortex` files on its own.
@@ -403,6 +406,11 @@ impl DataSource for VortexDataSource {
         ));
         let session = self.session.clone();
         let num_partitions = self.num_partitions;
+        let ordered = self.ordered;
+        // The `ScanRequest.limit` we push down is only a per-partition upper bound: each
+        // partition may independently return up to `limit` rows. We are the single consumer of
+        // all partitions, so we own enforcing the limit globally across their combined output.
+        let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
         let leftover_projector = self
@@ -419,17 +427,26 @@ impl DataSource for VortexDataSource {
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             // Each split.execute() returns a lazy stream whose early polls do preparation
-            // work (expression resolution, layout traversal, first I/O spawns). We use
-            // try_flatten_unordered to poll multiple split streams concurrently so that
-            // the next split is already warm when the current one finishes.
+            // work (expression resolution, layout traversal, first I/O spawns).
             let scan_streams = scan.partitions().map(|split_result| {
                 let split = split_result?;
                 split.execute()
             });
 
+            // When ordering is requested we must emit partition output in partition order, so we
+            // flatten the split streams sequentially. Otherwise we use try_flatten_unordered to
+            // poll multiple split streams concurrently so that the next split is already warm when
+            // the current one finishes.
+            let flattened = if ordered {
+                scan_streams.try_flatten().left_stream()
+            } else {
+                scan_streams
+                    .try_flatten_unordered(Some(num_partitions * 2))
+                    .right_stream()
+            };
+
             let handle = session.handle();
-            let stream = scan_streams
-                .try_flatten_unordered(Some(num_partitions * 2))
+            let stream = flattened
                 .map(move |result| {
                     let session = session.clone();
                     let target_field = Arc::clone(&projected_target_field);
@@ -457,6 +474,37 @@ impl DataSource for VortexDataSource {
                     .boxed()
             } else {
                 stream.boxed()
+            };
+
+            // Enforce the fetch limit across the combined output of all partitions. We track how
+            // many rows we have emitted, slice the batch that crosses the limit, and stop pulling
+            // from the partition streams entirely once the limit is met (the `done` flag returns
+            // without polling upstream again).
+            let stream = match limit {
+                Some(limit) => futures::stream::unfold(
+                    (stream, 0usize, false),
+                    move |(mut stream, emitted, done)| async move {
+                        if done || emitted >= limit {
+                            return None;
+                        }
+                        match stream.next().await {
+                            Some(Ok(batch)) => {
+                                let remaining = limit - emitted;
+                                let batch = if batch.num_rows() > remaining {
+                                    batch.slice(0, remaining)
+                                } else {
+                                    batch
+                                };
+                                let emitted = emitted + batch.num_rows();
+                                Some((Ok(batch), (stream, emitted, emitted >= limit)))
+                            }
+                            Some(Err(e)) => Some((Err(e), (stream, emitted, false))),
+                            None => None,
+                        }
+                    },
+                )
+                .boxed(),
+                None => stream,
             };
 
             Ok::<_, DataFusionError>(stream)
@@ -677,5 +725,187 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
         Precision::Exact(v) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Inexact(v) => DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Absent => DFPrecision::Absent,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::time::Duration;
+
+    use arrow_schema::DataType;
+    use async_trait::async_trait;
+    use futures::TryStreamExt;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::stats::StatsSet;
+    use vortex::array::stream::ArrayStreamAdapter;
+    use vortex::array::stream::ArrayStreamExt;
+    use vortex::array::stream::SendableArrayStream;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::buffer;
+    use vortex::dtype::FieldPath;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    // Aliased so it does not shadow the DataFusion `DataSource` trait brought in via `super::*`,
+    // which provides the `open` method exercised below.
+    use vortex::scan::DataSource as VortexScanDataSource;
+    use vortex::scan::DataSourceScan;
+    use vortex::scan::DataSourceScanRef;
+    use vortex::scan::Partition;
+    use vortex::scan::PartitionRef;
+    use vortex::scan::PartitionStream;
+
+    use super::*;
+
+    /// A single-column `{ x: i32 }` struct dtype used by the test data source.
+    fn test_dtype() -> DType {
+        DType::Struct(
+            StructFields::from_iter([(
+                "x",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        )
+    }
+
+    /// A partition that emits a single-row `{ x: value }` batch, optionally after a delay.
+    struct TestPartition {
+        index: usize,
+        value: i32,
+        delay: Option<Duration>,
+    }
+
+    impl Partition for TestPartition {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn index(&self) -> usize {
+            self.index
+        }
+
+        fn row_count(&self) -> Precision<u64> {
+            Precision::exact(1)
+        }
+
+        fn byte_size(&self) -> Precision<u64> {
+            Precision::Absent
+        }
+
+        fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+            let dtype = test_dtype();
+            let value = self.value;
+            let delay = self.delay;
+            let fut = async move {
+                if let Some(delay) = delay {
+                    tokio::time::sleep(delay).await;
+                }
+                let array = StructArray::from_fields(&[(
+                    "x",
+                    PrimitiveArray::new(buffer![value], Validity::NonNullable).into_array(),
+                )])?
+                .into_array();
+                Ok(array)
+            };
+            Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                dtype,
+                futures::stream::once(fut),
+            )))
+        }
+    }
+
+    /// A scan that produces two partitions: partition 0 is delayed, partition 1 is immediate.
+    struct TestScan {
+        dtype: DType,
+    }
+
+    impl DataSourceScan for TestScan {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn partition_count(&self) -> Precision<usize> {
+            Precision::exact(2)
+        }
+
+        fn partitions(self: Box<Self>) -> PartitionStream {
+            let partitions: Vec<VortexResult<PartitionRef>> = vec![
+                Ok(Box::new(TestPartition {
+                    index: 0,
+                    value: 0,
+                    delay: Some(Duration::from_millis(100)),
+                }) as PartitionRef),
+                Ok(Box::new(TestPartition {
+                    index: 1,
+                    value: 100,
+                    delay: None,
+                }) as PartitionRef),
+            ];
+            futures::stream::iter(partitions).boxed()
+        }
+    }
+
+    struct TestDataSource {
+        dtype: DType,
+    }
+
+    #[async_trait]
+    impl VortexScanDataSource for TestDataSource {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        async fn scan(&self, _scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+            Ok(Box::new(TestScan {
+                dtype: self.dtype.clone(),
+            }))
+        }
+
+        async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+            Ok(StatsSet::default())
+        }
+    }
+
+    /// With ordering requested and a global fetch of 1, the output must come from the first
+    /// partition even though it is delayed and the second partition is immediately ready. This
+    /// exercises both ordered split emission and cross-partition limit enforcement.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ordered_scan_enforces_global_fetch() -> VortexResult<()> {
+        let arrow_schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
+        let data_source: DataSourceRef = Arc::new(TestDataSource {
+            dtype: test_dtype(),
+        });
+
+        let mut source = VortexDataSource::builder(data_source, VortexSession::default())
+            .with_arrow_schema(arrow_schema)
+            .build()
+            .await?;
+        source.ordered = true;
+        source.limit = Some(1);
+
+        let stream = source
+            .open(0, Arc::new(TaskContext::default()))
+            .map_err(|e| vortex::error::vortex_err!("open failed: {e}"))?;
+        let batches: Vec<RecordBatch> = stream
+            .try_collect()
+            .await
+            .map_err(|e| vortex::error::vortex_err!("collect failed: {e}"))?;
+
+        let total_rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
+        assert_eq!(total_rows, 1, "global fetch = 1 should yield exactly one row");
+
+        let column = batches[0]
+            .column(0)
+            .as_primitive::<datafusion_common::arrow::datatypes::Int32Type>();
+        assert_eq!(
+            column.value(0),
+            0,
+            "ordered scan must emit the first partition's row, not the faster second partition"
+        );
+
+        Ok(())
     }
 }
