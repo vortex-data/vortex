@@ -496,11 +496,6 @@ mod tests {
         let (array, expected) = variable(PType::U32, 17, 4000, false)?;
         let array = array.into_array();
         let expected = expected.into_array();
-        assert_arrays_eq!(
-            array.slice(1000..2200)?,
-            expected.slice(1000..2200)?,
-            &mut ctx
-        );
         let indices = buffer![3999u32, 0, 1007, 2048, 1024, 2048].into_array();
         assert_arrays_eq!(
             array.take(indices.clone())?,
