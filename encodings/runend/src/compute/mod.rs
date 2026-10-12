@@ -7,6 +7,7 @@ mod fill_null;
 pub(crate) mod filter;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
+mod list_contains;
 pub(crate) mod min_max;
 pub(crate) mod sum;
 pub(crate) mod take;

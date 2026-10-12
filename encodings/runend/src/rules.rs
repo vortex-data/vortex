@@ -15,6 +15,7 @@ use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
@@ -26,6 +27,7 @@ pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
     ParentRuleSet::lift(&CastReduceAdaptor(RunEnd)),
+    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(RunEnd)),
     ParentRuleSet::lift(&RunEndScalarFnRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(RunEnd)),
 ]);
