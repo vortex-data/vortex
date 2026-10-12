@@ -37,6 +37,8 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
@@ -76,6 +78,11 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
         Chunked,
         Dict,
         const { &DictionaryChunkedValuesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(
+        ListContains,
+        Dict,
+        const { &ListContainsElementReduceAdaptor(Dict) },
     );
     kernels.register_reduce_parent_rule(
         AnyScalarFn,
