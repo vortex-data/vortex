@@ -40,8 +40,9 @@ use crate::scalar_fn::ScalarFnVTableExt;
 /// Every row of such an array holds the list. A slice or a filter of it keeps the options, so it
 /// looks up in the same set. A [`ListContainsElementReduce`] rule of the needle encoding can push
 /// the function into the needle's parts with slices of the array, so that the chunks of a chunked
-/// needle all look up in one set, and a [`ListContainsElementKernel`] of the needle encoding gets
-/// the set through [`PreparedSet::set_of`].
+/// needle or the values of a dictionary all look up in one set, and a
+/// [`ListContainsElementKernel`] of the needle encoding gets the set through
+/// [`PreparedSet::set_of`].
 ///
 /// It serializes as the list, and deserializes into a set prepared again.
 ///

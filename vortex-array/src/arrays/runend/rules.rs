@@ -20,12 +20,14 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 
 pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
     ParentRuleSet::lift(&CastReduceAdaptor(RunEnd)),
+    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(RunEnd)),
     ParentRuleSet::lift(&RunEndScalarFnRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(RunEnd)),
 ]);
