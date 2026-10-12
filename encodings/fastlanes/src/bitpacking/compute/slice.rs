@@ -4,12 +4,15 @@
 use std::cmp::max;
 use std::ops::Range;
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -102,10 +105,21 @@ fn slice_blocked(
     let first_block = offset_start / FL_CHUNK_SIZE;
     let end_block = offset_stop.div_ceil(FL_CHUNK_SIZE);
 
-    let mut boundary = |block: usize| u64::try_from(&block_offsets.execute_scalar(block, ctx)?);
-    let base = boundary(0)?;
-    let start = boundary(first_block)?;
-    let end = boundary(end_block)?;
+    let (base, start, end) = if let Some(primitive) = block_offsets.as_opt::<Primitive>()
+        && primitive.buffer_handle().is_on_host()
+    {
+        match_each_unsigned_integer_ptype!(primitive.ptype(), |I| {
+            let offsets = primitive.as_slice::<I>();
+            (
+                AsPrimitive::<u64>::as_(offsets[0]),
+                AsPrimitive::<u64>::as_(offsets[first_block]),
+                AsPrimitive::<u64>::as_(offsets[end_block]),
+            )
+        })
+    } else {
+        let mut boundary = |block: usize| u64::try_from(&block_offsets.execute_scalar(block, ctx)?);
+        (boundary(0)?, boundary(first_block)?, boundary(end_block)?)
+    };
     // Release builds don't validate boundaries on construction, so check them before slicing.
     vortex_ensure!(
         base <= start && start <= end && end - base <= array.packed().len() as u64,
