@@ -111,6 +111,10 @@ fn slice_blocked(
         base <= start && start <= end && end - base <= array.packed().len() as u64,
         "Block boundaries {start} and {end} are outside the packed buffer (base {base})"
     );
+    vortex_ensure!(
+        (start - base).is_multiple_of(128) && (end - start).is_multiple_of(128),
+        "Block boundaries {start} and {end} are not whole 128-byte rows (base {base})"
+    );
 
     // Both differences are at most the packed length, so they fit in `usize`.
     let packed = array
@@ -141,8 +145,12 @@ mod tests {
     use vortex_array::arrays::SliceArray;
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::PType;
     use vortex_array::optimizer::kernels::ArrayKernelsExt;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
@@ -309,6 +317,29 @@ mod tests {
             values.into_array().slice(1800..3500)?,
             &mut SESSION.create_execution_ctx()
         );
+        Ok(())
+    }
+
+    /// Release builds don't validate block offsets on construction, so the kernel must reject
+    /// invalid boundaries. FoR-encoded offsets skip the debug-build check.
+    #[rstest]
+    #[case::before_base([128, 0, 256])]
+    #[case::decreasing([0, 256, 128])]
+    #[case::misaligned_start([0, 1, 129])]
+    #[case::misaligned_end([0, 128, 255])]
+    #[case::past_end([0, 128, 4224])]
+    fn slice_blocked_rejects_invalid_boundaries(#[case] offsets: [u64; 3]) -> VortexResult<()> {
+        let array = BitPacked::try_new_with_block_offsets(
+            BufferHandle::new_host(ByteBuffer::zeroed(4096)),
+            PType::U8,
+            Validity::NonNullable,
+            None,
+            FoR::try_new(PrimitiveArray::from_iter(offsets).into_array(), 0u64.into())?
+                .into_array(),
+            2048,
+            0,
+        )?;
+        assert!(slice_kernel(&array.into_array(), 1024..2048).is_err());
         Ok(())
     }
 }
