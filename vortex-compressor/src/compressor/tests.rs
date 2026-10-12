@@ -11,20 +11,31 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Slice;
+use vortex_array::arrays::SliceArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
@@ -842,6 +853,76 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
 
     assert!(compressed.is::<Map>());
     assert_eq!(compressed.dtype(), array.dtype());
+    assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+/// An extension type over fixed-size lists, like UUIDs over 16 bytes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct BytesExtension;
+
+impl ExtVTable for BytesExtension {
+    type Metadata = u8;
+    type NativeValue<'a> = &'a ScalarValue;
+
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
+    fn id(&self) -> ExtId {
+        ExtId::new("test.bytes")
+    }
+
+    fn serialize_metadata(&self, metadata: &u8) -> VortexResult<Vec<u8>> {
+        Ok(vec![*metadata])
+    }
+
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+        vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
+        Ok(metadata[0])
+    }
+
+    fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(dtype.storage_dtype(), DType::FixedSizeList(..)),
+            "expected fixed-size list storage"
+        );
+        Ok(())
+    }
+
+    fn unpack_native<'a>(
+        _dtype: &'a ExtDType<Self>,
+        value: &'a ScalarValue,
+    ) -> VortexResult<&'a ScalarValue> {
+        Ok(value)
+    }
+}
+
+/// Canonicalizing an extension array only canonicalizes its storage's top level, so the elements
+/// of fixed-size list storage can stay a lazy slice. When no scheme compresses such an array it
+/// must not be returned as-is, because the slice is not serializable.
+#[test]
+fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
+    // Dictionaries of wide values keep the lazy array smaller than its canonical form, and
+    // chunked arrays only slice on the execute path, so the slice stays lazy.
+    let dict = |offset: u64| -> VortexResult<ArrayRef> {
+        let codes = PrimitiveArray::from_iter((0..1024u32).map(|i| (i % 4) as u8)).into_array();
+        let values = PrimitiveArray::from_iter([offset, offset + 1, offset + 2, offset + 3]);
+        Ok(DictArray::try_new(codes, values.into_array())?.into_array())
+    };
+    let chunks = vec![dict(0)?, dict(100)?];
+    let elements_dtype = chunks[0].dtype().clone();
+    let chunked = ChunkedArray::try_new(chunks, elements_dtype)?.into_array();
+    let elements = SliceArray::new(chunked, 16..2048).into_array();
+    let storage = FixedSizeListArray::new(elements, 16, Validity::NonNullable, 127).into_array();
+    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().clone())?.erased();
+    let array = ExtensionArray::new(dtype, storage).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let compressed = CascadingCompressor::new(Vec::new()).compress(&array, &mut exec_ctx)?;
+
+    assert!(
+        !compressed.depth_first_traversal().any(|a| a.is::<Slice>()),
+        "compressed array still contains a lazy slice:\n{}",
+        compressed.display_tree()
+    );
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
     Ok(())
 }
