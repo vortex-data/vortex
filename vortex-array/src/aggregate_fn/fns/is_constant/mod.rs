@@ -367,6 +367,35 @@ impl AggregateFnVTable for IsConstant {
         !partial.is_constant
     }
 
+    /// Decide batches with nulls from their validity alone, before executing them: a filtered
+    /// batch, e.g. the demanded rows of a struct field, then only filters its validity.
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        if !partial.is_constant || batch.is_empty() {
+            return Ok(true);
+        }
+        let validity = batch.validity()?;
+        if validity.definitely_no_nulls() {
+            return Ok(false);
+        }
+        let valid = validity.execute_mask(batch.len(), ctx)?;
+        if valid.all_false() {
+            partial.check_value(Scalar::null(args.dtype.as_nullable()));
+            Ok(true)
+        } else if valid.all_true() {
+            Ok(false)
+        } else {
+            // Mixed nulls → not constant.
+            partial.is_constant = false;
+            Ok(true)
+        }
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
