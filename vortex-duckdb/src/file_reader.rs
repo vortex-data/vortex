@@ -10,6 +10,7 @@ use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
+use vortex::array::memory::MemorySessionExt as _;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -80,10 +81,8 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
     // high-core machines because reads go into blocking pool
     if url.scheme() == "file" {
-        return Ok((
-            Arc::new(StdFileSystem::new(RUNTIME.handle())),
-            url.path().to_string(),
-        ));
+        let fs = StdFileSystem::new(RUNTIME.handle()).with_allocator(SESSION.allocator());
+        return Ok((Arc::new(fs), url.path().to_string()));
     }
 
     let (object_store, path) = REGISTRY.resolve(url)?;
