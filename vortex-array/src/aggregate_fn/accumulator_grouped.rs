@@ -425,9 +425,9 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
-    use crate::aggregate_fn::fns::count::Count;
+    use crate::aggregate_fn::fns::null_count::NullCount;
     use crate::arrays::Chunked;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -437,10 +437,10 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    fn accumulator() -> VortexResult<GroupedAccumulator<Count>> {
+    fn accumulator() -> VortexResult<GroupedAccumulator<NullCount>> {
         GroupedAccumulator::try_new(
-            Count,
-            NumericalAggregateOpts::default(),
+            NullCount,
+            EmptyOptions,
             DType::Primitive(PType::I32, NonNullable),
         )
     }

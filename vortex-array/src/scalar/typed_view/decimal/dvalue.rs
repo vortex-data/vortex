@@ -123,7 +123,7 @@ impl DecimalValue {
     ///
     /// This preserves the represented numeric value exactly. Reducing scale fails if doing so
     /// would discard non-zero fractional digits.
-    pub(crate) fn rescale_i256(value: i256, from_scale: i8, to_scale: i8) -> VortexResult<i256> {
+    pub fn rescale_i256(value: i256, from_scale: i8, to_scale: i8) -> VortexResult<i256> {
         if from_scale == to_scale || value == i256::ZERO {
             return Ok(value);
         }
@@ -170,7 +170,7 @@ impl DecimalValue {
 
     /// Converts an untyped stored decimal integer into the physical value type selected by
     /// `decimal_dtype`, after enforcing the dtype precision.
-    pub(crate) fn try_from_i256(value: i256, decimal_dtype: DecimalDType) -> VortexResult<Self> {
+    pub fn try_from_i256(value: i256, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let decimal_value = Self::I256(value);
         decimal_value.normalize(decimal_dtype).ok_or_else(|| {
             vortex_err!(
