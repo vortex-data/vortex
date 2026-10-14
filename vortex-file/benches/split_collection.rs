@@ -70,20 +70,17 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let field_names = (0..columns).map(|c| format!("col_{c}")).collect::<Vec<_>>();
-    let struct_chunks = (0..chunks)
-        .map(|chunk| {
-            let fields = field_names
-                .iter()
-                .map(|name| {
-                    let start = (chunk * ROWS_PER_CHUNK) as i64;
-                    let values =
-                        Buffer::from_iter(start..start + ROWS_PER_CHUNK as i64).into_array();
-                    (name.as_str(), values)
-                })
-                .collect::<Vec<_>>();
-            StructArray::from_fields(&fields).unwrap().into_array()
-        })
-        .collect::<Vec<_>>();
+    let struct_chunks = (0..chunks).map(|chunk| {
+        let fields = field_names
+            .iter()
+            .map(|name| {
+                let start = (chunk * ROWS_PER_CHUNK) as i64;
+                let values = Buffer::from_iter(start..start + ROWS_PER_CHUNK as i64).into_array();
+                (name.as_str(), values)
+            })
+            .collect::<Vec<_>>();
+        StructArray::from_fields(&fields).unwrap().into_array()
+    });
     let array = ChunkedArray::from_iter(struct_chunks).into_array();
 
     let strategy = vortex_file::WriteStrategyBuilder::from_session(&SESSION)

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -53,6 +54,10 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
 
 impl<I> ArrayIterator for ArrayIteratorAdapter<I>
@@ -81,12 +86,26 @@ pub trait ArrayIteratorExt: ArrayIterator {
         Self: Sized,
     {
         let dtype = self.dtype().clone();
-        let mut chunks: Vec<ArrayRef> = self.try_collect()?;
-        if chunks.len() == 1 {
-            Ok(chunks.remove(0))
-        } else {
-            Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+        let mut chunks = self.peekable();
+        let Some(first) = chunks.next().transpose()? else {
+            return Ok(ChunkedArray::try_new([], dtype)?.into_array());
+        };
+        if chunks.peek().is_none() {
+            return Ok(first);
         }
+        let chunks = std::iter::once(Ok(first))
+            .chain(chunks)
+            .map(|chunk| -> VortexResult<_> {
+                let chunk = chunk?;
+                vortex_ensure!(chunk.dtype() == &dtype, MismatchedTypes: &dtype, chunk.dtype());
+                Ok(chunk)
+            });
+        let expected_nchunks = chunks.size_hint().0;
+        chunks.process_results(|chunks| {
+            // SAFETY: the iterator validates the dtype of every successfully yielded chunk.
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), expected_nchunks) }
+                .into_array()
+        })
     }
 }
 

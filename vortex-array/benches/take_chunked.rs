@@ -233,15 +233,12 @@ fn chunk_values(value_kind: ValueKind, start: usize, end: usize) -> ArrayRef {
 
 fn chunked_values(case: Case) -> ArrayRef {
     let chunk_len = SOURCE_LEN / case.chunks;
-    let chunks = (0..case.chunks)
-        .map(|chunk_idx| {
-            let start = chunk_idx * chunk_len;
-            let end = start + chunk_len;
-            chunk_values(case.value_kind, start, end)
-        })
-        .collect::<Vec<_>>();
-    let dtype = chunks[0].dtype().clone();
-    ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
+    let chunks = (0..case.chunks).map(|chunk_idx| {
+        let start = chunk_idx * chunk_len;
+        let end = start + chunk_len;
+        chunk_values(case.value_kind, start, end)
+    });
+    ChunkedArray::from_iter(chunks).into_array()
 }
 
 fn advance_random(state: &mut u64) -> u64 {

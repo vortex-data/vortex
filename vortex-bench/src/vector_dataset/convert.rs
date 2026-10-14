@@ -3,6 +3,7 @@
 
 // TODO(connor): Should we re-export this through `conversions.rs`?
 
+use itertools::Itertools;
 use vortex::array::ArrayRef;
 use vortex::array::EmptyMetadata;
 use vortex::array::IntoArray;
@@ -24,6 +25,7 @@ use vortex::dtype::extension::ExtDType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex_tensor::vector::Vector;
 
@@ -62,17 +64,27 @@ use crate::SESSION;
 /// - The input has zero rows (the dimension cannot be inferred from empty input).
 pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     if let Some(chunked) = input.as_opt::<Chunked>() {
-        let converted: Vec<ArrayRef> = chunked
+        let mut converted = chunked
             .iter_chunks()
-            .map(|chunk| list_to_vector_ext(chunk.clone()))
-            .collect::<VortexResult<_>>()?;
+            .map(|chunk| list_to_vector_ext(chunk.clone()));
 
-        let Some(first) = converted.first() else {
+        let Some(first) = converted.next().transpose()? else {
             vortex_bail!("list_to_vector_ext: chunked input has no chunks");
         };
 
         let dtype = first.dtype().clone();
-        return Ok(ChunkedArray::try_new(converted, dtype)?.into_array());
+        let chunks = std::iter::once(Ok(first))
+            .chain(converted)
+            .map(|chunk| -> VortexResult<_> {
+                let chunk = chunk?;
+                vortex_ensure!(chunk.dtype() == &dtype, MismatchedTypes: &dtype, chunk.dtype());
+                Ok(chunk)
+            });
+        return chunks.process_results(|chunks| {
+            // SAFETY: the iterator checks that all chunks have the same vector dtype and dimension.
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), chunked.nchunks()) }
+                .into_array()
+        });
     }
 
     // `parquet_to_vortex_chunks` produces `ListView` arrays for list columns by default;
