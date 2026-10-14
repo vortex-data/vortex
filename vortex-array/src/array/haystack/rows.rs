@@ -8,14 +8,16 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::registry::CachedId;
 
-use super::HaystackOps;
 use super::HaystackVTable;
+use super::HaystackValidity;
 use super::haystack_vtable_common;
 use super::slot;
 use crate::ArrayRef;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -25,11 +27,14 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
+use crate::array::OperationsVTable;
 use crate::array::VTable;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::build_row_comparator;
 use crate::validity::Validity;
 
@@ -76,8 +81,8 @@ impl RowsHaystack {
 
 impl VTable for RowsHaystack {
     type TypedArrayData = EmptyArrayData;
-    type OperationsVTable = HaystackOps;
-    type ValidityVTable = HaystackOps;
+    type OperationsVTable = Self;
+    type ValidityVTable = HaystackValidity;
 
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.haystack.rows");
@@ -105,6 +110,11 @@ impl VTable for RowsHaystack {
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             "A row haystack orders its elements by u64 indices"
         );
+        vortex_ensure!(
+            order.is::<Primitive>(),
+            "A row haystack holds its order as a primitive array, got {}",
+            order.encoding_id()
+        );
         vortex_ensure_eq!(
             order.len(),
             len,
@@ -126,12 +136,28 @@ impl VTable for RowsHaystack {
     }
 }
 
+impl OperationsVTable<RowsHaystack> for RowsHaystack {
+    type ProbeState = ();
+
+    fn scalar_at(
+        array: ArrayView<'_, Self>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let element = slot(array.slots(), Self::ORDER)
+            .as_::<Primitive>()
+            .as_slice::<u64>()[index];
+        slot(array.slots(), Self::ELEMENTS).execute_scalar(row(element), ctx)
+    }
+}
+
 impl HaystackVTable for RowsHaystack {
     fn contains(
         array: ArrayView<'_, Self>,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
+        let needles = needles.to_array_ref();
         if array.is_empty() {
             return Ok((
                 BitBuffer::full_in(false, needles.len(), ctx.allocator().clone()),
@@ -140,15 +166,11 @@ impl HaystackVTable for RowsHaystack {
         }
 
         let elements = slot(array.slots(), Self::ELEMENTS);
-        let order = slot(array.slots(), Self::ORDER)
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
+        let order = slot(array.slots(), Self::ORDER).as_::<Primitive>();
         let order = order.as_slice::<u64>();
-        let needles = needles
-            .clone()
-            .execute::<RecursiveCanonical>(ctx)?
-            .0
-            .into_array();
+        // The needles are canonical, but the row comparator also reads the children of nested
+        // needles, such as the fields of a struct, as canonical arrays.
+        let needles = needles.execute::<RecursiveCanonical>(ctx)?.0.into_array();
 
         let compare = build_row_comparator(elements, &needles, ctx)?;
         let bits = BitBuffer::collect_bool_in(

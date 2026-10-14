@@ -8,20 +8,23 @@ use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use super::ArrayHaystack;
-use super::HaystackOps;
 use super::HaystackVTable;
+use super::HaystackValidity;
 use super::bytes::BytesHaystack;
 use super::haystack_vtable_common;
 use super::integer::BitmapHaystack;
 use super::integer::SortedHaystack;
 use super::rows::RowsHaystack;
 use super::slot;
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -31,9 +34,11 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
+use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
@@ -130,20 +135,43 @@ fn test_bytes_lookup_array_keeps_the_non_null_elements() -> VortexResult<()> {
         None,
     ])
     .into_array();
-    let (bits, validity) = haystack.contains(&needles, &mut ctx)?;
+    let (bits, validity) = haystack.contains(needles.as_::<AnyCanonical>(), &mut ctx)?;
     assert_eq!(bits, BitBuffer::from_iter([true, false, true, false]));
     assert_eq!(validity.execute_mask(4, &mut ctx)?.true_count(), 3);
     Ok(())
 }
 
-#[test]
-fn test_lookup_array_reads_a_row() -> VortexResult<()> {
+/// Each kind of lookup array reads a row in the order of its lookup.
+#[rstest]
+#[case::bitmap(buffer![9u8, 2, 4].into_array(), Scalar::from(4u8))]
+#[case::sorted(buffer![1u64 << 40, 7, 1 << 41].into_array(), Scalar::from(1u64 << 40))]
+#[case::decimal_bitmap(
+    DecimalArray::from_iter::<i32, _>([12, 10, 11], DecimalDType::new(5, 1)).into_array(),
+    Scalar::decimal(11i32.into(), DecimalDType::new(5, 1), Nullability::NonNullable),
+)]
+#[case::bytes(
+    VarBinViewArray::from_iter_str(["b", "a long string value"]).into_array(),
+    Scalar::from("a long string value"),
+)]
+fn test_lookup_array_reads_a_row(
+    #[case] elements: ArrayRef,
+    #[case] expected: Scalar,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let haystack = build(buffer![9u8, 2, 4].into_array(), &mut ctx)?;
+    let haystack = build(elements, &mut ctx)?;
+
+    assert_eq!(haystack.array().execute_scalar(1, &mut ctx)?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_rows_lookup_array_reads_a_row() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let haystack = build(struct_of(&[3, 1, 3]), &mut ctx)?;
 
     assert_eq!(
         haystack.array().execute_scalar(1, &mut ctx)?,
-        Scalar::from(4u8)
+        struct_of(&[3]).execute_scalar(0, &mut ctx)?
     );
     Ok(())
 }
@@ -167,8 +195,8 @@ impl LinearHaystack {
 
 impl VTable for LinearHaystack {
     type TypedArrayData = EmptyArrayData;
-    type OperationsVTable = HaystackOps;
-    type ValidityVTable = HaystackOps;
+    type OperationsVTable = Self;
+    type ValidityVTable = HaystackValidity;
 
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("test.haystack.linear");
@@ -196,16 +224,28 @@ impl VTable for LinearHaystack {
     }
 }
 
+impl OperationsVTable<LinearHaystack> for LinearHaystack {
+    type ProbeState = ();
+
+    fn scalar_at(
+        array: ArrayView<'_, Self>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        slot(array.slots(), 0).execute_scalar(index, ctx)
+    }
+}
+
 impl HaystackVTable for LinearHaystack {
     fn contains(
         array: ArrayView<'_, Self>,
-        needles: &ArrayRef,
-        ctx: &mut ExecutionCtx,
+        needles: CanonicalView<'_>,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
-        let values = slot(array.slots(), 0)
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-        let needles = needles.clone().execute::<PrimitiveArray>(ctx)?;
+        let CanonicalView::Primitive(needles) = needles else {
+            vortex_bail!("A linear haystack looks up primitive needles");
+        };
+        let values = slot(array.slots(), 0).as_::<Primitive>();
         let bits = needles
             .as_slice::<i32>()
             .iter()

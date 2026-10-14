@@ -25,15 +25,17 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use super::ArrayHaystack;
-use super::HaystackOps;
 use super::HaystackVTable;
+use super::HaystackValidity;
 use super::haystack_vtable_common;
 use super::slot;
 use crate::ArrayRef;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -42,9 +44,13 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
+use crate::array::OperationsVTable;
 use crate::array::VTable;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::converted_buffer;
@@ -55,6 +61,7 @@ use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// A set whose span of values needs at most this many bits per element is looked up through a
@@ -64,21 +71,15 @@ const BITMAP_BITS_PER_ELEMENT: u128 = 64;
 const BITMAP_MIN_BITS: u128 = 1 << 12;
 
 /// Binds `$T` to the integer type of the primitive or decimal array `$values`, `$values` to its
-/// integers, and `$needles` to the integers of the needles of its dtype, then evaluates `$body`
-/// to the membership bits. Gives the bits and the validity of the needles.
+/// integers, and `$needles` to the integers of the canonical needles of its dtype, then evaluates
+/// `$body` to the membership bits. Gives the bits and the validity of the needles.
 macro_rules! with_integers {
     ($values:expr, $needles:expr, $ctx:expr, | $T:ident, $vals:ident, $nds:ident | $body:expr) => {{
-        match $values.dtype() {
-            DType::Primitive(ptype, _) => {
+        match ($values.dtype(), $needles) {
+            (DType::Primitive(ptype, _), CanonicalView::Primitive(needles)) => {
                 let ptype = bit_pattern_ptype(*ptype);
-                let values = $values
-                    .clone()
-                    .execute::<PrimitiveArray>($ctx)?
-                    .reinterpret_cast(ptype);
-                let needles = $needles
-                    .clone()
-                    .execute::<PrimitiveArray>($ctx)?
-                    .reinterpret_cast(ptype);
+                let values = $values.as_::<Primitive>().reinterpret_cast(ptype);
+                let needles = needles.reinterpret_cast(ptype);
                 let validity = needles.validity()?;
 
                 match_each_integer_ptype!(ptype, |$T| {
@@ -87,10 +88,10 @@ macro_rules! with_integers {
                     Ok(($body, validity))
                 })
             }
-            DType::Decimal(decimal, _) => {
+            (DType::Decimal(decimal, _), CanonicalView::Decimal(needles)) => {
                 let values_type = DecimalType::smallest_decimal_value_type(decimal);
-                let values = $values.clone().execute::<DecimalArray>($ctx)?;
-                let needles = $needles.clone().execute::<DecimalArray>($ctx)?;
+                let values = $values.as_::<Decimal>().into_owned();
+                let needles = needles.into_owned();
                 let validity = needles.validity()?;
                 let valid = validity.execute_mask(needles.len(), $ctx)?;
 
@@ -102,7 +103,10 @@ macro_rules! with_integers {
                     Ok(($body, validity))
                 })
             }
-            dtype => vortex_bail!("An integer haystack holds primitives or decimals, not {dtype}"),
+            (dtype, needles) => vortex_bail!(
+                "An integer haystack of {dtype} cannot look up needles of {}",
+                needles.to_array_ref().dtype()
+            ),
         }
     }};
 }
@@ -190,8 +194,8 @@ impl SortedHaystack {
 
 impl VTable for SortedHaystack {
     type TypedArrayData = EmptyArrayData;
-    type OperationsVTable = HaystackOps;
-    type ValidityVTable = HaystackOps;
+    type OperationsVTable = Self;
+    type ValidityVTable = HaystackValidity;
 
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.haystack.sorted");
@@ -214,6 +218,11 @@ impl VTable for SortedHaystack {
             dtype,
             "A sorted haystack has its values' dtype"
         );
+        vortex_ensure!(
+            is_integer_array(values),
+            "A sorted haystack holds a primitive or decimal array, got {}",
+            values.encoding_id()
+        );
         vortex_ensure_eq!(values.len(), len, "A sorted haystack has a row per value");
         Ok(())
     }
@@ -231,10 +240,22 @@ impl VTable for SortedHaystack {
     }
 }
 
+impl OperationsVTable<SortedHaystack> for SortedHaystack {
+    type ProbeState = ();
+
+    fn scalar_at(
+        array: ArrayView<'_, Self>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        slot(array.slots(), Self::VALUES).execute_scalar(index, ctx)
+    }
+}
+
 impl HaystackVTable for SortedHaystack {
     fn contains(
         array: ArrayView<'_, Self>,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
         let allocator = ctx.allocator().clone();
@@ -278,18 +299,15 @@ impl BitmapHaystack {
         .vortex_expect("A bitmap haystack is valid by construction")
     }
 
-    fn bitmap(array: &[Option<ArrayRef>], ctx: &mut ExecutionCtx) -> VortexResult<BitBuffer> {
-        Ok(slot(array, Self::BITMAP)
-            .clone()
-            .execute::<BoolArray>(ctx)?
-            .to_bit_buffer())
+    fn bitmap(slots: &[Option<ArrayRef>]) -> BitBuffer {
+        slot(slots, Self::BITMAP).as_::<Bool>().to_bit_buffer()
     }
 }
 
 impl VTable for BitmapHaystack {
     type TypedArrayData = EmptyArrayData;
-    type OperationsVTable = HaystackOps;
-    type ValidityVTable = HaystackOps;
+    type OperationsVTable = Self;
+    type ValidityVTable = HaystackValidity;
 
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.haystack.bitmap");
@@ -314,9 +332,14 @@ impl VTable for BitmapHaystack {
         );
         vortex_ensure_eq!(min.len(), 1, "A bitmap haystack has one smallest value");
         vortex_ensure!(
-            matches!(bitmap.dtype(), DType::Bool(_)),
-            "A bitmap haystack needs a boolean bitmap, got {}",
-            bitmap.dtype()
+            is_integer_array(min),
+            "A bitmap haystack holds its smallest value as a primitive or decimal array, got {}",
+            min.encoding_id()
+        );
+        vortex_ensure!(
+            bitmap.is::<Bool>(),
+            "A bitmap haystack needs a bool array bitmap, got {}",
+            bitmap.encoding_id()
         );
         Ok(())
     }
@@ -327,49 +350,36 @@ impl VTable for BitmapHaystack {
         Self::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let bitmap = Self::bitmap(array.slots(), ctx)?;
-        let min = slot(array.slots(), Self::MIN).clone();
-
-        let values = match min.dtype() {
-            DType::Primitive(ptype, _) => {
-                let ptype = *ptype;
-                let bits_ptype = bit_pattern_ptype(ptype);
-                let min = min
-                    .execute::<PrimitiveArray>(ctx)?
-                    .reinterpret_cast(bits_ptype);
-                match_each_integer_ptype!(bits_ptype, |T| {
-                    let values = bitmap_values(min.as_slice::<T>()[0], &bitmap);
-                    PrimitiveArray::new(values, Validity::NonNullable)
-                        .reinterpret_cast(ptype)
-                        .into_array()
-                })
-            }
-            DType::Decimal(decimal, _) => {
-                let decimal = *decimal;
-                let values_type = DecimalType::smallest_decimal_value_type(&decimal);
-                let min = min.execute::<DecimalArray>(ctx)?;
-                match_each_decimal_value_type!(values_type, |T| {
-                    let min = converted_buffer::<T>(&min, &Mask::new_true(1))?[0];
-                    DecimalArray::new(bitmap_values(min, &bitmap), decimal, Validity::NonNullable)
-                        .into_array()
-                })
-            }
-            dtype => vortex_bail!("An integer haystack holds primitives or decimals, not {dtype}"),
-        };
-
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let bitmap = Self::bitmap(array.slots());
+        let values = offset_values(slot(array.slots(), Self::MIN), bitmap.set_indices())?;
         Ok(ExecutionResult::done(values))
+    }
+}
+
+impl OperationsVTable<BitmapHaystack> for BitmapHaystack {
+    type ProbeState = ();
+
+    fn scalar_at(
+        array: ArrayView<'_, Self>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let offset = Self::bitmap(array.slots())
+            .select(index)
+            .ok_or_else(|| vortex_err!("A bitmap haystack has no row {index}"))?;
+        offset_values(slot(array.slots(), Self::MIN), [offset].into_iter())?.execute_scalar(0, ctx)
     }
 }
 
 impl HaystackVTable for BitmapHaystack {
     fn contains(
         array: ArrayView<'_, Self>,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
         let allocator = ctx.allocator().clone();
-        let bitmap = Self::bitmap(array.slots(), ctx)?;
+        let bitmap = Self::bitmap(array.slots());
         with_integers!(
             slot(array.slots(), Self::MIN),
             needles,
@@ -390,6 +400,40 @@ impl HaystackVTable for BitmapHaystack {
             }
         )
     }
+}
+
+/// Whether `array` holds integers in a form the integer haystacks read without executing it.
+fn is_integer_array(array: &ArrayRef) -> bool {
+    array.is::<Primitive>() || array.is::<Decimal>()
+}
+
+/// The integers `offsets` above the one integer of `min`, a primitive or decimal array.
+fn offset_values(min: &ArrayRef, offsets: impl Iterator<Item = usize>) -> VortexResult<ArrayRef> {
+    Ok(match min.dtype() {
+        DType::Primitive(ptype, _) => {
+            let ptype = *ptype;
+            let bits_ptype = bit_pattern_ptype(ptype);
+            let min = min.as_::<Primitive>().reinterpret_cast(bits_ptype);
+            match_each_integer_ptype!(bits_ptype, |T| {
+                let min = min.as_slice::<T>()[0];
+                let values: Buffer<T> = offsets.map(|offset| min.add_offset(offset)).collect();
+                PrimitiveArray::new(values, Validity::NonNullable)
+                    .reinterpret_cast(ptype)
+                    .into_array()
+            })
+        }
+        DType::Decimal(decimal, _) => {
+            let decimal = *decimal;
+            let values_type = DecimalType::smallest_decimal_value_type(&decimal);
+            let min = min.as_::<Decimal>().into_owned();
+            match_each_decimal_value_type!(values_type, |T| {
+                let min = converted_buffer::<T>(&min, &Mask::new_true(1))?[0];
+                let values: Buffer<T> = offsets.map(|offset| min.add_offset(offset)).collect();
+                DecimalArray::new(values, decimal, Validity::NonNullable).into_array()
+            })
+        }
+        dtype => vortex_bail!("An integer haystack holds primitives or decimals, not {dtype}"),
+    })
 }
 
 /// The integer type with a float's bit pattern, or the type itself for an integer.
@@ -469,14 +513,6 @@ fn integer_bitmap<T: SetInteger>(
         );
     }
     Some((min, bitmap.freeze()))
-}
-
-/// The integers of the set bits of `bitmap`, above `min`.
-fn bitmap_values<T: SetInteger>(min: T, bitmap: &BitBuffer) -> Buffer<T> {
-    bitmap
-        .set_indices()
-        .map(|offset| min.add_offset(offset))
-        .collect()
 }
 
 fn sorted_values<T: Copy + Ord + Send + Sync + 'static>(values: Buffer<T>) -> Buffer<T> {

@@ -11,13 +11,18 @@ use std::sync::OnceLock;
 
 use vortex_buffer::BitBuffer;
 use vortex_error::SharedVortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use super::PreparedSet;
+use crate::AnyCanonical;
 use crate::ArrayHaystack;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -28,6 +33,7 @@ use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
@@ -52,9 +58,6 @@ struct SharedSet {
     has_null_element: bool,
     /// Whether the list holds no element at all, counting null elements.
     is_empty: bool,
-    /// All elements of the list, null elements included, with the element dtype of the list,
-    /// built on first use.
-    elements: OnceLock<SharedVortexResult<ArrayRef>>,
     /// The haystack of the non-null elements, given or built on the first lookup.
     haystack: OnceLock<SharedVortexResult<ArrayHaystack>>,
 }
@@ -95,7 +98,6 @@ impl PreparedSetData {
             literal,
             has_null_element,
             is_empty,
-            elements: OnceLock::new(),
             haystack: OnceLock::new(),
         })))
     }
@@ -139,27 +141,6 @@ impl PreparedSetData {
         self.0.literal.as_::<Literal>()
     }
 
-    /// The elements of the list, one row each, null elements included.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the list cannot be executed into its elements.
-    pub fn elements(&self, ctx: &mut ExecutionCtx) -> VortexResult<&ArrayRef> {
-        self.0
-            .elements
-            .get_or_init(|| {
-                // The canonical form of a constant list holds its elements once, whatever its
-                // length.
-                ConstantArray::new(self.list().clone(), 1)
-                    .into_array()
-                    .execute::<ListViewArray>(ctx)
-                    .map(|list| list.elements().clone())
-                    .map_err(Arc::new)
-            })
-            .as_ref()
-            .map_err(|err| Arc::clone(err).into())
-    }
-
     /// The haystack that looks up needles among the elements, built on the first call unless
     /// one was given, and shared after it.
     ///
@@ -173,8 +154,12 @@ impl PreparedSetData {
         self.0
             .haystack
             .get_or_init(|| {
-                self.elements(ctx)
-                    .and_then(|elements| ArrayHaystack::try_new(elements, ctx))
+                // The canonical form of a constant list holds its elements once, whatever its
+                // length.
+                ConstantArray::new(self.list().clone(), 1)
+                    .into_array()
+                    .execute::<ListViewArray>(ctx)
+                    .and_then(|list| ArrayHaystack::try_new(list.elements(), ctx))
                     .map_err(Arc::new)
             })
             .as_ref()
@@ -202,7 +187,13 @@ impl PreparedSetData {
     /// semantics, which gives `false` for every needle. Under SQL null semantics, a list that holds
     /// a null element gives `null` for a needle that matches no element.
     ///
-    /// A constant needle is looked up once, and gives a constant result.
+    /// A constant needle is looked up once, and gives a constant result. Canonical needles are
+    /// looked up in the haystack. Any other needles are not decoded here: the result is a lazy
+    /// [`ListContains`] over them, so that their encoding chooses how to look them up, through a
+    /// [`ListContainsElementKernel`] at any step of its decoding. A kernel therefore passes the
+    /// parts of its array, such as the values of a dictionary, and never the array itself.
+    ///
+    /// [`ListContainsElementKernel`]: crate::scalar_fn::fns::list_contains::ListContainsElementKernel
     ///
     /// # Errors
     ///
@@ -219,8 +210,15 @@ impl PreparedSetData {
         }
 
         self.check_needle_dtype(needles.dtype())?;
-        let (bits, needle_validity) = self.haystack(ctx)?.contains(needles, ctx)?;
-        self.result_from_bits(bits, needle_validity, needles.dtype(), options)
+        match needles.as_opt::<AnyCanonical>() {
+            Some(canonical) => self.lookup(canonical, needles.dtype(), options, ctx),
+            None => Ok(ListContains::try_new_opts(
+                PreparedSet::new_array(self.clone(), needles.len()),
+                needles.clone(),
+                *options,
+            )?
+            .into_array()),
+        }
     }
 
     /// Whether the constant `needle` is an element of the list, under `options`.
@@ -238,10 +236,27 @@ impl PreparedSetData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         self.check_needle_dtype(needle.dtype())?;
-        let needles = ConstantArray::new(needle.clone(), 1).into_array();
-        let (bits, needle_validity) = self.haystack(ctx)?.contains(&needles, ctx)?;
-        self.result_from_bits(bits, needle_validity, needle.dtype(), options)?
+        let needles = ConstantArray::new(needle.clone(), 1)
+            .into_array()
+            .execute::<Canonical>(ctx)?
+            .into_array();
+        let needles = needles
+            .as_opt::<AnyCanonical>()
+            .vortex_expect("A canonical array matches AnyCanonical");
+        self.lookup(needles, needle.dtype(), options, ctx)?
             .execute_scalar(0, ctx)
+    }
+
+    /// Looks up canonical needles in the haystack.
+    fn lookup(
+        &self,
+        needles: CanonicalView<'_>,
+        needle_dtype: &DType,
+        options: &ListContainsOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let (bits, needle_validity) = self.haystack(ctx)?.contains(needles, ctx)?;
+        self.result_from_bits(bits, needle_validity, needle_dtype, options)
     }
 
     /// Makes the result of [`Self::contains`] from one membership bit per needle.

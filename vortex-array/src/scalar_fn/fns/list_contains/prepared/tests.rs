@@ -11,6 +11,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::PreparedSet;
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -142,8 +143,9 @@ fn test_row_set_returns_membership_bits(
     let options = ListContainsOptions { sql_null_semantics };
     let set = prepare(&list)?;
     let result = set.contains(&needles, &options, &mut ctx)?;
-    // The old fallback returned a lazy OR tree here.
-    assert!(result.is::<Bool>());
+    // Canonical needles are looked up at once. Any others stay a lazy lookup, for their encoding
+    // to take.
+    assert_eq!(result.is::<Bool>(), needles.is::<AnyCanonical>());
     let expected = (0..needles.len())
         .map(|idx| {
             let value = needles.execute_scalar(idx, &mut ctx)?;

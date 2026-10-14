@@ -354,9 +354,11 @@ fn compute_list_contains(
         .into_array());
     }
 
-    // The reduce step has already replaced a constant list with a prepared set.
+    // The reduce step has already replaced a constant list with a prepared set. The needles take
+    // one step of their decoding at a time, so that a kernel of each encoding they pass through
+    // can take the lookup before they are canonical.
     if let Some(set) = PreparedSet::set_of(array) {
-        return set.contains(value, options, ctx);
+        return set.contains(&value.clone().execute::<ArrayRef>(ctx)?, options, ctx);
     }
 
     let nullability = options.result_nullability(array.dtype(), value.dtype());

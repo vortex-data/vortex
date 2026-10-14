@@ -15,6 +15,7 @@ use vortex_buffer::BitBuffer;
 use vortex_compute::lane_kernels::collect_bits;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -23,13 +24,14 @@ use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
 use vortex_utils::aliases::hash_map::RandomState;
 
-use super::HaystackOps;
 use super::HaystackVTable;
+use super::HaystackValidity;
 use super::haystack_vtable_common;
 use super::slot;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::CanonicalView;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -38,10 +40,13 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::array::VTable;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Builds the bytes haystack of the non-null `members`.
@@ -202,8 +207,8 @@ impl ArrayHash for BytesTables {
 
 impl VTable for BytesHaystack {
     type TypedArrayData = BytesTables;
-    type OperationsVTable = HaystackOps;
-    type ValidityVTable = HaystackOps;
+    type OperationsVTable = Self;
+    type ValidityVTable = HaystackValidity;
 
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.haystack.bytes");
@@ -222,7 +227,7 @@ impl VTable for BytesHaystack {
             .as_ref()
             .ok_or_else(|| vortex_err!("A bytes haystack needs its elements"))?;
         vortex_ensure!(
-            elements.is::<crate::arrays::VarBinView>(),
+            elements.is::<VarBinView>(),
             "A bytes haystack indexes the views of a VarBinView array"
         );
         vortex_ensure_eq!(
@@ -251,19 +256,38 @@ impl VTable for BytesHaystack {
     }
 }
 
+impl OperationsVTable<BytesHaystack> for BytesHaystack {
+    type ProbeState = ();
+
+    fn scalar_at(
+        array: ArrayView<'_, Self>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        slot(array.slots(), Self::ELEMENTS).execute_scalar(index, ctx)
+    }
+}
+
 impl HaystackVTable for BytesHaystack {
     fn contains(
         array: ArrayView<'_, Self>,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
+        let CanonicalView::VarBinView(needles) = needles else {
+            vortex_bail!(
+                "A bytes haystack of {} cannot look up needles of {}",
+                array.dtype(),
+                needles.to_array_ref().dtype()
+            );
+        };
+        let needles = needles.into_owned();
         let elements = slot(array.slots(), Self::ELEMENTS)
-            .clone()
-            .execute::<VarBinViewArray>(ctx)?;
+            .as_::<VarBinView>()
+            .into_owned();
         let element_views = elements.views();
         let element_buffers = data_buffers(&elements);
 
-        let needles = needles.clone().execute::<VarBinViewArray>(ctx)?;
         let buffers = data_buffers(&needles);
         let tables = array.data();
         let bits = collect_bits(

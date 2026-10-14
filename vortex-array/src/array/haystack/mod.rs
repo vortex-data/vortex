@@ -18,16 +18,14 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::Canonical;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayView;
-use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::dtype::DType;
-use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// An encoding whose arrays can be the lookup array of an [`ArrayHaystack`].
@@ -38,18 +36,21 @@ pub trait HaystackVTable: VTable {
     /// One bit per needle, set when the needle is an element of `array`, and the validity of the
     /// needles.
     ///
-    /// The needles have the dtype of `array`, ignoring nullability. The bit of a null needle has
-    /// no effect.
+    /// The needles are canonical, with the dtype of `array` ignoring nullability. They reach the
+    /// haystack only once their own encoding has declined the lookup at every step of its
+    /// decoding, through a
+    /// [`ListContainsElementKernel`](crate::scalar_fn::fns::list_contains::ListContainsElementKernel).
+    /// The bit of a null needle has no effect.
     fn contains(
         array: ArrayView<'_, Self>,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)>;
 }
 
 /// The [`HaystackVTable::contains`] of the encoding of a lookup array, with the array erased.
 type ContainsFn =
-    fn(&ArrayRef, &ArrayRef, &mut ExecutionCtx) -> VortexResult<(BitBuffer, Validity)>;
+    fn(&ArrayRef, CanonicalView<'_>, &mut ExecutionCtx) -> VortexResult<(BitBuffer, Validity)>;
 
 /// Looks up needles among the elements of a lookup array, for many batches of needles.
 ///
@@ -106,14 +107,14 @@ impl ArrayHaystack {
 
     /// One bit per needle, set when the needle is an element, and the validity of the needles.
     ///
-    /// The needles have the dtype of the lookup array, ignoring nullability.
+    /// The needles are canonical, with the dtype of the lookup array ignoring nullability.
     ///
     /// # Errors
     ///
-    /// Fails when the needles cannot be executed.
+    /// Fails when the needles do not have the dtype of the lookup array.
     pub fn contains(
         &self,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
         (self.contains)(&self.array, needles, ctx)
@@ -122,39 +123,19 @@ impl ArrayHaystack {
 
 fn contains_of<V: HaystackVTable>(
     array: &ArrayRef,
-    needles: &ArrayRef,
+    needles: CanonicalView<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(BitBuffer, Validity)> {
     V::contains(array.as_::<V>(), needles, ctx)
 }
 
-/// The operations and validity that the lookup arrays of Vortex share.
-///
-/// Every row is valid. A row is read from the canonical form, since a lookup array exists for
-/// lookups, not for reads.
+/// The validity that the lookup arrays of Vortex share: every row is valid.
 #[derive(Clone, Debug)]
-pub(crate) struct HaystackOps;
+pub(crate) struct HaystackValidity;
 
-impl<V: VTable> ValidityVTable<V> for HaystackOps {
+impl<V: VTable> ValidityVTable<V> for HaystackValidity {
     fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
         Ok(Validity::from(array.dtype().nullability()))
-    }
-}
-
-impl<V: VTable> OperationsVTable<V> for HaystackOps {
-    type ProbeState = ();
-
-    fn scalar_at(
-        array: ArrayView<'_, V>,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        array
-            .array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array()
-            .execute_scalar(index, ctx)
     }
 }
 
