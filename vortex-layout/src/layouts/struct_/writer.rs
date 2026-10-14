@@ -385,8 +385,8 @@ mod tests {
         assert!(leaf.is::<Zoned>(), "{leaf} has no zone map");
         let mut ctx = new_session().create_execution_ctx();
         let mut bound = |aggregate_fn| -> VortexResult<i32> {
-            let scalar: Scalar = read_zone_stats(leaf, segments.clone(), &aggregate_fn)?
-                .execute_scalar(0, &mut ctx)?;
+            let scalar: Scalar =
+                read_zone_stats(leaf, segments, &aggregate_fn)?.execute_scalar(0, &mut ctx)?;
             Ok(scalar
                 .as_primitive()
                 .typed_value::<i32>()

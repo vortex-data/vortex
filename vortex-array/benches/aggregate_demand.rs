@@ -4,6 +4,8 @@
 //! Accumulating the demanded rows of a batch, compared with accumulating a nullable batch whose
 //! validity equals the demand, and with filtering the batch before accumulating it.
 
+#![allow(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;

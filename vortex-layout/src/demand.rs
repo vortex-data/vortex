@@ -204,8 +204,9 @@ mod tests {
     #[test]
     fn a_channel_has_a_single_consumer() {
         let channel = DemandChannel::new();
+        let shared = channel.clone();
         assert!(channel.claim().is_some());
-        assert!(channel.clone().claim().is_none());
+        assert!(shared.claim().is_none());
     }
 
     #[test]

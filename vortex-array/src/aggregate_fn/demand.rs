@@ -214,6 +214,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::combined::PairOptions;
     use crate::aggregate_fn::fns::all_nan::AllNan;
     use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
     use crate::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -265,7 +266,7 @@ mod tests {
             MinMax.bind(opts),
             Count.bind(opts),
             Count.bind(NumericalAggregateOpts::include_nans()),
-            Mean::combined().bind(crate::aggregate_fn::combined::PairOptions(opts, opts)),
+            Mean::combined().bind(PairOptions(opts, opts)),
             NullCount.bind(EmptyOptions),
             AllNull.bind(EmptyOptions),
             AllNonNull.bind(EmptyOptions),
@@ -346,8 +347,7 @@ mod tests {
     #[case::sorted_where_demanded(buffer![1u8, 9, 2, 0, 3, 0].into_array())]
     #[case::constant(ConstantArray::new(4i32, 6).into_array())]
     #[case::dict(
-        DictArray::try_new(buffer![0u32, 1, 0, 2, 2, 1].into_array(), buffer![7i32, -2, 4].into_array())
-            .expect("valid dictionary")
+        DictArray::new(buffer![0u32, 1, 0, 2, 2, 1].into_array(), buffer![7i32, -2, 4].into_array())
             .into_array()
     )]
     #[case::bool(BoolArray::from_iter([true, false, true, true, false, false]).into_array())]

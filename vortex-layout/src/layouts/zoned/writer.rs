@@ -403,20 +403,20 @@ mod tests {
         assert!(layout.is::<Zoned>());
 
         let mut exec_ctx = vortex_array::array_session().create_execution_ctx();
-        let min = read_zone_stats(&layout, segments.clone(), &Min.bind(Default::default()))?;
+        let min = read_zone_stats(&layout, &segments, &Min.bind(Default::default()))?;
         assert_arrays_eq!(
             min,
             PrimitiveArray::from_option_iter([Some(1i32), Some(6), Some(7)]),
             &mut exec_ctx
         );
-        let max = read_zone_stats(&layout, segments.clone(), &Max.bind(Default::default()))?;
+        let max = read_zone_stats(&layout, &segments, &Max.bind(Default::default()))?;
         assert_arrays_eq!(
             max,
             PrimitiveArray::from_option_iter([Some(3i32), Some(6), Some(7)]),
             &mut exec_ctx
         );
         // The null in the second zone is demanded, the null in the third zone is not.
-        let null_count = read_zone_stats(&layout, segments, &NullCount.bind(EmptyOptions))?;
+        let null_count = read_zone_stats(&layout, &segments, &NullCount.bind(EmptyOptions))?;
         assert_arrays_eq!(
             null_count,
             PrimitiveArray::from_option_iter([Some(0u64), Some(1), Some(0)]),

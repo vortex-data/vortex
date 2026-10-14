@@ -501,8 +501,8 @@ mod tests {
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
         assert!(elements.is::<Zoned>(), "{elements} has no zone map");
         Ok((
-            read_zone_stats(elements, segments.clone(), &Min.bind(Default::default()))?,
-            read_zone_stats(elements, segments.clone(), &Max.bind(Default::default()))?,
+            read_zone_stats(elements, segments, &Min.bind(Default::default()))?,
+            read_zone_stats(elements, segments, &Max.bind(Default::default()))?,
         ))
     }
 
