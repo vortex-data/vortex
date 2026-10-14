@@ -55,6 +55,7 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::var::Var;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -144,6 +145,23 @@ pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> Bo
     GetItem
         .try_new_bound_expr(field.into(), [child])
         .vortex_expect("get-item expressions must reference a field in the child dtype")
+}
+
+// ---- Var ----
+
+/// Creates an expression that reads the parameter `name` of an enclosing lambda.
+///
+/// It is only meaningful inside a body passed to [`Lambda::new`](crate::expr::Lambda::new), which
+/// rewrites it into a field of the lambda's row. A variable that no enclosing lambda declares fails
+/// to bind.
+///
+/// ```rust
+/// # use vortex_array::expr::{Lambda, checked_add, lit, var};
+/// let (lambda, _) = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
+/// assert_eq!(lambda.to_string(), "(x) -> ($.x + 1i32)");
+/// ```
+pub fn var(name: impl Into<FieldName>) -> Expression {
+    Var.new_expr(name.into(), [])
 }
 
 // ---- VariantGet ----

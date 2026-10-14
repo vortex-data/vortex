@@ -358,12 +358,16 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::Lambda;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
+    use vortex_array::expr::var;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
@@ -471,6 +475,14 @@ mod tests {
                 &mut ctx
             );
         })
+    }
+
+    #[test]
+    fn a_lambda_captures_row_idx() -> VortexResult<()> {
+        let (lambda, captures) = Lambda::new(["x"], checked_add(var("x"), row_idx()))?;
+        assert_eq!(captures, [row_idx()]);
+        assert_eq!(lambda.to_string(), "(x, c0) -> ($.x + $.c0)");
+        Ok(())
     }
 
     #[test]
