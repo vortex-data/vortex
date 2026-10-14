@@ -33,7 +33,6 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
@@ -446,7 +445,8 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
 
 /// An array stream processor that computes aggregate statistics for all fields.
 ///
-/// Note: for now this only collects top-level struct fields.
+/// Note: for now this only collects top-level struct fields. The fields of a nullable top-level
+/// struct only collect the rows where the struct is valid.
 #[derive(Clone)]
 pub struct FileStatsAccumulator {
     stats: Arc<[Stat]>,
@@ -462,26 +462,12 @@ impl FileStatsAccumulator {
         session: &VortexSession,
     ) -> Self {
         let accumulators = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
-            Some(struct_dtype) => {
-                if dtype.nullability() == Nullability::Nullable {
-                    // top level dtype could be nullable, but we don't support it yet
-                    vortex_panic!(
-                        "FileStatsAccumulator temporarily does not support nullable top-level structs, got: {}. Use Validity::NonNullable",
-                        dtype
-                    );
-                }
-
-                struct_dtype
-                    .fields()
-                    .map(|field_dtype| {
-                        StatsAccumulator::new(
-                            &field_dtype,
-                            &stats,
-                            max_variable_length_statistics_size,
-                        )
-                    })
-                    .collect()
-            }
+            Some(struct_dtype) => struct_dtype
+                .fields()
+                .map(|field_dtype| {
+                    StatsAccumulator::new(&field_dtype, &stats, max_variable_length_statistics_size)
+                })
+                .collect(),
             None => [StatsAccumulator::new(
                 dtype,
                 &stats,
@@ -505,13 +491,22 @@ impl FileStatsAccumulator {
         let mut ctx = self.ctx.lock();
         if chunk.dtype().is_struct() {
             let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
+            // Fields are unmasked, so their statistics cover only the rows where the struct is
+            // valid, as the zone maps of fields of a nullable struct do.
+            let demand = struct_chunk
+                .validity()?
+                .execute_mask(struct_chunk.len(), &mut ctx)?;
             for (acc, field) in self
                 .accumulators
                 .lock()
                 .iter_mut()
                 .zip_eq(struct_chunk.iter_unmasked_fields())
             {
-                acc.push_chunk(field, &mut ctx)?;
+                if demand.all_true() {
+                    acc.push_chunk(field, &mut ctx)?;
+                } else {
+                    acc.push_chunk(&field.filter(demand.clone())?, &mut ctx)?;
+                }
             }
         } else {
             self.accumulators.lock()[0].push_chunk(&chunk, &mut ctx)?;
@@ -671,6 +666,47 @@ mod tests {
             expected.map_or(Precision::Absent, Precision::exact)
         );
 
+        Ok(())
+    }
+
+    /// A nullable top-level struct is accepted, and its fields' statistics skip the values under
+    /// the struct's null rows.
+    #[test]
+    fn nullable_top_level_struct_fields_skip_null_rows() -> VortexResult<()> {
+        let session = array_session();
+        let array = StructArray::try_from_iter_with_validity(
+            [(
+                "a",
+                PrimitiveArray::from_option_iter([Some(100i32), Some(2), None, Some(3)])
+                    .into_array(),
+            )],
+            Validity::from_iter([false, true, true, true]),
+        )?
+        .into_array();
+
+        let accumulator = FileStatsAccumulator::new(
+            array.dtype(),
+            [Stat::Min, Stat::Max, Stat::NullCount].into(),
+            64,
+            &session,
+        );
+        accumulator.process(Ok((SequenceId::root().split().0.advance(), array)))?;
+
+        let stats = &accumulator.stats_sets()[0];
+        let i32_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let u64_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+        assert_eq!(
+            stats.get_as::<i32>(Stat::Min, &i32_dtype),
+            Precision::exact(2i32)
+        );
+        assert_eq!(
+            stats.get_as::<i32>(Stat::Max, &i32_dtype),
+            Precision::exact(3i32)
+        );
+        assert_eq!(
+            stats.get_as::<u64>(Stat::NullCount, &u64_dtype),
+            Precision::exact(1u64)
+        );
         Ok(())
     }
 }
