@@ -33,7 +33,8 @@ pub use erased::*;
 mod plugin;
 pub use plugin::*;
 mod haystack;
-pub(crate) use haystack::ArrayHaystack;
+pub use haystack::ArrayHaystack;
+pub use haystack::HaystackVTable;
 mod probe;
 pub use probe::*;
 
