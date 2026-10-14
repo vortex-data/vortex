@@ -511,11 +511,11 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::bounded_max::BoundedMax;
+    use vortex_aggregates::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::session::AggregateFnSession;
@@ -578,6 +578,7 @@ mod tests {
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;
         let session = VortexSession::empty().with::<AggregateFnSession>();
+        vortex_aggregates::initialize(&session);
         let aggregate_fns = try_aggregate_fns_from_specs(&deserialized.aggregate_specs, &session)?
             .expect("known aggregates resolve");
 

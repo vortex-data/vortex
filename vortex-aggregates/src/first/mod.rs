@@ -1,52 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::dtype::DType;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
-use crate::ArrayRef;
-use crate::Columnar;
-use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateArgs;
-use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::EmptyOptions;
-use crate::dtype::DType;
-use crate::scalar::Scalar;
-
-/// Return the last non-null value of an array.
+/// Return the first non-null value of an array.
 ///
-/// See [`Last`] for details.
-pub fn last(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    let mut acc = Accumulator::try_new(Last, EmptyOptions, array.dtype().clone())?;
+/// See [`First`] for details.
+pub fn first(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    let mut acc = Accumulator::try_new(First, EmptyOptions, array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
     acc.finish()
 }
 
-/// Return the last non-null value seen across all batches.
+/// Return the first non-null value seen across all batches.
 #[derive(Clone, Debug)]
-pub struct Last;
+pub struct First;
 
-/// Partial accumulator state for the [`Last`] aggregate.
-pub struct LastPartial {
-    /// The last non-null value seen so far, or `None` if no non-null value has been observed.
+/// Partial accumulator state for the [`First`] aggregate.
+pub struct FirstPartial {
+    /// The first non-null value seen so far, or `None` if no non-null value has been observed.
     value: Option<Scalar>,
 }
 
-impl AggregateFnVTable for Last {
+impl AggregateFnVTable for First {
     type Options = EmptyOptions;
-    type Partial = LastPartial;
+    type Partial = FirstPartial;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.last");
+        static ID: CachedId = CachedId::new("vortex.first");
         *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("Last is not yet serializable");
+        vortex_bail!("First is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -61,7 +60,7 @@ impl AggregateFnVTable for Last {
         &self,
         _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
-        Ok(LastPartial { value: None })
+        Ok(FirstPartial { value: None })
     }
 
     fn partial_from_scalar(
@@ -70,7 +69,7 @@ impl AggregateFnVTable for Last {
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
-        Ok(LastPartial {
+        Ok(FirstPartial {
             value: (!scalar.is_null()).then(|| scalar.clone()),
         })
     }
@@ -81,9 +80,9 @@ impl AggregateFnVTable for Last {
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        // The later value wins.
-        Ok(LastPartial {
-            value: second.value.or(first.value),
+        // The earlier value wins.
+        Ok(FirstPartial {
+            value: first.value.or(second.value),
         })
     }
 
@@ -102,10 +101,9 @@ impl AggregateFnVTable for Last {
     fn is_saturated(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        _partial: &Self::Partial,
+        partial: &Self::Partial,
     ) -> bool {
-        // Last can never short-circuit: a later batch can always supersede the current value.
-        false
+        partial.value.is_some()
     }
 
     fn try_accumulate(
@@ -115,7 +113,10 @@ impl AggregateFnVTable for Last {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        if let Some(idx) = batch.validity()?.execute_mask(batch.len(), ctx)?.last() {
+        if partial.value.is_some() {
+            return Ok(true);
+        }
+        if let Some(idx) = batch.validity()?.execute_mask(batch.len(), ctx)?.first() {
             let scalar = batch.execute_scalar(idx, ctx)?;
             partial.value = Some(scalar.into_nullable());
         }
@@ -129,7 +130,7 @@ impl AggregateFnVTable for Last {
         _batch: &Columnar,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        unreachable!("Last::try_accumulate handles all arrays")
+        unreachable!("First::try_accumulate handles all arrays")
     }
 
     fn finalize(
@@ -153,115 +154,115 @@ impl AggregateFnVTable for Last {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::AggregateDTypes;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateDTypes;
-    use crate::aggregate_fn::AggregateFnVTable;
-    use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
-    use crate::aggregate_fn::fns::last::Last;
-    use crate::aggregate_fn::fns::last::last;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::Nullability::Nullable;
-    use crate::dtype::PType;
-    use crate::scalar::Scalar;
-    use crate::validity::Validity;
+    use crate::first::First;
+    use crate::first::first;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
-    fn last_non_null() -> VortexResult<()> {
+    fn first_non_null() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![10i32, 20, 30], Validity::NonNullable).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(last(&array, &mut ctx)?, Scalar::primitive(30i32, Nullable));
+        assert_eq!(first(&array, &mut ctx)?, Scalar::primitive(10i32, Nullable));
         Ok(())
     }
 
     #[test]
-    fn last_skips_trailing_nulls() -> VortexResult<()> {
+    fn first_skips_leading_nulls() -> VortexResult<()> {
         let array =
-            PrimitiveArray::from_option_iter([Some(7i32), Some(8), None, None]).into_array();
+            PrimitiveArray::from_option_iter([None, None, Some(7i32), Some(8)]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(last(&array, &mut ctx)?, Scalar::primitive(8i32, Nullable));
+        assert_eq!(first(&array, &mut ctx)?, Scalar::primitive(7i32, Nullable));
         Ok(())
     }
 
     #[test]
-    fn last_all_null() -> VortexResult<()> {
+    fn first_all_null() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullable);
-        assert_eq!(last(&array, &mut ctx)?, Scalar::null(dtype));
+        assert_eq!(first(&array, &mut ctx)?, Scalar::null(dtype));
         Ok(())
     }
 
     #[test]
-    fn last_empty() -> VortexResult<()> {
+    fn first_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Last, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(First, EmptyOptions, dtype)?;
         let result = acc.finish()?;
         assert_eq!(result, Scalar::null(DType::Primitive(PType::I32, Nullable)));
         Ok(())
     }
 
     #[test]
-    fn last_constant() -> VortexResult<()> {
+    fn first_constant() -> VortexResult<()> {
         let array = ConstantArray::new(42i32, 10).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(last(&array, &mut ctx)?, Scalar::primitive(42i32, Nullable));
+        assert_eq!(first(&array, &mut ctx)?, Scalar::primitive(42i32, Nullable));
         Ok(())
     }
 
     #[test]
-    fn last_constant_null() -> VortexResult<()> {
+    fn first_constant_null() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullable);
         let array = ConstantArray::new(Scalar::null(dtype.clone()), 10).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(last(&array, &mut ctx)?, Scalar::null(dtype));
+        assert_eq!(first(&array, &mut ctx)?, Scalar::null(dtype));
         Ok(())
     }
 
     #[test]
-    fn last_varbin() -> VortexResult<()> {
+    fn first_varbin() -> VortexResult<()> {
         let array = VarBinArray::from_iter(
-            vec![Some("hello"), Some("world"), None],
+            vec![None, Some("hello"), Some("world")],
             DType::Utf8(Nullable),
         )
         .into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(last(&array, &mut ctx)?, Scalar::utf8("world", Nullable));
+        assert_eq!(first(&array, &mut ctx)?, Scalar::utf8("hello", Nullable));
         Ok(())
     }
 
     #[test]
-    fn last_multi_batch_picks_latest_non_null() -> VortexResult<()> {
+    fn first_multi_batch_picks_earliest_non_null() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullable);
-        let mut acc = Accumulator::try_new(Last, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(First, EmptyOptions, dtype)?;
 
-        let batch1 = PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array();
+        // First batch is all null - should not saturate.
+        let batch1 = PrimitiveArray::from_option_iter::<i32, _>([None, None]).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
-
-        // All-null batch must not clobber the previously-stored value.
-        let batch2 = PrimitiveArray::from_option_iter::<i32, _>([None, None]).into_array();
-        acc.accumulate(&batch2, &mut ctx)?;
-        assert_eq!(acc.final_scalar()?, Scalar::primitive(2i32, Nullable));
-
-        let batch3 = PrimitiveArray::from_option_iter([Some(99i32), None]).into_array();
-        acc.accumulate(&batch3, &mut ctx)?;
-
-        // Last is never saturated; later batches keep updating it.
         assert!(!acc.is_saturated());
+
+        // Second batch contains the first non-null value.
+        let batch2 = PrimitiveArray::from_option_iter([None, Some(99i32), Some(100)]).into_array();
+        acc.accumulate(&batch2, &mut ctx)?;
+        assert!(acc.is_saturated());
+
+        // Third batch must be ignored - First is already saturated.
+        let batch3 = PrimitiveArray::from_option_iter([Some(1i32)]).into_array();
+        acc.accumulate(&batch3, &mut ctx)?;
 
         let result = acc.finish()?;
         assert_eq!(result, Scalar::primitive(99i32, Nullable));
@@ -269,57 +270,55 @@ mod tests {
     }
 
     #[test]
-    fn last_finish_resets_state() -> VortexResult<()> {
+    fn first_finish_resets_state() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Last, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(First, EmptyOptions, dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
-        assert_eq!(acc.finish()?, Scalar::primitive(20i32, Nullable));
-        assert_eq!(
-            acc.final_scalar()?,
-            Scalar::null(DType::Primitive(PType::I32, Nullable))
-        );
+        assert_eq!(acc.finish()?, Scalar::primitive(10i32, Nullable));
 
         let batch2 = PrimitiveArray::new(buffer![3i32, 6, 9], Validity::NonNullable).into_array();
         acc.accumulate(&batch2, &mut ctx)?;
-        assert_eq!(acc.finish()?, Scalar::primitive(9i32, Nullable));
+        assert_eq!(acc.finish()?, Scalar::primitive(3i32, Nullable));
         Ok(())
     }
 
     #[test]
-    fn last_state_merge() -> VortexResult<()> {
+    fn first_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let owned = AggregateDTypes::try_new(&Last, &EmptyOptions, dtype)?;
+        let owned = AggregateDTypes::try_new(&First, &EmptyOptions, dtype)?;
         let args = owned.args(&EmptyOptions);
         let partial_of =
-            |value: i32| Last.partial_from_scalar(args, &Scalar::primitive(value, Nullable));
+            |value: i32| First.partial_from_scalar(args, &Scalar::primitive(value, Nullable));
 
+        let empty = First.empty_partial(args)?;
+        assert!(!First.is_saturated(args, &empty));
+
+        // The first non-empty partial wins; later ones are dropped.
         let five = partial_of(5)?;
         let seven = partial_of(7)?;
-        let empty = Last.empty_partial(args)?;
-
-        // The last non-empty partial wins, and a trailing empty one changes nothing.
-        let merge = |first, second| Last.merge_partials(args, first, second);
-        let state = merge(merge(five, seven)?, empty)?;
+        let merge = |first, second| First.merge_partials(args, first, second);
+        let state = merge(merge(empty, five)?, seven)?;
+        assert!(First.is_saturated(args, &state));
         assert_eq!(
-            Last.to_scalar(args, &state)?,
-            Scalar::primitive(7i32, Nullable)
+            First.to_scalar(args, &state)?,
+            Scalar::primitive(5i32, Nullable)
         );
         Ok(())
     }
 
     #[test]
-    fn last_chunked() -> VortexResult<()> {
-        let chunk1 = PrimitiveArray::from_option_iter([Some(42i32), Some(100)]);
-        let chunk2 = PrimitiveArray::from_option_iter::<i32, _>([None, None]);
+    fn first_chunked() -> VortexResult<()> {
+        let chunk1 = PrimitiveArray::from_option_iter::<i32, _>([None, None]);
+        let chunk2 = PrimitiveArray::from_option_iter([None, Some(42i32), Some(100)]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            last(&chunked.into_array(), &mut ctx)?,
-            Scalar::primitive(100i32, Nullable)
+            first(&chunked.into_array(), &mut ctx)?,
+            Scalar::primitive(42i32, Nullable)
         );
         Ok(())
     }

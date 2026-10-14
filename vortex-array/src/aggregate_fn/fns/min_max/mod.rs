@@ -139,7 +139,7 @@ pub fn min_max(
 /// Aggregates that delegate to [`MinMax`] use this on the columnar form of their input, so that
 /// results are only ever cached on the array the aggregate was requested for, never on a
 /// temporary canonical array.
-pub(crate) fn columnar_min_max(
+pub fn columnar_min_max(
     batch: &Columnar,
     options: NumericalAggregateOpts,
     ctx: &mut ExecutionCtx,

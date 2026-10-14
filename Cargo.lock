@@ -11313,6 +11313,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vortex",
+ "vortex-aggregates",
  "vortex-alp",
  "vortex-array",
  "vortex-arrow",
@@ -11345,6 +11346,20 @@ dependencies = [
  "vortex-uuid",
  "vortex-zigzag",
  "vortex-zstd",
+]
+
+[[package]]
+name = "vortex-aggregates"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
+ "rand 0.10.3",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
 ]
 
 [[package]]
@@ -12005,6 +12020,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "vortex-aggregates",
  "vortex-alp",
  "vortex-array",
  "vortex-btrblocks",
@@ -12243,6 +12259,7 @@ dependencies = [
  "tracing",
  "twox-hash",
  "uuid",
+ "vortex-aggregates",
  "vortex-array",
  "vortex-arrow",
  "vortex-btrblocks",

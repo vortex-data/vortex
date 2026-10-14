@@ -5,6 +5,23 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::num::NonZeroUsize;
 
+use vortex_array::ArrayRef;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::min_max::columnar_min_max;
+use vortex_array::dtype::DType;
+use vortex_array::partial_ord::partial_min;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarTruncation;
+use vortex_array::scalar::lower_bound;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -13,24 +30,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
-
-use crate::ArrayRef;
-use crate::Columnar;
-use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateArgs;
-use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::AggregateFnSatisfaction;
-use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min::Min;
-use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::columnar_min_max;
-use crate::dtype::DType;
-use crate::partial_ord::partial_min;
-use crate::scalar::Scalar;
-use crate::scalar::ScalarTruncation;
-use crate::scalar::lower_bound;
 
 /// Options for [`BoundedMin`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -260,28 +259,28 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::sync::LazyLock;
 
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateFnSatisfaction;
-    use crate::aggregate_fn::AggregateFnVTable;
-    use crate::aggregate_fn::AggregateFnVTableExt;
-    use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
-    use crate::aggregate_fn::fns::bounded_min::BoundedMin;
-    use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
-    use crate::aggregate_fn::fns::max::Max;
-    use crate::aggregate_fn::fns::min::Min;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinViewArray;
-    use crate::dtype::Nullability;
-    use crate::scalar::Scalar;
-    use crate::validity::Validity;
+    use crate::bounded_min::BoundedMin;
+    use crate::bounded_min::BoundedMinOptions;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

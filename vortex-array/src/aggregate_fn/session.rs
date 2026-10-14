@@ -20,14 +20,8 @@ use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
-use crate::aggregate_fn::fns::bounded_max::BoundedMax;
-use crate::aggregate_fn::fns::bounded_min::BoundedMin;
-use crate::aggregate_fn::fns::count::Count;
-use crate::aggregate_fn::fns::count::CountGroupedKernel;
-use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
-use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
@@ -107,12 +101,8 @@ impl Default for AggregateFnSession {
         this.register(AllNonNull);
         this.register(AllNan);
         this.register(AllNull);
-        this.register(BoundedMax);
-        this.register(BoundedMin);
-        this.register(First);
         this.register(IsConstant);
         this.register(IsSorted);
-        this.register(Last);
         this.register(Max);
         this.register(Min);
         this.register(MinMax);
@@ -135,7 +125,6 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
         // Register the built-in grouped aggregate kernels.
-        this.register_grouped_kernel(Count.id(), &CountGroupedKernel);
         this.register_grouped_encoding_kernel(
             Primitive.id(),
             Sum.id(),

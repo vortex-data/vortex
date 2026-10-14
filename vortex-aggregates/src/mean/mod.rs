@@ -1,38 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::sum::sum_decimal_dtype;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::MAX_PRECISION;
+use vortex_array::dtype::MAX_SCALE;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::i256;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateArgs;
-use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::combined::BinaryCombined;
-use crate::aggregate_fn::combined::Combined;
-use crate::aggregate_fn::combined::CombinedOptions;
-use crate::aggregate_fn::combined::PairOptions;
-use crate::aggregate_fn::fns::count::Count;
-use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::fns::sum::sum_decimal_dtype;
-use crate::arrays::ConstantArray;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::DecimalDType;
-use crate::dtype::MAX_PRECISION;
-use crate::dtype::MAX_SCALE;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::dtype::i256;
-use crate::scalar::DecimalValue;
-use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::combined::BinaryCombined;
+use crate::combined::Combined;
+use crate::combined::CombinedOptions;
+use crate::combined::PairOptions;
+use crate::count::Count;
 
 /// Compute the arithmetic mean of an array.
 ///
@@ -219,22 +219,22 @@ fn finalize_decimal_scalar(
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::DynGroupedAccumulator;
+    use vortex_array::aggregate_fn::GroupedAccumulator;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::VortexSessionExecute;
-    use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::GroupedAccumulator;
-    use crate::arrays::BoolArray;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::DecimalArray;
-    use crate::arrays::FixedSizeListArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::assert_arrays_eq;
-    use crate::dtype::DecimalDType;
-    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

@@ -15,7 +15,6 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
@@ -107,7 +106,7 @@ impl AggregateFnVTable for Max {
             .is_some_and(|other| other == options)
         {
             AggregateFnSatisfaction::Exact
-        } else if requested.is::<BoundedMax>() && options.skip_nans {
+        } else if requested.id().as_str() == "vortex.bounded_max" && options.skip_nans {
             // A NaN-including maximum may be NaN, which is not a usable upper bound.
             AggregateFnSatisfaction::Approximate
         } else {

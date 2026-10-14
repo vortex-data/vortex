@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::GroupRanges;
+use vortex_array::aggregate_fn::GroupedArray;
+use vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::Count;
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::GroupRanges;
-use crate::aggregate_fn::GroupedArray;
-use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
-use crate::arrays::PrimitiveArray;
-use crate::validity::Validity;
 
 /// Encoding-independent grouped [`Count`] kernel.
 #[derive(Debug)]
@@ -88,28 +88,28 @@ mod tests {
 
     use std::sync::LazyLock;
 
+    use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::DynGroupedAccumulator;
+    use vortex_array::aggregate_fn::GroupedAccumulator;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrayRef;
-    use crate::ExecutionCtx;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::GroupedAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
-    use crate::aggregate_fn::fns::count::Count;
-    use crate::arrays::FixedSizeListArray;
-    use crate::arrays::ListViewArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinViewArray;
-    use crate::assert_arrays_eq;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability::NonNullable;
-    use crate::dtype::Nullability::Nullable;
-    use crate::dtype::PType;
-    use crate::validity::Validity;
+    use crate::count::Count;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

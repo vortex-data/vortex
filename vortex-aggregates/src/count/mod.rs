@@ -3,23 +3,22 @@
 
 mod grouped;
 pub(crate) use grouped::CountGroupedKernel;
+use vortex_array::ArrayRef;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::nan_count::nan_count;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
-
-use crate::ArrayRef;
-use crate::Columnar;
-use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateArgs;
-use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::nan_count::nan_count;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::scalar::Scalar;
 
 /// Count the number of non-null elements in an array.
 ///
@@ -145,32 +144,32 @@ impl AggregateFnVTable for Count {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::AggregateDTypes;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrayRef;
-    use crate::ExecutionCtx;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateDTypes;
-    use crate::aggregate_fn::AggregateFnVTable;
-    use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
-    use crate::aggregate_fn::fns::count::Count;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
-    use crate::validity::Validity;
+    use crate::count::Count;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

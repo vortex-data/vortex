@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use vortex_aggregates::bounded_max::BOUNDED_MAX_BOUND;
+use vortex_aggregates::bounded_max::BoundedMax;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::ExecutionCtx;
@@ -16,8 +18,6 @@ use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
-use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
-use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -397,6 +397,12 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use rstest::rstest;
+    use vortex_aggregates::bounded_max::BOUNDED_MAX_BOUND;
+    use vortex_aggregates::bounded_max::BOUNDED_MAX_UNKNOWN;
+    use vortex_aggregates::bounded_max::BoundedMax;
+    use vortex_aggregates::bounded_max::BoundedMaxOptions;
+    use vortex_aggregates::bounded_min::BoundedMin;
+    use vortex_aggregates::bounded_min::BoundedMinOptions;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
@@ -404,12 +410,6 @@ mod tests {
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
     use vortex_array::aggregate_fn::fns::all_null::AllNull;
-    use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
-    use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_UNKNOWN;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-    use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
-    use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::nan_count::NanCount;
