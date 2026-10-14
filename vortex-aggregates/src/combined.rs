@@ -10,27 +10,26 @@ use std::fmt::Formatter;
 use std::fmt::{self};
 use std::hash::Hash;
 
+use vortex_array::ArrayRef;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateDTypes;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
-
-use crate::ArrayRef;
-use crate::Columnar;
-use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateArgs;
-use crate::aggregate_fn::AggregateDTypes;
-use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::dtype::FieldNames;
-use crate::dtype::Nullability;
-use crate::dtype::StructFields;
-use crate::scalar::Scalar;
 
 /// Pair of options for the two children of a [`BinaryCombined`] aggregate.
 ///

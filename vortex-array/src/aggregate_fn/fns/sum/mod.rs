@@ -78,7 +78,8 @@ pub struct Sum;
 // Both Spark and DataFusion use this heuristic.
 // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
 // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-pub(crate) fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
+/// Returns the decimal dtype a sum over `input` widens to.
+pub fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
     DecimalDType::new(
         u8::min(MAX_PRECISION, input.precision() + 10),
         input.scale(),
