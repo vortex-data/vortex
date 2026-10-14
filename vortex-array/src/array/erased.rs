@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::TypeId;
 use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -50,6 +51,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
 use crate::matcher::Matcher;
+use crate::matcher::vtable_matches;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -113,8 +115,7 @@ impl ArrayRef {
     /// Uses the same raw-pointer technique as `Arc::downcast`.
     #[allow(dead_code)]
     pub(crate) fn downcast_inner<V: VTable>(self) -> Result<Arc<ArrayInner<ArrayData<V>>>, Self> {
-        // TODO(joe): can we use encoding id here?
-        if self.0.data.as_any().is::<ArrayData<V>>() {
+        if self.is::<V>() {
             Ok(unsafe { self.downcast_inner_unchecked() })
         } else {
             Err(self)
@@ -463,8 +464,16 @@ impl ArrayRef {
 
     /// Returns a reference to the typed `ArrayData<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
-        let inner = self.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
-        Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
+        self.as_opt::<V>()
+    }
+
+    /// Returns the [`TypeId`] of the concrete vtable behind this array.
+    ///
+    /// This is a virtual call; [`Matcher`] implementations first decide on the inline encoding ID
+    /// where the vtable has a [`VTable::static_id`].
+    #[inline]
+    pub(crate) fn vtable_type_id(&self) -> TypeId {
+        self.0.data.vtable_type_id()
     }
 
     /// Returns a typed view without a runtime type check.
@@ -848,13 +857,12 @@ impl<V: VTable> Matcher for V {
 
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        array.0.data.as_any().is::<ArrayData<V>>()
+        vtable_matches::<V>(array, array.encoding_id(), &mut None)
     }
 
     #[inline]
     fn try_match(array: &'_ ArrayRef) -> Option<ArrayView<'_, V>> {
-        let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
-        // # Safety checked by `downcast_ref`.
-        Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
+        // SAFETY: `matches` established that the concrete vtable is `V`.
+        V::matches(array).then(|| unsafe { array.as_typed_unchecked::<V>() })
     }
 }
