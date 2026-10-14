@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -14,6 +15,7 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
@@ -129,19 +131,62 @@ impl VTable for ScalarFnValidity {
 impl OperationsVTable<ScalarFnValidity> for ScalarFnValidity {
     type ProbeState = ();
 
+    fn probe_scalar(
+        state: &mut ProbeState<'_, ScalarFnValidity>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let value = state
+            .slot(ValiditySlots::CHILD)?
+            .vortex_expect("ScalarFnValidity child slot is present")
+            .execute_scalar(index, ctx)?;
+        Ok(Scalar::bool(!value.is_null(), Nullability::NonNullable))
+    }
+
     fn scalar_at(
         array: ArrayView<'_, ScalarFnValidity>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let child = array.child();
-        let value = child.dyn_array().probe_scalar_once(child, index, ctx)?;
-        Ok(Scalar::bool(!value.is_null(), Nullability::NonNullable))
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
 impl ValidityVTable<ScalarFnValidity> for ScalarFnValidity {
     fn validity(_array: ArrayView<'_, ScalarFnValidity>) -> VortexResult<Validity> {
         Ok(Validity::NonNullable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::conformance::consistency::test_scalar_probe_consistency;
+
+    use super::ValidityArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn scalar_probe_child_nullness() -> VortexResult<()> {
+        let child = PrimitiveArray::from_option_iter([
+            Some(1i32),
+            None,
+            Some(3),
+            None,
+            Some(5),
+        ])
+        .into_array();
+        let array = ValidityArray::new(child).into_array();
+
+        test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 }

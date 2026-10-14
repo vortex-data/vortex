@@ -13,13 +13,14 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::InterleaveArray;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -69,6 +70,39 @@ fn nullable_struct() -> ArrayRef {
     .into_array()
 }
 
+fn nullable_list() -> ArrayRef {
+    let offsets = (0..=LEN)
+        .map(|i| u32::try_from(i * 3).vortex_expect("list offsets fit u32"))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    ListArray::try_new(
+        nullable_primitive(LEN * 3),
+        offsets,
+        Validity::from_iter((0..LEN).map(|i| i % 11 != 0)),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .vortex_expect("list fixture")
+    .into_array()
+}
+
+fn nullable_interleave() -> ArrayRef {
+    let array_indices = (0..LEN)
+        .map(|i| u8::try_from(i % 2).vortex_expect("branch index fits u8"))
+        .collect::<Buffer<u8>>()
+        .into_array();
+    let row_indices = (0..LEN)
+        .map(|i| u32::try_from((i * 7919) % LEN).vortex_expect("row index fits u32"))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    InterleaveArray::try_new(
+        vec![nullable_primitive(LEN), nullable_primitive(LEN)],
+        array_indices,
+        row_indices,
+    )
+    .vortex_expect("interleave fixture")
+    .into_array()
+}
+
 fn indices() -> Vec<usize> {
     let mut seed = 42u64;
     (0..ACCESSES)
@@ -79,11 +113,19 @@ fn indices() -> Vec<usize> {
         .collect()
 }
 
-const ARRAYS: &[&str] = &["primitive", "dict", "struct"];
+const ARRAYS: &[&str] = &[
+    "primitive",
+    "dict",
+    "struct",
+    "list",
+    "interleave",
+];
 
 fn array(name: &str) -> ArrayRef {
     match name {
         "primitive" => nullable_primitive(LEN),
+        "list" => nullable_list(),
+        "interleave" => nullable_interleave(),
         "dict" => dict_over_nullable_values(),
         "struct" => nullable_struct(),
         _ => unreachable!("unknown fixture {name}"),
