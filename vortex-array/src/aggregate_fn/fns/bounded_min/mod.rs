@@ -107,11 +107,6 @@ impl AggregateFnVTable for BoundedMin {
         })
     }
 
-    // Nulls are skipped, so undemanded rows can be masked to null.
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         supported_dtype(options, input_dtype).map(DType::as_nullable)
     }

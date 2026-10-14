@@ -45,11 +45,6 @@ impl AggregateFnVTable for Count {
         vortex_bail!("Count is not yet serializable");
     }
 
-    // Only non-null values are counted, so undemanded rows can be masked to null.
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
     fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
         Some(DType::Primitive(PType::U64, Nullability::NonNullable))
     }

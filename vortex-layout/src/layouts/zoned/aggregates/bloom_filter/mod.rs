@@ -290,11 +290,6 @@ impl AggregateFnVTable for BloomFilter {
         BloomOptions::deserialize(metadata)
     }
 
-    // Only non-null values are inserted, so undemanded rows can be masked to null.
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
     /// Returns [Binary(Nullability::NonNullable)] when input [DType] is valid.
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         is_bloom_valid_dtype(input_dtype).then_some(DType::Binary(Nullability::NonNullable))

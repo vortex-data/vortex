@@ -142,11 +142,6 @@ impl AggregateFnVTable for GeometryAabb {
         Ok(EmptyOptions)
     }
 
-    // Null geometries are dropped, so undemanded rows can be masked to null.
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         is_native_geometry(input_dtype).then(aabb_dtype)
     }

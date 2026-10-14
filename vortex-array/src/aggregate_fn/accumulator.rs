@@ -13,13 +13,11 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
-use crate::builtins::ArrayBuiltins;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
@@ -43,17 +41,6 @@ pub struct Accumulator<V: AggregateFnVTable> {
     dtypes: AggregateDTypes,
     /// The partial state of the accumulator, with `None` as the empty group.
     partial: Option<V::Partial>,
-    /// How undemanded rows are removed from a batch, resolved on the first demanded batch.
-    demand: Option<DemandStrategy>,
-}
-
-/// How [`DynAccumulator::accumulate_demanded`] removes undemanded rows from a batch.
-enum DemandStrategy {
-    /// Mask undemanded rows to null and accumulate the masked batch over these dtypes, which are
-    /// resolved for the nullable input dtype and share the accumulator's partial dtype.
-    Mask(AggregateDTypes),
-    /// Filter the batch down to its demanded rows.
-    Filter,
 }
 
 impl<V: AggregateFnVTable> Accumulator<V> {
@@ -76,28 +63,6 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             aggregate_fn,
             dtypes,
             partial: None,
-            demand: None,
-        }
-    }
-
-    /// Resolve how undemanded rows are removed from a batch.
-    ///
-    /// Masking a batch makes it nullable, so masking is only used when the aggregate ignores
-    /// nulls and resolves the same partial dtype for the nullable input. Otherwise the batch is
-    /// filtered.
-    fn resolve_demand_strategy(&self) -> DemandStrategy {
-        if !self.vtable.ignores_nulls(&self.options) {
-            return DemandStrategy::Filter;
-        }
-        let nullable = self.dtypes.dtype.as_nullable();
-        if nullable == self.dtypes.dtype {
-            return DemandStrategy::Mask(self.dtypes.clone());
-        }
-        match AggregateDTypes::try_new(&self.vtable, &self.options, nullable) {
-            Ok(dtypes) if dtypes.partial_dtype == self.dtypes.partial_dtype => {
-                DemandStrategy::Mask(dtypes)
-            }
-            _ => DemandStrategy::Filter,
         }
     }
 
@@ -134,15 +99,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 
     /// Accumulate `batch` into the partial state through kernel dispatch, the vtable's
     /// short-circuit, or execution to a columnar array, without consulting cached statistics.
-    ///
-    /// With `masked`, `batch` is a demanded batch masked to the nullable input dtype, and the
-    /// vtable is called with the dtypes of [`DemandStrategy::Mask`].
-    fn accumulate_batch(
-        &mut self,
-        batch: &ArrayRef,
-        masked: bool,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
+    fn accumulate_batch(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         let session = ctx.session().clone();
 
         // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
@@ -169,11 +126,10 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 
         // 2. Allow the vtable to short-circuit on the raw array before decompression.
         self.ensure_partial()?;
-        let dtypes = batch_dtypes(&self.dtypes, self.demand.as_ref(), masked);
         let partial = self.partial.as_mut().vortex_expect("partial materialized");
         if self
             .vtable
-            .try_accumulate(dtypes.args(&self.options), partial, batch, ctx)?
+            .try_accumulate(self.dtypes.args(&self.options), partial, batch, ctx)?
         {
             return Ok(());
         }
@@ -210,10 +166,9 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         let columnar = batch.execute::<Columnar>(ctx)?;
 
         self.ensure_partial()?;
-        let dtypes = batch_dtypes(&self.dtypes, self.demand.as_ref(), masked);
         let partial = self.partial.as_mut().vortex_expect("partial materialized");
         self.vtable
-            .accumulate(dtypes.args(&self.options), partial, &columnar, ctx)
+            .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)
     }
 }
 
@@ -223,7 +178,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         // Legacy stats bridge: an aggregate still cached under a legacy `Stat` slot consumes that
         // exact stat before kernel dispatch or decode, and otherwise caches its result there.
         let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn) else {
-            return self.accumulate_batch(batch, false, ctx);
+            return self.accumulate_batch(batch, ctx);
         };
 
         if let Precision::Exact(partial) = batch.statistics().get(stat) {
@@ -249,7 +204,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         // Accumulate the batch into an empty state of its own, so that its result is cached on
         // the requested batch rather than on whatever array the batch executes into.
         let running = self.partial.take();
-        let accumulated = self.accumulate_batch(batch, false, ctx);
+        let accumulated = self.accumulate_batch(batch, ctx);
         let batch_partial = std::mem::replace(&mut self.partial, running);
         accumulated?;
 
@@ -268,19 +223,6 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     }
 }
 
-/// The dtypes the vtable is called with for a batch, which differ from the accumulator's own for a
-/// batch `masked` by [`DemandStrategy::Mask`].
-fn batch_dtypes<'a>(
-    dtypes: &'a AggregateDTypes,
-    demand: Option<&'a DemandStrategy>,
-    masked: bool,
-) -> &'a AggregateDTypes {
-    match demand {
-        Some(DemandStrategy::Mask(masked_dtypes)) if masked => masked_dtypes,
-        _ => dtypes,
-    }
-}
-
 /// A trait object for type-erased accumulators, used for dynamic dispatch when the aggregate
 /// function is not known at compile time.
 pub trait DynAccumulator: 'static + Send {
@@ -295,10 +237,10 @@ pub trait DynAccumulator: 'static + Send {
     /// they hold, e.g. the unmasked field values under the null rows of a parent struct, so the
     /// result equals accumulating `batch.filter(demand)`.
     ///
-    /// Aggregates that [ignore nulls](AggregateFnVTable::ignores_nulls) fold `demand` into the
-    /// batch's validity, keeping the batch's encoding and its kernels. Every other aggregate
-    /// accumulates the lazily filtered batch. Either way, the vtable and its kernels only ever see
-    /// a batch whose every row is demanded.
+    /// The batch is lazily filtered to its demanded rows, so the vtable and its kernels only ever
+    /// see demanded rows, and filters that encodings push down keep their kernels reachable, e.g.
+    /// a dictionary filters only its codes. An aggregate that only reads validity, such as the
+    /// null count, only filters the validity.
     fn accumulate_demanded(
         &mut self,
         batch: &ArrayRef,
@@ -393,21 +335,8 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             Mask::Values(_) => {}
         }
 
-        if self.demand.is_none() {
-            self.demand = Some(self.resolve_demand_strategy());
-        }
-        // The masked or filtered batch is a temporary array, so no statistics are read from or
-        // cached on it.
-        match self.demand {
-            Some(DemandStrategy::Mask(_)) => {
-                let masked = batch.clone().mask(demand.clone().into_array())?;
-                self.accumulate_batch(&masked, true, ctx)
-            }
-            _ => {
-                let filtered = batch.filter(demand.clone())?;
-                self.accumulate_batch(&filtered, false, ctx)
-            }
-        }
+        // The filtered batch is a temporary array, so no statistics are read from or cached on it.
+        self.accumulate_batch(&batch.filter(demand.clone())?, ctx)
     }
 
     fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()> {

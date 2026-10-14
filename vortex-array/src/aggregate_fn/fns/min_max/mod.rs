@@ -325,11 +325,6 @@ impl AggregateFnVTable for MinMax {
         Ok(None)
     }
 
-    // Nulls are skipped, so undemanded rows can be masked to null.
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         minmax_supported_dtype(input_dtype).then(|| make_minmax_dtype(input_dtype))
     }

@@ -117,11 +117,6 @@ impl AggregateFnVTable for NanCount {
         Ok(EmptyOptions)
     }
 
-    // Nulls are not NaN, so undemanded rows can be masked to null.
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         if let DType::Primitive(ptype, ..) = input_dtype
             && ptype.is_float()

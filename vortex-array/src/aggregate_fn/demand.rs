@@ -458,10 +458,10 @@ mod tests {
         }
     }
 
-    /// An aggregate that ignores nulls folds the demand into the batch's validity, so the batch
-    /// keeps its encoding and the encoding's kernel still fires, as it would for a nullable batch.
+    /// The demanded rows are filtered lazily, and a dictionary filters only its codes, so the
+    /// dictionary's kernel still fires.
     #[test]
-    fn masked_demand_keeps_encoding_kernels() -> VortexResult<()> {
+    fn demand_keeps_encoding_kernels() -> VortexResult<()> {
         static KERNEL: SentinelSumKernel = SentinelSumKernel;
         let session = array_session();
         session

@@ -250,22 +250,6 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(false)
     }
 
-    /// Whether null input rows contribute nothing to the partial state.
-    ///
-    /// When `true`, accumulating a batch whose undemanded rows were masked to null yields the same
-    /// partial as accumulating only its demanded rows, so
-    /// [`DynAccumulator::accumulate_demanded`] folds the demand mask into the batch's validity
-    /// instead of filtering the batch. Masking keeps the batch's encoding and its kernels, so a
-    /// demanded batch costs no more than a nullable one.
-    ///
-    /// The default `false` is always sound: undemanded rows are filtered out instead. Filtering is
-    /// lazy, so an aggregate that only reads validity, such as the null count, never copies values.
-    ///
-    /// [`DynAccumulator::accumulate_demanded`]: crate::aggregate_fn::DynAccumulator::accumulate_demanded
-    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
-        false
-    }
-
     /// Accumulate a new canonical array into the partial state.
     fn accumulate(
         &self,
