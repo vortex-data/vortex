@@ -515,7 +515,7 @@ impl Mask {
     /// Returns the last true index in the mask.
     pub fn last(&self) -> Option<usize> {
         match &self {
-            Self::AllTrue(len) => (*len > 0).then_some(*len - 1),
+            Self::AllTrue(len) => (*len > 0).then(|| *len - 1),
             Self::AllFalse(_) => None,
             Self::Values(values) => {
                 if let Some(indices) = values.indices.get() {

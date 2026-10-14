@@ -52,6 +52,11 @@ impl AggregateFnVTable for AllNonNan {
         Ok(EmptyOptions)
     }
 
+    // Nulls are not NaN, so undemanded rows can be masked to null.
+    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         matches!(input_dtype, DType::Primitive(ptype, _) if ptype.is_float())
             .then_some(DType::Bool(Nullability::Nullable))

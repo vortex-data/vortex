@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -13,6 +14,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::demand::demanded_null_count;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -100,6 +102,18 @@ impl AggregateFnVTable for AllNonNull {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         *state &= batch.invalid_count(ctx)? == 0;
+        Ok(true)
+    }
+
+    fn try_accumulate_demanded(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        demand: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        *state &= demanded_null_count(batch, demand, ctx)? == 0;
         Ok(true)
     }
 

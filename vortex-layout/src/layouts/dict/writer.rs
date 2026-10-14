@@ -149,6 +149,9 @@ impl LayoutStrategy for DictStrategy {
 
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
+        // The values do not align with the rows, and each run of codes is written by its own
+        // child, so no child can take the row demand.
+        let ctx = ctx.without_demand();
 
         // 0. decide if chunks are eligible for dict encoding
         let (stream, first_chunk) = peek_first_chunk(stream).await?;

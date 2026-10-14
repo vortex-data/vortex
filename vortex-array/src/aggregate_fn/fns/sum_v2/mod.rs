@@ -139,6 +139,12 @@ impl AggregateFnVTable for SumV2 {
         NumericalAggregateOpts::deserialize(metadata)
     }
 
+    // Nulls neither add to the sum nor make the input non-empty, so undemanded rows can be masked
+    // to null.
+    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         Sum.return_dtype(options, input_dtype)
     }

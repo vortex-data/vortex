@@ -13,6 +13,7 @@ use std::hash::Hash;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -313,6 +314,21 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     ) -> VortexResult<bool> {
         state.0.accumulate(batch, ctx)?;
         state.1.accumulate(batch, ctx)?;
+        Ok(true)
+    }
+
+    /// Delegate the demanded batch to each child, so each child folds the demand into the batch's
+    /// validity or filters the batch according to its own null handling.
+    fn try_accumulate_demanded(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        demand: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        state.0.accumulate_demanded(batch, demand, ctx)?;
+        state.1.accumulate_demanded(batch, demand, ctx)?;
         Ok(true)
     }
 

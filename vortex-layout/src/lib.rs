@@ -29,6 +29,8 @@ use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
 mod children;
+mod demand;
+pub use demand::*;
 pub mod display;
 mod encoding;
 pub mod flatbuffers;

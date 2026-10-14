@@ -52,6 +52,9 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         let dtype2 = dtype.clone();
         let chunk_strategy = Arc::clone(&self.chunk_strategy);
         let handle = session.handle();
+        // Each chunk is written by its own child, concurrently, so no child can take the row
+        // demand of its own chunk in stream order.
+        let ctx = ctx.without_demand();
 
         // We spawn each child to allow parallelism when processing chunks.
         let stream = stream! {

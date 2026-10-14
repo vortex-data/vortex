@@ -49,6 +49,11 @@ impl AggregateFnVTable for Last {
         vortex_bail!("Last is not yet serializable");
     }
 
+    // Only non-null values are taken, so undemanded rows can be masked to null.
+    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         Some(input_dtype.as_nullable())
     }

@@ -12,6 +12,8 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::DemandChannel;
+use crate::DemandReceiver;
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -76,6 +78,7 @@ pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
     allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
     nullable_ancestor: bool,
+    demand: Option<DemandChannel>,
     buffered_bytes: BufferedBytesTracker,
 }
 
@@ -86,6 +89,7 @@ impl LayoutWriterContext {
             array_ctx,
             allowed_aggregates: None,
             nullable_ancestor: false,
+            demand: None,
             buffered_bytes: BufferedBytesTracker::new(),
         }
     }
@@ -124,6 +128,36 @@ impl LayoutWriterContext {
     /// Returns whether a nullable container above this write may hide some of its values.
     pub fn has_nullable_ancestor(&self) -> bool {
         self.nullable_ancestor
+    }
+
+    /// Marks this write as nested under a nullable container that publishes, on `demand`, which
+    /// rows of the written stream the logical column contains.
+    ///
+    /// Writers that record statistics claim the demand with [`Self::claim_demand`] and aggregate
+    /// only the demanded rows, rather than omitting their statistics.
+    pub fn with_demand(mut self, demand: DemandChannel) -> Self {
+        self.nullable_ancestor = true;
+        self.demand = Some(demand);
+        self
+    }
+
+    /// Drops the row demand from this context, keeping whether the write has a nullable ancestor.
+    ///
+    /// Containers pass this to children whose rows do not align with their own, such as a
+    /// validity or offsets child, and writers pass it to their children once they have claimed
+    /// the demand.
+    pub fn without_demand(mut self) -> Self {
+        self.demand = None;
+        self
+    }
+
+    /// Claims the row demand published for this write by its nullable ancestors.
+    ///
+    /// Returns `None` if no demand reaches this write, or it was already claimed or lost. The
+    /// demand has a single consumer, so a writer that claims it must hand its children a context
+    /// [`without_demand`](Self::without_demand).
+    pub fn claim_demand(&self) -> Option<DemandReceiver> {
+        self.demand.as_ref()?.claim()
     }
 
     /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the

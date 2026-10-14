@@ -91,6 +91,11 @@ impl AggregateFnVTable for Min {
         NumericalAggregateOpts::deserialize(metadata)
     }
 
+    // Nulls are skipped, so undemanded rows can be masked to null.
+    fn ignores_nulls(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         MinMax
             .return_dtype(options, input_dtype)

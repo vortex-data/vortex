@@ -4,6 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -17,6 +18,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::demand::demanded_null_count;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
@@ -131,6 +133,19 @@ impl AggregateFnVTable for NullCount {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         *state += batch.invalid_count(ctx)? as u64;
+        Ok(true)
+    }
+
+    // Count the nulls under the demand mask directly rather than filtering the batch.
+    fn try_accumulate_demanded(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        demand: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        *state += demanded_null_count(batch, demand, ctx)? as u64;
         Ok(true)
     }
 
