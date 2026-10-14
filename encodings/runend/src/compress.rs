@@ -226,40 +226,24 @@ fn runend_decode_slice<T: Copy + Default>(
 ) -> (Buffer<T>, Validity) {
     match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values) {
-                assert!(
-                    end >= decoded.len(),
-                    "Runend ends must be monotonic, got {end} after {}",
-                    decoded.len()
-                );
-                assert!(end <= length, "Runend end must be less than overall length");
-                // SAFETY:
-                // We preallocate enough capacity because we know the total length
-                unsafe { decoded.push_n_unchecked(*value, end - decoded.len()) };
+            let mut decoded = RunWriter::new(length);
+            for (end, &value) in run_ends.zip_eq(values) {
+                decoded.write_run(value, end);
             }
-            (decoded.into(), values_nullability.into())
+            (decoded.finish(), values_nullability.into())
         }
         Mask::AllFalse(_) => (Buffer::<T>::zeroed(length), Validity::AllInvalid),
         Mask::Values(mask) => {
             // Nulls are usually rare and clustered, so start from all-valid and clear each
             // maximal streak of null runs once, rather than appending validity per run.
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
+            let mut decoded = RunWriter::new(length);
             let mut decoded_validity = BitBufferMut::full(true, length);
             let mut null_start = None;
             for (end, (&value, is_valid)) in
                 run_ends.zip_eq(values.iter().zip(mask.bit_buffer().iter()))
             {
                 let start = decoded.len();
-                assert!(
-                    end >= start,
-                    "Runend ends must be monotonic, got {end} after {start}"
-                );
-                assert!(end <= length, "Runend end must be less than overall length");
-                let value = if is_valid { value } else { T::default() };
-                // SAFETY:
-                // We preallocate enough capacity because we know the total length
-                unsafe { decoded.push_n_unchecked(value, end - start) };
+                decoded.write_run(if is_valid { value } else { T::default() }, end);
                 match (is_valid, null_start) {
                     (false, None) => null_start = Some(start),
                     (true, Some(null_from)) => {
@@ -270,14 +254,87 @@ fn runend_decode_slice<T: Copy + Default>(
                     _ => {}
                 }
             }
+            let decoded = decoded.finish();
             if let Some(null_from) = null_start {
-                let end = decoded.len();
-                // SAFETY: null_from <= end <= length == decoded_validity.len()
-                unsafe { decoded_validity.fill_range_unchecked(null_from, end, false) };
+                // SAFETY: null_from <= decoded.len() <= length == decoded_validity.len()
+                unsafe { decoded_validity.fill_range_unchecked(null_from, decoded.len(), false) };
             }
             decoded_validity.truncate(decoded.len());
-            (decoded.into(), Validity::from(decoded_validity.freeze()))
+            (decoded, Validity::from(decoded_validity.freeze()))
         }
+    }
+}
+
+/// Minimum bytes in a [`RunWriter`] block.
+const BLOCK_BYTES: usize = 32;
+
+/// Writes runs of values into a buffer of up to `length` elements.
+///
+/// Runs are usually short, and filling each one with a loop sized to its length costs more than
+/// the fill itself. Instead a run that fits in a fixed block writes the whole block, which the
+/// compiler lowers to a few vector stores, and the next run overwrites whatever went past its
+/// end. Longer runs are filled exactly. The buffer has a block of spare capacity so that the last
+/// run's block stays in bounds.
+struct RunWriter<T> {
+    buffer: BufferMut<T>,
+    len: usize,
+    length: usize,
+}
+
+impl<T: Copy> RunWriter<T> {
+    /// Elements in a block: enough to cover most short runs, at least 8 elements and 32 bytes.
+    const BLOCK: usize = if size_of::<T>() == 0 || size_of::<T>() >= BLOCK_BYTES / 8 {
+        8
+    } else {
+        BLOCK_BYTES / size_of::<T>()
+    };
+
+    fn new(length: usize) -> Self {
+        Self {
+            buffer: BufferMut::with_capacity(length + Self::BLOCK),
+            len: 0,
+            length,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Fill `self.len()..end` with `value`.
+    #[inline]
+    fn write_run(&mut self, value: T, end: usize) {
+        assert!(
+            end >= self.len,
+            "Runend ends must be monotonic, got {end} after {}",
+            self.len
+        );
+        assert!(
+            end <= self.length,
+            "Runend end must be less than overall length"
+        );
+        // SAFETY: `self.len <= end <= length`, and the buffer holds `length + BLOCK` elements, so
+        // both the block and the remainder of the run are in bounds.
+        unsafe {
+            let dst = self.buffer.as_mut_ptr().add(self.len);
+            let run_len = end - self.len;
+            if run_len <= Self::BLOCK {
+                for i in 0..Self::BLOCK {
+                    dst.add(i).write(value);
+                }
+            } else {
+                for i in 0..run_len {
+                    dst.add(i).write(value);
+                }
+            }
+        }
+        self.len = end;
+    }
+
+    fn finish(mut self) -> Buffer<T> {
+        // SAFETY: every element below `self.len` was written by a run.
+        unsafe { self.buffer.set_len(self.len) };
+        self.buffer.freeze()
     }
 }
 
