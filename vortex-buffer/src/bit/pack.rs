@@ -25,6 +25,13 @@
 //! for tests and benchmarks. The word loop packs its tail chunk with [`collect_bool_word_tail`],
 //! its own copy of that loop.
 
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::uint8x16_t;
+#[cfg(all(target_arch = "aarch64", miri))]
+use std::arch::aarch64::vpaddq_u8;
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+use std::arch::asm;
+
 /// Packs up to 64 boolean values into a little-endian `u64` word one bit at a time.
 ///
 /// This is the scalar reference implementation behind
@@ -384,7 +391,6 @@ pub unsafe fn pack_bool_word_neon(bools: &[bool; 64]) -> u64 {
     use std::arch::aarch64::vgetq_lane_u64;
     use std::arch::aarch64::vld1q_s8;
     use std::arch::aarch64::vld1q_u8;
-    use std::arch::aarch64::vpaddq_u8;
     use std::arch::aarch64::vreinterpretq_u64_u8;
     use std::arch::aarch64::vshlq_u8;
 
@@ -404,12 +410,46 @@ pub unsafe fn pack_bool_word_neon(bools: &[bool; 64]) -> u64 {
 
         // Three rounds of pairwise adds sum each group of 8 weighted bytes into one mask byte,
         // yielding the 8 mask bytes in order in the low half of the final vector.
-        let sum01 = vpaddq_u8(m0, m1);
-        let sum23 = vpaddq_u8(m2, m3);
-        let sum = vpaddq_u8(sum01, sum23);
-        let sum = vpaddq_u8(sum, sum);
+        let sum01 = addp_u8(m0, m1);
+        let sum23 = addp_u8(m2, m3);
+        let sum = addp_u8(sum01, sum23);
+        let sum = addp_u8(sum, sum);
         vgetq_lane_u64::<0>(vreinterpretq_u64_u8(sum))
     }
+}
+
+/// One `addp` instruction.
+///
+/// The weighted bytes have disjoint bits, so LLVM rewrites `vpaddq_u8` into an `uzp1`, `uzp2`,
+/// and `orr` triple. That triples the instruction count of each fold, and the fold tree then
+/// dominates the cost of a packed word. Inline assembly keeps the single instruction. Miri cannot
+/// interpret inline assembly, so it evaluates the intrinsic.
+#[cfg(all(target_arch = "aarch64", miri))]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn addp_u8(lhs: uint8x16_t, rhs: uint8x16_t) -> uint8x16_t {
+    // SAFETY: NEON is part of the aarch64 baseline instruction set.
+    unsafe { vpaddq_u8(lhs, rhs) }
+}
+
+/// One `addp` instruction. See the Miri variant above for why this is inline assembly.
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn addp_u8(lhs: uint8x16_t, rhs: uint8x16_t) -> uint8x16_t {
+    let sum;
+    // SAFETY: `addp` reads two vector registers and writes a third. It does not touch memory,
+    // the stack, or the flags.
+    unsafe {
+        asm!(
+            "addp {sum:v}.16b, {lhs:v}.16b, {rhs:v}.16b",
+            sum = lateout(vreg) sum,
+            lhs = in(vreg) lhs,
+            rhs = in(vreg) rhs,
+            options(pure, nomem, nostack, preserves_flags),
+        );
+    }
+    sum
 }
 
 #[cfg(test)]

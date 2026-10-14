@@ -19,8 +19,9 @@ pub use element::InputElement;
 pub use element::OutputBuffer;
 pub use element::OutputElement;
 pub use element::Utf8Column;
-pub(super) use element::batch_const;
+pub(in crate::scalar_fn::unstable::row) use element::decode_rows;
 pub(in crate::scalar_fn::unstable::row) use element::decoded_source;
+pub(in crate::scalar_fn::unstable::row) use element::is_batch_const;
 
 mod result;
 pub use result::FailureEvidence;

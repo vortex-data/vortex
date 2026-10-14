@@ -1254,7 +1254,7 @@ impl RowFn for ChangingOutputDType {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.changing_output_dtype");
@@ -1273,7 +1273,8 @@ impl RowFn for ChangingOutputDType {
             visitor
         };
 
-        visitor.visit::<(i64,), i64>(|(value,)| value)
+        // A deferred visit plans a dense retry, so a partially valid batch dispatches again.
+        visitor.visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(()))
     }
 }
 
@@ -1455,7 +1456,8 @@ fn test_execution_rejects_a_changed_output_dtype() -> VortexResult<()> {
     let function = ChangingOutputDType {
         dispatches: Arc::new(AtomicUsize::new(0)),
     };
-    let input = PrimitiveArray::from_iter(vec![1_i64, 2]).into_array();
+    let validity = Validity::from_iter([true, false]);
+    let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
     let args = VecExecutionArgs::new(vec![input], 2);
     let mut ctx = array_session().create_execution_ctx();
 

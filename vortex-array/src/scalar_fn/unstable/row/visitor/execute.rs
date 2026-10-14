@@ -44,6 +44,7 @@ use crate::scalar_fn::unstable::row::execute::execute_owned_valid_rows;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
 use crate::scalar_fn::unstable::row::execute::execute_sink_filtered;
 use crate::scalar_fn::unstable::row::execute::execute_sink_valid_rows;
+use crate::validity::Validity;
 
 /// The runtime visit that decodes every column once and runs the selected row loop.
 pub(crate) struct ExecuteRows<'args, 'ctx, F: RowFn> {
@@ -59,6 +60,9 @@ pub(crate) struct ExecuteRows<'args, 'ctx, F: RowFn> {
     /// The output dtype declared by [`RowVisitor::with_output_dtype`], if any.
     output_dtype: Option<DType>,
 
+    /// A batch validity that a collector able to attach it takes for its output.
+    validity: &'ctx mut Option<Validity>,
+
     /// The execution context used to decode the input columns.
     ctx: &'ctx mut ExecutionCtx,
 
@@ -71,6 +75,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteRows<'args, 'ctx, F> {
         args: &'args dyn ExecutionArgs,
         dtypes: &'args [DType],
         plan: &'args BatchPlan,
+        validity: &'ctx mut Option<Validity>,
         ctx: &'ctx mut ExecutionCtx,
     ) -> Self {
         Self {
@@ -78,6 +83,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteRows<'args, 'ctx, F> {
             dtypes,
             plan,
             output_dtype: None,
+            validity,
             ctx,
             function: PhantomData,
         }
@@ -129,7 +135,12 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
         )?;
         self.plan.ensure_reproduced_by(&visited)?;
 
-        execute_owned_infallible_bool::<Args, MULTIVERSIONED>(self.args, self.ctx, apply)
+        execute_owned_infallible_bool::<Args, MULTIVERSIONED>(
+            self.args,
+            self.ctx,
+            self.validity.take().unwrap_or(Validity::NonNullable),
+            apply,
+        )
     }
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
@@ -205,6 +216,7 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
         execute_owned_bool::<Args, Prepared, Fail, MULTIVERSIONED>(
             self.args,
             self.ctx,
+            self.validity.take().unwrap_or(Validity::NonNullable),
             prepare,
             apply,
             finish_failure,

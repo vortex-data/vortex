@@ -32,6 +32,7 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::Bool;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::Primitive;
@@ -190,15 +191,22 @@ fn packed_boolean_payload_uses_allocator(
         .with_allocator(allocator);
 
     let output = match (multiversioned, traversal) {
-        (false, Traversal::Infallible) => {
-            execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, |(value,)| value > 2)?
-        }
-        (true, Traversal::Infallible) => {
-            execute_owned_infallible_bool::<(i64,), true>(&args, &mut ctx, |(value,)| value > 2)?
-        }
+        (false, Traversal::Infallible) => execute_owned_infallible_bool::<(i64,), false>(
+            &args,
+            &mut ctx,
+            Validity::NonNullable,
+            |(value,)| value > 2,
+        )?,
+        (true, Traversal::Infallible) => execute_owned_infallible_bool::<(i64,), true>(
+            &args,
+            &mut ctx,
+            Validity::NonNullable,
+            |(value,)| value > 2,
+        )?,
         (false, Traversal::Fallible) => execute_owned_bool::<(i64,), (), bool, false>(
             &args,
             &mut ctx,
+            Validity::NonNullable,
             |_| (),
             |_, (value,)| (value > 2, false),
             |_| Ok(()),
@@ -206,6 +214,7 @@ fn packed_boolean_payload_uses_allocator(
         (true, Traversal::Fallible) => execute_owned_bool::<(i64,), (), bool, true>(
             &args,
             &mut ctx,
+            Validity::NonNullable,
             |_| (),
             |_, (value,)| (value > 2, false),
             |_| Ok(()),
@@ -346,8 +355,12 @@ fn empty_outputs_and_zero_width_rows_do_not_allocate_payloads() -> VortexResult<
 
     let primitive =
         execute_owned_infallible::<(i64,), i64, ()>(&args, &mut ctx, |_| (), |_, (value,)| value)?;
-    let boolean =
-        execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, |(value,)| value > 0)?;
+    let boolean = execute_owned_infallible_bool::<(i64,), false>(
+        &args,
+        &mut ctx,
+        Validity::NonNullable,
+        |(value,)| value > 0,
+    )?;
     let scalar = execute_sink::<(i64,), (), UninitElementSink<i64>, _>(
         &args,
         &(),
@@ -492,5 +505,34 @@ fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> Vorte
     assert_arrays_eq!(&output, &expected, &mut ctx);
     tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
 
+    Ok(())
+}
+
+#[rstest]
+fn packed_boolean_attaches_validity(
+    #[values(false, true)] multiversioned: bool,
+) -> VortexResult<()> {
+    let values = PrimitiveArray::from_iter([1_i64, 2, 3, 4]).into_array();
+    let args = VecExecutionArgs::new(vec![values], 4);
+    let validity = Validity::from_iter([true, false, true, true]);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let output = if multiversioned {
+        execute_owned_infallible_bool::<(i64,), true>(&args, &mut ctx, validity, |(value,)| {
+            value > 2
+        })?
+    } else {
+        execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, validity, |(value,)| {
+            value > 2
+        })?
+    };
+
+    assert!(output.is::<Bool>());
+    let expected = BoolArray::new(
+        [false, false, true, true].into_iter().collect(),
+        Validity::from_iter([true, false, true, true]),
+    )
+    .into_array();
+    assert_arrays_eq!(&output, &expected, &mut ctx);
     Ok(())
 }

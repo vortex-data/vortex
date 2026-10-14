@@ -67,6 +67,14 @@ pub unsafe trait InputElement: 'static {
     /// and other invocation-invariant work into this method.
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column>;
 
+    /// Decode a borrowed `array` into its column representation.
+    ///
+    /// The default clones `array` for [`decode`](Self::decode). Override this when a common
+    /// representation decodes without taking ownership of the array.
+    fn decode_ref(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        Self::decode(array.clone(), ctx)
+    }
+
     /// Decode one non-null batch-constant input.
     ///
     /// `array` retains its logical batch length. Implementations can extract one value directly

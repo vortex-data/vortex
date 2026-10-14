@@ -8,10 +8,11 @@
 
 mod element_tuple;
 pub use element_tuple::ElementTuple;
-pub use element_tuple::batch_const;
 
 mod indexed;
+pub(in crate::scalar_fn::unstable::row) use element_tuple::is_batch_const;
 pub use indexed::IndexedElementTuple;
+pub(in crate::scalar_fn::unstable::row) use indexed::decode_rows;
 pub(in crate::scalar_fn::unstable::row) use indexed::decoded_source;
 
 #[cfg(test)]

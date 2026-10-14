@@ -8,20 +8,25 @@
 //! dispatch. [`row_fn_return_dtype`] and [`execute_rows`] expose the same paths to public vtables
 //! that delegate to a private row kernel.
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::MaskValuesRef;
 use vortex_session::VortexSession;
 
+use super::batch::ArrayInputs;
+use super::batch::BatchProbe;
 use super::batch::BorrowedRowFnArgs;
-use super::batch::RowFnExecutionArgs;
+use super::batch::RowInputs;
 use super::batch::finalize_kernel_output;
 use super::row_fn::RowFn;
 use super::visitor::BatchPlanner;
 use super::visitor::ExecuteDenseWithRetry;
 use super::visitor::ExecuteFilteredRows;
+use super::visitor::ExecuteFused;
 use super::visitor::ExecuteRows;
 use super::visitor::ExecuteValidRows;
+use super::visitor::Fused;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
@@ -34,6 +39,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::union_child_validities;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
+use crate::validity::Validity;
 
 impl<F: RowFn> ScalarFnVTable for F {
     type Options = F::Options;
@@ -119,13 +125,49 @@ pub fn execute_rows<F: RowFn>(
 ) -> VortexResult<ArrayRef> {
     ensure_arity(function, args.num_inputs())?;
 
-    if args.num_inputs() == 0 {
-        return execute_nullary_rows(function, options, args.row_count(), ctx);
+    let arrays = (0..args.num_inputs())
+        .map(|index| args.get(index))
+        .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
+
+    execute_row_inputs(
+        function,
+        options,
+        &ArrayInputs::new(&arrays, args.row_count()),
+        ctx,
+    )
+}
+
+/// The form of [`execute_rows`] over borrowed inputs.
+///
+/// A caller that holds its operands calls this directly, so batch execution clones an input only
+/// to decode it.
+pub(crate) fn execute_row_inputs<F: RowFn, I: RowInputs + ?Sized>(
+    function: &F,
+    options: &F::Options,
+    inputs: &I,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    ensure_arity(function, inputs.num_inputs())?;
+
+    if inputs.num_inputs() == 0 {
+        return execute_nullary_rows(function, options, inputs.row_count(), ctx);
     }
 
-    let batch = prepare_batch(function, options, args)?;
-    batch.execute(
-        |args, ctx| execute_row_kernel(function, options, args, ctx),
+    let (probe, arg_dtypes) = BatchProbe::new(|| RowFn::id(function), inputs)?;
+
+    // Plan and execute in one dispatch. Only a partially valid batch that needs dense retry or
+    // valid-row execution dispatches again.
+    let (batch, plan) = match function.dispatch(
+        options,
+        &arg_dtypes,
+        ExecuteFused::<F, I>::new(function, inputs, probe, &arg_dtypes, ctx),
+    )? {
+        Fused::Done(values) => return Ok(values),
+        Fused::Partial(batch, plan) => (batch, plan),
+    };
+
+    batch.with_plan(&arg_dtypes, plan).execute_partially_valid(
+        |args, validity, ctx| execute_row_kernel(function, options, args, validity, ctx),
         |args, ctx| execute_dense_attempt(function, options, args, ctx),
         |args, valid, ctx| try_execute_valid_rows(function, options, args, valid, ctx),
         |args, valid, ctx| execute_filtered_rows(function, options, args, valid, ctx),
@@ -146,7 +188,8 @@ fn execute_nullary_rows<F: RowFn>(
 
     // A nullary function has no input validity to propagate, so its kernel output is the finished
     // column and this path labels it directly.
-    let values = plan.relabel_output(execute_row_kernel(function, options, args, ctx)?)?;
+    let values =
+        plan.relabel_output(execute_row_kernel(function, options, args, &mut None, ctx)?)?;
 
     finalize_kernel_output(RowFn::id(function), &result_dtype, row_count, values, ctx)
 }
@@ -163,16 +206,21 @@ fn ensure_arity<F: RowFn>(function: &F, actual: usize) -> VortexResult<()> {
     Ok(())
 }
 
+/// Execute the row kernel over `args`.
+///
+/// A collector that can attach the validity in `validity` takes it and builds its output with it,
+/// leaving `None` behind. Otherwise the output is non-nullable and `validity` is left unchanged.
 fn execute_row_kernel<F: RowFn>(
     function: &F,
     options: &F::Options,
     args: BorrowedRowFnArgs<'_>,
+    validity: &mut Option<Validity>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     function.dispatch(
         options,
         args.dtypes(),
-        ExecuteRows::<F>::new(&args, args.dtypes(), args.plan(), ctx),
+        ExecuteRows::<F>::new(&args, args.dtypes(), args.plan(), validity, ctx),
     )
 }
 
@@ -218,16 +266,6 @@ fn execute_filtered_rows<F: RowFn>(
     )
 }
 
-fn prepare_batch<F: RowFn>(
-    function: &F,
-    options: &F::Options,
-    args: &dyn ExecutionArgs,
-) -> VortexResult<RowFnExecutionArgs> {
-    RowFnExecutionArgs::new(RowFn::id(function), args, |arg_dtypes| {
-        function.dispatch(options, arg_dtypes, BatchPlanner::<F>::new(arg_dtypes))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -244,6 +282,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -334,13 +373,15 @@ mod tests {
             _args: &[DType],
             visitor: V,
         ) -> VortexResult<V::VisitResult> {
+            // The first dispatch plans dense execution with a retry, so a partially valid batch
+            // dispatches again for its dense attempt.
             if self.dispatches.fetch_add(1, Ordering::Relaxed) == 0 {
-                visitor.visit::<(i64,), i64>(|(value,)| value)
+                visitor.visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(()))
             } else {
                 match self.change {
-                    DispatchChange::Policy => visitor
-                        .visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(())),
-                    DispatchChange::Element => visitor.visit::<(u64,), u64>(|(value,)| value),
+                    DispatchChange::Policy => visitor.visit::<(i64,), i64>(|(value,)| value),
+                    DispatchChange::Element => visitor
+                        .visit_deferred::<(u64,), u64, bool>(|(value,)| (value, false), |_| Ok(())),
                 }
             }
         }
@@ -379,12 +420,31 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_dispatches_once_without_retry() -> VortexResult<()> {
+        let dispatches = Arc::new(AtomicUsize::new(0));
+        let function = ChangingDispatchRowFn {
+            dispatches: Arc::clone(&dispatches),
+            change: DispatchChange::Policy,
+        };
+        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+        let args = VecExecutionArgs::new(vec![input.clone()], 2);
+        let mut ctx = array_session().create_execution_ctx();
+
+        let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
+
+        assert_eq!(dispatches.load(Ordering::Relaxed), 1);
+        assert_arrays_eq!(&actual, &input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
     fn test_execute_rejects_dispatch_that_changes_after_planning() -> VortexResult<()> {
         let function = ChangingDispatchRowFn {
             dispatches: Arc::new(AtomicUsize::new(0)),
             change: DispatchChange::Policy,
         };
-        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+        let validity = Validity::from_iter([true, false]);
+        let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
         let mut ctx = array_session().create_execution_ctx();
 
@@ -399,7 +459,7 @@ mod tests {
             "unexpected error: {error}",
         );
         assert!(
-            message.contains("planned Dense, got DenseWithRetry"),
+            message.contains("planned DenseWithRetry, got Dense"),
             "unexpected error: {error}",
         );
         Ok(())
@@ -411,7 +471,8 @@ mod tests {
             dispatches: Arc::new(AtomicUsize::new(0)),
             change: DispatchChange::Element,
         };
-        let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+        let validity = Validity::from_iter([true, false]);
+        let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
         let mut ctx = array_session().create_execution_ctx();
 
@@ -426,6 +487,46 @@ mod tests {
                 .contains("row input column has the wrong ptype"),
             "unexpected error: {error}",
         );
+        Ok(())
+    }
+
+    #[derive(Clone)]
+    struct GreaterThanTwo;
+
+    impl RowFn for GreaterThanTwo {
+        type Options = EmptyOptions;
+
+        const ARG_NAMES: &'static [&'static str] = &["value"];
+        const INFALLIBLE: bool = true;
+
+        fn id(&self) -> ScalarFnId {
+            static ID: CachedId = CachedId::new("test.greater_than_two");
+            *ID
+        }
+
+        fn dispatch<V: RowVisitor>(
+            &self,
+            _options: &Self::Options,
+            _args: &[DType],
+            visitor: V,
+        ) -> VortexResult<V::VisitResult> {
+            visitor.visit_bool::<(i64,), false>(|(value,)| value > 2)
+        }
+    }
+
+    #[test]
+    fn test_partially_valid_packed_bool_output_is_canonical() -> VortexResult<()> {
+        let validity = Validity::from_iter([true, false, true, true]);
+        let input = PrimitiveArray::new(vec![1_i64, 3, 3, 0], validity.clone()).into_array();
+        let args = VecExecutionArgs::new(vec![input], 4);
+        let mut ctx = array_session().create_execution_ctx();
+
+        let actual = execute_rows(&GreaterThanTwo, &EmptyOptions, &args, &mut ctx)?;
+        let expected =
+            BoolArray::new([false, true, true, false].into_iter().collect(), validity).into_array();
+
+        assert!(actual.is_canonical(), "{actual}");
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 

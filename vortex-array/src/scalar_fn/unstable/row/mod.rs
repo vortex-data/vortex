@@ -52,5 +52,7 @@ mod visitor;
 pub use visitor::RowVisitor;
 
 mod vtable;
+pub(crate) use batch::RowInputs;
+pub(crate) use vtable::execute_row_inputs;
 pub use vtable::execute_rows;
 pub use vtable::row_fn_return_dtype;
