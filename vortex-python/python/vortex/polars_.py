@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import io
 import json
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, Literal, cast
 
 import polars as pl
@@ -18,6 +19,46 @@ def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     data = json.loads(expr.meta.serialize(format="json"))
     assert isinstance(data, dict)
     return _polars_to_vortex(data)
+
+
+def decompose_predicate(predicate: pl.Expr) -> tuple[ve.Expr | None, pl.Expr | None]:
+    """Split a Polars predicate into a pushable Vortex expression and a Polars residual.
+
+    The predicate is decomposed into its top-level AND conjuncts. Conjuncts that convert to
+    Vortex are combined with AND into a single Vortex expression; the rest are combined into
+    a residual Polars expression that the caller must apply itself, e.g. per batch with
+    ``DataFrame.filter``. A row passes an AND conjunction exactly when every conjunct is
+    true, so filtering by the two parts in sequence is equivalent to filtering by the
+    original predicate.
+
+    Returns ``(vortex_expr | None, residual_polars_expr | None)``. At least one side is
+    always non-None for a non-trivial predicate; both parts must be applied when present.
+    """
+    data = json.loads(predicate.meta.serialize(format="json"))
+    assert isinstance(data, dict)
+
+    pushed: ve.Expr | None = None
+    residual: pl.Expr | None = None
+    for conjunct in _conjuncts(data):
+        try:
+            converted = _polars_to_vortex(conjunct)
+        except Exception:
+            # Unsupported conjuncts fall back to evaluation by Polars rather than failing
+            # the whole scan.
+            expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
+            residual = expr if residual is None else residual & expr
+        else:
+            pushed = converted if pushed is None else pushed & converted
+    return pushed, residual
+
+
+def _conjuncts(expr: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Iterate the top-level AND conjuncts of a serialized Polars expression."""
+    if "BinaryExpr" in expr and expr["BinaryExpr"].get("op") in ("And", "LogicalAnd"):
+        yield from _conjuncts(expr["BinaryExpr"]["left"])
+        yield from _conjuncts(expr["BinaryExpr"]["right"])
+    else:
+        yield expr
 
 
 _OPS = {
