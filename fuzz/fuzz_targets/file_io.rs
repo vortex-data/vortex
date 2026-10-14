@@ -40,7 +40,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     } = fuzz;
     let array_data = array;
 
-    if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype()) {
+    if has_duplicate_field_names(array_data.dtype()) {
         return Corpus::Reject;
     }
 
@@ -151,18 +151,6 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     Corpus::Keep
 });
-
-fn has_nullable_struct(dtype: &DType) -> bool {
-    dtype.is_struct() && dtype.is_nullable()
-        || dtype
-            .as_struct_fields_opt()
-            .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
-            .unwrap_or(false)
-        || dtype
-            .as_list_element_opt()
-            .map(|e| has_nullable_struct(e.as_ref()))
-            .unwrap_or(false)
-}
 
 fn has_duplicate_field_names(dtype: &DType) -> bool {
     if let Some(struct_dtype) = dtype.as_struct_fields_opt() {
