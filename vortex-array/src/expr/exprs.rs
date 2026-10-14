@@ -3,9 +3,11 @@
 
 //! Factory functions for creating [`Expression`]s from scalar function vtables.
 
+use std::iter;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
@@ -16,6 +18,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -42,6 +45,7 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
+use crate::scalar_fn::fns::list_transform::ListTransform;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -1283,6 +1287,32 @@ pub fn bound_list_sum_opts(
     ListSum
         .try_new_bound_expr(options, [input])
         .vortex_expect("list-sum expressions require a numeric list child")
+}
+
+// ---- ListTransform ----
+
+/// Creates an expression that applies a lambda to every element of each list.
+///
+/// The lambda takes `params`: the element, then optionally the element's zero-based `u64` index
+/// within its list. Its `body` reads them with [`var`], and may read the row too, for example
+/// with [`col`]. See [`Lambda::new`] for how the body is rewritten. Returns an error when a
+/// parameter name repeats.
+///
+/// ```rust
+/// # use vortex_array::expr::{checked_add, col, list_transform, var};
+/// let expr = list_transform(col("l"), ["x"], checked_add(var("x"), col("a"))).unwrap();
+/// assert_eq!(
+///     expr.to_string(),
+///     "vortex.list.transform($.l, $.a, (x, c0) -> ($.x + $.c0))"
+/// );
+/// ```
+pub fn list_transform(
+    list: Expression,
+    params: impl IntoIterator<Item = impl Into<FieldName>>,
+    body: Expression,
+) -> VortexResult<Expression> {
+    let (lambda, captures) = Lambda::new(params, body)?;
+    ListTransform.try_new_expr(lambda, iter::once(list).chain(captures))
 }
 
 /// Reinterpret timestamp wall times in `options.time_zone`, preserving the time unit.

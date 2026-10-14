@@ -501,6 +501,7 @@ impl LayoutReader for StructReader {
         };
 
         let session = self.session.clone();
+        let dtype = expr.dtype().clone();
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
@@ -524,7 +525,15 @@ impl LayoutReader for StructReader {
                 } else {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
-                    array.mask(validity)
+                    let array = array.mask(validity)?;
+                    // The fields read non-nullable here, but nullable in the expression's dtype.
+                    // Masking only widens the result's own nullability, so values nested inside
+                    // it, such as a list's elements, can still read narrower than the dtype.
+                    if array.dtype() != &dtype && array.dtype().eq_ignore_nullability(&dtype) {
+                        array.cast(dtype)
+                    } else {
+                        Ok(array)
+                    }
                 }
             } else {
                 projected.await
@@ -544,11 +553,13 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -560,18 +571,23 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::select;
+    use vortex_array::expr::var;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
@@ -975,6 +991,72 @@ mod tests {
                 .unwrap(),
             Scalar::primitive(6, Nullability::NonNullable)
         );
+    }
+
+    /// `list_transform($.s.l, x -> body)` over a nullable struct `s`. Stepping into `s` reads its
+    /// fields, and so the lambda's captures, non-nullable, which the result's dtype must not show.
+    #[rstest]
+    #[case::reads_the_struct(is_null(col("s")), BoolArray::from_iter([false, false, false]).into_array())]
+    #[case::reads_a_field(
+        checked_add(var("x"), get_item("a", col("s"))),
+        PrimitiveArray::from_option_iter([Some(2_i32), Some(3), Some(6)]).into_array()
+    )]
+    fn test_lambda_over_a_nullable_struct(
+        #[case] body: Expression,
+        #[case] elements: ArrayRef,
+    ) -> VortexResult<()> {
+        // `s = [{l: [1, 2], a: 1}, null, {l: [3], a: 3}]`
+        let l = ListArray::try_new(
+            buffer![1_i32, 2, 9, 3].into_array(),
+            buffer![0_u32, 2, 3, 4].into_array(),
+            Validity::NonNullable,
+        )?;
+        let s = StructArray::try_from_iter_with_validity(
+            [
+                ("l", l.into_array()),
+                ("a", buffer![1_i32, 2, 3].into_array()),
+            ],
+            Validity::from_iter([true, false, true]),
+        )?;
+        let table = StructArray::from_fields(&[("s", s.into_array())])?.into_array();
+        let expr = list_transform(get_item("l", col("s")), ["x"], body)?;
+
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+        let (result, dtype) = block_on(move |handle| {
+            let session = new_session().with_handle(handle);
+            async move {
+                let layout = strategy
+                    .write_stream(
+                        ArrayContext::empty().into(),
+                        Arc::<TestSegments>::clone(&segments),
+                        table.to_array_stream().sequenced(ptr),
+                        eof,
+                        &session,
+                    )
+                    .await?;
+                let reader =
+                    layout.new_reader("".into(), segments, &session, &Default::default())?;
+                let expr = expr.bind(reader.dtype())?;
+                let result = reader
+                    .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+                    .await?;
+                VortexResult::Ok((result, expr.dtype().clone()))
+            }
+        })?;
+
+        assert_eq!(result.dtype(), &dtype);
+        let expected = ListArray::try_new(
+            elements,
+            buffer![0_u32, 2, 2, 3].into_array(),
+            Validity::from_iter([true, false, true]),
+        )?;
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[rstest]

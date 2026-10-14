@@ -354,6 +354,7 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -362,10 +363,12 @@ mod tests {
     use vortex_array::expr::checked_add;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
     use vortex_array::expr::var;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -483,6 +486,63 @@ mod tests {
         assert_eq!(captures, [row_idx()]);
         assert_eq!(lambda.to_string(), "(x, c0) -> ($.x + $.c0)");
         Ok(())
+    }
+
+    #[test]
+    fn row_idx_inside_a_lambda() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let array_ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            // `[[1, 2], [3], [4, 5, 6]]`
+            let array = ListArray::try_new(
+                buffer![1_i32, 2, 3, 4, 5, 6].into_array(),
+                buffer![0_u32, 2, 3, 6].into_array(),
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    array_ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+
+            // Each element becomes the index of the row its list is in.
+            let expr = list_transform(root(), ["x"], row_idx()).unwrap();
+            let reader = RowIdxLayoutReader::new(
+                0,
+                layout
+                    .new_reader("".into(), segments, &session, &Default::default())
+                    .unwrap(),
+                session.clone(),
+            );
+            let expr = expr.bind(reader.dtype()).unwrap();
+            let result = reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            let expected = ListArray::try_new(
+                buffer![0_u64, 0, 1, 2, 2, 2].into_array(),
+                buffer![0_u32, 2, 3, 6].into_array(),
+                Validity::NonNullable,
+            )
+            .unwrap();
+            assert_arrays_eq!(result, expected, &mut ctx);
+        })
     }
 
     #[test]
