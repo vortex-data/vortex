@@ -11,7 +11,6 @@ use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -259,33 +258,12 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// instead of filtering the batch. Masking keeps the batch's encoding and its kernels, so a
     /// demanded batch costs no more than a nullable one.
     ///
-    /// The default `false` is always sound: undemanded rows are filtered out instead.
+    /// The default `false` is always sound: undemanded rows are filtered out instead. Filtering is
+    /// lazy, so an aggregate that only reads validity, such as the null count, never copies values.
     ///
     /// [`DynAccumulator::accumulate_demanded`]: crate::aggregate_fn::DynAccumulator::accumulate_demanded
     fn ignores_nulls(&self, _options: &Self::Options) -> bool {
         false
-    }
-
-    /// Try to accumulate only the rows of `batch` selected by `demand`.
-    ///
-    /// `demand` has the length of `batch` and selects some, but not all, of its rows. Returns
-    /// `true` if the demanded rows were accumulated, `false` to fall back to masking (see
-    /// [`ignores_nulls`]) or filtering the batch. When returning `false`, the partial state must be
-    /// unchanged.
-    ///
-    /// Aggregates that depend on nulls but can count over the demand mask directly, e.g. the null
-    /// count, implement this to avoid copying the demanded rows out of the batch.
-    ///
-    /// [`ignores_nulls`]: AggregateFnVTable::ignores_nulls
-    fn try_accumulate_demanded(
-        &self,
-        _args: AggregateArgs<'_, Self::Options>,
-        _state: &mut Self::Partial,
-        _batch: &ArrayRef,
-        _demand: &Mask,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        Ok(false)
     }
 
     /// Accumulate a new canonical array into the partial state.

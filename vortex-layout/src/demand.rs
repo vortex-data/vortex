@@ -51,6 +51,14 @@ impl DemandChannel {
         Self::default()
     }
 
+    /// Creates a channel whose demand is unknown, for children whose rows no writer can track,
+    /// such as each run of dictionary codes.
+    pub fn lost() -> Self {
+        let channel = Self::new();
+        channel.lose();
+        channel
+    }
+
     /// Publishes the demand on the next `demand.len()` rows of the child stream.
     ///
     /// Must be called before those rows are sent to the child.
@@ -89,6 +97,45 @@ impl DemandState {
     fn lose(&mut self) {
         self.lost = true;
         self.masks.clear();
+    }
+}
+
+/// The row demand on a write, claimed from its context with
+/// [`LayoutWriterContext::claim_demand`](crate::LayoutWriterContext::claim_demand).
+pub enum ClaimedDemand {
+    /// Every row of the write is demanded.
+    All,
+    /// The demand on each row of the write, taken chunk by chunk in stream order.
+    Rows(DemandReceiver),
+    /// Which rows are demanded is not known, e.g. because another writer already claimed the
+    /// demand. Statistics over the write's rows would not be exact.
+    Unknown,
+}
+
+impl ClaimedDemand {
+    /// Whether every row of the write is demanded.
+    pub fn is_all(&self) -> bool {
+        matches!(self, Self::All)
+    }
+
+    /// A channel on which a container publishes the demand on a child that shares or derives from
+    /// these rows. The channel starts lost if this demand is unknown.
+    pub fn child_channel(&self) -> DemandChannel {
+        match self {
+            Self::Unknown => DemandChannel::lost(),
+            Self::All | Self::Rows(_) => DemandChannel::new(),
+        }
+    }
+
+    /// Takes the demand on the next `len` rows, or `None` if it is unknown.
+    ///
+    /// Must be called once per chunk, in stream order.
+    pub fn take(&self, len: usize) -> Option<Mask> {
+        match self {
+            Self::All => Some(Mask::new_true(len)),
+            Self::Rows(receiver) => receiver.take(len),
+            Self::Unknown => None,
+        }
     }
 }
 

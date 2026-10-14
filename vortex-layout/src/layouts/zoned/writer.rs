@@ -34,6 +34,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use crate::ClaimedDemand;
 use crate::DemandChannel;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -113,30 +114,25 @@ impl LayoutStrategy for ZonedStrategy {
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
-        // Children of a nullable container are written unmasked, so an aggregate over them sees
-        // values the logical column does not contain: counts come out wrong and min/max come out
-        // wider than the truth. The container publishes which rows the logical column contains,
-        // and each zone aggregates only those demanded rows. Zone maps hold exact values only, so
-        // without that demand no zone map is written.
-        let demand = if ctx.has_nullable_ancestor() {
-            let Some(demand) = ctx.claim_demand() else {
+        // Children of a nullable container are written unmasked, so an aggregate over all their
+        // rows sees values the logical column does not contain. The container publishes which
+        // rows the logical column contains, and each zone aggregates only those demanded rows.
+        // Zone maps hold exact values only, so if that demand is unknown no zone map is written.
+        let demand = match ctx.claim_demand() {
+            ClaimedDemand::All => None,
+            ClaimedDemand::Rows(demand) => Some(demand),
+            ClaimedDemand::Unknown => {
                 return self
                     .child
                     .write_stream(ctx, segment_sink, stream, eof, session)
                     .await;
-            };
-            Some(demand)
-        } else {
-            None
+            }
         };
         // The data child receives the same rows, so it is handed the demand this writer takes,
         // e.g. for a list writer to derive the demand on its elements.
         let data_demand = demand.as_ref().map(|_| DemandChannel::new());
         let data_ctx = match &data_demand {
-            Some(data_demand) => ctx
-                .clone()
-                .without_demand()
-                .with_demand(data_demand.clone()),
+            Some(data_demand) => ctx.clone().with_demand(data_demand.clone()),
             None => ctx.clone(),
         };
         let ctx = ctx.without_demand();
@@ -452,12 +448,14 @@ mod tests {
         Ok(())
     }
 
-    /// A field of a nullable struct is written unmasked, so no aggregate over it is exact and no
-    /// zone map is written.
+    /// A write whose demand another writer already claimed cannot know which of its rows are
+    /// demanded, so no aggregate over it is exact and no zone map is written.
     #[test]
-    fn a_nullable_ancestor_writes_no_zone_map() -> VortexResult<()> {
+    fn unknown_demand_writes_no_zone_map() -> VortexResult<()> {
+        let demand = DemandChannel::new();
+        let _claimed = demand.claim();
         let layout =
-            write_layout(LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor())?;
+            write_layout(LayoutWriterContext::new(ArrayContext::empty()).with_demand(demand))?;
         assert!(!layout.is::<Zoned>());
         Ok(())
     }

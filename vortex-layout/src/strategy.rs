@@ -12,8 +12,8 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::ClaimedDemand;
 use crate::DemandChannel;
-use crate::DemandReceiver;
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -77,7 +77,6 @@ impl Drop for BufferedBytesReservation {
 pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
     allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
-    nullable_ancestor: bool,
     demand: Option<DemandChannel>,
     buffered_bytes: BufferedBytesTracker,
 }
@@ -88,7 +87,6 @@ impl LayoutWriterContext {
         Self {
             array_ctx,
             allowed_aggregates: None,
-            nullable_ancestor: false,
             demand: None,
             buffered_bytes: BufferedBytesTracker::new(),
         }
@@ -113,51 +111,45 @@ impl LayoutWriterContext {
             .is_none_or(|allowed| allowed.contains(aggregate))
     }
 
-    /// Marks this write as nested under a nullable container, such as a field of a nullable
-    /// struct.
-    ///
-    /// Container writers store their children unmasked: a field holds a value even in rows where
-    /// the containing struct is null, and the struct's validity is written separately. Statistics
-    /// computed over such a child therefore see values the logical column does not contain, so
-    /// writers that record statistics must omit them rather than record inexact values.
-    pub fn with_nullable_ancestor(mut self) -> Self {
-        self.nullable_ancestor = true;
-        self
-    }
-
-    /// Returns whether a nullable container above this write may hide some of its values.
-    pub fn has_nullable_ancestor(&self) -> bool {
-        self.nullable_ancestor
-    }
-
     /// Marks this write as nested under a nullable container that publishes, on `demand`, which
     /// rows of the written stream the logical column contains.
     ///
-    /// Writers that record statistics claim the demand with [`Self::claim_demand`] and aggregate
-    /// only the demanded rows, rather than omitting their statistics.
+    /// Container writers store their children unmasked: a field holds a value even in rows where
+    /// the containing struct is null, and a list's elements include those of null lists. Writers
+    /// that record statistics [claim](Self::claim_demand) the demand and aggregate only the
+    /// demanded rows.
     pub fn with_demand(mut self, demand: DemandChannel) -> Self {
-        self.nullable_ancestor = true;
         self.demand = Some(demand);
         self
     }
 
-    /// Drops the row demand from this context, keeping whether the write has a nullable ancestor.
+    /// Demands every row of this write, dropping any demand published by its ancestors.
     ///
-    /// Containers pass this to children whose rows do not align with their own, such as a
-    /// validity or offsets child, and writers pass it to their children once they have claimed
-    /// the demand.
+    /// Containers pass this to children that do not share their rows, such as a validity or
+    /// offsets child, whose every row is part of the column. Writers pass it to their children
+    /// once they have claimed the demand, handing it on through a channel of their own if the
+    /// children share their rows.
     pub fn without_demand(mut self) -> Self {
         self.demand = None;
         self
     }
 
-    /// Claims the row demand published for this write by its nullable ancestors.
+    /// Returns whether ancestors restrict which rows of this write the logical column contains.
+    pub fn has_demand(&self) -> bool {
+        self.demand.is_some()
+    }
+
+    /// Claims the row demand published for this write by its ancestors.
     ///
-    /// Returns `None` if no demand reaches this write, or it was already claimed or lost. The
-    /// demand has a single consumer, so a writer that claims it must hand its children a context
-    /// [`without_demand`](Self::without_demand).
-    pub fn claim_demand(&self) -> Option<DemandReceiver> {
-        self.demand.as_ref()?.claim()
+    /// The demand has a single consumer, so a writer that claims it must hand its children a
+    /// context [`without_demand`](Self::without_demand), or with a channel of its own.
+    pub fn claim_demand(&self) -> ClaimedDemand {
+        match &self.demand {
+            None => ClaimedDemand::All,
+            Some(demand) => demand
+                .claim()
+                .map_or(ClaimedDemand::Unknown, ClaimedDemand::Rows),
+        }
     }
 
     /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the

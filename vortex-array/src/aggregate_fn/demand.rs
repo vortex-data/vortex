@@ -29,7 +29,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -55,24 +54,6 @@ pub fn valid_demand(
     }
     let valid = validity.execute_mask(demand.len(), ctx)?;
     Ok(&valid & demand)
-}
-
-/// Count the nulls among the rows of `array` selected by `demand`.
-pub fn demanded_null_count(
-    array: &ArrayRef,
-    demand: &Mask,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<usize> {
-    vortex_ensure_eq!(
-        demand.len(),
-        array.len(),
-        "Demand mask length must match the array length",
-    );
-    let validity = array.validity()?;
-    if validity.definitely_no_nulls() {
-        return Ok(0);
-    }
-    Ok(demand.true_count() - valid_demand(&validity, demand, ctx)?.true_count())
 }
 
 /// The demand on each field of `array`: the rows demanded by `demand` where the struct is valid.
@@ -225,6 +206,7 @@ mod tests {
     use vortex_session::SessionExt;
 
     use super::*;
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::AggregateFnRef;
@@ -672,15 +654,6 @@ mod tests {
             elements_demand,
             Mask::from_iter([true, true, false, false, true, true])
         );
-        Ok(())
-    }
-
-    #[test]
-    fn demanded_null_count_counts_only_demanded_rows() -> VortexResult<()> {
-        let array = PrimitiveArray::from_option_iter([None, Some(1i32), None, None]).into_array();
-        let demand = Mask::from_iter([true, true, false, true]);
-
-        assert_eq!(demanded_null_count(&array, &demand, &mut ctx())?, 2);
         Ok(())
     }
 }

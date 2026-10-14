@@ -30,11 +30,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::ClaimedDemand;
 use crate::DemandChannel;
-use crate::DemandReceiver;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
@@ -156,12 +155,10 @@ impl LayoutStrategy for ListLayoutStrategy {
 
         // Elements are written unmasked, including those of null lists, so the list publishes
         // which elements the logical lists contain: those of the lists its own ancestors demand
-        // and that are valid. A list under a nullable ancestor whose demand it cannot claim cannot
-        // derive its elements' demand.
+        // and that are valid.
         let upstream_demand = ctx.claim_demand();
-        let elements_demand = (upstream_demand.is_some()
-            || (is_nullable && !ctx.has_nullable_ancestor()))
-        .then(DemandChannel::new);
+        let elements_demand =
+            (is_nullable || !upstream_demand.is_all()).then(|| upstream_demand.child_channel());
 
         // Transpose the list column into its child sub-streams and rebase offsets to global
         // positions. Kept joined with the child writers below so producer errors surface rather
@@ -307,8 +304,8 @@ async fn transpose_list_column(
 
 /// The row demand a list consumes from its ancestors and publishes for its elements.
 struct ElementsDemand {
-    /// The demand on the list's own rows, if a nullable ancestor publishes it.
-    upstream: Option<DemandReceiver>,
+    /// The demand on the list's own rows.
+    upstream: ClaimedDemand,
     /// Where the demand on the elements is published, if the elements' writer is told of it.
     elements: Option<DemandChannel>,
 }
@@ -319,11 +316,7 @@ impl ElementsDemand {
         let Some(elements) = &self.elements else {
             return Ok(());
         };
-        let lists_demand = match &self.upstream {
-            Some(upstream) => upstream.take(list.len()),
-            None => Some(Mask::new_true(list.len())),
-        };
-        match lists_demand {
+        match self.upstream.take(list.len()) {
             Some(lists_demand) => {
                 elements.push(list_elements_demand(list, &lists_demand, exec_ctx)?)
             }

@@ -38,6 +38,7 @@ use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
+use crate::DemandChannel;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
@@ -149,10 +150,6 @@ impl LayoutStrategy for DictStrategy {
 
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
-        // The values do not align with the rows, and each run of codes is written by its own
-        // child, so no child can take the row demand.
-        let ctx = ctx.without_demand();
-
         // 0. decide if chunks are eligible for dict encoding
         let (stream, first_chunk) = peek_first_chunk(stream).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
@@ -175,6 +172,16 @@ impl LayoutStrategy for DictStrategy {
                 .await;
         }
 
+        // The values do not share the rows, and every value is part of the dictionary. Each run
+        // of codes is written by its own child, which cannot take the row demand in stream order,
+        // so a restricted demand is unknown to it.
+        let values_ctx = ctx.clone().without_demand();
+        let codes_ctx = if ctx.has_demand() {
+            ctx.without_demand().with_demand(DemandChannel::lost())
+        } else {
+            ctx
+        };
+
         // 1. from a chunk stream, create a stream that yields codes
         // followed by a single value chunk when dict constraints are hit.
         // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
@@ -196,7 +203,7 @@ impl LayoutStrategy for DictStrategy {
             while let Some((codes_stream, values_fut)) = runs.next().await {
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = codes_ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
                 let codes_fut = handle.spawn_nested(move |_| async move {
@@ -211,7 +218,7 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = values_ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();

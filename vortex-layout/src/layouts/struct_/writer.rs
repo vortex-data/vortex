@@ -33,7 +33,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -140,16 +139,14 @@ impl LayoutStrategy for StructStrategy {
         }
 
         // Fields are written unmasked, so the struct publishes which of their rows the logical
-        // fields contain: the rows its own ancestors demand where the struct is valid. A struct
-        // under a nullable ancestor whose demand it cannot claim cannot derive its fields' demand.
+        // fields contain: the rows its own ancestors demand where the struct is valid.
         let upstream_demand = ctx.claim_demand();
-        let field_demands: Option<Vec<DemandChannel>> = (upstream_demand.is_some()
-            || (is_nullable && !ctx.has_nullable_ancestor()))
-        .then(|| {
-            (0..struct_dtype.nfields())
-                .map(|_| DemandChannel::new())
-                .collect()
-        });
+        let field_demands: Option<Vec<DemandChannel>> = (is_nullable || !upstream_demand.is_all())
+            .then(|| {
+                (0..struct_dtype.nfields())
+                    .map(|_| upstream_demand.child_channel())
+                    .collect()
+            });
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_session = session.clone();
@@ -166,11 +163,7 @@ impl LayoutStrategy for StructStrategy {
 
             // Publish the fields' demand before sending the fields, so their writers find it.
             if let Some(publish_demands) = &publish_demands {
-                let parent_demand = match &upstream_demand {
-                    Some(upstream_demand) => upstream_demand.take(chunk.len()),
-                    None => Some(Mask::new_true(chunk.len())),
-                };
-                match parent_demand {
+                match upstream_demand.take(chunk.len()) {
                     Some(parent_demand) => {
                         let demand = match &validity {
                             Some(validity) => &parent_demand & validity,
@@ -262,17 +255,14 @@ impl LayoutStrategy for StructStrategy {
                 let session = session.clone();
                 let is_validity = index == 0 && is_nullable;
                 // Fields are written unmasked, so a nullable struct hides some of their values
-                // behind its own validity. Hand the field writers the demand on their rows, or,
-                // without it, tell them so they omit statistics those hidden values would corrupt.
+                // behind its own validity: hand the field writers the demand on their rows. Every
+                // row of the validity is part of the column.
                 let ctx = ctx.clone().without_demand();
-                let ctx = if is_validity {
-                    ctx
-                } else if let Some(field_demands) = &field_demands {
-                    ctx.with_demand(field_demands[index - usize::from(is_nullable)].clone())
-                } else if is_nullable {
-                    ctx.with_nullable_ancestor()
-                } else {
-                    ctx
+                let ctx = match &field_demands {
+                    Some(field_demands) if !is_validity => {
+                        ctx.with_demand(field_demands[index - usize::from(is_nullable)].clone())
+                    }
+                    _ => ctx,
                 };
                 let segment_sink = Arc::clone(&segment_sink);
                 handle.spawn_nested(move |_| {
@@ -313,6 +303,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -476,6 +467,34 @@ mod tests {
         let (layout, segments) = write_table(outer)?;
         let leaf = &layout.children()?[1].children()?[1];
         assert_eq!(zone_bounds(leaf, &segments)?, (2, 2));
+        Ok(())
+    }
+
+    /// A chunked writer below the struct writes each chunk through its own child, and hands each
+    /// child the demand on its chunk.
+    #[test]
+    fn chunked_fields_take_each_chunks_demand() -> VortexResult<()> {
+        let chunk = |values: ArrayRef, validity: [bool; 3]| -> VortexResult<ArrayRef> {
+            Ok(StructArray::try_from_iter_with_validity(
+                [("a", values)],
+                Validity::Array(BoolArray::from_iter(validity).into_array()),
+            )?
+            .into_array())
+        };
+        let array = ChunkedArray::from_iter([
+            chunk(buffer![1, 2, 3].into_array(), [false, true, true])?,
+            chunk(buffer![10, 20, 30].into_array(), [true, false, true])?,
+        ])
+        .into_array();
+        let strategy = StructStrategy::new(
+            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+            Arc::new(ChunkedLayoutStrategy::new(zoned_leaf())),
+        );
+
+        let (layout, segments) = write(strategy, array)?;
+        let chunks = layout.children()?[1].children()?;
+        assert_eq!(zone_bounds(&chunks[0], &segments)?, (2, 3));
+        assert_eq!(zone_bounds(&chunks[1], &segments)?, (10, 30));
         Ok(())
     }
 
