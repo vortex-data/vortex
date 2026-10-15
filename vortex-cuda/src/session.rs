@@ -96,7 +96,9 @@ impl CudaSession {
             Arc::clone(&context),
             stream_pool_capacity,
         ));
-        let copy_stream_pool = Arc::new(VortexCudaStreamPool::new(
+        // File copies are bound by the host link, not the SMs, and decoding waits for them:
+        // their blocks must not queue behind decode kernels that fill the device.
+        let copy_stream_pool = Arc::new(VortexCudaStreamPool::new_high_priority(
             Arc::clone(&context),
             DEFAULT_COPY_STREAM_POOL_CAPACITY,
         ));

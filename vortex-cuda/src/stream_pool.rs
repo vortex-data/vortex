@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use arc_swap::ArcSwapOption;
 use cudarc::driver::CudaContext;
 use cudarc::driver::CudaStream;
+use cudarc::driver::result::stream::get_priority_range;
 use parking_lot::Mutex;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -27,6 +28,8 @@ pub struct VortexCudaStreamPool {
     slots: Box<[StreamSlot]>,
     /// Round-robin counter for slot selection.
     next_index: AtomicUsize,
+    /// Whether streams are created at the device's greatest priority.
+    high_priority: bool,
 }
 
 struct StreamSlot {
@@ -63,6 +66,18 @@ impl VortexCudaStreamPool {
             context,
             slots,
             next_index: AtomicUsize::new(0),
+            high_priority: false,
+        }
+    }
+
+    /// Like [`new`](Self::new), creating streams at the device's greatest priority.
+    ///
+    /// The block scheduler dispatches pending blocks of higher-priority streams first, so work
+    /// on these streams starts as soon as running blocks of other streams free resources.
+    pub fn new_high_priority(context: Arc<CudaContext>, max_capacity: usize) -> Self {
+        Self {
+            high_priority: true,
+            ..Self::new(context, max_capacity)
         }
     }
 
@@ -88,10 +103,18 @@ impl VortexCudaStreamPool {
 
         // Slow path: create a new stream.
         // Note: CudaContext::new_stream() already returns Arc<CudaStream>.
-        let new_stream = self
-            .context
-            .new_stream()
-            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
+        let new_stream = if self.high_priority {
+            self.context
+                .bind_to_thread()
+                .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+            // Lower values are higher priorities.
+            let (_, greatest) = get_priority_range()
+                .map_err(|e| vortex_err!("Failed to query CUDA stream priorities: {}", e))?;
+            self.context.new_stream_with_priority(greatest)
+        } else {
+            self.context.new_stream()
+        }
+        .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
 
         slot.stream.store(Some(Arc::clone(&new_stream)));
 
