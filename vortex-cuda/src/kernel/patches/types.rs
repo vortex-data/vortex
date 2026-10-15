@@ -3,15 +3,12 @@
 
 //! GPU patch loading for fused CUDA exception patching.
 
-use std::mem::size_of;
 use std::ops::Range;
 
 use num_traits::ToPrimitive;
 use vortex::array::buffer::BufferHandle;
-use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
-use vortex::buffer::ByteBufferMut;
 use vortex::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
@@ -19,12 +16,10 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
+use crate::kernel::patches::build_gpu_patches;
 use crate::kernel::patches::gpu::GPUPatches;
-use crate::kernel::patches::gpu::PATCH_DERIVE_INDICES_BASE;
-use crate::kernel::patches::ptype_to_chunk_offset_type;
 
 /// A set of device-resident patches.
 pub struct DevicePatches {
@@ -122,72 +117,32 @@ pub(crate) async fn load_device_patches(
     })
 }
 
-/// Build a [`GPUPatches`] struct from [`DevicePatches`], serialize it to bytes, and upload to the
-/// device. Returns the device pointer and a buffer handle that must be kept alive for the kernel
-/// launch.
-#[expect(clippy::cast_possible_truncation)]
-fn build_gpu_patches(
-    dp: &DevicePatches,
-    ctx: &CudaExecutionCtx,
-) -> VortexResult<(BufferHandle, u64)> {
-    // Zero-initialize to avoid uninitialized padding bytes (e.g. between
-    // chunk_offset_type and indices) which would be UB when serialized.
-    let mut gpu_patches: GPUPatches = unsafe { std::mem::zeroed() };
-    gpu_patches.chunk_offsets = dp.chunk_offsets.cuda_device_ptr()? as _;
-    gpu_patches.chunk_offset_type = ptype_to_chunk_offset_type(dp.chunk_offset_ptype)?;
-    gpu_patches.indices = dp.indices.cuda_device_ptr()? as _;
-    gpu_patches.values = dp.values.cuda_device_ptr()? as _;
-    gpu_patches.offset = dp.offset as u32;
-    gpu_patches.offset_within_chunk = dp.offset_within_chunk as u32;
-    gpu_patches.num_patches = dp.num_patches as u32;
-    // n_chunks must match the chunk_offsets array length, not array_len / 1024.
-    // When patches are sliced, chunk_offsets is sliced to only include chunks
-    // overlapping the slice range — matching the CPU's patch_chunk which uses
-    // chunk_offsets_slice.len().
-    gpu_patches.n_chunks = dp.n_chunks as u32;
-    gpu_patches.indices_base = dp
-        .indices_base
-        .map_or(PATCH_DERIVE_INDICES_BASE, |base| base as u32);
-
-    let bytes = unsafe {
-        std::slice::from_raw_parts(
-            std::ptr::from_ref(&gpu_patches).cast::<u8>(),
-            size_of::<GPUPatches>(),
-        )
-    };
-    let mut buf =
-        ByteBufferMut::with_capacity_aligned(size_of::<GPUPatches>(), Alignment::of::<u64>());
-    buf.extend_from_slice(bytes);
-    let gpu_buf = ctx.ensure_on_device_sync(BufferHandle::new_host(buf.freeze()))?;
-    let ptr = gpu_buf.cuda_device_ptr()?;
-    Ok((gpu_buf, ptr))
-}
-
-/// Transfers patches to the GPU and builds a [`GPUPatches`] descriptor.
+/// Transfers patches to the GPU and builds their [`GPUPatches`] descriptor.
 ///
 /// With `patch_range`, slices only `chunk_offsets` and sets `indices_base` so the kernel can keep
 /// using the original `indices` and `values` buffers without host metadata reads.
 ///
-/// Returns the device pointer and all buffer handles that must be kept alive for the kernel launch.
+/// Returns the descriptor, which the caller passes to the kernel by value, and the buffers it
+/// points into, which must be kept alive for the kernel launch.
 pub(crate) async fn load_patches_to_gpu(
     patches: &Patches,
     patch_range: Option<Range<usize>>,
     ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(u64, Vec<BufferHandle>)> {
+) -> VortexResult<(GPUPatches, Vec<BufferHandle>)> {
     let mut device_patches = load_device_patches(patches, ctx).await?;
 
     if let Some(patch_range) = patch_range {
         slice_device_patches(patches, patch_range, &mut device_patches);
     }
 
-    let (gpu_buf, ptr) = build_gpu_patches(&device_patches, ctx)?;
+    let descriptor = build_gpu_patches(Some(&device_patches))?;
     let DevicePatches {
         chunk_offsets,
         indices,
         values,
         ..
     } = device_patches;
-    Ok((ptr, vec![chunk_offsets, indices, values, gpu_buf]))
+    Ok((descriptor, vec![chunk_offsets, indices, values]))
 }
 
 pub(crate) fn slice_device_patches(

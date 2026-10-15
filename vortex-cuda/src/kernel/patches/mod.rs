@@ -74,23 +74,32 @@ pub(crate) fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffs
 pub(crate) fn build_gpu_patches(
     device_patches: Option<&DevicePatches>,
 ) -> VortexResult<GPUPatches> {
+    let Some(p) = device_patches else {
+        return Ok(GPUPatches::NULL_PATCHES);
+    };
+    // Start from zeroes so padding bytes are initialized: descriptors are copied byte-wise into
+    // kernel parameters and packed dispatch plans.
+    // SAFETY: `GPUPatches` is plain C data, for which all-zero bytes are valid.
+    let mut patches: GPUPatches = unsafe { std::mem::zeroed() };
     #[expect(clippy::cast_possible_truncation)]
-    match device_patches {
-        Some(p) => Ok(GPUPatches {
-            chunk_offsets: p.chunk_offsets.cuda_device_ptr()? as _,
-            chunk_offset_type: ptype_to_chunk_offset_type(p.chunk_offset_ptype)?,
-            indices: p.indices.cuda_device_ptr()? as _,
-            values: p.values.cuda_device_ptr()? as _,
-            offset: p.offset as u32,
-            offset_within_chunk: p.offset_within_chunk as u32,
-            num_patches: p.num_patches as u32,
-            n_chunks: p.n_chunks as u32,
-            indices_base: p
-                .indices_base
-                .map_or(PATCH_DERIVE_INDICES_BASE, |base| base as u32),
-        }),
-        None => Ok(GPUPatches::NULL_PATCHES),
+    {
+        patches.chunk_offsets = p.chunk_offsets.cuda_device_ptr()? as _;
+        patches.chunk_offset_type = ptype_to_chunk_offset_type(p.chunk_offset_ptype)?;
+        patches.indices = p.indices.cuda_device_ptr()? as _;
+        patches.values = p.values.cuda_device_ptr()? as _;
+        patches.offset = p.offset as u32;
+        patches.offset_within_chunk = p.offset_within_chunk as u32;
+        patches.num_patches = p.num_patches as u32;
+        // n_chunks must match the chunk_offsets array length, not array_len / 1024.
+        // When patches are sliced, chunk_offsets is sliced to only include chunks
+        // overlapping the slice range — matching the CPU's patch_chunk which uses
+        // chunk_offsets_slice.len().
+        patches.n_chunks = p.n_chunks as u32;
+        patches.indices_base = p
+            .indices_base
+            .map_or(PATCH_DERIVE_INDICES_BASE, |base| base as u32);
     }
+    Ok(patches)
 }
 
 /// Apply a set of patches to a [`CudaDeviceBuffer`] holding `ValuesT`.

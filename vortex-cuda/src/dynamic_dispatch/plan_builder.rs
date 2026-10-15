@@ -59,7 +59,9 @@ use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::dynamic_dispatch::gpu_patches_bytes;
 use crate::executor::CudaDispatchMode;
+use crate::kernel::GPUPatches;
 use crate::kernel::bitpacked_slice_view;
 use crate::kernel::load_patches_to_gpu;
 
@@ -453,24 +455,37 @@ impl FusedPlan {
         // indexes shared memory by byte offset and casts to the correct type
         // using source_ptype / output_ptype.
         let mut stages: Vec<MaterializedStage> = Vec::new();
+        // Patch descriptors travel inside the packed plan after the stages, and ops refer to them
+        // by byte offset. Uploading each one separately cost an allocation and a host-to-device
+        // copy per decoded chunk.
+        // Descriptors hold raw device pointers, which are not `Send`, so collect them serialized.
+        let mut patches_bytes: Vec<u8> = Vec::new();
+        let patches_start = CudaDispatchPlan::stages_size(
+            self.stages.iter().map(|(stage, ..)| stage.scalar_ops.len()),
+        );
+        let mut patches_offset = |descriptor: GPUPatches| {
+            let offset = patches_start + patches_bytes.len();
+            patches_bytes.extend_from_slice(gpu_patches_bytes(&descriptor));
+            offset as u64
+        };
         for (stage, smem_byte_offset, len) in &self.stages {
             let mut source = stage.source;
 
-            // Upload source patches (e.g. BitPacked exceptions).
+            // Load source patches (e.g. BitPacked exceptions).
             if let Some(patches) = &stage.source_patches {
-                let (ptr, bufs) =
+                let (descriptor, bufs) =
                     load_patches_to_gpu(&patches.patches, patches.range.clone(), ctx).await?;
-                source.params.bitunpack.patches_ptr = ptr;
+                source.params.bitunpack.patches_ptr = patches_offset(descriptor);
                 device_buffers.extend(bufs);
             }
 
-            // Upload patches for each scalar op that carries them.
+            // Load patches for each scalar op that carries them.
             let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
-                    let (ptr, bufs) =
+                    let (descriptor, bufs) =
                         load_patches_to_gpu(&patches.patches, patches.range.clone(), ctx).await?;
-                    op.params.alp.patches_ptr = ptr;
+                    op.params.alp.patches_ptr = patches_offset(descriptor);
                     device_buffers.extend(bufs);
                 }
                 scalar_ops.push(op);
@@ -487,7 +502,11 @@ impl FusedPlan {
         }
 
         Ok(MaterializedPlan {
-            dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
+            dispatch_plan: CudaDispatchPlan::with_patches(
+                stages,
+                self.output_ptype,
+                &patches_bytes,
+            ),
             device_buffers,
             shared_mem_bytes,
             validity: self.validity,

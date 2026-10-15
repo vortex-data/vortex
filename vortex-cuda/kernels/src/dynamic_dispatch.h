@@ -126,7 +126,9 @@ extern "C" {
 /// Parameters for source ops, which decode data into a stage's shared memory region.
 ///
 /// patches_ptr lives on the union variant that owns it (BitunpackParams,
-/// AlpParams) — not per-stage — so the pointer is tied to its op.
+/// AlpParams) — not per-stage — so the descriptor is tied to its op. In the
+/// packed plan it is a byte offset of a GPUPatches appended after the stages;
+/// parse_stage turns a source's offset into a pointer.
 /// Adding a u64 can grow the union and every ScalarOp/SourceOp read in the
 /// tile loop; SourceParams was already 24 B (no change), ScalarParams grew
 /// 8→16 B (no measurable impact — tile loop is compute-bound).
@@ -135,7 +137,7 @@ union SourceParams {
     struct BitunpackParams {
         uint8_t bit_width;
         uint32_t element_offset; // Sub-byte offset
-        uint64_t patches_ptr;    // device pointer to GPUPatches struct (0 = none)
+        uint64_t patches_ptr;    // byte offset of a GPUPatches within the packed plan (0 = none)
     } bitunpack;
 
     /// Copy from global to shared memory.
@@ -186,7 +188,7 @@ union ScalarParams {
     struct AlpParams {
         double f;
         double e;
-        uint64_t patches_ptr; // device pointer to GPUPatches struct (0 = none)
+        uint64_t patches_ptr; // byte offset of a GPUPatches within the packed plan (0 = none)
     } alp;
 
     /// Dictionary gather: use current value as index into decoded values in smem.
@@ -228,6 +230,14 @@ struct PackedStage {
     enum PTypeTag source_ptype; // PType produced by the source op
 };
 
+/// Largest packed plan passed to the kernel by value; larger plans go through a device buffer.
+#define INLINE_PLAN_BYTES 1024
+
+/// A packed plan passed by value, zero-padded after `PlanHeader::plan_size_bytes`.
+struct __attribute__((aligned(8))) InlinePlan {
+    uint8_t bytes[INLINE_PLAN_BYTES];
+};
+
 /// Header for the packed plan byte buffer.
 struct __attribute__((aligned(8))) PlanHeader {
     uint8_t num_stages;
@@ -259,29 +269,39 @@ struct Stage {
 
     uint8_t num_scalar_ops;            // number of scalar ops
     const struct ScalarOp *scalar_ops; // scalar decode ops
+    const uint8_t *plan;               // packed plan, the base of patch descriptor offsets
 };
 
 /// Parse a single stage from the packed plan byte buffer and advance the cursor.
 ///
+/// @param plan    Start of the packed plan, which patch descriptor offsets are relative to.
 /// @param cursor  Pointer into the packed plan buffer, pointing at a PackedStage.
 ///                On return, advanced past this stage's ScalarOps.
 /// @return        A Stage referencing data within the packed plan buffer.
-__device__ inline Stage parse_stage(const uint8_t *&cursor) {
+__device__ inline Stage parse_stage(const uint8_t *plan, const uint8_t *&cursor) {
     const auto *packed_stage = reinterpret_cast<const struct PackedStage *>(cursor);
     cursor += sizeof(struct PackedStage);
 
     const auto *ops = reinterpret_cast<const struct ScalarOp *>(cursor);
     cursor += packed_stage->num_scalar_ops * sizeof(struct ScalarOp);
 
+    // Resolve the source's patch descriptor offset to a pointer, so source ops only see the op.
+    struct SourceOp source = packed_stage->source;
+    if (source.op_code == SourceOp::BITUNPACK && source.params.bitunpack.patches_ptr != 0) {
+        source.params.bitunpack.patches_ptr =
+            reinterpret_cast<uint64_t>(plan + source.params.bitunpack.patches_ptr);
+    }
+
     return Stage {
         .input_ptr = packed_stage->input_ptr,
         .smem_byte_offset = packed_stage->smem_byte_offset,
         .len = packed_stage->len,
         .source_ptype = packed_stage->source_ptype,
-        .source = packed_stage->source,
+        .source = source,
 
         .num_scalar_ops = packed_stage->num_scalar_ops,
         .scalar_ops = ops,
+        .plan = plan,
     };
 }
 
