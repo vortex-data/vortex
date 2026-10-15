@@ -114,6 +114,19 @@ impl CudaExecutionCtx {
         }
     }
 
+    /// A context on another pooled stream with this context's settings, for independent work
+    /// that should overlap this context's.
+    pub(crate) fn fork(&self) -> VortexResult<Self> {
+        Ok(Self {
+            stream: self.cuda_session.stream()?,
+            ctx: ExecutionCtx::new(self.ctx.session().clone())
+                .with_allocator(self.ctx.allocator().clone()),
+            cuda_session: self.cuda_session.clone(),
+            strategy: Arc::clone(&self.strategy),
+            dispatch_mode: self.dispatch_mode,
+        })
+    }
+
     /// Get a mutable handle to the CPU execution context.
     pub fn execution_ctx(&mut self) -> &mut ExecutionCtx {
         &mut self.ctx

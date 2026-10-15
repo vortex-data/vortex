@@ -11,8 +11,12 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::result::stream::wait_event;
+use cudarc::driver::sys::CUevent;
+use cudarc::driver::sys::CUevent_wait_flags;
 use futures::future::BoxFuture;
 use futures::future::join;
+use futures::future::try_join_all;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
@@ -1329,11 +1333,39 @@ async fn export_struct(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
-    // We need the children to be held across await points.
+    // Export fields concurrently, each on its own stream. A field's decode blocks on its own
+    // readbacks and launches few, small kernels, so exporting fields in turn leaves the device
+    // mostly idle and adds up their latencies.
+    let mut field_ctxs = fields
+        .iter()
+        .map(|_| ctx.fork())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let exported = try_join_all(fields.iter().zip(field_ctxs.iter_mut()).map(
+        |(field, field_ctx)| async move {
+            let (arrow_field, sync_event) = export_array(field.clone(), field_ctx).await?;
+            // The raw event pointer is not `Send`; carry its address while fields export.
+            VortexResult::Ok((arrow_field, sync_event as usize))
+        },
+    ))
+    .await?;
     let mut children = Vec::with_capacity(fields.len());
-
-    for field in fields.iter() {
-        let (arrow_field, _) = export_array(field.clone(), ctx).await?;
+    for (arrow_field, sync_event) in exported {
+        // The struct's export event, recorded below on this stream, must cover each field's
+        // work on its own stream.
+        if sync_event != 0 {
+            // SAFETY: A non-null sync event points to the live event handle owned by the
+            // field's private data, which `arrow_field` keeps alive.
+            let event = unsafe { *(sync_event as *const CUevent) };
+            // SAFETY: Both the stream and the event are live.
+            unsafe {
+                wait_event(
+                    ctx.stream().cu_stream(),
+                    event,
+                    CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
+                )
+            }
+            .map_err(|error| vortex_err!("Failed to order struct export after field: {error}"))?;
+        }
         children.push(arrow_field);
     }
 
