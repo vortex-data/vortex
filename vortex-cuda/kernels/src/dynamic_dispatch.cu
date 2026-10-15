@@ -167,6 +167,15 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         break;
     }
     case ScalarOp::DICT: {
+        if (op.params.dict.values_ptr != 0) {
+            // Values in global memory keep their own width; widen while gathering.
+            const void *dict = reinterpret_cast<const void *>(op.params.dict.values_ptr);
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = load_element<T>(dict, op.output_ptype, static_cast<uint32_t>(values[i]));
+            }
+            break;
+        }
         const T *dict = reinterpret_cast<const T *>(smem + op.params.dict.values_smem_byte_offset);
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {

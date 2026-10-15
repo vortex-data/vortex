@@ -199,6 +199,10 @@ union ScalarParams {
     /// element type.
     struct DictParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
+        /// Device pointer to decoded values of the op's `output_ptype` in global memory, or 0
+        /// when the values are staged in smem. Dictionaries too large to stage per block are
+        /// decoded once into global memory and looked up there.
+        uint64_t values_ptr;
     } dict;
 };
 

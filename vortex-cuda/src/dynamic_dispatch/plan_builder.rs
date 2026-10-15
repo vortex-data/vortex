@@ -78,6 +78,18 @@ pub struct MaterializedPlan {
 }
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
+/// Whether `array` may have null positions, whose values are undefined.
+///
+/// A nullable dtype alone is not enough: writers commonly declare columns nullable that hold no
+/// nulls, with validity known to be all valid.
+fn may_hold_nulls(array: &ArrayRef) -> bool {
+    array.dtype().is_nullable()
+        && !matches!(
+            array.validity(),
+            Ok(Validity::NonNullable | Validity::AllValid)
+        )
+}
+
 fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     // F16 has no reinterpret path in the kernel.
     if matches!(PType::try_from(array.dtype()), Ok(PType::F16)) {
@@ -97,9 +109,9 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
-        // Nullable codes could hold garbage values at null positions, causing
-        // out-of-bounds shared memory reads in the DICT gather scalar op.
-        if arr.codes().dtype().is_nullable() {
+        // Codes at null positions could hold garbage values, causing
+        // out-of-bounds reads in the DICT gather scalar op.
+        if may_hold_nulls(arr.codes()) {
             return false;
         }
         // Dict codes and values may have different byte widths.
@@ -115,10 +127,10 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
     if id == RunEnd.id() {
         let arr = array.as_::<RunEnd>();
-        // Nullable ends could hold garbage values at null positions, causing
+        // Ends at null positions could hold garbage values, causing
         // unpredictable binary search / forward-scan behavior in the RUNEND
         // source op.
-        if arr.ends().dtype().is_nullable() {
+        if may_hold_nulls(arr.ends()) {
             return false;
         }
         // RunEnd ends and values may have different byte widths.
@@ -226,6 +238,9 @@ struct Stage {
     source_buffer_index: Option<usize>,
     /// PType tag for the source op's output type.
     source_ptype: PTypeTag,
+    /// DICT ops that look values up in global memory, as (scalar op index, source buffer index)
+    /// pairs. Materialization stores the buffer's device pointer in the op.
+    global_dicts: Vec<(usize, usize)>,
 }
 
 impl Stage {
@@ -236,6 +251,7 @@ impl Stage {
             scalar_ops: vec![],
             source_buffer_index,
             source_ptype,
+            global_dicts: vec![],
         }
     }
 
@@ -411,6 +427,13 @@ impl FusedPlan {
         Self::FIXED_SHARED_MEM_BYTES + self.dynamic_shared_mem_bytes()
     }
 
+    /// Whether staging another `stage_bytes` of shared memory keeps the plan within the
+    /// per-block limit, counting the output stage's scratch tile.
+    fn fits_shared_mem(&self, stage_bytes: u32) -> bool {
+        Self::FIXED_SHARED_MEM_BYTES + self.dynamic_shared_mem_bytes() + stage_bytes
+            <= Self::MAX_SHARED_MEM_BYTES
+    }
+
     /// Returns `true` if this plan's shared memory requirement exceeds
     /// the per-block limit, logging a trace message when it does.
     fn exceeds_shared_mem_limit(&self) -> bool {
@@ -489,6 +512,9 @@ impl FusedPlan {
                     device_buffers.extend(bufs);
                 }
                 scalar_ops.push(op);
+            }
+            for &(op_index, buffer_index) in &stage.global_dicts {
+                scalar_ops[op_index].params.dict.values_ptr = device_ptrs[buffer_index];
             }
 
             stages.push(MaterializedStage::new(
@@ -840,6 +866,29 @@ impl FusedPlan {
         let values_ptype = PType::try_from(values.dtype())?;
 
         let values_len = values.len() as u32;
+        let staged_bytes =
+            values_len * (values_ptype.byte_width() as u32).max(self.output_elem_bytes);
+        if !self.fits_shared_mem(staged_bytes) {
+            // Every block would stage, and decode, the whole dictionary into its shared memory,
+            // which cannot hold it. Decode the values once into global memory instead: a
+            // canonical array is used as is, anything else runs as a separate subtree.
+            let values_buffer_index = self.source_buffers.len();
+            if values.encoding_id() == Primitive.id() {
+                self.source_buffers
+                    .push(Some(values.as_::<Primitive>().buffer_handle().clone()));
+            } else {
+                self.source_buffers.push(None);
+                pending_subtrees.push(values);
+            }
+            let mut pipeline = self.walk_child(codes, pending_subtrees)?;
+            pipeline
+                .global_dicts
+                .push((pipeline.scalar_ops.len(), values_buffer_index));
+            pipeline
+                .scalar_ops
+                .push((ScalarOp::dict_global(ptype_to_tag(values_ptype)), None));
+            return Ok(pipeline);
+        }
         let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
 

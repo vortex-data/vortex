@@ -444,9 +444,16 @@ impl ScalarOp {
             params: ScalarParams {
                 dict: ScalarParams_DictParams {
                     values_smem_byte_offset,
+                    values_ptr: 0,
                 },
             },
         }
+    }
+
+    /// Dictionary gather from values of `output_ptype` in global memory. The values pointer is
+    /// filled in when the plan is materialized.
+    pub fn dict_global(output_ptype: PTypeTag) -> Self {
+        Self::dict(0, output_ptype)
     }
 }
 
@@ -1226,6 +1233,121 @@ mod tests {
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
         assert_arrays_eq!(expected_arr, result, &mut ctx);
 
+        Ok(())
+    }
+
+    /// Dictionaries too large for shared memory are looked up in global memory by the fused
+    /// kernel instead of falling back to unfused dispatch.
+    #[rstest]
+    #[case::primitive_u64_values(false)]
+    #[case::encoded_u64_values(true)]
+    #[crate::test]
+    async fn test_large_dict_gathers_from_global_memory(
+        #[case] encoded_values: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        // 20,000 u64 values (160 KB) cannot be staged in 48 KB of shared memory.
+        let dict_size = 20_000usize;
+        let reference = 1u64 << 40;
+        let dict_values: Vec<u64> = (0..dict_size as u64).map(|v| reference + v * 3).collect();
+        let len = 50_000;
+        let codes: Vec<u32> = (0..len).map(|i| ((i * 7919) % dict_size) as u32).collect();
+        let expected: Vec<u64> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+
+        let values = if encoded_values {
+            let residuals: Vec<u64> = (0..dict_size as u64).map(|v| v * 3).collect();
+            let packed = BitPacked::encode(
+                &PrimitiveArray::new(Buffer::from(residuals), NonNullable).into_array(),
+                16,
+                &mut ctx,
+            )?;
+            FoR::try_new(packed.into_array(), Scalar::from(reference))?.into_array()
+        } else {
+            PrimitiveArray::new(Buffer::from(dict_values), NonNullable).into_array()
+        };
+        let codes_bp = BitPacked::encode(
+            &PrimitiveArray::new(Buffer::from(codes), NonNullable).into_array(),
+            15,
+            &mut ctx,
+        )?;
+        let array = DictArray::try_new(codes_bp.into_array(), values)?.into_array();
+
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::Auto)?;
+        if encoded_values {
+            assert!(
+                matches!(plan, DispatchPlan::PartiallyFused { .. }),
+                "encoded values decode separately, then fuse the gather"
+            );
+        } else {
+            assert!(
+                matches!(plan, DispatchPlan::Fused(..)),
+                "canonical values fuse the gather directly"
+            );
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+        let expected = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        assert_arrays_eq!(expected, result, &mut ctx);
+        Ok(())
+    }
+
+    /// Narrower dictionary values in global memory are widened while gathering.
+    #[crate::test]
+    async fn test_large_dict_widens_global_values() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dict_size = 20_000usize;
+        let dict_values: Vec<i32> = (0..dict_size as i32).map(|v| -v * 5).collect();
+        let len = 4_096;
+        let codes: Vec<u16> = (0..len).map(|i| ((i * 31) % dict_size) as u16).collect();
+        let expected: Vec<i32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+
+        let codes = PrimitiveArray::new(Buffer::from(codes), NonNullable).into_array();
+        let values = PrimitiveArray::new(Buffer::from(dict_values), NonNullable).into_array();
+        let array = DictArray::try_new(codes, values)?.into_array();
+        assert!(matches!(
+            DispatchPlan::new(&array, CudaDispatchMode::Auto)?,
+            DispatchPlan::Fused(..)
+        ));
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+        let expected = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        assert_arrays_eq!(expected, result, &mut ctx);
+        Ok(())
+    }
+
+    /// Codes typed nullable but known to hold no nulls, as written by producers that declare
+    /// every column nullable, fuse like non-nullable codes; large dictionaries then gather from
+    /// global memory.
+    #[rstest]
+    #[case::small_dict(64)]
+    #[case::large_dict(20_000)]
+    #[crate::test]
+    async fn test_dict_all_valid_nullable_codes_fuse(#[case] dict_size: usize) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dict_values: Vec<i64> = (0..dict_size as i64).map(|v| v * 11 - 7).collect();
+        let len = 10_000;
+        let codes: Vec<u32> = (0..len).map(|i| ((i * 37) % dict_size) as u32).collect();
+        let expected: Vec<i64> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+
+        let codes = PrimitiveArray::new(Buffer::from(codes), Validity::AllValid).into_array();
+        let values =
+            PrimitiveArray::new(Buffer::from(dict_values), Validity::AllValid).into_array();
+        let array = DictArray::try_new(codes, values)?.into_array();
+        assert!(array.dtype().is_nullable());
+        assert!(matches!(
+            DispatchPlan::new(&array, CudaDispatchMode::Auto)?,
+            DispatchPlan::Fused(..)
+        ));
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
+        let expected = PrimitiveArray::new(Buffer::from(expected), Validity::AllValid).into_array();
+        assert_arrays_eq!(expected, result, &mut ctx);
         Ok(())
     }
 
