@@ -23,7 +23,7 @@ test = false
 
 [dependencies]
 anyhow = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 custom-labels = { workspace = true }
 datafusion = { workspace = true, features = [
     "parquet",

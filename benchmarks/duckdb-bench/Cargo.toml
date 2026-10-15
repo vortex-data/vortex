@@ -22,7 +22,7 @@ test = false
 
 [dependencies]
 anyhow = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 similar = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

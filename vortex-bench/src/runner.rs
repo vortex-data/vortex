@@ -78,6 +78,7 @@ pub struct SqlBenchmarkRunner {
     doc: &'static str,
     query_measurements: Vec<QueryMeasurement>,
     memory_measurements: Vec<MemoryMeasurement>,
+    before_cold_run: Option<Box<dyn FnMut() + Send>>,
 }
 
 impl SqlBenchmarkRunner {
@@ -110,7 +111,21 @@ impl SqlBenchmarkRunner {
             doc: benchmark.doc_path(),
             query_measurements: Vec::new(),
             memory_measurements: Vec::new(),
+            before_cold_run: None,
         })
+    }
+
+    /// Call `hook` before the first (cold) run of every query, e.g. to drop caches that the
+    /// previous query warmed so only the later (hot) runs benefit from them.
+    pub fn with_before_cold_run(mut self, hook: impl FnMut() + Send + 'static) -> Self {
+        self.before_cold_run = Some(Box::new(hook));
+        self
+    }
+
+    fn run_before_cold_run(&mut self) {
+        if let Some(hook) = self.before_cold_run.as_mut() {
+            hook();
+        }
     }
 
     /// Get the formats to run benchmarks for.
@@ -138,6 +153,7 @@ impl SqlBenchmarkRunner {
         F: FnMut() -> (Option<Duration>, R),
     {
         self.start_query();
+        self.run_before_cold_run();
 
         let mut runs = Vec::with_capacity(iterations);
         let mut row_count = None;
@@ -393,6 +409,7 @@ impl SqlBenchmarkRunner {
                         let query_idx = *query_idx;
 
                         self.start_query();
+                        self.run_before_cold_run();
 
                         let mut runs = Vec::with_capacity(iterations);
                         let mut row_count = None;

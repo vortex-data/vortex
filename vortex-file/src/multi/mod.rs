@@ -258,7 +258,11 @@ pub async fn open_cached(
         vortex_bail!("Missing cache key");
     };
 
-    let mut options = open_options_fn(session.open_options());
+    let mut options = session.open_options();
+    if let Some(segment_cache) = session.multi_file().segment_cache(key) {
+        options = options.with_segment_cache(segment_cache);
+    }
+    let mut options = open_options_fn(options);
     if let Some(size) = file_size {
         options = options.with_file_size(size);
     }
