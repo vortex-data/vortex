@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! A CUDA-optimized flat layout that inlines small constant array buffers into layout metadata.
+//!
+//! Bounded, complete logical value domains allow host pruning before payload registration.
+//! Missing or unsupported domains never exclude rows. `VORTEX_CUDA_DOMAIN_PRUNING=0` disables
+//! writing and reading this optional metadata.
 
 use std::any::Any;
 use std::ops::BitAnd;
@@ -14,19 +18,34 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
+use prost::Message;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
-use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::Extension;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBin;
+use vortex::array::arrays::VarBinView;
+use vortex::array::arrays::dict::DictArraySlotsExt;
+use vortex::array::arrays::extension::ExtensionArrayExt;
+use vortex::array::builders::builder_with_capacity_in;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::expr::BoundExpression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
+use vortex::array::extension::datetime::AnyTemporal;
+use vortex::array::memory::BufferAllocatorRef;
+use vortex::array::scalar_fn::fns::between::Between;
+use vortex::array::scalar_fn::fns::binary::Binary;
+use vortex::array::scalar_fn::fns::literal::Literal;
+use vortex::array::scalar_fn::fns::operators::Operator;
 use vortex::array::serde::SerializeOptions;
 use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
@@ -72,6 +91,7 @@ use vortex::layout::session::LayoutSessionExt;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
+use vortex::scalar::ScalarValue;
 use vortex::scalar::lower_bound;
 use vortex::scalar::upper_bound;
 use vortex::session::SessionExt;
@@ -104,6 +124,202 @@ pub struct CudaFlatLayoutMetadata {
     pub array_encoding_tree: Vec<u8>,
     #[prost(message, repeated, tag = "2")]
     pub host_buffers: Vec<InlinedBuffer>,
+    /// Optional complete logical domain; absent in files written without domain pruning.
+    #[prost(message, optional, tag = "3")]
+    pub logical_value_domain: Option<LogicalValueDomain>,
+}
+
+/// A bounded superset of a leaf's logical values, never a sample or a truncated dictionary.
+///
+/// Values use the leaf dtype and the scalar-value protobuf format. Nullable leaves include null
+/// even when only dictionary codes, rather than dictionary values, might be null.
+#[derive(Clone, prost::Message)]
+pub struct LogicalValueDomain {
+    /// Unsupported versions are ignored by the reader.
+    #[prost(uint32, tag = "1")]
+    pub version: u32,
+    /// Complete scalar values, including any conservative extra values.
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub values: Vec<Vec<u8>>,
+}
+
+const DOMAIN_VERSION: u32 = 1;
+const MAX_DOMAIN_VALUES: usize = 256;
+const MAX_DOMAIN_BYTES: usize = 16 * 1024;
+const MAX_DOMAIN_NODES: usize = 32;
+const MAX_DOMAIN_EXPR_NODES: usize = 64;
+
+fn domain_pruning_enabled() -> bool {
+    !std::env::var("VORTEX_CUDA_DOMAIN_PRUNING").is_ok_and(|value| value == "0")
+}
+
+fn domain_dtype_supported(dtype: &DType) -> bool {
+    match dtype {
+        DType::Bool(_) | DType::Utf8(_) | DType::Binary(_) => true,
+        // Float comparison semantics (NaNs and signed zero) need a separate compatibility audit.
+        DType::Primitive(ptype, _) => ptype.is_int(),
+        DType::Extension(ext) => ext.is::<AnyTemporal>(),
+        _ => false,
+    }
+}
+
+fn domain_predicate_supported(expr: &BoundExpression, remaining: &mut usize) -> bool {
+    if *remaining == 0 {
+        return false;
+    }
+    *remaining -= 1;
+    // Expression optimization combines a same-field range conjunction into Between.
+    if expr.is::<Between>() {
+        return expr.child(0).is_root()
+            && expr.child(1).is::<Literal>()
+            && expr.child(2).is::<Literal>();
+    }
+    match expr.as_opt::<Binary>() {
+        Some(Operator::And) => {
+            domain_predicate_supported(expr.child(0), remaining)
+                && domain_predicate_supported(expr.child(1), remaining)
+        }
+        Some(
+            Operator::Eq
+            | Operator::NotEq
+            | Operator::Lt
+            | Operator::Lte
+            | Operator::Gt
+            | Operator::Gte,
+        ) => {
+            (expr.child(0).is_root() && expr.child(1).is::<Literal>())
+                || (expr.child(1).is_root() && expr.child(0).is::<Literal>())
+        }
+        _ => false,
+    }
+}
+
+impl LogicalValueDomain {
+    fn within_budget(&self) -> bool {
+        self.version == DOMAIN_VERSION
+            && !self.values.is_empty()
+            && self.values.len() <= MAX_DOMAIN_VALUES
+            && self.encoded_len() <= MAX_DOMAIN_BYTES
+    }
+
+    fn rejects(
+        &self,
+        dtype: &DType,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<bool> {
+        let mut remaining = MAX_DOMAIN_EXPR_NODES;
+        if !self.within_budget()
+            || !domain_dtype_supported(dtype)
+            || !domain_predicate_supported(expr, &mut remaining)
+            || !expr.is_root_bound_to(dtype)
+        {
+            return Ok(false);
+        }
+        let mut builder =
+            builder_with_capacity_in(dtype, self.values.len(), BufferAllocatorRef::static_ref());
+        for bytes in &self.values {
+            let value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
+            builder.append_scalar(&Scalar::try_new(dtype.clone(), value)?)?;
+        }
+        // Evaluate the whole predicate on each value, not its conjuncts independently. Separate
+        // bounds can each match a dictionary entry while their intersection matches none.
+        let mut ctx = session.create_execution_ctx();
+        Ok(builder
+            .finish()
+            .apply_bound(expr)?
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?
+            .all_false())
+    }
+}
+
+fn logical_value_domain(
+    array: &ArrayRef,
+    enabled: bool,
+    session: &VortexSession,
+) -> Option<LogicalValueDomain> {
+    if !enabled || !domain_dtype_supported(array.dtype()) {
+        return None;
+    }
+    // Optional metadata must not turn an otherwise readable/writable encoding into an error.
+    try_logical_value_domain(array, session).ok().flatten()
+}
+
+fn try_logical_value_domain(
+    array: &ArrayRef,
+    session: &VortexSession,
+) -> VortexResult<Option<LogicalValueDomain>> {
+    let storage = array
+        .as_opt::<Extension>()
+        .map_or_else(|| array.clone(), |ext| ext.storage_array().clone());
+    let candidates = if storage.is::<Constant>() {
+        storage
+    } else if let Some(dict) = storage.as_opt::<Dict>() {
+        dict.values().clone()
+    } else {
+        // In particular, a dictionary nested under ALP/FoR/patches is not the root value domain.
+        return Ok(None);
+    };
+    let candidates = if let Some(ext) = candidates.as_opt::<Extension>() {
+        ext.storage_array().clone()
+    } else {
+        candidates
+    };
+    let mut ctx = session.create_execution_ctx();
+    let scalars = if let Some(constant) = candidates.as_opt::<Constant>() {
+        vec![constant.scalar().clone()]
+    } else {
+        if candidates.len() > MAX_DOMAIN_VALUES {
+            return Ok(None);
+        }
+        // Fixed-width values may be compressed, but never execute an unbounded child tree.
+        // Compressed strings can expand arbitrarily; only canonical string buffers are admitted.
+        if matches!(candidates.dtype(), DType::Utf8(_) | DType::Binary(_))
+            && !candidates.is::<VarBin>()
+            && !candidates.is::<VarBinView>()
+        {
+            return Ok(None);
+        }
+        let mut bytes = 0usize;
+        for (index, node) in candidates.depth_first_traversal().enumerate() {
+            if index >= MAX_DOMAIN_NODES || node.len() > MAX_DOMAIN_VALUES || !node.is_host() {
+                return Ok(None);
+            }
+            for buffer in node.buffers() {
+                if buffer.len() > MAX_DOMAIN_BYTES - bytes {
+                    return Ok(None);
+                }
+                bytes += buffer.len();
+            }
+        }
+        let values = candidates.execute::<Canonical>(&mut ctx)?.into_array();
+        // Canonicalize once before this bounded loop, rather than decoding a dictionary per value.
+        (0..values.len())
+            .map(|index| values.execute_scalar(index, &mut ctx))
+            .collect::<VortexResult<Vec<_>>>()?
+    };
+    let mut domain = LogicalValueDomain {
+        version: DOMAIN_VERSION,
+        values: Vec::with_capacity(scalars.len() + usize::from(array.dtype().is_nullable())),
+    };
+    let mut bytes = 0usize;
+    for scalar in scalars {
+        // Reserve protobuf overhead before serializing variable-width values, so even constants
+        // with very large strings cannot allocate an oversized domain only to discard it.
+        let size = scalar.approx_nbytes().saturating_add(16);
+        if size > MAX_DOMAIN_BYTES - bytes {
+            return Ok(None);
+        }
+        bytes += size;
+        domain
+            .values
+            .push(ScalarValue::to_proto_bytes(scalar.value()));
+    }
+    if array.dtype().is_nullable() {
+        domain.values.push(ScalarValue::to_proto_bytes(None));
+    }
+    Ok(domain.within_budget().then_some(domain))
 }
 
 /// CUDA flat layout vtable.
@@ -121,6 +337,7 @@ pub struct CudaFlatData {
     array_tree: ByteBuffer,
     /// Small buffers kept on host, keyed by global buffer index.
     host_buffers: Arc<HashMap<u32, ByteBuffer>>,
+    logical_value_domain: Option<LogicalValueDomain>,
 }
 
 /// A CUDA-optimized terminal layout.
@@ -168,6 +385,7 @@ impl VTable for CudaFlat {
                     data: buf.to_vec(),
                 })
                 .collect(),
+            logical_value_domain: layout.logical_value_domain.clone(),
         })
     }
 
@@ -192,6 +410,11 @@ impl VTable for CudaFlat {
             ctx: args.array_read_ctx.clone(),
             array_tree: ByteBuffer::from(metadata.array_encoding_tree.clone()),
             host_buffers: Arc::new(host_buffers),
+            logical_value_domain: metadata
+                .logical_value_domain
+                .as_ref()
+                .filter(|domain| domain.within_budget())
+                .cloned(),
         })
     }
 
@@ -223,6 +446,7 @@ impl VTable for CudaFlat {
             session: session.clone(),
             array: Default::default(),
             eager_decode,
+            domain_pruning: domain_pruning_enabled(),
         }))
     }
 }
@@ -237,6 +461,7 @@ pub struct CudaFlatReader {
     session: VortexSession,
     array: OnceLock<SharedArrayFuture>,
     eager_decode: bool,
+    domain_pruning: bool,
 }
 
 impl CudaFlatReader {
@@ -299,10 +524,26 @@ impl LayoutReader for CudaFlatReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        Ok(MaskFuture::ready(mask))
+        // CUDA scan preflight invokes pruning before constructing projection evaluations. Do not
+        // call array_future here: even registering that future makes the payload coalescible.
+        let rejected = self.domain_pruning
+            && self
+                .layout
+                .logical_value_domain
+                .as_ref()
+                .is_some_and(|domain| {
+                    domain
+                        .rejects(self.dtype(), expr, &self.session)
+                        .unwrap_or(false)
+                });
+        Ok(MaskFuture::ready(if rejected {
+            Mask::new_false(mask.len())
+        } else {
+            mask
+        }))
     }
 
     fn filter_evaluation(
@@ -535,6 +776,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
 
         // Scan for constant array buffers before serialization (while data is still on host).
         let host_buffers = extract_constant_buffers(&chunk);
+        let logical_value_domain = logical_value_domain(&chunk, domain_pruning_enabled(), session);
 
         let buffers = chunk.serialize(
             ctx.array_ctx(),
@@ -571,6 +813,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                 ctx: ReadContext::new(ctx.array_ctx().to_ids()),
                 array_tree,
                 host_buffers: Arc::new(host_buffer_map),
+                logical_value_domain,
             },
         )
         .into_layout())
@@ -695,12 +938,20 @@ pub fn register_cuda_layout(session: &VortexSession) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
     use futures::TryStreamExt;
+    use roaring::RoaringTreemap;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayContext;
     use vortex::array::Canonical;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::Dict;
+    use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::ExtensionArray;
     use vortex::array::arrays::Primitive;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::Struct;
@@ -708,12 +959,26 @@ mod tests {
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::buffer::BufferHandle;
+    use vortex::array::expr::and;
+    use vortex::array::expr::between;
+    use vortex::array::expr::eq;
+    use vortex::array::expr::gt_eq;
+    use vortex::array::expr::is_null;
+    use vortex::array::expr::lit;
+    use vortex::array::expr::lt;
+    use vortex::array::expr::or;
     use vortex::array::expr::pack;
     use vortex::array::expr::root;
+    use vortex::array::extension::datetime::Date;
+    use vortex::array::extension::datetime::TimeUnit;
+    use vortex::array::scalar_fn::fns::between::BetweenOptions;
+    use vortex::array::scalar_fn::fns::between::StrictComparison;
     use vortex::array::validity::Validity;
     use vortex::buffer::ByteBufferMut;
     use vortex::dtype::FieldNames;
     use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
     use vortex::editions::CORE_2025_05_0;
     use vortex::editions::ComponentKind;
     use vortex::encodings::fastlanes::BitPacked;
@@ -723,11 +988,402 @@ mod tests {
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
+    use vortex::layout::scan::scan_builder::ScanBuilder;
     use vortex::layout::scan::split_by::SplitBy;
+    use vortex::layout::segments::SegmentFuture;
+    use vortex::scan::selection::Selection;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::CudaFileScanExt;
+    use crate::scan_cuda_pruned;
+
+    struct DomainRecordingSource {
+        source: Arc<dyn SegmentSource>,
+        requests: AtomicUsize,
+    }
+
+    impl SegmentSource for DomainRecordingSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            self.source.request(id)
+        }
+    }
+
+    struct DomainBufferSource(ByteBuffer);
+
+    impl SegmentSource for DomainBufferSource {
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            let buffer = self.0.clone();
+            async move { Ok(BufferHandle::new_host(buffer)) }.boxed()
+        }
+    }
+
+    fn domain_dictionary() -> VortexResult<ArrayRef> {
+        Ok(DictArray::try_new(
+            PrimitiveArray::from_iter([1u8, 0, 1, 0]).into_array(),
+            PrimitiveArray::from_iter([0i32, 100]).into_array(),
+        )?
+        .into_array())
+    }
+
+    fn domain_gap(dtype: &DType, optimize: bool) -> VortexResult<BoundExpression> {
+        let expr = if optimize {
+            // find_between optimizes named fields before StructReader rebases them to root.
+            between(
+                root(),
+                lit(40i32),
+                lit(60i32),
+                BetweenOptions {
+                    lower_strict: StrictComparison::NonStrict,
+                    upper_strict: StrictComparison::Strict,
+                },
+            )
+        } else {
+            and(gt_eq(root(), lit(40i32)), lt(root(), lit(60i32)))
+        };
+        expr.bind(dtype)
+    }
+
+    // Explicit per-reader flags avoid mutating the process environment in concurrent tests.
+    fn domain_reader(
+        array: &ArrayRef,
+        domain: Option<LogicalValueDomain>,
+        enabled: bool,
+        session: &VortexSession,
+    ) -> VortexResult<(Arc<CudaFlatReader>, Arc<DomainRecordingSource>)> {
+        let array_ctx = ArrayContext::empty();
+        let buffers = array.serialize(
+            &array_ctx,
+            session,
+            &SerializeOptions {
+                offset: 0,
+                include_padding: true,
+            },
+        )?;
+        let metadata = CudaFlatLayoutMetadata {
+            array_encoding_tree: buffers[buffers.len() - 2].to_vec(),
+            host_buffers: extract_constant_buffers(array),
+            logical_value_domain: domain,
+        };
+        let metadata = CudaFlatLayoutMetadata::decode(metadata.encode_to_vec().as_slice())?;
+        let mut buffer = ByteBufferMut::empty();
+        for part in buffers {
+            buffer.extend_from_slice(&part);
+        }
+        let source = Arc::new(DomainRecordingSource {
+            source: Arc::new(DomainBufferSource(buffer.freeze())),
+            requests: AtomicUsize::new(0),
+        });
+        let segment_id = SegmentId::from(0);
+        let layout = LayoutParts::new(
+            CudaFlat,
+            array.dtype().clone(),
+            array.len() as u64,
+            vec![segment_id],
+            layout_children(Vec::new()),
+            CudaFlatData {
+                segment_id,
+                ctx: ReadContext::new(array_ctx.to_ids()),
+                array_tree: ByteBuffer::from(metadata.array_encoding_tree),
+                host_buffers: Arc::new(
+                    metadata
+                        .host_buffers
+                        .into_iter()
+                        .map(|buffer| (buffer.buffer_index, ByteBuffer::from(buffer.data)))
+                        .collect(),
+                ),
+                logical_value_domain: metadata.logical_value_domain,
+            },
+        )
+        .into_typed();
+        let reader = Arc::new(CudaFlatReader {
+            layout,
+            name: "arbitrary".into(),
+            segment_source: Arc::clone(&source) as _,
+            session: session.clone(),
+            array: Default::default(),
+            eager_decode: false,
+            domain_pruning: enabled,
+        });
+        Ok((reader, source))
+    }
+
+    #[rstest]
+    #[case::conjunction(false)]
+    #[case::optimized_between(true)]
+    fn test_domain_preflight_registers_no_rejected_payload(
+        #[case] optimize: bool,
+    ) -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        runtime.block_on(async {
+            let input = domain_dictionary()?;
+            let domain = logical_value_domain(&input, true, &session).unwrap();
+            for bound in [gt_eq(root(), lit(40i32)), lt(root(), lit(60i32))] {
+                assert!(!domain.rejects(input.dtype(), &bound.bind(input.dtype())?, &session)?);
+            }
+            let (reader, source) = domain_reader(&input, Some(domain), true, &session)?;
+            let expr = domain_gap(input.dtype(), optimize)?;
+            if optimize {
+                assert!(expr.is::<Between>());
+            }
+            let mask = reader
+                .pruning_evaluation(&(0..input.len() as u64), &expr, Mask::new_true(input.len()))?
+                .await?;
+            assert!(mask.all_false());
+            assert_eq!(source.requests.load(Ordering::Relaxed), 0);
+
+            // Match scan_cuda_pruned: reject during preflight, before ScanBuilder creates any
+            // projection future. Ordinary with_filter scans can register projections earlier.
+            let mut excluded = RoaringTreemap::new();
+            excluded.insert_range(0..mask.len() as u64);
+            let batches: Vec<_> = ScanBuilder::new(session.clone(), reader)
+                .with_selection(Selection::ExcludeRoaring(excluded))
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            assert!(batches.is_empty());
+            assert_eq!(source.requests.load(Ordering::Relaxed), 0);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_domain_cuda_scan_environment_gate() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            let input = domain_dictionary()?;
+            let mut bytes = ByteBufferMut::empty();
+            session
+                .write_options()
+                .with_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+                .write(&mut bytes, input.to_array_stream())
+                .await?;
+            let file = session.open_options().open_buffer(bytes.freeze())?;
+            let source = Arc::new(DomainRecordingSource {
+                source: file.segment_source(),
+                requests: AtomicUsize::new(0),
+            });
+            let file = file.with_segment_source(Arc::clone(&source) as _);
+            let predicate = and(gt_eq(root(), lit(40i32)), lt(root(), lit(60i32)));
+            let batches: Vec<_> = scan_cuda_pruned(&file, DictionaryExport::Decode, &predicate)
+                .await?
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            let enabled = domain_pruning_enabled();
+            assert_eq!(batches.is_empty(), enabled);
+            assert_eq!(
+                source.requests.load(Ordering::Relaxed),
+                usize::from(!enabled)
+            );
+            assert!(session.get_opt::<CudaSession>().is_none());
+            Ok(())
+        })
+    }
+
+    #[rstest]
+    #[case::missing(0)]
+    #[case::disabled(1)]
+    #[case::too_many_values(2)]
+    #[case::too_many_bytes(3)]
+    #[case::unknown_version(4)]
+    #[case::invalid_scalar(5)]
+    #[case::empty_domain(6)]
+    fn test_domain_metadata_fallback(#[case] case: usize) -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        runtime.block_on(async {
+            let input = domain_dictionary()?;
+            let mut domain = logical_value_domain(&input, true, &session);
+            match case {
+                0 => domain = None,
+                1 => {}
+                2 => domain.as_mut().unwrap().values = vec![vec![0]; MAX_DOMAIN_VALUES + 1],
+                3 => domain.as_mut().unwrap().values = vec![vec![0; MAX_DOMAIN_BYTES + 1]],
+                4 => domain.as_mut().unwrap().version += 1,
+                5 => domain.as_mut().unwrap().values = vec![vec![0xff]],
+                6 => domain.as_mut().unwrap().values.clear(),
+                _ => unreachable!(),
+            }
+            let (reader, source) = domain_reader(&input, domain, case != 1, &session)?;
+            let mask = reader
+                .pruning_evaluation(
+                    &(0..input.len() as u64),
+                    &domain_gap(input.dtype(), true)?,
+                    Mask::new_true(input.len()),
+                )?
+                .await?;
+            assert!(mask.all_true());
+            assert_eq!(source.requests.load(Ordering::Relaxed), 0);
+            let batches: Vec<_> = ScanBuilder::new(session.clone(), reader)
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            assert_eq!(batches.len(), 1);
+            assert_arrays_eq!(batches[0], input, &mut session.create_execution_ctx());
+            assert_eq!(source.requests.load(Ordering::Relaxed), 1);
+            Ok(())
+        })
+    }
+
+    #[tokio::test]
+    async fn test_domain_keeps_existing_mask_without_requests() -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input = domain_dictionary()?;
+        let domain = logical_value_domain(&input, true, &session);
+        let (reader, source) = domain_reader(&input, domain, true, &session)?;
+        let mask = Mask::from_iter([false, true]);
+        let result = reader
+            .pruning_evaluation(
+                &(1..3),
+                &eq(root(), lit(0i32)).bind(input.dtype())?,
+                mask.clone(),
+            )?
+            .await?;
+        assert_eq!(result, mask);
+        assert_eq!(source.requests.load(Ordering::Relaxed), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_domain_metadata_wire_compatibility() -> VortexResult<()> {
+        #[derive(prost::Message)]
+        struct LegacyMetadata {
+            #[prost(bytes, tag = "1")]
+            array_encoding_tree: Vec<u8>,
+            #[prost(message, repeated, tag = "2")]
+            host_buffers: Vec<InlinedBuffer>,
+        }
+
+        let old = LegacyMetadata {
+            array_encoding_tree: vec![1, 2, 3],
+            host_buffers: Vec::new(),
+        };
+        let mut new = CudaFlatLayoutMetadata::decode(old.encode_to_vec().as_slice())?;
+        assert!(new.logical_value_domain.is_none());
+        new.logical_value_domain =
+            logical_value_domain(&domain_dictionary()?, true, &VortexSession::default());
+        assert!(new.logical_value_domain.is_some());
+        let decoded = LegacyMetadata::decode(new.encode_to_vec().as_slice())?;
+        assert_eq!(decoded.array_encoding_tree, old.array_encoding_tree);
+        assert!(decoded.host_buffers.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_domain_writer_bounds_and_unsupported_encodings() -> VortexResult<()> {
+        let session = VortexSession::default();
+        let input = domain_dictionary()?;
+        assert!(logical_value_domain(&input, false, &session).is_none());
+        let large = DictArray::try_new(
+            PrimitiveArray::from_iter([0u16]).into_array(),
+            PrimitiveArray::from_iter(0..=i32::try_from(MAX_DOMAIN_VALUES)?).into_array(),
+        )?
+        .into_array();
+        assert!(logical_value_domain(&large, true, &session).is_none());
+        let large = ConstantArray::new("x".repeat(MAX_DOMAIN_BYTES), 100).into_array();
+        assert!(logical_value_domain(&large, true, &session).is_none());
+        let primitive = PrimitiveArray::from_iter([0u32, 100]).into_array();
+        assert!(logical_value_domain(&primitive, true, &session).is_none());
+        let packed =
+            BitPacked::encode(&primitive, 7, &mut session.create_execution_ctx())?.into_array();
+        assert!(logical_value_domain(&packed, true, &session).is_none());
+        let float = ConstantArray::new(f64::NAN, 10).into_array();
+        assert!(logical_value_domain(&float, true, &session).is_none());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::null_codes(true, false)]
+    #[case::null_values(false, true)]
+    #[case::both(true, true)]
+    fn test_domain_nulls_and_unsupported_predicates(
+        #[case] null_codes: bool,
+        #[case] null_values: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let codes =
+            PrimitiveArray::from_option_iter([Some(0u8), (!null_codes).then_some(1)]).into_array();
+        let values = PrimitiveArray::from_option_iter([Some(0i32), (!null_values).then_some(100)])
+            .into_array();
+        let input = DictArray::try_new(codes, values)?.into_array();
+        let domain = logical_value_domain(&input, true, &session).unwrap();
+        assert!(domain.values.iter().any(|bytes| {
+            ScalarValue::from_proto_bytes(bytes, input.dtype(), &session)
+                .is_ok_and(|value| value.is_none())
+        }));
+        assert!(domain.rejects(input.dtype(), &domain_gap(input.dtype(), true)?, &session)?);
+        assert!(!domain.rejects(
+            input.dtype(),
+            &is_null(root()).bind(input.dtype())?,
+            &session,
+        )?);
+        let unsupported = or(eq(root(), lit(40i32)), eq(root(), lit(60i32)));
+        assert!(!domain.rejects(input.dtype(), &unsupported.bind(input.dtype())?, &session)?);
+        let null_literal = eq(root(), lit(Scalar::null(input.dtype().clone())));
+        assert!(domain.rejects(input.dtype(), &null_literal.bind(input.dtype())?, &session)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_domain_constants_and_strings() -> VortexResult<()> {
+        let session = VortexSession::default();
+        for input in [
+            ConstantArray::new(0i32, 10).into_array(),
+            ConstantArray::new(
+                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                10,
+            )
+            .into_array(),
+        ] {
+            let domain = logical_value_domain(&input, true, &session).unwrap();
+            assert!(domain.rejects(input.dtype(), &domain_gap(input.dtype(), true)?, &session)?);
+        }
+        let strings = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8, 1]).into_array(),
+            VarBinViewArray::from_iter_str(["alpha", "omega"]).into_array(),
+        )?
+        .into_array();
+        let domain = logical_value_domain(&strings, true, &session).unwrap();
+        assert!(domain.rejects(
+            strings.dtype(),
+            &eq(root(), lit("absent")).bind(strings.dtype())?,
+            &session,
+        )?);
+        assert!(!domain.rejects(
+            strings.dtype(),
+            &eq(root(), lit("omega")).bind(strings.dtype())?,
+            &session,
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_domain_temporal_wrapper_and_unused_values() -> VortexResult<()> {
+        let session = VortexSession::default();
+        let dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
+        let input = ExtensionArray::new(dtype.clone(), domain_dictionary()?).into_array();
+        let domain = logical_value_domain(&input, true, &session).unwrap();
+        let bound = |value: i32| lit(Scalar::extension_ref(dtype.clone(), Scalar::from(value)));
+        let expr = and(gt_eq(root(), bound(40)), lt(root(), bound(60)))
+            .bind(input.dtype())?
+            .optimize()?;
+        assert!(domain.rejects(input.dtype(), &expr, &session)?);
+
+        let input = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8]).into_array(),
+            PrimitiveArray::from_iter([0i32, 50, 100]).into_array(),
+        )?
+        .into_array();
+        let domain = logical_value_domain(&input, true, &session).unwrap();
+        // An unused matching value may prevent pruning; inspecting codes to remove it is forbidden.
+        assert!(!domain.rejects(input.dtype(), &domain_gap(input.dtype(), true)?, &session)?);
+        Ok(())
+    }
 
     #[rstest]
     #[case::struct_pack(0..8)]
