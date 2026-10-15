@@ -152,6 +152,72 @@ extern "C" __global__ void exact_filter_mask(FilterPredicates predicates,
     }
 }
 
+// The host only uses this entry point when every comparison belongs to one field/type.
+// Count the ballots already needed for the bitmap, rather than computing unused row prefixes.
+template <typename T>
+__device__ __forceinline__ void filter_typed_mask(const FilterPredicates &predicates,
+                                                  uint32_t num_predicates,
+                                                  uint64_t len,
+                                                  uint32_t *words,
+                                                  uint64_t *tile_counts) {
+    __shared__ uint32_t warp_counts[FILTER_THREADS / 32];
+    const auto *input = reinterpret_cast<const T *>(predicates.comparisons[0].input);
+    const uint64_t tile_start = static_cast<uint64_t>(blockIdx.x) * FILTER_TILE_ROWS;
+    const uint32_t lane = threadIdx.x % 32;
+    uint32_t count = 0;
+    for (uint32_t offset = threadIdx.x; offset < FILTER_TILE_ROWS; offset += FILTER_THREADS) {
+        const uint64_t row = tile_start + offset;
+        bool keep = row < len;
+        if (keep) {
+            const T value = input[row];
+            for (uint32_t index = 0; index < num_predicates; ++index) {
+                const FilterComparison &comparison = predicates.comparisons[index];
+                keep = keep && filter_compare(value, filter_literal<T>(comparison.literal), comparison.op);
+            }
+        }
+        const uint32_t bits = __ballot_sync(0xffffffff, keep);
+        if (lane == 0) {
+            if (row < len) {
+                words[row / 32] = bits;
+            }
+            count += __popc(bits);
+        }
+    }
+    if (lane == 0) {
+        warp_counts[threadIdx.x / 32] = count;
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        // A tile has at most 2048 rows; global counts and prefixes remain u64.
+        uint32_t total = 0;
+        for (uint32_t warp = 0; warp < FILTER_THREADS / 32; ++warp) {
+            total += warp_counts[warp];
+        }
+        tile_counts[blockIdx.x] = total;
+    }
+}
+
+#define GENERATE_TYPED_FILTER_MASK(suffix, Type)                                                             \
+    extern "C" __global__ void exact_filter_mask_##suffix(FilterPredicates predicates,                       \
+                                                          uint32_t num_predicates,                           \
+                                                          uint64_t len,                                      \
+                                                          uint32_t *__restrict words,                        \
+                                                          uint64_t *__restrict tile_counts) {                \
+        filter_typed_mask<Type>(predicates, num_predicates, len, words, tile_counts);                        \
+    }
+
+GENERATE_TYPED_FILTER_MASK(u8, uint8_t)
+GENERATE_TYPED_FILTER_MASK(u16, uint16_t)
+GENERATE_TYPED_FILTER_MASK(u32, uint32_t)
+GENERATE_TYPED_FILTER_MASK(u64, uint64_t)
+GENERATE_TYPED_FILTER_MASK(i8, int8_t)
+GENERATE_TYPED_FILTER_MASK(i16, int16_t)
+GENERATE_TYPED_FILTER_MASK(i32, int32_t)
+GENERATE_TYPED_FILTER_MASK(i64, int64_t)
+GENERATE_TYPED_FILTER_MASK(f32, float)
+GENERATE_TYPED_FILTER_MASK(f64, double)
+#undef GENERATE_TYPED_FILTER_MASK
+
 // Scan groups of 256 tile counts. When there is more than one group, a second
 // invocation scans the group totals. The scatter adds both levels of prefixes.
 extern "C" __global__ void exact_filter_prefix(const uint64_t *__restrict counts,

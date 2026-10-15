@@ -13,6 +13,9 @@
 //! fall back to per-column CUB selection. `VORTEX_CUDA_EXACT_FILTER_IMPL=cub` forces the
 //! baseline for comparison; `shared` explicitly selects the default. Both paths preserve
 //! the consumer's final filter and the existing scan/export copy sizes.
+//! Single-field conjunctions use typed, ballot-count masks by default.
+//! `VORTEX_CUDA_TYPED_FILTER=0` restores the generic mask; all other values retain the default.
+//! The CUB override takes precedence over this setting.
 
 use std::env;
 use std::ffi::c_void;
@@ -77,18 +80,27 @@ const FILTER_MAX_PREDICATES: usize = 16;
 const FILTER_MAX_COLUMNS: usize = 32;
 const FILTER_MAX_TILES: usize = FILTER_THREADS * FILTER_THREADS;
 
-/// Shared selection is the default; CUB remains available for comparison and fallback.
+/// Shared selection with typed single-group masks is the default; CUB remains a control/fallback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SelectionImpl {
     Cub,
     Shared,
+    SharedTyped,
 }
 
 impl SelectionImpl {
     fn from_env() -> Self {
-        match env::var("VORTEX_CUDA_EXACT_FILTER_IMPL").as_deref() {
-            Ok("cub") => Self::Cub,
-            _ => Self::Shared,
+        Self::from_settings(
+            env::var("VORTEX_CUDA_EXACT_FILTER_IMPL").ok().as_deref(),
+            env::var("VORTEX_CUDA_TYPED_FILTER").ok().as_deref(),
+        )
+    }
+
+    fn from_settings(implementation: Option<&str>, typed_filter: Option<&str>) -> Self {
+        match (implementation, typed_filter) {
+            (Some("cub"), _) => Self::Cub,
+            (_, Some("0")) => Self::Shared,
+            _ => Self::SharedTyped,
         }
     }
 }
@@ -308,7 +320,7 @@ async fn select_batch(
     };
 
     let fused =
-        implementation == SelectionImpl::Shared && supports_fused_filter(len, comparisons.len());
+        implementation != SelectionImpl::Cub && supports_fused_filter(len, comparisons.len());
     let mut fused_inputs = Vec::new();
     let mut words: Option<CudaSlice<u32>> = None;
     for comparison in comparisons {
@@ -333,7 +345,13 @@ async fn select_batch(
         launch_compare(values, len, comparison, target, combine, ctx).await?;
     }
     let mask = if !fused_inputs.is_empty() {
-        fused_selection_mask(fused_inputs, len, ctx).await?
+        fused_selection_mask(
+            fused_inputs,
+            len,
+            implementation == SelectionImpl::SharedTyped,
+            ctx,
+        )
+        .await?
     } else if let Some(words) = words {
         let selected = count_selected(&words, ctx).await?;
         SelectionMask {
@@ -361,7 +379,7 @@ async fn select_batch(
     {
         return whole(decoded.into_iter().map(Canonical::into_array).collect());
     }
-    let selected_fields = if implementation == SelectionImpl::Shared
+    let selected_fields = if implementation != SelectionImpl::Cub
         && mask.tile_offsets.is_some()
         && decoded.len() <= FILTER_MAX_COLUMNS
     {
@@ -469,6 +487,7 @@ fn comparison_descriptor(comparison: &FieldComparison) -> VortexResult<FilterCom
 async fn fused_selection_mask(
     mut comparisons: Vec<(PrimitiveArray, &FieldComparison)>,
     len: usize,
+    typed_mask: bool,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<SelectionMask> {
     if !supports_fused_filter(len, comparisons.len()) {
@@ -525,7 +544,13 @@ async fn fused_selection_mask(
     let tiles = len.div_ceil(FILTER_TILE_ROWS);
     let mut words = ctx.device_alloc::<u32>(len.div_ceil(32))?;
     let mut counts = ctx.device_alloc::<u64>(tiles)?;
-    let function = ctx.load_function_with_suffixes("exact_filter", &["mask"])?;
+    let function = if typed_mask && predicates.group_ends[0] == num_predicates {
+        // Group construction guarantees one primitive type and one tracked input pointer.
+        let ptype = comparisons[0].1.ptype.to_string();
+        ctx.load_function_with_suffixes("exact_filter", &["mask", &ptype])?
+    } else {
+        ctx.load_function_with_suffixes("exact_filter", &["mask"])?
+    };
     let len_u64 = u64::try_from(len)?;
     ctx.launch_kernel_config(&function, filter_launch_config(tiles)?, len, |args| {
         args.arg(&predicates)
@@ -920,12 +945,16 @@ mod tests {
     }
 
     /// Dates compare on their day-count storage.
+    #[rstest]
     #[crate::test]
-    async fn dates_compare_on_storage() -> VortexResult<()> {
+    async fn dates_compare_on_storage(
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
         let days = PrimitiveArray::from_iter(0i32..5000).into_array();
         let date = TemporalArray::new_date(days, TimeUnit::Days).into_array();
         let batch = StructArray::from_fields(&[("d", date)])?.into_array();
-        let selected = select(batch, gt_eq(col("d"), lit(4500i32))).await?;
+        let selected =
+            select_with_impl(batch, gt_eq(col("d"), lit(4500i32)), implementation).await?;
         assert_eq!(selected.len(), 500);
         Ok(())
     }
@@ -950,6 +979,29 @@ mod tests {
         let columns = lt(col("x"), col("y"));
         assert!(field_comparisons(&columns, &dtype)?.is_empty());
         Ok(())
+    }
+
+    #[rstest]
+    #[case(None, None, SelectionImpl::SharedTyped)]
+    #[case(None, Some("0"), SelectionImpl::Shared)]
+    #[case(None, Some("true"), SelectionImpl::SharedTyped)]
+    #[case(None, Some(""), SelectionImpl::SharedTyped)]
+    #[case(None, Some("1"), SelectionImpl::SharedTyped)]
+    #[case(Some("shared"), None, SelectionImpl::SharedTyped)]
+    #[case(Some("shared"), Some("0"), SelectionImpl::Shared)]
+    #[case(Some("shared"), Some("1"), SelectionImpl::SharedTyped)]
+    #[case(Some("cub"), None, SelectionImpl::Cub)]
+    #[case(Some("cub"), Some("0"), SelectionImpl::Cub)]
+    #[case(Some("cub"), Some("1"), SelectionImpl::Cub)]
+    fn test_selection_settings(
+        #[case] implementation: Option<&str>,
+        #[case] typed_filter: Option<&str>,
+        #[case] expected: SelectionImpl,
+    ) {
+        assert_eq!(
+            SelectionImpl::from_settings(implementation, typed_filter),
+            expected
+        );
     }
 
     #[test]
@@ -1074,7 +1126,8 @@ mod tests {
     #[crate::test]
     async fn test_multi_column_widths_and_prefix_boundaries(
         #[case] len: i32,
-        #[values(SelectionImpl::Cub, SelectionImpl::Shared)] implementation: SelectionImpl,
+        #[values(SelectionImpl::Cub, SelectionImpl::Shared, SelectionImpl::SharedTyped)]
+        implementation: SelectionImpl,
     ) -> VortexResult<()> {
         let batch = mixed_batch(len)?;
         let expected = batch.filter(Mask::from_iter((0..len).map(|row| row % 7 == 6)))?;
@@ -1102,7 +1155,8 @@ mod tests {
     async fn test_empty_half_and_dense_masks(
         #[case] cutoff: i32,
         #[case] expected_len: usize,
-        #[values(SelectionImpl::Cub, SelectionImpl::Shared)] implementation: SelectionImpl,
+        #[values(SelectionImpl::Cub, SelectionImpl::Shared, SelectionImpl::SharedTyped)]
+        implementation: SelectionImpl,
     ) -> VortexResult<()> {
         let batch = batch()?;
         let expected = batch.slice(0..expected_len)?;
@@ -1126,7 +1180,10 @@ mod tests {
     #[case(PType::F32)]
     #[case(PType::F64)]
     #[crate::test]
-    async fn test_fused_comparison_types_and_operators(#[case] ptype: PType) -> VortexResult<()> {
+    async fn test_fused_comparison_types_and_operators(
+        #[case] ptype: PType,
+        #[values(false, true)] typed_mask: bool,
+    ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
         for operator in [
             CompareOp::Eq,
@@ -1165,7 +1222,8 @@ mod tests {
                 literal,
                 ptype,
             };
-            let mask = fused_selection_mask(vec![(values, &comparison)], 4, &mut ctx).await?;
+            let mask =
+                fused_selection_mask(vec![(values, &comparison)], 4, typed_mask, &mut ctx).await?;
             let words = ctx
                 .stream()
                 .clone_dtoh(&mask.words)
@@ -1176,10 +1234,151 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case(PType::I8, i64::from(i8::MIN), i64::from(i8::MAX))]
+    #[case(PType::I16, i64::from(i16::MIN), i64::from(i16::MAX))]
+    #[case(PType::I32, i64::from(i32::MIN), i64::from(i32::MAX))]
+    #[case(PType::I64, i64::MIN, i64::MAX)]
+    #[crate::test]
+    async fn test_signed_literal_reconstruction_all_operators(
+        #[case] ptype: PType,
+        #[case] min: i64,
+        #[case] max: i64,
+        #[values(false, true)] typed_mask: bool,
+    ) -> VortexResult<()> {
+        // The oracle compares original signed CPU values, not serialized descriptor bits.
+        let values = [min, min + 1, -3, -2, -1, 0, 1, 2, max - 1, max];
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        for literal in [min, min + 1, -2, -1, 0, 1, max - 1, max] {
+            macro_rules! narrow_input {
+                ($T:ty) => {
+                    (
+                        PrimitiveArray::from_iter(values.map(|value| {
+                            <$T>::try_from(value).vortex_expect("test value fits signed type")
+                        })),
+                        Scalar::from(
+                            <$T>::try_from(literal).vortex_expect("test literal fits signed type"),
+                        ),
+                    )
+                };
+            }
+            let (input, scalar) = match ptype {
+                PType::I8 => narrow_input!(i8),
+                PType::I16 => narrow_input!(i16),
+                PType::I32 => narrow_input!(i32),
+                PType::I64 => (PrimitiveArray::from_iter(values), Scalar::from(literal)),
+                _ => unreachable!("signed integer cases only"),
+            };
+            for operator in [
+                CompareOp::Eq,
+                CompareOp::NotEq,
+                CompareOp::Gt,
+                CompareOp::Gte,
+                CompareOp::Lt,
+                CompareOp::Lte,
+            ] {
+                let expected = values
+                    .iter()
+                    .enumerate()
+                    .fold(0u32, |word, (index, &value)| {
+                        let keep = match operator {
+                            CompareOp::Eq => value == literal,
+                            CompareOp::NotEq => value != literal,
+                            CompareOp::Gt => value > literal,
+                            CompareOp::Gte => value >= literal,
+                            CompareOp::Lt => value < literal,
+                            CompareOp::Lte => value <= literal,
+                        };
+                        word | (u32::from(keep) << index)
+                    });
+                let comparison = FieldComparison {
+                    field: "x".into(),
+                    operator,
+                    literal: scalar.clone(),
+                    ptype,
+                };
+                let mask = fused_selection_mask(
+                    vec![(input.clone(), &comparison)],
+                    values.len(),
+                    typed_mask,
+                    &mut ctx,
+                )
+                .await?;
+                let words = ctx
+                    .stream()
+                    .clone_dtoh(&mask.words)
+                    .map_err(|error| vortex_err!("Failed to read selection mask: {error}"))?;
+                assert_eq!(
+                    words,
+                    vec![expected],
+                    "{ptype} {operator:?} {literal}, typed={typed_mask}"
+                );
+                assert_eq!(
+                    mask.selected,
+                    expected.count_ones() as usize,
+                    "{ptype} {operator:?} {literal}, typed={typed_mask}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[crate::test]
+    async fn test_single_group_comparison_counts(
+        #[values(false, true)] typed_mask: bool,
+    ) -> VortexResult<()> {
+        let values = PrimitiveArray::from_iter(0i32..4099);
+        let len = values.len();
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        for count in 1..=FILTER_MAX_PREDICATES {
+            let comparisons: Vec<_> = (0..count)
+                .map(|index| {
+                    let (operator, literal) = match index % 3 {
+                        0 => (CompareOp::Gte, 123i32),
+                        1 => (CompareOp::Lt, 333i32),
+                        _ => (CompareOp::NotEq, 200i32),
+                    };
+                    FieldComparison {
+                        field: "x".into(),
+                        operator,
+                        literal: Scalar::from(literal),
+                        ptype: PType::I32,
+                    }
+                })
+                .collect();
+            let inputs = comparisons
+                .iter()
+                .map(|comparison| (values.clone(), comparison))
+                .collect();
+            let mask = fused_selection_mask(inputs, len, typed_mask, &mut ctx).await?;
+            let mut expected = vec![0u32; len.div_ceil(32)];
+            for row in 0..len {
+                if row >= 123 && (count < 2 || row < 333) && (count < 3 || row != 200) {
+                    expected[row / 32] |= 1u32 << (row % 32);
+                }
+            }
+            let words = ctx
+                .stream()
+                .clone_dtoh(&mask.words)
+                .map_err(|error| vortex_err!("Failed to read selection mask: {error}"))?;
+            assert_eq!(words, expected, "comparison count {count}");
+            assert_eq!(
+                mask.selected,
+                expected
+                    .iter()
+                    .map(|word| word.count_ones() as usize)
+                    .sum::<usize>()
+            );
+        }
+        Ok(())
+    }
+
     /// Interleaved predicates must form complete groups even at the descriptor capacity.
     #[rstest]
     #[case(SelectionImpl::Cub)]
     #[case(SelectionImpl::Shared)]
+    #[case(SelectionImpl::SharedTyped)]
     #[crate::test]
     async fn test_repeated_fields_at_predicate_capacity(
         #[case] implementation: SelectionImpl,
@@ -1217,6 +1416,7 @@ mod tests {
     #[crate::test]
     async fn test_float_mask_all_operators_and_ambiguous_literals(
         #[case] ptype: PType,
+        #[values(false, true)] typed_mask: bool,
     ) -> VortexResult<()> {
         // All values (including the subnormal) are represented exactly by both float widths.
         let values = [
@@ -1289,6 +1489,7 @@ mod tests {
                 let mask = fused_selection_mask(
                     vec![(input.clone(), &comparison)],
                     values.len(),
+                    typed_mask,
                     &mut ctx,
                 )
                 .await?;
@@ -1319,8 +1520,11 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[crate::test]
-    async fn test_device_slice_offsets_and_cross_stream_lifetimes() -> VortexResult<()> {
+    async fn test_device_slice_offsets_and_cross_stream_lifetimes(
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
         let session = cuda_session();
         let producer = CudaSession::create_execution_ctx(&session)?;
         let x = producer
@@ -1345,8 +1549,7 @@ mod tests {
         let filter = and(gt_eq(col("x"), lit(1000i32)), lt(col("x"), lit(1100i32)));
         let comparisons = field_comparisons(&filter, batch.dtype())?;
         let mut consumer = CudaSession::create_execution_ctx(&session)?;
-        let selected =
-            select_batch(batch, &comparisons, SelectionImpl::Shared, &mut consumer).await?;
+        let selected = select_batch(batch, &comparisons, implementation, &mut consumer).await?;
         // Drop both contexts and all source handles before a third stream consumes outputs.
         drop((producer, consumer));
         let mut reader = CudaSession::create_execution_ctx(&session)?;
@@ -1374,14 +1577,17 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[crate::test]
-    async fn test_nullable_columns_keep_whole_batch() -> VortexResult<()> {
+    async fn test_nullable_columns_keep_whole_batch(
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
         let x = PrimitiveArray::from_iter(0i32..100).into_array();
         let y = PrimitiveArray::from_option_iter((0i32..100).map(|row| (row != 50).then_some(row)))
             .into_array();
         let batch = StructArray::from_fields(&[("x", x), ("y", y)])?.into_array();
         for filter in [lt(col("x"), lit(5i32)), lt(col("y"), lit(5i32))] {
-            let selected = select(batch.clone(), filter).await?;
+            let selected = select_with_impl(batch.clone(), filter, implementation).await?;
             let mut ctx = VortexSession::empty()
                 .with::<ArraySession>()
                 .create_execution_ctx();
@@ -1393,6 +1599,7 @@ mod tests {
     #[rstest]
     #[case(SelectionImpl::Cub)]
     #[case(SelectionImpl::Shared)]
+    #[case(SelectionImpl::SharedTyped)]
     #[crate::test]
     async fn test_float_ambiguities_preserve_cpu_superset(
         #[case] implementation: SelectionImpl,
@@ -1410,14 +1617,17 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[crate::test]
-    async fn test_predicate_capacity_falls_back_to_cub() -> VortexResult<()> {
+    async fn test_predicate_capacity_falls_back_to_cub(
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
         let batch = batch()?;
         let expected = batch.slice(0..100)?;
         let comparison = field_comparisons(&lt(col("x"), lit(100i32)), batch.dtype())?;
         let comparisons = vec![comparison[0].clone(); FILTER_MAX_PREDICATES + 1];
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
-        let selected = select_batch(batch, &comparisons, SelectionImpl::Shared, &mut ctx).await?;
+        let selected = select_batch(batch, &comparisons, implementation, &mut ctx).await?;
         let selected = selected
             .execute_cuda(&mut ctx)
             .await?
@@ -1439,13 +1649,15 @@ mod tests {
         #[case] len: i32,
         #[case] start: i32,
         #[case] end: i32,
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
     ) -> VortexResult<()> {
         let rows = PrimitiveArray::from_iter(0..len).into_array();
         let batch = StructArray::from_fields(&[("x", rows)])?.into_array();
         let expected = batch.slice(usize::try_from(start)?..usize::try_from(end)?)?;
-        let selected = select(
+        let selected = select_with_impl(
             batch,
             and(gt_eq(col("x"), lit(start)), lt(col("x"), lit(end))),
+            implementation,
         )
         .await?;
         let mut ctx = VortexSession::empty()
@@ -1455,15 +1667,18 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[crate::test]
-    async fn test_wide_projection_falls_back_to_cub() -> VortexResult<()> {
+    async fn test_wide_projection_falls_back_to_cub(
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
         let rows = PrimitiveArray::from_iter(0i32..100).into_array();
         let fields: Vec<_> = (0..=FILTER_MAX_COLUMNS)
             .map(|index| (format!("c{index}"), rows.clone()))
             .collect();
         let batch = StructArray::from_fields(&fields)?.into_array();
         let expected = batch.slice(0..5)?;
-        let selected = select(batch, lt(col("c0"), lit(5i32))).await?;
+        let selected = select_with_impl(batch, lt(col("c0"), lit(5i32)), implementation).await?;
         let mut ctx = VortexSession::empty()
             .with::<ArraySession>()
             .create_execution_ctx();
@@ -1471,8 +1686,11 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[crate::test]
-    async fn test_missing_and_unsupported_conjuncts_preserve_superset() -> VortexResult<()> {
+    async fn test_missing_and_unsupported_conjuncts_preserve_superset(
+        #[values(SelectionImpl::Shared, SelectionImpl::SharedTyped)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
         let batch = batch()?;
         let filter = and(
             lt(col("x"), lit(100i32)),
@@ -1485,7 +1703,7 @@ mod tests {
         comparisons.insert(0, missing);
         let expected = batch.slice(0..100)?;
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
-        let selected = select_batch(batch, &comparisons, SelectionImpl::Shared, &mut ctx).await?;
+        let selected = select_batch(batch, &comparisons, implementation, &mut ctx).await?;
         let selected = selected
             .execute_cuda(&mut ctx)
             .await?
