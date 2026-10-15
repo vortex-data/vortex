@@ -14,15 +14,19 @@ use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::array::validity::Validity;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -31,10 +35,11 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 
-/// CUDA executor for constant arrays with numeric types.
+/// CUDA executor for constant arrays with numeric, string, or binary types.
 ///
 /// Materializes a constant array by filling a device buffer with the scalar value.
-/// Supports primitive types (integers, floats) and decimal types (i128, i256).
+/// Supports primitive types (integers, floats), decimal types (i128, i256), and strings or
+/// binaries, whose views all repeat one view.
 #[derive(Debug)]
 pub(crate) struct ConstantNumericExecutor;
 
@@ -75,8 +80,18 @@ impl CudaExecute for ConstantNumericExecutor {
                     materialize_constant_decimal::<D>(array, decimal_dtype, validity, ctx).await
                 })
             }
+            DType::Utf8(nullability) => {
+                let value = array.scalar().as_utf8().value().cloned();
+                let value = value.ok_or_else(|| vortex_err!("Expected non-null utf8 scalar"))?;
+                materialize_constant_varbinview(&array, value.as_bytes(), *nullability, ctx).await
+            }
+            DType::Binary(nullability) => {
+                let value = array.scalar().as_binary().value().cloned();
+                let value = value.ok_or_else(|| vortex_err!("Expected non-null binary scalar"))?;
+                materialize_constant_varbinview(&array, value.as_slice(), *nullability, ctx).await
+            }
             dt => vortex_bail!(
-                "CUDA constant array only supports numeric types, got {:?}",
+                "CUDA constant array only supports numeric, string, or binary types, got {:?}",
                 dt
             ),
         }
@@ -127,6 +142,45 @@ where
         buffer_handle,
         P::PTYPE,
         validity,
+    )))
+}
+
+/// Fills device views with the scalar's view so that constant string chunks stay on the device.
+///
+/// Expanding them on the host instead uploads 16 bytes per row, which dominates scans of sorted
+/// data, where low-cardinality string columns are constant per chunk.
+async fn materialize_constant_varbinview(
+    array: &ConstantArray,
+    value: &[u8],
+    nullability: Nullability,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    let array_len = array.len();
+    if array_len == 0 {
+        return Ok(Canonical::empty(array.dtype()));
+    }
+    // Values longer than a view's inline capacity are referenced at offset zero of one buffer.
+    let buffers: Arc<[BufferHandle]> = if value.len() > BinaryView::MAX_INLINED_SIZE {
+        let data = BufferHandle::new_host(ByteBuffer::copy_from(value));
+        Arc::new([ctx.ensure_on_device(data).await?])
+    } else {
+        Arc::new([])
+    };
+    // The kernel fills raw 16-byte values; a view's u128 bits are its little-endian bytes.
+    let view = BinaryView::make_view(value, 0, 0).as_u128().cast_signed();
+    let mut views = ctx.device_alloc::<i128>(array_len)?;
+    let cuda_function = ctx.load_function_with_suffixes("constant_numeric", &["i128"])?;
+    let array_len_u64 = array_len as u64;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&mut views);
+        args.arg(&view);
+        args.arg(&array_len_u64);
+    })?;
+    let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(views)));
+    let dtype = array.dtype().clone();
+    let validity: Validity = nullability.into();
+    Ok(Canonical::VarBinView(VarBinViewArray::new_handle(
+        views, buffers, dtype, validity,
     )))
 }
 
@@ -220,6 +274,39 @@ mod tests {
     #[case::f64(make_constant_array(4.56789f64, 2050))]
     #[crate::test]
     async fn test_cuda_constant_materialization(
+        #[case] constant_array: ConstantArray,
+    ) -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let gpu_result = ConstantNumericExecutor
+            .execute(constant_array.clone().into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU materialization failed")
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(constant_array, gpu_result, &mut ctx);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::inlined_utf8(ConstantArray::new("R", 2050))]
+    #[case::referenced_utf8(ConstantArray::new("a value longer than twelve bytes", 2050))]
+    #[case::empty_utf8(ConstantArray::new("", 3))]
+    #[case::referenced_binary(ConstantArray::new(
+        Scalar::binary(
+            ByteBuffer::copy_from(b"binary value over twelve bytes"),
+            Nullability::NonNullable
+        ),
+        100
+    ))]
+    #[case::no_rows(ConstantArray::new("R", 0))]
+    #[crate::test]
+    async fn test_cuda_constant_varbinview_materialization(
         #[case] constant_array: ConstantArray,
     ) -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();

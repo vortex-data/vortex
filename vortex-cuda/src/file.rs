@@ -6,7 +6,16 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use itertools::Itertools;
+use roaring::RoaringTreemap;
 use vortex::array::ArrayRef;
+use vortex::array::expr::Expression;
+use vortex::array::expr::lit;
+use vortex::array::scalar_fn::fns::binary::Binary;
+use vortex::array::scalar_fn::fns::literal::Literal;
+use vortex::array::scalar_fn::fns::operators::Operator;
+use vortex::dtype::DType;
+use vortex::dtype::FieldMask;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::file::VortexFile;
@@ -19,9 +28,13 @@ use vortex::layout::LayoutReaderRef;
 use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::SegmentFuture;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
+use vortex::mask::AllOr;
+use vortex::mask::Mask;
+use vortex::scan::selection::Selection;
 
 use crate::CudaSessionExt;
 use crate::DictionaryExport;
@@ -51,24 +64,131 @@ impl CudaFileScanExt for VortexFile {
         &self,
         dictionary_export: DictionaryExport,
     ) -> VortexResult<ScanBuilder<ArrayRef>> {
-        let ctx = LayoutReaderContext::new()
-            .with(*CUDA_SCAN_DICTIONARY_EXPORT, Arc::new(dictionary_export));
-        let reader = self.footer().layout().new_reader(
-            "".into(),
-            self.segment_source(),
-            self.session(),
-            &ctx,
-        )?;
-        let reader: LayoutReaderRef = if let Some(stats) = self.footer().statistics().cloned() {
-            Arc::new(FileStatsLayoutReader::new(
-                reader,
-                stats,
-                self.session().clone(),
+        Ok(ScanBuilder::new(
+            self.session().clone(),
+            cuda_reader(self, dictionary_export)?,
+        ))
+    }
+}
+
+fn cuda_reader(
+    file: &VortexFile,
+    dictionary_export: DictionaryExport,
+) -> VortexResult<LayoutReaderRef> {
+    let ctx =
+        LayoutReaderContext::new().with(*CUDA_SCAN_DICTIONARY_EXPORT, Arc::new(dictionary_export));
+    let reader = file.footer().layout().new_reader(
+        "".into(),
+        file.segment_source(),
+        file.session(),
+        &ctx,
+    )?;
+    Ok(if let Some(stats) = file.footer().statistics().cloned() {
+        Arc::new(FileStatsLayoutReader::new(
+            reader,
+            stats,
+            file.session().clone(),
+        ))
+    } else {
+        reader
+    })
+}
+
+/// Like [`CudaFileScanExt::scan_cuda`], skipping zones whose statistics prove `filter` false.
+///
+/// Only zone and file statistics are consulted, before any data is read, so pruned zones cost
+/// no I/O or upload. Kept zones are returned whole and may contain rows that fail `filter`:
+/// callers must still filter rows exactly. Comparison literals are cast to the type of the other
+/// operand, so dates may be given as their integer storage.
+pub async fn scan_cuda_pruned(
+    file: &VortexFile,
+    dictionary_export: DictionaryExport,
+    filter: &Expression,
+) -> VortexResult<ScanBuilder<ArrayRef>> {
+    let reader = cuda_reader(file, dictionary_export)?;
+    let scan = ScanBuilder::new(file.session().clone(), Arc::clone(&reader));
+    let filter = coerce_comparison_literals(filter.clone(), file.dtype())?;
+    let filter = filter.bind(file.dtype())?.optimize()?;
+    let rows = reader.row_count();
+    // Evaluate split by split: zones align with layout splits, so each split resolves to an
+    // all-pruned or all-kept mask without per-row buffers.
+    let splits = SplitBy::Layout.splits(reader.as_ref(), &(0..rows), &[FieldMask::All])?;
+    let evaluations = splits
+        .iter()
+        .tuple_windows()
+        .map(|(&start, &end)| {
+            let mask = Mask::new_true(usize::try_from(end - start)?);
+            Ok((
+                start,
+                reader.pruning_evaluation(&(start..end), &filter, mask)?,
             ))
-        } else {
-            reader
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let mut pruned = RoaringTreemap::new();
+    for (start, evaluation) in evaluations {
+        let kept = evaluation.await?;
+        let end = start + kept.len() as u64;
+        match kept.slices() {
+            AllOr::All => {}
+            AllOr::None => {
+                pruned.insert_range(start..end);
+            }
+            AllOr::Some(slices) => {
+                let mut next = start;
+                for &(slice_start, slice_end) in slices {
+                    pruned.insert_range(next..start + slice_start as u64);
+                    next = start + slice_end as u64;
+                }
+                pruned.insert_range(next..end);
+            }
+        }
+    }
+    if pruned.is_empty() {
+        return Ok(scan);
+    }
+    Ok(scan.with_selection(Selection::ExcludeRoaring(pruned)))
+}
+
+/// Cast each comparison literal to the type of the other operand.
+fn coerce_comparison_literals(expr: Expression, scope: &DType) -> VortexResult<Expression> {
+    let children = expr
+        .children()
+        .iter()
+        .map(|child| coerce_comparison_literals(child.clone(), scope))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let expr = if children.is_empty() {
+        expr
+    } else {
+        expr.with_children(children)?
+    };
+    if !expr.as_opt::<Binary>().is_some_and(|op| {
+        matches!(
+            op,
+            Operator::Eq
+                | Operator::NotEq
+                | Operator::Gt
+                | Operator::Gte
+                | Operator::Lt
+                | Operator::Lte
+        )
+    }) {
+        return Ok(expr);
+    }
+    let cast = |literal: &Expression, other: &Expression| -> VortexResult<Option<Expression>> {
+        let (Some(scalar), None) = (literal.as_opt::<Literal>(), other.as_opt::<Literal>()) else {
+            return Ok(None);
         };
-        Ok(ScanBuilder::new(self.session().clone(), reader))
+        let target = other.return_dtype(scope)?;
+        if scalar.dtype().eq_ignore_nullability(&target) {
+            return Ok(None);
+        }
+        Ok(Some(lit(scalar.cast(&target)?)))
+    };
+    let (lhs, rhs) = (expr.child(0).clone(), expr.child(1).clone());
+    match (cast(&lhs, &rhs)?, cast(&rhs, &lhs)?) {
+        (Some(lhs), _) => expr.with_children([lhs, rhs]),
+        (_, Some(rhs)) => expr.with_children([lhs, rhs]),
+        (None, None) => Ok(expr),
     }
 }
 
@@ -304,6 +424,120 @@ mod tests {
         let control_segments = control_plane_segments(layout.as_ref(), 2)?;
 
         assert_eq!(control_segments, [false, true]);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pruning_tests {
+    use futures::TryStreamExt;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::TemporalArray;
+    use vortex::array::expr::and;
+    use vortex::array::expr::col;
+    use vortex::array::expr::gt_eq;
+    use vortex::array::expr::lt;
+    use vortex::array::extension::datetime::TimeUnit;
+    use vortex::array::scalar::Scalar;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::error::VortexExpect;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::io::runtime::BlockingRuntime;
+    use vortex::io::runtime::current::CurrentThreadRuntime;
+    use vortex::layout::scan::split_by::SplitBy;
+    use vortex::session::VortexSession;
+
+    use super::*;
+    use crate::layout::cuda_write_strategy;
+
+    const ZONE_ROWS: usize = 1000;
+
+    /// Scans a file of `x = 0..10_000` written in 1,000-row zones and returns the batch lengths
+    /// and first values, so the test can tell exactly which zones were read.
+    fn scan_zones(filter: Expression) -> VortexResult<Vec<(usize, i32)>> {
+        let x = PrimitiveArray::from_iter(0i32..10_000).into_array();
+        scan_column_zones(x, filter)?
+            .into_iter()
+            .map(|(len, first)| Ok((len, i32::try_from(&first)?)))
+            .collect()
+    }
+
+    fn scan_column_zones(x: ArrayRef, filter: Expression) -> VortexResult<Vec<(usize, Scalar)>> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            let input = StructArray::from_fields(&[("x", x)])?.into_array();
+            let mut buffer = ByteBufferMut::empty();
+            session
+                .write_options()
+                .with_strategy(cuda_write_strategy(&session, ZONE_ROWS))
+                .write(&mut buffer, input.to_array_stream())
+                .await?;
+            let file = session.open_options().open_buffer(buffer.freeze())?;
+            let batches: Vec<ArrayRef> = scan_cuda_pruned(&file, DictionaryExport::Decode, &filter)
+                .await?
+                .with_split_by(SplitBy::Layout)
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            let mut ctx = session.create_execution_ctx();
+            batches
+                .into_iter()
+                .map(|batch| {
+                    let first = batch
+                        .execute_scalar(0, &mut ctx)?
+                        .as_struct()
+                        .field_by_idx(0)
+                        .vortex_expect("x");
+                    Ok((batch.len(), first))
+                })
+                .collect::<VortexResult<Vec<_>>>()
+        })
+    }
+
+    /// Only zones overlapping the filter range are read; an `i64` literal is cast to the `i32`
+    /// column for pruning.
+    #[test]
+    fn pruned_scan_reads_only_overlapping_zones() -> VortexResult<()> {
+        let filter = and(gt_eq(col("x"), lit(2500i64)), lt(col("x"), lit(4500i64)));
+        assert_eq!(
+            scan_zones(filter)?,
+            [(1000, 2000), (1000, 3000), (1000, 4000)]
+        );
+        Ok(())
+    }
+
+    /// Dates prune on their day-count storage; the `i32` literals are cast to the date type.
+    #[test]
+    fn pruned_scan_prunes_date_zones() -> VortexResult<()> {
+        let days = PrimitiveArray::from_iter(0i32..10_000).into_array();
+        let dates = TemporalArray::new_date(days, TimeUnit::Days).into_array();
+        let filter = and(gt_eq(col("x"), lit(2500i32)), lt(col("x"), lit(4500i32)));
+        let lengths: Vec<_> = scan_column_zones(dates, filter)?
+            .into_iter()
+            .map(|(len, _)| len)
+            .collect();
+        assert_eq!(lengths, [1000, 1000, 1000]);
+        Ok(())
+    }
+
+    #[test]
+    fn pruned_scan_keeps_everything_when_stats_cannot_prune() -> VortexResult<()> {
+        let zones = scan_zones(gt_eq(col("x"), lit(0i32)))?;
+        assert_eq!(zones.len(), 10);
+        assert!(zones.iter().all(|&(len, _)| len == ZONE_ROWS));
+        Ok(())
+    }
+
+    #[test]
+    fn pruned_scan_reads_nothing_when_every_zone_is_pruned() -> VortexResult<()> {
+        assert!(scan_zones(lt(col("x"), lit(0i32)))?.is_empty());
         Ok(())
     }
 }

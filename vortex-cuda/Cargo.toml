@@ -33,6 +33,7 @@ num-traits = { workspace = true }
 object_store = { workspace = true, features = ["fs"] }
 parking_lot = { workspace = true }
 prost = { workspace = true }
+roaring = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["zstd"] }

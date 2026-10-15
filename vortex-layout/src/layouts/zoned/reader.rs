@@ -190,12 +190,21 @@ impl LayoutReader for ZonedReader {
 
             let pruning_mask = pruning_mask_future.await?.mask()?;
 
-            let mut builder = BitBufferMut::with_capacity(mask.len());
-            for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
-                builder.append_n(!pruning_mask.value(usize::try_from(zone_idx)?), zone_length);
-            }
-
-            let stats_mask = Mask::from(builder.freeze());
+            let pruned = zone_range
+                .clone()
+                .map(|zone_idx| Ok(pruning_mask.value(usize::try_from(zone_idx)?)))
+                .collect::<VortexResult<Vec<_>>>()?;
+            // A range whose zones are all pruned or all kept needs no per-row buffer. Callers that
+            // evaluate one zone at a time then prune without per-row work.
+            let stats_mask = if pruned.iter().all_equal() {
+                Mask::new(mask.len(), !pruned.first().copied().unwrap_or(false))
+            } else {
+                let mut builder = BitBufferMut::with_capacity(mask.len());
+                for (&zone_pruned, &zone_length) in pruned.iter().zip_eq(&zone_lengths) {
+                    builder.append_n(!zone_pruned, zone_length);
+                }
+                Mask::from(builder.freeze())
+            };
             assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
             // Intersect the masks.

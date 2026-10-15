@@ -43,6 +43,21 @@ box_wrapper!(
     vx_expression
 );
 
+/// Borrow the [`Expression`] behind a [`vx_expression`] handle, erroring on a null pointer.
+///
+/// A building block for FFI crates layered on top of the base Vortex C API.
+///
+/// # Safety
+///
+/// `expression` must be null or a valid `vx_expression` pointer created by this crate, and must
+/// stay valid for the returned reference.
+pub unsafe fn vx_expression_ref<'a>(
+    expression: *const vx_expression,
+) -> vortex::error::VortexResult<&'a Expression> {
+    vortex::error::vortex_ensure!(!expression.is_null(), "null vx_expression");
+    Ok(vx_expression::as_ref(expression))
+}
+
 /// Create a root expression. A root expression, applied to an array in
 /// vx_array_apply, takes the array itself as opposed to functions like
 /// vx_expression_column or vx_expression_select which take the array's parts.

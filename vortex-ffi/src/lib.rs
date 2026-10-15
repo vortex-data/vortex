@@ -34,6 +34,8 @@ pub use error::try_or;
 pub use error::vx_error;
 pub use error::vx_error_free;
 pub use error::vx_error_message;
+pub use expression::vx_expression;
+pub use expression::vx_expression_ref;
 pub use log::vx_log_level;
 pub use scan::vx_partition;
 pub use scan::vx_partition_into_array_stream;

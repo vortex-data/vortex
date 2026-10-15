@@ -38,6 +38,7 @@ pub use executor::CudaKernelEvents;
 pub use file::CudaFileScanExt;
 pub use file::CudaOpenOptions;
 pub use file::CudaOpenOptionsExt;
+pub use file::scan_cuda_pruned;
 use kernel::ALPExecutor;
 use kernel::BitPackedExecutor;
 use kernel::ConstantNumericExecutor;

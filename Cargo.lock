@@ -11727,6 +11727,7 @@ dependencies = [
  "object_store 0.13.2",
  "parking_lot",
  "prost 0.14.4",
+ "roaring",
  "rstest",
  "rustix",
  "tempfile",

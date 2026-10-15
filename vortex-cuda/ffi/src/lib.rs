@@ -19,6 +19,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -41,6 +42,7 @@ use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::DeviceArrayStreamExt;
 use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
+use vortex_cuda::scan_cuda_pruned;
 use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
@@ -49,6 +51,8 @@ use vortex_ffi::vx_array_sink;
 use vortex_ffi::vx_array_sink_open_file_with_strategy;
 use vortex_ffi::vx_dtype;
 use vortex_ffi::vx_error;
+use vortex_ffi::vx_expression;
+use vortex_ffi::vx_expression_ref;
 use vortex_ffi::vx_partition;
 use vortex_ffi::vx_partition_into_array_stream;
 use vortex_ffi::vx_session;
@@ -69,7 +73,6 @@ const VX_CUDA_SCAN_KNOWN_FLAGS: u32 = VX_CUDA_SCAN_FLAG_DIRECT_IO;
 ///
 /// Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
 #[repr(C)]
-#[derive(Default)]
 pub struct vx_cuda_scan_options {
     /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are rejected.
     pub flags: u32,
@@ -77,6 +80,23 @@ pub struct vx_cuda_scan_options {
     /// Nonzero counts ignore layout boundaries and may require unsupported CUDA `Chunked`
     /// concatenation.
     pub batch_rows: usize,
+    /// Zone-pruning predicate over the file's columns. NULL reads every zone.
+    ///
+    /// Only zone and file statistics are evaluated, before any data is read: zones that cannot
+    /// match are skipped without I/O. Returned rows may still fail the predicate, so callers
+    /// filter exactly. Comparison literals are cast to the compared column's type. Pruning is
+    /// cheapest with zero `batch_rows`, which keeps batches aligned with zones.
+    pub filter: *const vx_expression,
+}
+
+impl Default for vx_cuda_scan_options {
+    fn default() -> Self {
+        Self {
+            flags: 0,
+            batch_rows: 0,
+            filter: ptr::null(),
+        }
+    }
 }
 
 fn session_with_cuda(session: &VortexSession) -> &VortexSession {
@@ -287,7 +307,19 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
                 .with_read_at_options(options.read_at_options)
                 .open_path(path),
         )?;
-        let scan = projected_scan(&file, columns, options.batch_rows)?;
+        let scan = match &options.filter {
+            None => projected_scan(&file, columns, options.batch_rows)?,
+            Some(filter) => project(
+                &file,
+                ffi_runtime().block_on(scan_cuda_pruned(
+                    &file,
+                    DictionaryExport::Decode,
+                    filter,
+                ))?,
+                columns,
+                options.batch_rows,
+            )?,
+        };
         let array_stream = scan.into_array_stream()?.boxed();
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
@@ -340,7 +372,20 @@ fn projected_scan(
     columns: FieldNames,
     batch_rows: usize,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
-    let mut scan = file.scan_cuda(DictionaryExport::Decode)?;
+    project(
+        file,
+        file.scan_cuda(DictionaryExport::Decode)?,
+        columns,
+        batch_rows,
+    )
+}
+
+fn project(
+    file: &VortexFile,
+    mut scan: ScanBuilder<ArrayRef>,
+    columns: FieldNames,
+    batch_rows: usize,
+) -> VortexResult<ScanBuilder<ArrayRef>> {
     if !columns.is_empty() {
         let projection = select(columns, root()).bind(file.dtype())?.optimize()?;
         scan = scan.with_projection(projection);
@@ -356,6 +401,7 @@ fn projected_scan(
 struct CudaScanOptions {
     read_at_options: PooledFileReadAtOptions,
     batch_rows: usize,
+    filter: Option<Expression>,
 }
 
 /// Select plain Arrow export for one scan without mutating the shared session.
@@ -396,9 +442,16 @@ unsafe fn scan_options(options: *const vx_cuda_scan_options) -> VortexResult<Cud
         }
     };
 
+    let filter = if options.filter.is_null() {
+        None
+    } else {
+        // SAFETY: The caller guarantees a non-null filter is a live vx_expression handle.
+        Some(unsafe { vx_expression_ref(options.filter) }?.clone())
+    };
     Ok(CudaScanOptions {
         read_at_options,
         batch_rows: options.batch_rows,
+        filter,
     })
 }
 
@@ -1531,7 +1584,11 @@ mod tests {
             #[cfg(target_os = "linux")]
             (VX_CUDA_SCAN_FLAG_DIRECT_IO, 0, buffered.with_direct_io()),
         ] {
-            let options = vx_cuda_scan_options { flags, batch_rows };
+            let options = vx_cuda_scan_options {
+                flags,
+                batch_rows,
+                ..Default::default()
+            };
             // SAFETY: options lives for the duration of parsing.
             let parsed = unsafe { scan_options(&raw const options) }?;
             assert_eq!(parsed.read_at_options, read_at_options, "flags={flags}");
@@ -1545,7 +1602,7 @@ mod tests {
         for flags in [1 << 1, VX_CUDA_SCAN_FLAG_DIRECT_IO | (1 << 1)] {
             let options = vx_cuda_scan_options {
                 flags,
-                batch_rows: 0,
+                ..Default::default()
             };
             // SAFETY: options remains live throughout parsing.
             let error = unsafe { scan_options(&raw const options) }
