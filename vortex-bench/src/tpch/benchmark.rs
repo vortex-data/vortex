@@ -139,10 +139,11 @@ impl Benchmark for TpcHBenchmark {
         ]
     }
 
+    /// Tables are split into `{table}_{part}` files; see [`tpchgen::TARGET_FILE_COMPRESSED_BYTES`].
     #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         Some(
-            format!("{}.{}", table_name, format.ext())
+            format!("{}_*.{}", table_name, format.ext())
                 .parse()
                 .expect("valid glob pattern"),
         )

@@ -26,15 +26,20 @@ use crate::tpch::tpchgen::generate_tpch_tables;
 
 pub struct TPCHLCommentChunked;
 
+/// Unsplit TPC-H data, kept apart from the TPC-H benchmark's split files so `lineitem` stays a
+/// single file.
+const DATA_DIR: &str = "tpch-unsplit";
+
 async fn ensure_tpch_parquet() -> Result<PathBuf> {
-    let base_path = "tpch".to_data_path();
+    let base_path = DATA_DIR.to_data_path();
     let scale_factor_dir = base_path.join("1.0");
     let data_dir = scale_factor_dir.join(Format::Parquet.name());
 
     // Generate TPC-H parquet data if it doesn't exist
     if !data_dir.exists() {
-        let options =
-            TpchGenOptions::new("1.0".to_string(), scale_factor_dir).with_format(Format::Parquet);
+        let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
+            .with_format(Format::Parquet)
+            .with_target_file_bytes(None);
         generate_tpch_tables(options).await?;
     }
 
@@ -51,7 +56,7 @@ impl Dataset for TPCHLCommentChunked {
     }
 
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
-        let base_path = "tpch".to_data_path();
+        let base_path = DATA_DIR.to_data_path();
         let scale_factor_dir = base_path.join("1.0");
         let data_dir = scale_factor_dir.join(Format::OnDiskVortex.name());
 
@@ -59,7 +64,8 @@ impl Dataset for TPCHLCommentChunked {
         if !data_dir.exists() {
             // Use blocking call like TPC-H benchmark does
             let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
-                .with_format(Format::OnDiskVortex);
+                .with_format(Format::OnDiskVortex)
+                .with_target_file_bytes(None);
 
             futures::executor::block_on(generate_tpch_tables(options))?;
         }
