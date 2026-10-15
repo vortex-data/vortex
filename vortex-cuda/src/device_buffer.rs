@@ -9,15 +9,18 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaView;
 use cudarc::driver::CudaViewMut;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::result::malloc_host;
 use cudarc::driver::sys;
 use futures::executor::block_on;
 use futures::future::BoxFuture;
+use parking_lot::Mutex;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
@@ -30,6 +33,62 @@ use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
 use crate::stream::await_stream_callback;
+
+/// Largest device-to-host copy staged through pooled pinned memory.
+const PINNED_STAGING_BYTES: usize = 64 << 10;
+
+/// Pinned host buffers of `PINNED_STAGING_BYTES` for small device-to-host copies, reused
+/// across copies because allocating pinned memory is slow.
+static PINNED_STAGING: LazyLock<Mutex<Vec<PinnedStagingBuffer>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// A pooled pinned host allocation; the pointer is only accessed by its current owner.
+struct PinnedStagingBuffer(*mut u8);
+
+// SAFETY: The buffer is plain host memory owned by one `PinnedStaging` at a time.
+unsafe impl Send for PinnedStagingBuffer {}
+
+/// A pinned staging buffer taken from the pool. It returns to the pool only through `release`,
+/// after its copy completed: dropping it otherwise leaks the buffer, because a cancelled copy
+/// may still be writing into it.
+struct PinnedStaging {
+    ptr: *mut u8,
+}
+
+// SAFETY: See `PinnedStagingBuffer`.
+unsafe impl Send for PinnedStaging {}
+
+impl PinnedStaging {
+    /// Take a pooled buffer or allocate one. The CUDA context must be bound to this thread.
+    fn take() -> VortexResult<Self> {
+        if let Some(buffer) = PINNED_STAGING.lock().pop() {
+            return Ok(Self { ptr: buffer.0 });
+        }
+        // The pool is process-wide, so the allocation must be pinned for every context.
+        // SAFETY: Allocating host memory has no preconditions beyond a bound context.
+        let ptr = unsafe { malloc_host(PINNED_STAGING_BYTES, sys::CU_MEMHOSTALLOC_PORTABLE) }
+            .map_err(|e| vortex_err!("Failed to allocate pinned staging memory: {}", e))?;
+        Ok(Self { ptr: ptr.cast() })
+    }
+}
+
+impl PinnedStaging {
+    /// The first `len` bytes of the buffer.
+    ///
+    /// # Safety
+    ///
+    /// The bytes must have been initialized, and `len` must not exceed `PINNED_STAGING_BYTES`.
+    unsafe fn bytes(&self, len: usize) -> &[u8] {
+        debug_assert!(len <= PINNED_STAGING_BYTES);
+        // SAFETY: Guaranteed by the caller.
+        unsafe { std::slice::from_raw_parts(self.ptr, len) }
+    }
+
+    /// Return the buffer to the pool once no copy writes into it anymore.
+    fn release(self) {
+        PINNED_STAGING.lock().push(PinnedStagingBuffer(self.ptr));
+    }
+}
 
 /// cuDF may read Arrow validity masks through a 64-byte padded extent, so keep
 /// exported masks logically sliced but zero-pad their backing allocation.
@@ -410,15 +469,41 @@ impl DeviceBuffer for CudaDeviceBuffer {
         // Use cudarc's read guard so this allocation stream waits for writes submitted on any
         // other managed stream before scheduling the device-to-host copy.
         let (src_ptr, record_read) = source.device_ptr(stream);
-
-        let mut host_buffer: ByteBufferMut =
-            ByteBufferMut::with_capacity_aligned(self.len, alignment);
         let len = self.len;
 
         stream
             .context()
             .bind_to_thread()
             .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+
+        // Copies into pageable memory are staged by the driver, which blocks the calling thread
+        // while holding the context lock until the stream's earlier work completes. Behind queued
+        // file copies that stalled every thread's CUDA calls for milliseconds, so small copies,
+        // typically metadata, go through pinned staging and are awaited without the lock.
+        if len <= PINNED_STAGING_BYTES {
+            let staging = PinnedStaging::take()?;
+            // SAFETY: The staging buffer holds `PINNED_STAGING_BYTES` >= `len` bytes and is
+            // released to the pool only after the stream callback reports completion.
+            unsafe {
+                sys::cuMemcpyDtoHAsync_v2(staging.ptr.cast(), src_ptr, len, stream.cu_stream())
+                    .result()
+                    .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+            }
+            drop(record_read);
+            let cuda_slice = Arc::clone(&self.allocation);
+            return Ok(Box::pin(async move {
+                await_stream_callback(cuda_slice.stream()).await?;
+                // Keep device memory alive until the copy completes.
+                let _keep_alive = cuda_slice;
+                let mut host_buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                // SAFETY: The completed copy initialized `len` bytes of the staging buffer.
+                host_buffer.extend_from_slice(unsafe { staging.bytes(len) });
+                staging.release();
+                Ok(host_buffer.freeze().into_byte_buffer())
+            }));
+        }
+
+        let mut host_buffer: ByteBufferMut = ByteBufferMut::with_capacity_aligned(len, alignment);
 
         // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
         // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
