@@ -23,30 +23,30 @@ use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::tpch::tpchgen::TpchGenOptions;
 use crate::tpch::tpchgen::generate_tpch_tables;
+use crate::utils::split;
 
 pub struct TPCHLCommentChunked;
 
-/// Unsplit TPC-H data, kept apart from the TPC-H benchmark's split files so `lineitem` stays a
-/// single file.
-const DATA_DIR: &str = "tpch-unsplit";
-
-async fn ensure_tpch_parquet() -> Result<PathBuf> {
-    let base_path = DATA_DIR.to_data_path();
-    let scale_factor_dir = base_path.join("1.0");
-    let data_dir = scale_factor_dir.join(Format::Parquet.name());
-
-    // Generate TPC-H parquet data if it doesn't exist
-    if !data_dir.exists() {
-        let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
-            .with_format(Format::Parquet)
-            .with_split_files(false);
+/// Path of TPC-H SF=1 `lineitem` in `format`, generating the TPC-H tables if it is missing.
+///
+/// At SF=1 `lineitem` fits in a single file (see [`split::TARGET_FILE_COMPRESSED_BYTES`]), so this
+/// reads the TPC-H benchmark's own data.
+async fn ensure_lineitem(format: Format) -> Result<PathBuf> {
+    let scale_factor_dir = "tpch".to_data_path().join("1.0");
+    let format_dir = scale_factor_dir.join(format.name());
+    let path = format_dir.join(split::part_file_name("lineitem", 1, format.ext()));
+    if !path.exists() {
+        let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir).with_format(format);
         generate_tpch_tables(options).await?;
     }
-
-    let path = data_dir.join("lineitem.parquet");
-    path.exists()
-        .then_some(path)
-        .ok_or_else(|| anyhow::anyhow!("No lineitem parquet file found"))
+    anyhow::ensure!(path.exists(), "No lineitem {format} file found");
+    anyhow::ensure!(
+        !format_dir
+            .join(split::part_file_name("lineitem", 2, format.ext()))
+            .exists(),
+        "TPC-H SF=1 lineitem is split into several {format} files"
+    );
+    Ok(path)
 }
 
 #[async_trait]
@@ -56,21 +56,7 @@ impl Dataset for TPCHLCommentChunked {
     }
 
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
-        let base_path = DATA_DIR.to_data_path();
-        let scale_factor_dir = base_path.join("1.0");
-        let data_dir = scale_factor_dir.join(Format::OnDiskVortex.name());
-
-        // Generate TPC-H Vortex data if it doesn't exist
-        if !data_dir.exists() {
-            // Use blocking call like TPC-H benchmark does
-            let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
-                .with_format(Format::OnDiskVortex)
-                .with_split_files(false);
-
-            futures::executor::block_on(generate_tpch_tables(options))?;
-        }
-
-        let path = data_dir.join("lineitem.vortex");
+        let path = ensure_lineitem(Format::OnDiskVortex).await?;
         let file = SESSION.open_options().open_path(path).await?;
         let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
             .bind(file.dtype())?
@@ -94,7 +80,7 @@ impl Dataset for TPCHLCommentChunked {
     }
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {
-        ensure_tpch_parquet().await
+        ensure_lineitem(Format::Parquet).await
     }
 }
 
@@ -113,6 +99,6 @@ impl Dataset for TPCHLCommentCanonical {
     }
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {
-        ensure_tpch_parquet().await
+        ensure_lineitem(Format::Parquet).await
     }
 }
