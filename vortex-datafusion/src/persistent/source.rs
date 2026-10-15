@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 use std::sync::Arc;
-use std::sync::Weak;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
@@ -31,7 +30,6 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::layout::LayoutReader;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -44,6 +42,8 @@ use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::shared_files::SharedFiles;
+use crate::persistent::shared_files::split_file_opens;
 
 /// File scan implementation for reading one or more `.vortex` files.
 ///
@@ -194,10 +194,10 @@ pub struct VortexSource {
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
     df_metrics: ExecutionPlanMetricsSet,
-    /// Shared layout readers, the source only lives as long as one scan.
-    ///
-    /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
-    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// Files opened by this scan, shared by the partitions that read ranges of the same file,
+    /// so each file is opened once and its layouts are read once. The source only lives as long
+    /// as one scan.
+    shared_files: Arc<SharedFiles>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -233,7 +233,7 @@ impl VortexSource {
             full_predicate: None,
             vortex_predicate: None,
             df_metrics: Default::default(),
-            layout_readers: Arc::new(DashMap::default()),
+            shared_files: Default::default(),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             expression_converter,
@@ -358,7 +358,8 @@ impl VortexSource {
             limit: base_config.limit.map(|l| l as u64),
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             df_metrics: self.df_metrics.clone(),
-            layout_readers: Arc::clone(&self.layout_readers),
+            shared_files: Arc::clone(&self.shared_files),
+            split_file_opens: Arc::new(split_file_opens(&base_config.file_groups)),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,

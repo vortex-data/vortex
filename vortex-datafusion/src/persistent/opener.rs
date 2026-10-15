@@ -4,7 +4,6 @@
 use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::Weak;
 
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
@@ -50,7 +49,7 @@ use vortex::error::VortexExpect;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
-use vortex::layout::LayoutReader;
+use vortex::io::VortexReadAt;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
@@ -58,6 +57,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
@@ -68,6 +68,8 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::shared_files::OpenedFile;
+use crate::persistent::shared_files::SharedFiles;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -95,11 +97,11 @@ pub(crate) struct VortexOpener {
     pub metrics_registry: Arc<dyn MetricsRegistry>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
     pub df_metrics: ExecutionPlanMetricsSet,
-    /// A shared cache of file readers.
-    ///
-    /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
-    /// a file reader the first time we read a file.
-    pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// Files opened by this scan, shared by the partitions that read ranges of the same file.
+    pub shared_files: Arc<SharedFiles>,
+    /// Number of openers of each file this scan splits into byte ranges, see
+    /// [`split_file_opens`](crate::persistent::shared_files::split_file_opens).
+    pub split_file_opens: Arc<HashMap<Path, usize>>,
     /// Shared full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -137,13 +139,19 @@ impl FileOpener for VortexOpener {
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
 
+        // Partitions reading ranges of the same file claim it here, before any of them opens
+        // it, so the file stays shared until the last of them has it.
+        let file_claim = self
+            .split_file_opens
+            .get(&file.object_meta.location)
+            .map(|&opens| self.shared_files.claim(&file.object_meta, opens));
+
         let mut file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
         let file_metadata_cache = self.file_metadata_cache.clone();
 
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let limit = self.limit;
-        let layout_readers = Arc::clone(&self.layout_readers);
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
@@ -198,46 +206,24 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            let mut open_opts = session
-                .open_options()
-                .with_file_size(file.object_meta.size)
-                .with_metrics_registry(Arc::clone(&metrics_registry))
-                .with_labels(labels);
-
-            let cached_footer = file_metadata_cache
-                .as_ref()
-                .and_then(|cache| cache.get(file.path()))
-                .filter(|entry| entry.is_valid_for(&file.object_meta))
-                .and_then(|entry| {
-                    entry
-                        .file_metadata
-                        .as_any()
-                        .downcast_ref::<CachedVortexMetadata>()
-                        .map(|vortex_metadata| vortex_metadata.footer().clone())
-                });
-            let footer_cache_hit = cached_footer.is_some();
-
-            if let Some(footer) = cached_footer {
-                open_opts = open_opts.with_footer(footer);
-            }
-
-            let vxf = open_opts
-                .open_read(reader)
-                .await
-                .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
-
-            // On a miss, cache the parsed footer so other partitions and later executions
-            // skip the footer fetch and parse. `infer_schema`/`infer_stats` also populate
-            // this cache, but only when planning goes through `VortexFormat`.
-            if !footer_cache_hit && let Some(cache) = &file_metadata_cache {
-                cache.put(
-                    file.path(),
-                    CachedFileMetadataEntry::new(
-                        file.object_meta.clone(),
-                        Arc::new(CachedVortexMetadata::new(&vxf)),
-                    ),
-                );
-            }
+            let open = || {
+                open_file(
+                    &session,
+                    reader,
+                    &file,
+                    file_metadata_cache.as_deref(),
+                    Arc::clone(&metrics_registry),
+                    labels,
+                )
+            };
+            let OpenedFile {
+                file: vxf,
+                layout_reader,
+            } = match &file_claim {
+                Some(claim) => claim.get_or_try_open(open).await?,
+                None => open().await?,
+            };
+            drop(file_claim);
 
             // Check if there are rows in this file. If not, we can save
             // ourselves some work and return an empty stream.
@@ -367,34 +353,6 @@ impl FileOpener for VortexOpener {
                 .transpose()?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
-            // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        tracing::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        tracing::trace!("creating layout reader for {}", occupied_entry.key());
-                        let reader = vxf.layout_reader().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create layout reader: {e}"
-                            ))
-                        })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
-                        reader
-                    }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    tracing::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
-
-                    reader
-                }
-            };
-
             let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
 
             if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
@@ -509,6 +467,68 @@ impl FileOpener for VortexOpener {
         .in_current_span()
         .boxed())
     }
+}
+
+/// Opens `file`, reusing its footer from `file_metadata_cache` when present and caching it
+/// there otherwise.
+async fn open_file<R: VortexReadAt + Clone>(
+    session: &VortexSession,
+    reader: R,
+    file: &PartitionedFile,
+    file_metadata_cache: Option<&FileMetadataCache>,
+    metrics_registry: Arc<dyn MetricsRegistry>,
+    labels: Vec<Label>,
+) -> DFResult<OpenedFile> {
+    tracing::debug!(path = %file.path(), "opening Vortex file");
+
+    let mut open_opts = session
+        .open_options()
+        .with_file_size(file.object_meta.size)
+        .with_metrics_registry(metrics_registry)
+        .with_labels(labels);
+
+    let cached_footer = file_metadata_cache
+        .and_then(|cache| cache.get(file.path()))
+        .filter(|entry| entry.is_valid_for(&file.object_meta))
+        .and_then(|entry| {
+            entry
+                .file_metadata
+                .as_any()
+                .downcast_ref::<CachedVortexMetadata>()
+                .map(|vortex_metadata| vortex_metadata.footer().clone())
+        });
+    let footer_cache_hit = cached_footer.is_some();
+
+    if let Some(footer) = cached_footer {
+        open_opts = open_opts.with_footer(footer);
+    }
+
+    let vxf = open_opts
+        .open_read(reader)
+        .await
+        .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+    // On a miss, cache the parsed footer so later executions skip the footer fetch and parse.
+    // `infer_schema`/`infer_stats` also populate this cache, but only when planning goes
+    // through `VortexFormat`.
+    if !footer_cache_hit && let Some(cache) = file_metadata_cache {
+        cache.put(
+            file.path(),
+            CachedFileMetadataEntry::new(
+                file.object_meta.clone(),
+                Arc::new(CachedVortexMetadata::new(&vxf)),
+            ),
+        );
+    }
+
+    let layout_reader = vxf
+        .layout_reader()
+        .map_err(|e| exec_datafusion_err!("Failed to create layout reader: {e}"))?;
+
+    Ok(OpenedFile {
+        file: vxf,
+        layout_reader,
+    })
 }
 
 /// A file's natural split boundaries plus the precomputed byte each split is assigned to,
@@ -695,6 +715,7 @@ mod tests {
     use datafusion_common::arrow::compute::concat_batches;
     use datafusion_common::assert_batches_eq;
     use datafusion_common::stats::Precision;
+    use datafusion_datasource::FileRange;
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
@@ -896,7 +917,8 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
-            layout_readers: Default::default(),
+            shared_files: Default::default(),
+            split_file_opens: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1234,6 +1256,45 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_split_file_partitions_share_one_open() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "split/file.vortex";
+        let batch = record_batch!(("a", Int32, (0..1000).map(Some).collect::<Vec<_>>())).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let whole = PartitionedFile::new(file_path.to_string(), data_size);
+        let mid = i64::try_from(data_size / 2)?;
+        let end = i64::try_from(data_size)?;
+        let ranges = [(0, mid), (mid, end)].map(|(start, end)| {
+            let mut file = whole.clone();
+            file.range = Some(FileRange { start, end });
+            file
+        });
+
+        let mut opener = make_opener(
+            Arc::clone(&object_store),
+            TableSchema::from(batch.schema()),
+            None,
+        );
+        opener.split_file_opens = Arc::new(HashMap::from_iter([(whole.object_meta.location, 2)]));
+
+        // The first partition's open keeps the file for the second.
+        let first = opener.open(ranges[0].clone())?.await?;
+        assert_eq!(opener.shared_files.len(), 1);
+        let second = opener.open(ranges[1].clone())?.await?;
+        assert_eq!(opener.shared_files.len(), 0);
+
+        let rows = first
+            .chain(second)
+            .try_fold(0, |rows, batch| async move { Ok(rows + batch.num_rows()) })
+            .await?;
+        assert_eq!(rows, 1000);
+
+        Ok(())
+    }
+
     #[rstest]
     #[tokio::test]
     async fn test_open_files_different_table_schema() -> anyhow::Result<()> {
@@ -1276,7 +1337,8 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
-            layout_readers: Default::default(),
+            shared_files: Default::default(),
+            split_file_opens: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1364,7 +1426,8 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
-            layout_readers: Default::default(),
+            shared_files: Default::default(),
+            split_file_opens: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1519,7 +1582,8 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
-            layout_readers: Default::default(),
+            shared_files: Default::default(),
+            split_file_opens: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1580,7 +1644,8 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
-            layout_readers: Default::default(),
+            shared_files: Default::default(),
+            split_file_opens: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1788,7 +1853,8 @@ mod tests {
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
-            layout_readers: Default::default(),
+            shared_files: Default::default(),
+            split_file_opens: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
