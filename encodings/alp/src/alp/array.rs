@@ -221,7 +221,7 @@ pub struct ALPSlots {
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 
-const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     indices: ALPSlots::PATCH_INDICES,
     values: ALPSlots::PATCH_VALUES,
     chunk_offsets: ALPSlots::PATCH_CHUNK_OFFSETS,

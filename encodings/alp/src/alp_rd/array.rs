@@ -335,7 +335,7 @@ pub struct ALPRDSlots {
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 
-const LP_PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+pub(crate) const LP_PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     indices: ALPRDSlots::PATCH_INDICES,
     values: ALPRDSlots::PATCH_VALUES,
     chunk_offsets: ALPRDSlots::PATCH_CHUNK_OFFSETS,

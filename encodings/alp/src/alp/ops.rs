@@ -14,6 +14,7 @@ use crate::ALP;
 use crate::ALPArrayExt;
 use crate::ALPFloat;
 use crate::ALPSlots;
+use crate::alp::array::PATCH_SLOTS;
 use crate::match_each_alp_float_ptype;
 
 impl OperationsVTable<ALP> for ALP {
@@ -29,7 +30,7 @@ impl OperationsVTable<ALP> for ALP {
         }
         let array = state.array();
         if let Some(patches) = array.patches()
-            && let Some(patch) = patches.get_patched(index, ctx)?
+            && let Some(patch) = patches.probe_patched(state, PATCH_SLOTS, index, ctx)?
         {
             return patch.cast(array.dtype());
         }

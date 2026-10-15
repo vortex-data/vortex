@@ -64,8 +64,10 @@ fn slice(
 ) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
-    let slice_begin = array.find_physical_index(range.start, ctx)?;
-    let slice_end = array.find_slice_end_index(range.end, ctx)?;
+    let Range {
+        start: slice_begin,
+        end: slice_end,
+    } = array.find_physical_range(range.clone(), ctx)?;
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {

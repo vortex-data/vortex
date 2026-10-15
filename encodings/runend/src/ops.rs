@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -49,16 +51,7 @@ pub fn find_slice_end_index(
         SearchSortedPrimitiveArray::<T>::new(array, ctx)
             .search_sorted(&index, SearchSortedSide::Right)?
     });
-    Ok(match result {
-        SearchResult::Found(i) => i,
-        SearchResult::NotFound(i) => {
-            if i == array.len() {
-                i
-            } else {
-                i + 1
-            }
-        }
-    })
+    Ok(slice_end_index(result, array.len()))
 }
 
 /// Find the physical index (the run) that contains the logical `index`, given the run `ends`.
@@ -72,6 +65,41 @@ pub fn find_physical_index(
             .search_sorted(&index, SearchSortedSide::Right)?
             .to_ends_index(array.len()))
     })
+}
+
+/// Find the physical range of runs covering the logical `range`, given the run `ends`.
+///
+/// Equivalent to [`find_physical_index`] of the start and [`find_slice_end_index`] of the end,
+/// but both searches share one searcher, and so one probe of `ends`.
+pub fn find_physical_range(
+    array: &ArrayRef,
+    range: Range<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Range<usize>> {
+    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
+        let searcher = SearchSortedPrimitiveArray::<T>::new(array, ctx);
+        let start = searcher
+            .search_sorted(&range.start, SearchSortedSide::Right)?
+            .to_ends_index(array.len());
+        let end = slice_end_index(
+            searcher.search_sorted(&range.end, SearchSortedSide::Right)?,
+            array.len(),
+        );
+        Ok(start..end)
+    })
+}
+
+fn slice_end_index(result: SearchResult, len: usize) -> usize {
+    match result {
+        SearchResult::Found(i) => i,
+        SearchResult::NotFound(i) => {
+            if i == len {
+                i
+            } else {
+                i + 1
+            }
+        }
+    }
 }
 
 #[cfg(test)]

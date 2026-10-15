@@ -6,6 +6,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Range;
 
 use prost::Message;
 use vortex_array::AnyCanonical;
@@ -54,6 +55,7 @@ use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
 use crate::decompress_bool::runend_decode_bools;
 use crate::ops::find_physical_index;
+use crate::ops::find_physical_range;
 use crate::ops::find_slice_end_index;
 use crate::rules::RULES;
 
@@ -234,6 +236,17 @@ pub trait RunEndArrayExt: RunEndArraySlotsExt {
 
     fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         find_slice_end_index(self.ends(), index + self.offset(), ctx)
+    }
+
+    /// The physical range of runs covering the logical `range`, found with one probe of the
+    /// ends.
+    fn find_physical_range(
+        &self,
+        range: Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Range<usize>> {
+        let offset = self.offset();
+        find_physical_range(self.ends(), range.start + offset..range.end + offset, ctx)
     }
 }
 
