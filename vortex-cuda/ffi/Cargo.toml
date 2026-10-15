@@ -22,6 +22,7 @@ vortex-ffi = { path = "../../vortex-ffi" }
 [dev-dependencies]
 cudarc = { workspace = true }
 tempfile = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda-macros = { workspace = true }
 
 [build-dependencies]

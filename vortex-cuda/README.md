@@ -10,6 +10,26 @@ Key files:
 - `vortex-cuda/src/arrow/canonical.rs`: canonical-array export to `ArrowDeviceArray`.
 - `vortex-test/e2e-cuda/src/lib.rs`: cuDF interop harness.
 
+## CUDA file scans
+
+`CudaFileScanExt::scan_cuda(DictionaryExport::Decode)` builds a scan-local reader tree for
+plain Arrow Device output. With a CUDA session already installed, CUDA-flat readers eagerly
+decode numeric field packs before joining field inputs. Mixed/string projections and raw
+primitive auxiliary arrays, such as list offsets, remain lazy.
+
+Use the same dictionary policy in the Arrow export context. The scan does not change the
+shared session or ordinary reader cache: `VortexFile::scan()` and
+`scan_cuda(DictionaryExport::Preserve)` retain their existing dictionary-preserving behavior.
+No CUDA session is initialized by constructing a scan.
+
+Local pooled file reads use fixed 8 MiB chunks with concurrency 32. These are physical
+file-read/H2D chunks, independent of logical row ranges or scan batch sizes. File transfers
+use one session-scoped H2D stream, separate from the execution pool (four streams by default).
+A reader keeps its allocation and chunk writes on the same H2D lane; device-buffer events
+order consumers on execution streams. Pinned source buffers stay fenced until DMA completion.
+Stream pools initialize each slot once, even under concurrent first use, while keeping the
+initialized access path lock-free.
+
 ## Building cuDF for Arrow Device interop
 
 The `cudf-test-harness` repository provides prebuilt cuDF binaries for Arrow Device interop testing on

@@ -38,7 +38,7 @@ pub const DEFAULT_FILE_CONCURRENCY: usize = 32;
 
 // Physical segments can exceed the coalescing limit. Split their I/O, not their encoding,
 // to limit blocking read sizes and start transfers before the whole segment is read.
-const FILE_READ_CHUNK_BYTES: usize = 4 << 20;
+const FILE_READ_CHUNK_BYTES: usize = 8 << 20;
 
 /// Options controlling how [`PooledFileReadAt`] opens and reads a local file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

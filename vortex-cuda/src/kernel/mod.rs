@@ -200,6 +200,8 @@ pub(crate) fn launch_cuda_kernel_with_config(
 pub(crate) struct KernelLoader {
     /// Cache of loaded CUDA modules, keyed by module name
     modules: DashMap<String, Arc<CudaModule>>,
+    /// Function handles retain their modules within this session-scoped loader.
+    functions: DashMap<(String, String), CudaFunction>,
 }
 
 impl KernelLoader {
@@ -207,6 +209,7 @@ impl KernelLoader {
     pub fn new() -> Self {
         Self {
             modules: DashMap::default(),
+            functions: DashMap::default(),
         }
     }
 
@@ -233,6 +236,11 @@ impl KernelLoader {
             format!("{}_{}", module_name, type_suffixes.join("_"))
         };
 
+        let key = (module_name.to_string(), kernel_name.clone());
+        if let Some(function) = self.functions.get(&key) {
+            return Ok(function.value().clone());
+        }
+
         // Check if module is already cached
         let module = if let Some(entry) = self.modules.get(module_name) {
             Arc::clone(entry.value())
@@ -244,9 +252,11 @@ impl KernelLoader {
         };
 
         // Load the CUDA function from the compiled module.
-        module
+        let function = module
             .load_function(&kernel_name)
-            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
+            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))?;
+        self.functions.insert(key, function.clone());
+        Ok(function)
     }
 
     /// Loads a CUDA module from a fatbin embedded in the binary.
@@ -298,9 +308,19 @@ mod tests {
 
         // Load and launch the config_check kernel
         let kernel_loader = KernelLoader::new();
-        let function = kernel_loader
+        kernel_loader
             .load_function("config_check", &[], &ctx)
             .vortex_expect("failed to load config_check kernel");
+
+        assert_eq!(kernel_loader.functions.len(), 1);
+        let function = kernel_loader
+            .load_function("config_check", &[], &ctx)
+            .vortex_expect("failed to reuse config_check kernel");
+        assert_eq!(kernel_loader.functions.len(), 1);
+        assert!(kernel_loader.load_function("config_check", &["missing"], &ctx).is_err());
+        assert_eq!(kernel_loader.functions.len(), 1);
+        // A cached handle must keep its module alive after the loader is dropped.
+        drop(kernel_loader);
 
         let config = cudarc::driver::LaunchConfig {
             grid_dim: (1, 1, 1),
