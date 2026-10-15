@@ -8,6 +8,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::stream;
 use tokio::runtime::Runtime;
@@ -26,9 +27,42 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
+use vortex_edition::EditionId;
+use vortex_edition::EditionSessionExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+
+/// The edition fixtures are written with, when one was selected over the session default.
+static TARGET_EDITION: OnceLock<EditionId> = OnceLock::new();
+
+/// Select the edition every subsequent fixture write targets, by its name, e.g. `core2025.10.0`.
+/// Only a first-party edition registered on the default session can be selected.
+pub fn set_target_edition(name: &str) -> VortexResult<()> {
+    let id = vortex::editions::EDITION_DECLARATIONS
+        .iter()
+        .map(|declaration| declaration.edition.id)
+        .find(|id| id.to_string() == name)
+        .ok_or_else(|| vortex_err!("unknown edition {name}"))?;
+    // Fail early if the default session cannot enable it.
+    VortexSession::default().enable_edition(id)?;
+    if TARGET_EDITION.set(id).is_err() {
+        vortex_bail!("the target edition was already selected");
+    }
+    Ok(())
+}
+
+/// A default session, with the target edition enabled when one was selected.
+pub fn session() -> VortexSession {
+    let session = VortexSession::default();
+    if let Some(id) = TARGET_EDITION.get() {
+        session
+            .enable_edition(*id)
+            .unwrap_or_else(|e| panic!("target edition {id} was validated at selection: {e}"));
+    }
+    session
+}
 
 fn runtime() -> VortexResult<Runtime> {
     Runtime::new().map_err(|e| vortex_err!("failed to create tokio runtime: {e}"))
@@ -73,7 +107,7 @@ pub fn write_compressed(
     let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
 
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = session().with_tokio();
         let mut file = tokio::fs::File::create(path)
             .await
             .map_err(|e| vortex_err!("failed to create {}: {e}", path.display()))?;
@@ -91,7 +125,7 @@ pub fn write_compressed_to_bytes(
     chunk: ArrayRef,
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<ByteBuffer> {
-    write_compressed_to_bytes_with_session(&VortexSession::default(), chunk, strategy)
+    write_compressed_to_bytes_with_session(&session(), chunk, strategy)
 }
 
 /// Write a `.vortex` file into memory using a caller-provided session and layout strategy.

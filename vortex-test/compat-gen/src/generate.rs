@@ -53,7 +53,17 @@ pub fn write_fixtures(
 
     let mut infos = Vec::new();
     for fixture in &fixtures {
-        let entries = fixture.write(output_dir, ctx)?;
+        let entries = match fixture.write(output_dir, ctx) {
+            Ok(entries) => entries,
+            // A fixture whose encodings the target edition forbids cannot be written for it.
+            Err(e) if e.to_string().contains("not permitted") => {
+                eprintln!("  skip {} (forbidden by the target edition: {e})", fixture.name());
+                // The failed write may have left a partial file behind.
+                drop(std::fs::remove_file(output_dir.join(fixture.name())));
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)

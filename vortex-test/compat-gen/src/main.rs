@@ -5,8 +5,13 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::Subcommand;
+use vortex_compat::adapter;
 use vortex_compat::check;
+use vortex_compat::describe;
 use vortex_compat::generate;
+use vortex_compat::probe;
+use vortex_compat::reader_check;
+use vortex_compat::sweep;
 use vortex_error::VortexResult;
 
 #[derive(Parser)]
@@ -60,6 +65,11 @@ enum Commands {
         /// Fixture name substrings to exclude (comma-separated, e.g. "clickbench,tpch").
         #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
+
+        /// Edition to write the fixtures with, e.g. `core2025.10.0`. Defaults to the session's
+        /// default edition. Fixtures the edition forbids are skipped.
+        #[arg(long, value_name = "EDITION")]
+        edition: Option<String>,
     },
 
     /// Check .vortex files in a directory against in-memory fixtures.
@@ -89,13 +99,106 @@ enum Commands {
         #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
     },
+
+    /// Write a seeded random sweep of files: random canonical arrays through the flat layout and
+    /// both compressor pipelines, plus randomly built dict, constant and run-end arrays.
+    ///
+    /// Honours --edition the same way `generate` does. Files the edition rejects are skipped.
+    Sweep {
+        /// Output directory for the .vortex files and sweep.json.
+        #[arg(long, value_name = "DIR")]
+        output: PathBuf,
+
+        /// First seed. Each seed yields up to six files.
+        #[arg(long, default_value_t = 0)]
+        first_seed: u64,
+
+        /// Number of seeds.
+        #[arg(long, default_value_t = 100)]
+        seeds: u64,
+
+        /// Maximum row count of the random canonical array.
+        #[arg(long, default_value_t = 4096)]
+        max_len: usize,
+
+        /// Edition to write with, e.g. `core2025.10.0`.
+        #[arg(long, value_name = "EDITION")]
+        edition: Option<String>,
+    },
+
+    /// Print the dtype, layout IDs and array encoding IDs of each .vortex file in a directory.
+    Describe {
+        /// Directory containing .vortex files.
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+
+        /// Only describe files whose name contains this substring.
+        #[arg(long)]
+        filter: Option<String>,
+    },
+
+    /// Debug: evaluate one f64 comparison by pushed-down scan and by plain Rust, print both counts.
+    Probe {
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        column: String,
+        #[arg(long)]
+        op: String,
+        #[arg(long)]
+        value: f64,
+    },
+
+    /// Check that an old reader decoded the fixtures in a directory to the same values as the
+    /// current reader.
+    ///
+    /// The old reader is a separate binary built against a released vortex crate. It dumps each
+    /// fixture as `<name>.arrow` (Arrow IPC), or `<name>.error` when it could not read the file.
+    CheckReader {
+        /// Directory containing the .vortex fixtures written by the current writer.
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
+
+        /// Directory containing the old reader's `<name>.arrow` / `<name>.error` dumps.
+        #[arg(long, value_name = "DIR")]
+        arrow_dir: PathBuf,
+    },
 }
 
 fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { output, exclude } => generate::generate(&output, &exclude),
+        Commands::Generate {
+            output,
+            exclude,
+            edition,
+        } => {
+            if let Some(edition) = edition {
+                adapter::set_target_edition(&edition)?;
+            }
+            generate::generate(&output, &exclude)
+        }
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
+        Commands::Sweep {
+            output,
+            first_seed,
+            seeds,
+            max_len,
+            edition,
+        } => {
+            if let Some(edition) = edition {
+                adapter::set_target_edition(&edition)?;
+            }
+            sweep::sweep(&output, first_seed, seeds, max_len)
+        }
+        Commands::Describe { dir, filter } => describe::describe(&dir, filter.as_deref()),
+        Commands::Probe {
+            file,
+            column,
+            op,
+            value,
+        } => probe::probe(&file, &column, &op, value),
+        Commands::CheckReader { dir, arrow_dir } => reader_check::check_reader(&dir, &arrow_dir),
     }
 }
