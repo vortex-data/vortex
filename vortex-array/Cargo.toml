@@ -29,8 +29,6 @@ arrow-buffer = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
-fearless_simd = { workspace = true }
-fearless_simd_macros = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 goldenfile = { workspace = true, optional = true }
