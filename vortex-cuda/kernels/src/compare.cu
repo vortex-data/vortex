@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
+#include <type_traits>
 
 // Comparison operators, numbered as `CompareOp` in `exact_filter.rs`.
 enum CompareOp : uint32_t {
@@ -17,6 +18,13 @@ enum CompareOp : uint32_t {
 
 template <typename T>
 __device__ inline bool compare(T value, T literal, uint32_t op) {
+    // A prefilter must be conservative across Vortex total ordering and downstream
+    // IEEE comparisons, including NaNs and the distinction between signed zeros.
+    if constexpr (std::is_floating_point_v<T>) {
+        if (isnan(value) || isnan(literal) || (value == 0 && literal == 0)) {
+            return true;
+        }
+    }
     switch (op) {
     case COMPARE_EQ:
         return value == literal;
@@ -37,7 +45,7 @@ __device__ inline bool compare(T value, T literal, uint32_t op) {
 
 // Writes bit `i` of `words` (LSB first) as `values[i] <op> literal`, or ANDs it into the bit
 // already there if `combine` is set, so conjunctions accumulate in one buffer. Floating-point
-// comparisons follow IEEE 754: NaN compares false, as in the consumers that filter afterwards.
+// ambiguities are retained for the consumer, preserving the superset contract.
 //
 // Launch config: grid_dim = (array_len / 2048, 1, 1), block_dim = (64, 1, 1). Each step of a
 // warp covers 32 consecutive elements, which its ballot turns into one word.

@@ -7,7 +7,14 @@
 //! zones whole, so a consumer that filters afterwards copies and evaluates every row of a kept
 //! zone. [`select_rows`] additionally evaluates the filter's comparisons of a field with a
 //! literal on the GPU, and drops the failing rows from each decoded batch before export.
+//!
+//! The default shared path fuses the eligible conjunction and reuses stable tile-local
+//! selection positions across columns in one scatter launch. Batches outside its bounds
+//! fall back to per-column CUB selection. `VORTEX_CUDA_EXACT_FILTER_IMPL=cub` forces the
+//! baseline for comparison; `shared` explicitly selects the default. Both paths preserve
+//! the consumer's final filter and the existing scan/export copy sizes.
 
+use std::env;
 use std::ffi::c_void;
 use std::sync::Arc;
 
@@ -15,6 +22,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use futures::StreamExt;
 use vortex::array::ArrayRef;
@@ -61,6 +69,73 @@ use crate::file::coerce_comparison_literals;
 /// Batches keeping more than this fraction of their rows are returned whole: compacting them
 /// costs a pass over every column, but saves the consumer little.
 const SELECTED_FRACTION_MAX: f64 = 0.5;
+
+// Keep these limits and the descriptor layouts in sync with exact_filter.cu.
+const FILTER_THREADS: usize = 256;
+const FILTER_TILE_ROWS: usize = 2048;
+const FILTER_MAX_PREDICATES: usize = 16;
+const FILTER_MAX_COLUMNS: usize = 32;
+const FILTER_MAX_TILES: usize = FILTER_THREADS * FILTER_THREADS;
+
+/// Shared selection is the default; CUB remains available for comparison and fallback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectionImpl {
+    Cub,
+    Shared,
+}
+
+impl SelectionImpl {
+    fn from_env() -> Self {
+        match env::var("VORTEX_CUDA_EXACT_FILTER_IMPL").as_deref() {
+            Ok("cub") => Self::Cub,
+            _ => Self::Shared,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+#[repr(C)]
+struct FilterComparison {
+    input: u64,
+    literal: u64,
+    ptype: u32,
+    operator: u32,
+}
+
+#[repr(C)]
+struct FilterPredicates {
+    comparisons: [FilterComparison; FILTER_MAX_PREDICATES],
+    // Only group starts are read. Comparisons of one field share a single typed load.
+    group_ends: [u32; FILTER_MAX_PREDICATES],
+}
+
+// SAFETY: A C-layout array of C-layout integer-only descriptors, matching FilterPredicates
+// in exact_filter.cu. Input pointers are recorded and kept alive across each kernel launch.
+unsafe impl DeviceRepr for FilterPredicates {}
+
+#[derive(Clone, Copy, Default)]
+#[repr(C)]
+struct FilterColumn {
+    input: u64,
+    output: u64,
+    width: u64,
+}
+
+#[repr(C)]
+struct FilterColumns {
+    columns: [FilterColumn; FILTER_MAX_COLUMNS],
+}
+
+// SAFETY: Matches FilterColumns in exact_filter.cu with no padding or Rust references.
+// All embedded input/output pointers are separately recorded on the launch stream.
+unsafe impl DeviceRepr for FilterColumns {}
+
+struct SelectionMask {
+    words: CudaSlice<u32>,
+    tile_offsets: Option<CudaSlice<u64>>,
+    group_offsets: Option<CudaSlice<u64>>,
+    selected: usize,
+}
 
 /// One conjunct of a scan filter: a top-level field compared with a non-null literal.
 #[derive(Clone, Debug)]
@@ -191,6 +266,7 @@ pub fn select_rows(
     concurrency: usize,
 ) -> SendableArrayStream {
     let dtype = stream.dtype().clone();
+    let implementation = SelectionImpl::from_env();
     let comparisons: Arc<[FieldComparison]> = comparisons.into();
     let batches = stream
         .map(move |batch| {
@@ -198,7 +274,7 @@ pub fn select_rows(
             let session = session.clone();
             async move {
                 let mut ctx = CudaSession::create_execution_ctx(&session)?;
-                select_batch(batch?, &comparisons, &mut ctx).await
+                select_batch(batch?, &comparisons, implementation, &mut ctx).await
             }
         })
         .buffered(concurrency.max(1));
@@ -208,6 +284,7 @@ pub fn select_rows(
 async fn select_batch(
     batch: ArrayRef,
     comparisons: &[FieldComparison],
+    implementation: SelectionImpl,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = batch.len();
@@ -230,6 +307,9 @@ async fn select_batch(
         Ok(StructArray::try_new(names.clone(), fields, len, validity.clone())?.into_array())
     };
 
+    let fused =
+        implementation == SelectionImpl::Shared && supports_fused_filter(len, comparisons.len());
+    let mut fused_inputs = Vec::new();
     let mut words: Option<CudaSlice<u32>> = None;
     for comparison in comparisons {
         let Some(index) = names.iter().position(|name| *name == comparison.field) else {
@@ -241,6 +321,10 @@ async fn select_batch(
         let Some(values) = comparable_values(canonical, comparison.ptype) else {
             continue;
         };
+        if fused {
+            fused_inputs.push((values, comparison));
+            continue;
+        }
         let combine = words.is_some();
         let target = match &mut words {
             Some(words) => words,
@@ -248,10 +332,20 @@ async fn select_batch(
         };
         launch_compare(values, len, comparison, target, combine, ctx).await?;
     }
-    let Some(words) = words else {
+    let mask = if !fused_inputs.is_empty() {
+        fused_selection_mask(fused_inputs, len, ctx).await?
+    } else if let Some(words) = words {
+        let selected = count_selected(&words, ctx).await?;
+        SelectionMask {
+            words,
+            tile_offsets: None,
+            group_offsets: None,
+            selected,
+        }
+    } else {
         return whole(fields);
     };
-    let selected = count_selected(&words, ctx).await?;
+    let selected = mask.selected;
     if selected as f64 > SELECTED_FRACTION_MAX * len as f64 {
         return whole(fields);
     }
@@ -267,10 +361,18 @@ async fn select_batch(
     {
         return whole(decoded.into_iter().map(Canonical::into_array).collect());
     }
-    let mut selected_fields = Vec::with_capacity(decoded.len());
-    for field in decoded {
-        selected_fields.push(select_field(field, &words, len, selected, ctx).await?);
-    }
+    let selected_fields = if implementation == SelectionImpl::Shared
+        && mask.tile_offsets.is_some()
+        && decoded.len() <= FILTER_MAX_COLUMNS
+    {
+        select_fields_shared(decoded, &mask, len, ctx).await?
+    } else {
+        let mut selected_fields = Vec::with_capacity(decoded.len());
+        for field in decoded {
+            selected_fields.push(select_field(field, &mask.words, len, selected, ctx).await?);
+        }
+        selected_fields
+    };
     Ok(StructArray::try_new(names, selected_fields, selected, validity)?.into_array())
 }
 
@@ -298,6 +400,10 @@ async fn count_selected(words: &CudaSlice<u32>, ctx: &mut CudaExecutionCtx) -> V
     ctx.launch_kernel(&function, words.len(), |args| {
         args.arg(words).arg(&num_words).arg(&mut count);
     })?;
+    read_selected_count(count).await
+}
+
+async fn read_selected_count(count: CudaSlice<u64>) -> VortexResult<usize> {
     let count = CudaDeviceBuffer::new(count)
         .copy_to_host(Alignment::of::<u64>())?
         .await?;
@@ -308,6 +414,254 @@ async fn count_selected(words: &CudaSlice<u32>, ctx: &mut CudaExecutionCtx) -> V
             .map_err(|_| vortex_err!("selection count has {} bytes", count.len()))?,
     );
     Ok(usize::try_from(count)?)
+}
+
+fn supports_fused_filter(len: usize, predicates: usize) -> bool {
+    len > 0
+        && (1..=FILTER_MAX_PREDICATES).contains(&predicates)
+        && len.div_ceil(FILTER_TILE_ROWS) <= FILTER_MAX_TILES
+}
+
+fn filter_launch_config(blocks: usize) -> VortexResult<LaunchConfig> {
+    Ok(LaunchConfig {
+        grid_dim: (u32::try_from(blocks)?, 1, 1),
+        block_dim: (u32::try_from(FILTER_THREADS)?, 1, 1),
+        shared_mem_bytes: 0,
+    })
+}
+
+fn comparison_descriptor(comparison: &FieldComparison) -> VortexResult<FilterComparison> {
+    let ptype = match comparison.ptype {
+        PType::U8 => 0,
+        PType::U16 => 1,
+        PType::U32 => 2,
+        PType::U64 => 3,
+        PType::I8 => 4,
+        PType::I16 => 5,
+        PType::I32 => 6,
+        PType::I64 => 7,
+        PType::F32 => 8,
+        PType::F64 => 9,
+        PType::F16 => return Err(vortex_err!("f16 comparisons have no CUDA kernel")),
+    };
+    let literal = match_each_native_simd_ptype!(comparison.ptype, |T| {
+        let value = comparison
+            .literal
+            .as_primitive()
+            .typed_value::<T>()
+            .ok_or_else(|| vortex_err!("comparison literal does not match its field"))?;
+        let bytes = value.to_le_bytes();
+        let mut padded = [0u8; 8];
+        padded[..bytes.len()].copy_from_slice(&bytes);
+        u64::from_le_bytes(padded)
+    });
+    Ok(FilterComparison {
+        input: 0,
+        literal,
+        ptype,
+        operator: comparison.operator as u32,
+    })
+}
+
+/// Fuse the eligible conjunction and count tiles, then scan tile counts in launch-ordered
+/// passes. The second prefix level is only needed above 256 tiles (524288 rows).
+/// Comparisons referring to the same field must refer to the same batch's values.
+async fn fused_selection_mask(
+    mut comparisons: Vec<(PrimitiveArray, &FieldComparison)>,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<SelectionMask> {
+    if !supports_fused_filter(len, comparisons.len()) {
+        return Err(vortex_err!("unsupported fused filter dimensions"));
+    }
+    // Ranges and other repeated-field conjuncts load each decoded value only once. Preserve
+    // first-field order for short-circuiting; never prioritize fields by name or schema.
+    // This bounded sort handles at most 16 predicates, independently of the row count.
+    let field_order: Vec<_> = comparisons
+        .iter()
+        .map(|(_, comparison)| comparison.field.clone())
+        .collect();
+    comparisons.sort_by_key(|(_, comparison)| {
+        field_order
+            .iter()
+            .position(|field| field == comparison.field)
+    });
+    let mut predicates = FilterPredicates {
+        comparisons: [FilterComparison::default(); FILTER_MAX_PREDICATES],
+        group_ends: [0; FILTER_MAX_PREDICATES],
+    };
+    let num_predicates = u32::try_from(comparisons.len())?;
+    let mut inputs = Vec::new();
+    let mut groups = Vec::new();
+    let mut start = 0;
+    for group in
+        comparisons.chunk_by(|(_, lhs), (_, rhs)| lhs.field == rhs.field && lhs.ptype == rhs.ptype)
+    {
+        let end = start + group.len();
+        for (descriptor, (_, comparison)) in
+            predicates.comparisons[start..end].iter_mut().zip(group)
+        {
+            *descriptor = comparison_descriptor(comparison)?;
+        }
+        predicates.group_ends[start] = u32::try_from(end)?;
+        let buffer = group[0].0.clone().into_data_parts().buffer;
+        inputs.push(ctx.ensure_on_device(buffer).await?);
+        groups.push(start..end);
+        start = end;
+    }
+    let views = inputs
+        .iter()
+        .map(|input| input.cuda_view::<u8>())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let stream = ctx.stream().clone();
+    let mut records = Vec::with_capacity(views.len());
+    for (group, view) in groups.into_iter().zip(&views) {
+        let (pointer, record) = view.device_ptr(&stream);
+        for descriptor in &mut predicates.comparisons[group] {
+            descriptor.input = pointer;
+        }
+        records.push(record);
+    }
+    let tiles = len.div_ceil(FILTER_TILE_ROWS);
+    let mut words = ctx.device_alloc::<u32>(len.div_ceil(32))?;
+    let mut counts = ctx.device_alloc::<u64>(tiles)?;
+    let function = ctx.load_function_with_suffixes("exact_filter", &["mask"])?;
+    let len_u64 = u64::try_from(len)?;
+    ctx.launch_kernel_config(&function, filter_launch_config(tiles)?, len, |args| {
+        args.arg(&predicates)
+            .arg(&num_predicates)
+            .arg(&len_u64)
+            .arg(&mut words)
+            .arg(&mut counts);
+    })?;
+    // Embedded pointers do not participate in LaunchArgs tracking automatically.
+    drop(records);
+
+    let (tile_offsets, group_counts) = prefix_counts(&counts, ctx)?;
+    let (group_offsets, count) = if group_counts.len() > 1 {
+        let (offsets, count) = prefix_counts(&group_counts, ctx)?;
+        (Some(offsets), count)
+    } else {
+        (None, group_counts)
+    };
+    let selected = read_selected_count(count).await?;
+    Ok(SelectionMask {
+        words,
+        tile_offsets: Some(tile_offsets),
+        group_offsets,
+        selected,
+    })
+}
+
+fn prefix_counts(
+    counts: &CudaSlice<u64>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(CudaSlice<u64>, CudaSlice<u64>)> {
+    let groups = counts.len().div_ceil(FILTER_THREADS);
+    let mut offsets = ctx.device_alloc::<u64>(counts.len())?;
+    let mut group_counts = ctx.device_alloc::<u64>(groups)?;
+    let len = u64::try_from(counts.len())?;
+    let function = ctx.load_function_with_suffixes("exact_filter", &["prefix"])?;
+    ctx.launch_kernel_config(
+        &function,
+        filter_launch_config(groups)?,
+        counts.len(),
+        |args| {
+            args.arg(counts)
+                .arg(&len)
+                .arg(&mut offsets)
+                .arg(&mut group_counts);
+        },
+    )?;
+    Ok((offsets, group_counts))
+}
+
+/// One launch compacts every supported column using tile-local indices shared across columns.
+/// Raw descriptor pointers are recorded on the stream, including slice offsets and outputs.
+async fn select_fields_shared(
+    fields: Vec<Canonical>,
+    mask: &SelectionMask,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Vec<ArrayRef>> {
+    let mut columns = FilterColumns {
+        columns: [FilterColumn::default(); FILTER_MAX_COLUMNS],
+    };
+    let num_columns = u32::try_from(fields.len())?;
+    let mut inputs = Vec::with_capacity(fields.len());
+    let mut outputs = Vec::with_capacity(fields.len());
+    let mut metadata = Vec::with_capacity(fields.len());
+    for (index, field) in fields.into_iter().enumerate() {
+        let ext_dtype = match &field {
+            Canonical::Extension(ext) => Some(ext.ext_dtype().clone()),
+            _ => None,
+        };
+        let values = selectable_values(field)
+            .ok_or_else(|| vortex_err!("selected column is not a non-null primitive"))?;
+        let ptype = values.ptype();
+        let PrimitiveDataParts {
+            buffer, validity, ..
+        } = values.into_data_parts();
+        let byte_len = mask
+            .selected
+            .checked_mul(ptype.byte_width())
+            .ok_or_else(|| vortex_err!("selected column size overflow"))?;
+        columns.columns[index].width = u64::try_from(ptype.byte_width())?;
+        // Allocate at 8-byte alignment for all widths, with no per-column scratch space.
+        outputs.push(ctx.device_alloc::<u64>(byte_len.div_ceil(8).max(1))?);
+        metadata.push((ptype, validity, ext_dtype, byte_len));
+        if mask.selected > 0 {
+            inputs.push(ctx.ensure_on_device(buffer).await?);
+        }
+    }
+    if mask.selected > 0 && num_columns > 0 {
+        let views = inputs
+            .iter()
+            .map(|input| input.cuda_view::<u8>())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let stream = ctx.stream().clone();
+        let mut records = Vec::with_capacity(views.len() * 2);
+        for ((descriptor, view), output) in columns.columns.iter_mut().zip(&views).zip(&mut outputs)
+        {
+            let (pointer, record) = view.device_ptr(&stream);
+            descriptor.input = pointer;
+            records.push(record);
+            let (pointer, record) = output.device_ptr_mut(&stream);
+            descriptor.output = pointer;
+            records.push(record);
+        }
+        let tile_offsets = mask
+            .tile_offsets
+            .as_ref()
+            .ok_or_else(|| vortex_err!("shared selection requires tile offsets"))?;
+        // The kernel does not read group offsets when there is only one group.
+        let group_offsets = mask.group_offsets.as_ref().unwrap_or(tile_offsets);
+        let function = ctx.load_function_with_suffixes("exact_filter", &["scatter"])?;
+        let len_u64 = u64::try_from(len)?;
+        let config = filter_launch_config(len.div_ceil(FILTER_TILE_ROWS))?;
+        ctx.launch_kernel_config(&function, config, len, |args| {
+            args.arg(&columns)
+                .arg(&num_columns)
+                .arg(&len_u64)
+                .arg(&mask.words)
+                .arg(tile_offsets)
+                .arg(group_offsets);
+        })?;
+        drop(records);
+    }
+    Ok(outputs
+        .into_iter()
+        .zip(metadata)
+        .map(|(output, (ptype, validity, ext_dtype, byte_len))| {
+            let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)))
+                .slice(0..byte_len);
+            let values = PrimitiveArray::from_buffer_handle(output, ptype, validity).into_array();
+            match ext_dtype {
+                Some(ext_dtype) => ExtensionArray::new(ext_dtype, values).into_array(),
+                None => values,
+            }
+        })
+        .collect())
 }
 
 /// The non-null primitive values of a decoded primitive or temporal column.
@@ -481,12 +835,16 @@ async fn launch_compare_typed<T: NativePType + DeviceRepr + Send + Sync + 'stati
 
 #[cfg(test)]
 mod tests {
+    use std::mem::offset_of;
+
+    use rstest::rstest;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::TemporalArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::expr::and;
     use vortex::array::expr::col;
+    use vortex::array::expr::eq;
     use vortex::array::expr::gt;
     use vortex::array::expr::gt_eq;
     use vortex::array::expr::lit;
@@ -494,6 +852,8 @@ mod tests {
     use vortex::array::expr::or;
     use vortex::array::extension::datetime::TimeUnit;
     use vortex::array::session::ArraySession;
+    use vortex::error::VortexExpect;
+    use vortex::mask::Mask;
     use vortex::session::VortexSession;
 
     use super::*;
@@ -509,9 +869,17 @@ mod tests {
     }
 
     async fn select(batch: ArrayRef, filter: Expression) -> VortexResult<ArrayRef> {
+        select_with_impl(batch, filter, SelectionImpl::Shared).await
+    }
+
+    async fn select_with_impl(
+        batch: ArrayRef,
+        filter: Expression,
+        implementation: SelectionImpl,
+    ) -> VortexResult<ArrayRef> {
         let comparisons = field_comparisons(&filter, batch.dtype())?;
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
-        let selected = select_batch(batch, &comparisons, &mut ctx).await?;
+        let selected = select_batch(batch, &comparisons, implementation, &mut ctx).await?;
         Ok(selected
             .execute_cuda(&mut ctx)
             .await?
@@ -581,6 +949,553 @@ mod tests {
         assert!(field_comparisons(&disjunction, &dtype)?.is_empty());
         let columns = lt(col("x"), col("y"));
         assert!(field_comparisons(&columns, &dtype)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_inline_descriptor_layouts() {
+        assert_eq!(size_of::<FilterComparison>(), 24);
+        assert_eq!(size_of::<FilterPredicates>(), 448);
+        assert_eq!(size_of::<FilterColumn>(), 24);
+        assert_eq!(size_of::<FilterColumns>(), 768);
+        assert_eq!(offset_of!(FilterComparison, literal), 8);
+        assert_eq!(offset_of!(FilterComparison, ptype), 16);
+        assert_eq!(offset_of!(FilterComparison, operator), 20);
+        assert_eq!(offset_of!(FilterPredicates, group_ends), 384);
+        assert_eq!(offset_of!(FilterColumn, output), 8);
+        assert_eq!(offset_of!(FilterColumn, width), 16);
+    }
+
+    #[test]
+    fn test_fused_capacity_bounds() {
+        assert!(!supports_fused_filter(0, 1));
+        assert!(!supports_fused_filter(1, 0));
+        assert!(supports_fused_filter(1, 1));
+        assert!(supports_fused_filter(
+            FILTER_TILE_ROWS * FILTER_MAX_TILES,
+            FILTER_MAX_PREDICATES,
+        ));
+        assert!(!supports_fused_filter(
+            FILTER_TILE_ROWS * FILTER_MAX_TILES + 1,
+            1,
+        ));
+        assert!(!supports_fused_filter(1, FILTER_MAX_PREDICATES + 1));
+        assert!(!supports_fused_filter(usize::MAX, 1));
+    }
+
+    #[rstest]
+    #[case(Scalar::from(-2i8), PType::I8, 0xfe)]
+    #[case(Scalar::from(-2i16), PType::I16, 0xfffe)]
+    #[case(Scalar::from(-2i32), PType::I32, 0xffff_fffe)]
+    #[case(Scalar::from(-2i64), PType::I64, 0xffff_ffff_ffff_fffe)]
+    #[case(Scalar::from(u64::MAX), PType::U64, u64::MAX)]
+    #[case(Scalar::from(-0.0f32), PType::F32, 0x8000_0000)]
+    #[case(Scalar::from(-0.0f64), PType::F64, 0x8000_0000_0000_0000)]
+    fn test_literal_descriptor_bits(
+        #[case] literal: Scalar,
+        #[case] ptype: PType,
+        #[case] expected: u64,
+    ) -> VortexResult<()> {
+        let descriptor = comparison_descriptor(&FieldComparison {
+            field: "value".into(),
+            operator: CompareOp::Gte,
+            literal,
+            ptype,
+        })?;
+        assert_eq!(descriptor.literal, expected);
+        assert_eq!(descriptor.operator, 3);
+        Ok(())
+    }
+
+    /// Every primitive width, signed/unsigned/float bit patterns, nullable-but-all-valid,
+    /// and temporal storage are copied together using the same tile-local row indices.
+    fn mixed_batch(len: i32) -> VortexResult<ArrayRef> {
+        let rows = 0..len;
+        let key = PrimitiveArray::from_iter(rows.clone().map(|row| row % 7)).into_array();
+        let u8s = PrimitiveArray::from_option_iter(
+            rows.clone()
+                .map(|row| Some(u8::try_from(row % 251).vortex_expect("bounded remainder"))),
+        )
+        .into_array();
+        let i8s = PrimitiveArray::from_iter(
+            rows.clone()
+                .map(|row| i8::try_from(row % 127 - 63).vortex_expect("bounded remainder")),
+        )
+        .into_array();
+        let u16s = PrimitiveArray::from_iter(
+            rows.clone()
+                .map(|row| u16::try_from(row % 65536).vortex_expect("bounded remainder")),
+        )
+        .into_array();
+        let i16s = PrimitiveArray::from_iter(
+            rows.clone()
+                .map(|row| i16::try_from(row % 1000 - 500).vortex_expect("bounded remainder")),
+        )
+        .into_array();
+        let u32s = PrimitiveArray::from_iter(rows.clone().map(|row| 4_000_000_000u32 + row as u32))
+            .into_array();
+        let i64s = PrimitiveArray::from_iter(rows.clone().map(|row| i64::MIN + i64::from(row)))
+            .into_array();
+        let u64s =
+            PrimitiveArray::from_iter(rows.clone().map(|row| u64::MAX - row as u64)).into_array();
+        let f32s =
+            PrimitiveArray::from_iter(rows.clone().map(|row| -(row as f32) / 10.0)).into_array();
+        let f64s =
+            PrimitiveArray::from_iter(rows.clone().map(|row| f64::from(row) / 10.0)).into_array();
+        let dates =
+            TemporalArray::new_date(PrimitiveArray::from_iter(rows).into_array(), TimeUnit::Days)
+                .into_array();
+        Ok(StructArray::from_fields(&[
+            ("key", key),
+            ("u8", u8s),
+            ("i8", i8s),
+            ("u16", u16s),
+            ("i16", i16s),
+            ("u32", u32s),
+            ("i64", i64s),
+            ("u64", u64s),
+            ("f32", f32s),
+            ("f64", f64s),
+            ("d", dates),
+        ])?
+        .into_array())
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(2047)]
+    #[case(2048)]
+    #[case(2049)]
+    #[case(524289)]
+    #[crate::test]
+    async fn test_multi_column_widths_and_prefix_boundaries(
+        #[case] len: i32,
+        #[values(SelectionImpl::Cub, SelectionImpl::Shared)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
+        let batch = mixed_batch(len)?;
+        let expected = batch.filter(Mask::from_iter((0..len).map(|row| row % 7 == 6)))?;
+        let filter = and(
+            eq(col("key"), lit(6i32)),
+            and(
+                gt_eq(col("u32"), lit(4_000_000_000u32)),
+                lt(col("f64"), lit(1.0e12f64)),
+            ),
+        );
+        let selected = select_with_impl(batch, filter, implementation).await?;
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0, 0)]
+    #[case(2500, 2500)]
+    #[case(2501, 5000)]
+    #[case(5000, 5000)]
+    #[crate::test]
+    async fn test_empty_half_and_dense_masks(
+        #[case] cutoff: i32,
+        #[case] expected_len: usize,
+        #[values(SelectionImpl::Cub, SelectionImpl::Shared)] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
+        let batch = batch()?;
+        let expected = batch.slice(0..expected_len)?;
+        let selected = select_with_impl(batch, lt(col("x"), lit(cutoff)), implementation).await?;
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(PType::U8)]
+    #[case(PType::U16)]
+    #[case(PType::U32)]
+    #[case(PType::U64)]
+    #[case(PType::I8)]
+    #[case(PType::I16)]
+    #[case(PType::I32)]
+    #[case(PType::I64)]
+    #[case(PType::F32)]
+    #[case(PType::F64)]
+    #[crate::test]
+    async fn test_fused_comparison_types_and_operators(#[case] ptype: PType) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        for operator in [
+            CompareOp::Eq,
+            CompareOp::NotEq,
+            CompareOp::Gt,
+            CompareOp::Gte,
+            CompareOp::Lt,
+            CompareOp::Lte,
+        ] {
+            let (values, literal, expected) = match_each_native_simd_ptype!(ptype, |T| {
+                let values = [T::MIN, 0 as T, 1 as T, T::MAX];
+                let literal = 1 as T;
+                let expected = values
+                    .iter()
+                    .enumerate()
+                    .fold(0u32, |mask, (index, value)| {
+                        let keep = match operator {
+                            CompareOp::Eq => *value == literal,
+                            CompareOp::NotEq => *value != literal,
+                            CompareOp::Gt => *value > literal,
+                            CompareOp::Gte => *value >= literal,
+                            CompareOp::Lt => *value < literal,
+                            CompareOp::Lte => *value <= literal,
+                        };
+                        mask | (u32::from(keep) << index)
+                    });
+                (
+                    PrimitiveArray::from_iter(values),
+                    Scalar::from(literal),
+                    expected,
+                )
+            });
+            let comparison = FieldComparison {
+                field: "x".into(),
+                operator,
+                literal,
+                ptype,
+            };
+            let mask = fused_selection_mask(vec![(values, &comparison)], 4, &mut ctx).await?;
+            let words = ctx
+                .stream()
+                .clone_dtoh(&mask.words)
+                .map_err(|error| vortex_err!("Failed to read selection mask: {error}"))?;
+            assert_eq!(words, vec![expected]);
+            assert_eq!(mask.selected, expected.count_ones() as usize);
+        }
+        Ok(())
+    }
+
+    /// Interleaved predicates must form complete groups even at the descriptor capacity.
+    #[rstest]
+    #[case(SelectionImpl::Cub)]
+    #[case(SelectionImpl::Shared)]
+    #[crate::test]
+    async fn test_repeated_fields_at_predicate_capacity(
+        #[case] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
+        let batch = batch()?;
+        let expected = batch.slice(123..333)?;
+        let filter = and(
+            and(gt_eq(col("y"), lit(0.0f64)), gt_eq(col("x"), lit(123i32))),
+            and(lt(col("y"), lit(200.0f64)), lt(col("x"), lit(333i32))),
+        );
+        let comparisons = field_comparisons(&filter, batch.dtype())?;
+        let comparisons: Vec<_> = comparisons
+            .into_iter()
+            .cycle()
+            .take(FILTER_MAX_PREDICATES)
+            .collect();
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let selected = select_batch(batch, &comparisons, implementation, &mut ctx).await?;
+        let selected = selected
+            .execute_cuda(&mut ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(PType::F32)]
+    #[case(PType::F64)]
+    #[crate::test]
+    async fn test_float_mask_all_operators_and_ambiguous_literals(
+        #[case] ptype: PType,
+    ) -> VortexResult<()> {
+        // All values (including the subnormal) are represented exactly by both float widths.
+        let values = [
+            -f64::NAN,
+            f64::NAN,
+            -0.0,
+            0.0,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            -2.0,
+            -1.0,
+            1.0,
+            2.0,
+            f64::from(f32::from_bits(1)),
+        ];
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        for literal in [
+            -f64::NAN,
+            f64::NAN,
+            -0.0,
+            0.0,
+            -1.0,
+            1.0,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+        ] {
+            for operator in [
+                CompareOp::Eq,
+                CompareOp::NotEq,
+                CompareOp::Gt,
+                CompareOp::Gte,
+                CompareOp::Lt,
+                CompareOp::Lte,
+            ] {
+                let expected = values
+                    .iter()
+                    .enumerate()
+                    .fold(0u32, |mask, (index, &value)| {
+                        let ambiguous =
+                            value.is_nan() || literal.is_nan() || (value == 0.0 && literal == 0.0);
+                        let keep = ambiguous
+                            || match operator {
+                                CompareOp::Eq => value == literal,
+                                CompareOp::NotEq => value != literal,
+                                CompareOp::Gt => value > literal,
+                                CompareOp::Gte => value >= literal,
+                                CompareOp::Lt => value < literal,
+                                CompareOp::Lte => value <= literal,
+                            };
+                        mask | (u32::from(keep) << index)
+                    });
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Finite test values are exactly representable in f32"
+                )]
+                let (input, literal) = match ptype {
+                    PType::F32 => (
+                        PrimitiveArray::from_iter(values.map(|value| value as f32)),
+                        Scalar::from(literal as f32),
+                    ),
+                    PType::F64 => (PrimitiveArray::from_iter(values), Scalar::from(literal)),
+                    _ => unreachable!("float cases only"),
+                };
+                let comparison = FieldComparison {
+                    field: "value".into(),
+                    operator,
+                    literal,
+                    ptype,
+                };
+                let mask = fused_selection_mask(
+                    vec![(input.clone(), &comparison)],
+                    values.len(),
+                    &mut ctx,
+                )
+                .await?;
+                let words = ctx
+                    .stream()
+                    .clone_dtoh(&mask.words)
+                    .map_err(|error| vortex_err!("Failed to read fused selection mask: {error}"))?;
+                assert_eq!(words, vec![expected]);
+                assert_eq!(mask.selected, expected.count_ones() as usize);
+
+                // The standalone baseline must obey the same contract, including tails.
+                let mut baseline = ctx.device_alloc::<u32>(1)?;
+                launch_compare(
+                    input,
+                    values.len(),
+                    &comparison,
+                    &mut baseline,
+                    false,
+                    &mut ctx,
+                )
+                .await?;
+                let words = ctx.stream().clone_dtoh(&baseline).map_err(|error| {
+                    vortex_err!("Failed to read baseline selection mask: {error}")
+                })?;
+                assert_eq!(words, vec![expected]);
+            }
+        }
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_device_slice_offsets_and_cross_stream_lifetimes() -> VortexResult<()> {
+        let session = cuda_session();
+        let producer = CudaSession::create_execution_ctx(&session)?;
+        let x = producer
+            .copy_to_device((0i32..5003).collect::<Vec<_>>())?
+            .await?;
+        let y = producer
+            .copy_to_device((0u64..5003).map(|row| u64::MAX - row).collect::<Vec<_>>())?
+            .await?;
+        let x = PrimitiveArray::from_buffer_handle(
+            x.slice(3 * 4..5003 * 4),
+            PType::I32,
+            Validity::AllValid,
+        )
+        .into_array();
+        let y = PrimitiveArray::from_buffer_handle(
+            y.slice(3 * 8..5003 * 8),
+            PType::U64,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let batch = StructArray::from_fields(&[("x", x), ("y", y)])?.into_array();
+        let filter = and(gt_eq(col("x"), lit(1000i32)), lt(col("x"), lit(1100i32)));
+        let comparisons = field_comparisons(&filter, batch.dtype())?;
+        let mut consumer = CudaSession::create_execution_ctx(&session)?;
+        let selected =
+            select_batch(batch, &comparisons, SelectionImpl::Shared, &mut consumer).await?;
+        // Drop both contexts and all source handles before a third stream consumes outputs.
+        drop((producer, consumer));
+        let mut reader = CudaSession::create_execution_ctx(&session)?;
+        let selected = selected
+            .execute_cuda(&mut reader)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        let expected = StructArray::from_fields(&[
+            (
+                "x",
+                PrimitiveArray::from_option_iter((1000i32..1100).map(Some)).into_array(),
+            ),
+            (
+                "y",
+                PrimitiveArray::from_iter((1000u64..1100).map(|row| u64::MAX - row)).into_array(),
+            ),
+        ])?
+        .into_array();
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_nullable_columns_keep_whole_batch() -> VortexResult<()> {
+        let x = PrimitiveArray::from_iter(0i32..100).into_array();
+        let y = PrimitiveArray::from_option_iter((0i32..100).map(|row| (row != 50).then_some(row)))
+            .into_array();
+        let batch = StructArray::from_fields(&[("x", x), ("y", y)])?.into_array();
+        for filter in [lt(col("x"), lit(5i32)), lt(col("y"), lit(5i32))] {
+            let selected = select(batch.clone(), filter).await?;
+            let mut ctx = VortexSession::empty()
+                .with::<ArraySession>()
+                .create_execution_ctx();
+            assert_arrays_eq!(batch, selected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(SelectionImpl::Cub)]
+    #[case(SelectionImpl::Shared)]
+    #[crate::test]
+    async fn test_float_ambiguities_preserve_cpu_superset(
+        #[case] implementation: SelectionImpl,
+    ) -> VortexResult<()> {
+        let values = PrimitiveArray::from_iter([f64::NAN, -0.0, 0.0, -1.0, -2.0, -3.0, -4.0, -5.0]);
+        let batch = StructArray::from_fields(&[("x", values.into_array())])?.into_array();
+        // Vortex orders NaN above finite values and +0 above -0; IEEE consumers differ.
+        // Retaining all three ambiguous rows is safe for either consumer.
+        let expected = batch.slice(0..3)?;
+        let selected = select_with_impl(batch, gt(col("x"), lit(-0.0f64)), implementation).await?;
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_predicate_capacity_falls_back_to_cub() -> VortexResult<()> {
+        let batch = batch()?;
+        let expected = batch.slice(0..100)?;
+        let comparison = field_comparisons(&lt(col("x"), lit(100i32)), batch.dtype())?;
+        let comparisons = vec![comparison[0].clone(); FILTER_MAX_PREDICATES + 1];
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let selected = select_batch(batch, &comparisons, SelectionImpl::Shared, &mut ctx).await?;
+        let selected = selected
+            .execute_cuda(&mut ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(8193, 2048, 4096)]
+    #[case(528385, 522240, 526337)]
+    #[crate::test]
+    async fn test_empty_and_full_tiles_across_prefix_groups(
+        #[case] len: i32,
+        #[case] start: i32,
+        #[case] end: i32,
+    ) -> VortexResult<()> {
+        let rows = PrimitiveArray::from_iter(0..len).into_array();
+        let batch = StructArray::from_fields(&[("x", rows)])?.into_array();
+        let expected = batch.slice(usize::try_from(start)?..usize::try_from(end)?)?;
+        let selected = select(
+            batch,
+            and(gt_eq(col("x"), lit(start)), lt(col("x"), lit(end))),
+        )
+        .await?;
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_wide_projection_falls_back_to_cub() -> VortexResult<()> {
+        let rows = PrimitiveArray::from_iter(0i32..100).into_array();
+        let fields: Vec<_> = (0..=FILTER_MAX_COLUMNS)
+            .map(|index| (format!("c{index}"), rows.clone()))
+            .collect();
+        let batch = StructArray::from_fields(&fields)?.into_array();
+        let expected = batch.slice(0..5)?;
+        let selected = select(batch, lt(col("c0"), lit(5i32))).await?;
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_missing_and_unsupported_conjuncts_preserve_superset() -> VortexResult<()> {
+        let batch = batch()?;
+        let filter = and(
+            lt(col("x"), lit(100i32)),
+            or(lt(col("x"), lit(1i32)), gt(col("x"), lit(4998i32))),
+        );
+        let mut comparisons = field_comparisons(&filter, batch.dtype())?;
+        assert_eq!(comparisons.len(), 1);
+        let mut missing = comparisons[0].clone();
+        missing.field = "not_projected".into();
+        comparisons.insert(0, missing);
+        let expected = batch.slice(0..100)?;
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let selected = select_batch(batch, &comparisons, SelectionImpl::Shared, &mut ctx).await?;
+        let selected = selected
+            .execute_cuda(&mut ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        assert_arrays_eq!(expected, selected, &mut ctx);
         Ok(())
     }
 }
