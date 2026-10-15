@@ -20,10 +20,10 @@ use std::mem::MaybeUninit;
 use std::slice::from_raw_parts;
 
 use num_traits::AsPrimitive;
-use vortex_array::arrays::filter::ChunkDecoder;
 use vortex_array::dtype::IntegerPType;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::filter::ChunkDecoder;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
