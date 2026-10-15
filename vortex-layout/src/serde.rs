@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::VerifierOptions;
 use flatbuffers::WIPOffset;
-use flatbuffers::root_with_opts;
+use flatbuffers::root_unchecked;
 use vortex_array::dtype::DType;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::flatbuffers::FlatBufferRoot;
@@ -27,6 +27,7 @@ use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
 use crate::session::LayoutSessionExt;
 
+#[allow(dead_code, reason = "experiment")]
 static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
     VerifierOptions {
         // Overridden
@@ -66,7 +67,9 @@ pub fn layout_from_flatbuffer_with_options(
 ) -> VortexResult<LayoutRef> {
     let layout_session = session.layouts();
     let layouts = layout_session.registry();
-    let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
+    // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+    // is unsound for untrusted input and must not be merged.
+    let fb_layout = unsafe { root_unchecked::<layout::Layout>(&flatbuffer) };
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;

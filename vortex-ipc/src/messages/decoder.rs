@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use bytes::Buf;
-use flatbuffers::root;
 use flatbuffers::root_unchecked;
 use vortex_array::ArrayId;
 use vortex_array::flatbuffers::FlatBuffer;
@@ -93,7 +92,9 @@ impl MessageDecoder {
                     }
 
                     let msg_bytes = bytes.copy_to_const_aligned(*msg_length);
-                    let msg = root::<fb::Message>(msg_bytes.as_ref())?;
+                    // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+                    // is unsound for untrusted input and must not be merged.
+                    let msg = unsafe { root_unchecked::<fb::Message>(msg_bytes.as_ref()) };
                     if msg.version() != MessageVersion::V0 {
                         vortex_bail!("Unsupported message version {:?}", msg.version());
                     }
