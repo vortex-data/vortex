@@ -136,6 +136,7 @@ fn reader(
         pool: Arc::clone(cuda.pinned_buffer_pool()),
         stream: cuda.copy_stream()?,
         read_slots: Arc::new(Semaphore::new(DEFAULT_FILE_CONCURRENCY)),
+        mapped: None,
     };
     Ok((runtime, reader))
 }
@@ -307,5 +308,97 @@ async fn cancelled_reads_keep_slots_and_buffers_until_blocking_io_finishes() -> 
     assert_slots_released(&reader, 2).await;
     // The cancelled request's third chunk must never reach the backend.
     assert_eq!(backend.requests.lock().len(), 3);
+    Ok(())
+}
+
+const MAPPED_FILE_BYTES: usize = 2 * FILE_READ_CHUNK_BYTES + 4096;
+
+/// Opens a real buffered file of `file_byte` content with the device-side mapped copy enabled.
+fn mapped_reader() -> VortexResult<(
+    CurrentThreadRuntime,
+    PooledFileReadAt,
+    tempfile::NamedTempFile,
+)> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    let bytes: Vec<u8> = (0..MAPPED_FILE_BYTES as u64).map(file_byte).collect();
+    io::Write::write_all(&mut file, &bytes)?;
+    let runtime = CurrentThreadRuntime::new();
+    let session = crate::cuda_session().with_handle(runtime.handle());
+    let cuda = session.cuda_session();
+    let reader = PooledFileReadAt::open(
+        file.path(),
+        session.handle(),
+        Arc::clone(cuda.pinned_buffer_pool()),
+        cuda.copy_stream()?,
+    )?
+    .with_mapped_copy(file.path(), &cuda)?;
+    Ok((runtime, reader, file))
+}
+
+/// Mapped reads must return the file's bytes for any source offset within 16 bytes, across
+/// chunk boundaries and up to the end of the file.
+#[rstest]
+#[case::empty(37, 0)]
+#[case::single_byte_unaligned(5, 1)]
+#[case::short_unaligned(15, 17)]
+#[case::chunk_aligned(0, FILE_READ_CHUNK_BYTES - 1)]
+#[case::chunks_with_tail(4091, 2 * FILE_READ_CHUNK_BYTES + 3)]
+#[case::through_file_end(0, MAPPED_FILE_BYTES)]
+#[crate::test]
+async fn mapped_reads_preserve_bytes_and_offsets(
+    #[case] offset: u64,
+    #[case] length: usize,
+) -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        // The device does not read pageable memory; the staged path is covered above.
+        return Ok(());
+    }
+    let buffer = reader
+        .read_at(offset, length, Alignment::of::<u8>())
+        .await?;
+    assert_eq!(buffer.len(), length);
+    if length > 0 {
+        assert_bytes(buffer, offset, length).await?;
+    }
+    Ok(())
+}
+
+#[crate::test]
+async fn mapped_read_past_end_fails() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let offset = MAPPED_FILE_BYTES as u64 - 10;
+    assert!(!reader.mapped.as_ref().unwrap().is_cached(offset, 11));
+    // Out-of-range reads take the staged path, which reports the short read.
+    reader
+        .read_at(offset, 11, Alignment::of::<u8>())
+        .await
+        .expect_err("a read past the end must fail");
+    Ok(())
+}
+
+/// Uncached ranges must not be filled through the mapping, where cold page faults are
+/// serialized; the staged path reads them and leaves them cached for the mapped path.
+#[cfg(target_os = "linux")]
+#[crate::test]
+async fn uncached_ranges_take_the_staged_path() -> VortexResult<()> {
+    let (_runtime, reader, file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    file.as_file().sync_all()?;
+    rustix::fs::fadvise(file.as_file(), 0, None, rustix::fs::Advice::DontNeed)
+        .map_err(io::Error::from)?;
+    let (offset, length) = (37, FILE_READ_CHUNK_BYTES + 5);
+    assert!(!mapped.is_cached(offset, length));
+
+    let buffer = reader
+        .read_at(offset, length, Alignment::of::<u8>())
+        .await?;
+    assert_bytes(buffer, offset, length).await?;
+    assert!(mapped.is_cached(offset, length));
     Ok(())
 }
