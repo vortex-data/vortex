@@ -83,10 +83,12 @@ typedef struct vx_cuda_scan_options {
   /**
    * Zone-pruning predicate over the file's columns. NULL reads every zone.
    *
-   * Only zone and file statistics are evaluated, before any data is read: zones that cannot
-   * match are skipped without I/O. Returned rows may still fail the predicate, so callers
-   * filter exactly. Comparison literals are cast to the compared column's type. Pruning is
-   * cheapest with zero `batch_rows`, which keeps batches aligned with zones.
+   * Zone and file statistics are evaluated before any data is read: zones that cannot match
+   * are skipped without I/O. Conjuncts comparing a projected column with a literal are also
+   * evaluated on the GPU, and batches drop failing rows when that removes most of them.
+   * Returned rows may still fail the predicate, so callers filter exactly. Comparison
+   * literals are cast to the compared column's type. Pruning is cheapest with zero
+   * `batch_rows`, which keeps batches aligned with zones.
    */
   const vx_expression *filter;
 } vx_cuda_scan_options;

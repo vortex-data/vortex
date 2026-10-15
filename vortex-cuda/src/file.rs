@@ -150,7 +150,10 @@ pub async fn scan_cuda_pruned(
 }
 
 /// Cast each comparison literal to the type of the other operand.
-fn coerce_comparison_literals(expr: Expression, scope: &DType) -> VortexResult<Expression> {
+pub(crate) fn coerce_comparison_literals(
+    expr: Expression,
+    scope: &DType,
+) -> VortexResult<Expression> {
     let children = expr
         .children()
         .iter()

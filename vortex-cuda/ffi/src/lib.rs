@@ -40,9 +40,11 @@ use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::DeviceArrayStreamExt;
+use vortex_cuda::field_comparisons;
 use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
 use vortex_cuda::scan_cuda_pruned;
+use vortex_cuda::select_rows;
 use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
@@ -82,10 +84,12 @@ pub struct vx_cuda_scan_options {
     pub batch_rows: usize,
     /// Zone-pruning predicate over the file's columns. NULL reads every zone.
     ///
-    /// Only zone and file statistics are evaluated, before any data is read: zones that cannot
-    /// match are skipped without I/O. Returned rows may still fail the predicate, so callers
-    /// filter exactly. Comparison literals are cast to the compared column's type. Pruning is
-    /// cheapest with zero `batch_rows`, which keeps batches aligned with zones.
+    /// Zone and file statistics are evaluated before any data is read: zones that cannot match
+    /// are skipped without I/O. Conjuncts comparing a projected column with a literal are also
+    /// evaluated on the GPU, and batches drop failing rows when that removes most of them.
+    /// Returned rows may still fail the predicate, so callers filter exactly. Comparison
+    /// literals are cast to the compared column's type. Pruning is cheapest with zero
+    /// `batch_rows`, which keeps batches aligned with zones.
     pub filter: *const vx_expression,
 }
 
@@ -331,7 +335,15 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
                 options.batch_rows,
             )?,
         };
-        let array_stream = scan.into_array_stream()?.boxed();
+        let comparisons = match &options.filter {
+            Some(filter) => field_comparisons(filter, file.dtype())?,
+            None => Vec::new(),
+        };
+        let concurrency = scan.concurrency();
+        let mut array_stream = scan.into_array_stream()?.boxed();
+        if !comparisons.is_empty() {
+            array_stream = select_rows(array_stream, comparisons, session.clone(), concurrency);
+        }
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
 
