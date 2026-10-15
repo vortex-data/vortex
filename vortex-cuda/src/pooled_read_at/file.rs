@@ -4,10 +4,15 @@
 #[cfg(target_os = "linux")]
 mod direct;
 
+use std::collections::VecDeque;
 use std::fs::File;
+use std::mem::ManuallyDrop;
 use std::ops::Range;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::LazyLock;
+use std::time::SystemTime;
 
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaSlice;
@@ -55,8 +60,7 @@ const FILE_READ_CHUNK_BYTES: usize = 8 << 20;
 const MAPPED_COPY_BLOCKS_MAX: u64 = 1024;
 const MAPPED_COPY_THREADS: u32 = 256;
 
-/// Filling page tables from several threads contends on the process memory map and measured
-/// slower than a single thread, so fills are serialized across all mapped files.
+/// Serialize page-table fills across all mapped files, releasing the lock after each chunk.
 static MAPPED_FILL: Mutex<()> = Mutex::new(());
 
 /// Options controlling how [`PooledFileReadAt`] opens and reads a local file.
@@ -131,6 +135,128 @@ unsafe extern "C" {
     fn getpagesize() -> std::ffi::c_int;
 }
 
+fn page_size() -> VortexResult<usize> {
+    // SAFETY: getpagesize has no preconditions.
+    let page = usize::try_from(unsafe { getpagesize() })?;
+    vortex_ensure!(page.is_power_of_two(), "invalid page size {page}");
+    Ok(page)
+}
+
+/// Number of recently opened file versions whose mappings stay alive between opens.
+const FILE_MAPPINGS_CACHED_MAX: usize = 64;
+
+/// Mappings of recently opened file versions, least recently opened first.
+///
+/// Each open used to map its file and unmap it after the scan. Unmapping holds the process's
+/// address-space lock for milliseconds per GiB of filled page tables, and pageable CUDA copies
+/// on other threads wait for that lock while holding the driver's: on NDS-H SF10 Q10, every
+/// thread stalled for the first ~2 ms of each query. Reusing the mapping also keeps its page
+/// tables filled, so hot scans skip most of the fill work.
+static FILE_MAPPINGS: LazyLock<Mutex<FileMappingCache>> =
+    LazyLock::new(|| Mutex::new(VecDeque::with_capacity(FILE_MAPPINGS_CACHED_MAX + 1)));
+
+/// The entries of [`FILE_MAPPINGS`].
+type FileMappingCache = VecDeque<(FileVersion, Arc<FileMapping>)>;
+
+/// A file's identity and version: modifying or replacing a file yields a new mapping.
+///
+/// Modifying a mapped file in place without changing its size within the timestamp
+/// granularity is not detected; Vortex files are immutable once written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileVersion {
+    device: u64,
+    inode: u64,
+    len: u64,
+    modified: SystemTime,
+}
+
+impl FileVersion {
+    fn of(file: &File) -> VortexResult<Self> {
+        let metadata = file.metadata()?;
+        Ok(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            len: metadata.len(),
+            modified: metadata.modified()?,
+        })
+    }
+}
+
+/// A read-only mapping of one file version, shared by every open of that version.
+struct FileMapping {
+    /// Present until drop; unmapped only after every user's copies have drained.
+    mapping: Option<Mmap>,
+}
+
+impl FileMapping {
+    /// The cached mapping of `path`'s current version, mapping it on first use.
+    fn open(path: &Path) -> VortexResult<Arc<Self>> {
+        let file = File::open(path)?;
+        let version = FileVersion::of(&file)?;
+        let mut mappings = FILE_MAPPINGS.lock();
+        if let Some(index) = mappings.iter().position(|(cached, _)| *cached == version) {
+            let entry = mappings.remove(index).vortex_expect("index is in bounds");
+            let mapping = Arc::clone(&entry.1);
+            mappings.push_back(entry);
+            return Ok(mapping);
+        }
+        // SAFETY: Vortex files are immutable while open. As with any file mapping, truncation
+        // by another process would fault on access.
+        let mapping = unsafe { Mmap::map(&file)? };
+        let mapping = Arc::new(Self {
+            mapping: Some(mapping),
+        });
+        mappings.push_back((version, Arc::clone(&mapping)));
+        if mappings.len() > FILE_MAPPINGS_CACHED_MAX {
+            // Users still holding the evicted mapping keep it alive until their copies drain.
+            drop(mappings.pop_front());
+        }
+        Ok(mapping)
+    }
+
+    fn mapping(&self) -> &Mmap {
+        self.mapping
+            .as_ref()
+            .vortex_expect("mapping is present until drop")
+    }
+}
+
+/// Release cached file mappings that no open reader uses, unmapping them before returning.
+///
+/// Readers keep files mapped between scans, so later scans of a file reuse its filled page
+/// tables. A mapped page cannot be dropped from the page cache, for example by
+/// `posix_fadvise(DONTNEED)`, so release the mappings before evicting files, such as before a
+/// cold-cache measurement, or to return the address space. Mappings that open readers still use
+/// stay mapped until those readers close.
+pub fn release_file_mappings() {
+    let released: Vec<_> = FILE_MAPPINGS
+        .lock()
+        .drain(..)
+        .map(|(_, mapping)| mapping)
+        .collect();
+    for mapping in released {
+        if let Ok(mut mapping) = Arc::try_unwrap(mapping) {
+            // Unmap on this thread, not in the background, so the pages are unmapped on return.
+            drop(mapping.mapping.take());
+        }
+    }
+}
+
+impl Drop for FileMapping {
+    fn drop(&mut self) {
+        let Some(mapping) = self.mapping.take() else {
+            return;
+        };
+        // Unmapping filled page tables costs milliseconds per GiB; keep it off the caller. If
+        // the thread cannot start, the returned closure unmaps here.
+        drop(
+            std::thread::Builder::new()
+                .name("vortex-unmap".to_string())
+                .spawn(move || drop(mapping)),
+        );
+    }
+}
+
 /// A buffered file whose page-cache pages the device copies directly.
 ///
 /// A buffered `pread` copies cached pages into pinned staging on the CPU, the slowest step of a
@@ -138,8 +264,8 @@ unsafe extern "C" {
 /// from a mapping of those pages with a kernel. The CPU then only fills page tables, which is
 /// several times faster than copying the data.
 struct MappedFile {
-    /// Present until drop; unmapped only after the copy stream has drained.
-    mapping: Option<Mmap>,
+    /// Present until drop; released only after the copy stream has drained.
+    file: Option<Arc<FileMapping>>,
     copy: CudaFunction,
     stream: VortexCudaStream,
 }
@@ -159,20 +285,12 @@ impl MappedFile {
         if uses_host_page_tables != 1 {
             return Ok(None);
         }
-        let file = File::open(path)?;
-        // SAFETY: Vortex files are immutable while open. As with any file mapping, truncation
-        // by another process would fault on access.
-        let mapping = unsafe { Mmap::map(&file)? };
         let copy = session.load_function_with_suffixes("mapped_copy", &[])?;
         Ok(Some(Self {
-            mapping: Some(mapping),
+            file: Some(FileMapping::open(path)?),
             copy,
             stream: stream.clone(),
         }))
-    }
-
-    fn len(&self) -> usize {
-        self.mapping.as_ref().map_or(0, |mapping| mapping.len())
     }
 
     /// Whether every page of the file range is in the page cache.
@@ -181,9 +299,10 @@ impl MappedFile {
     /// single fill thread, about 13x slower than parallel `pread`s on a cold Q6 scan. Uncached
     /// ranges therefore take the staged path, which also caches them for later reads.
     fn is_cached(&self, offset: u64, length: usize) -> bool {
-        let Some(mapping) = self.mapping.as_ref() else {
+        let Some(file) = self.file.as_ref() else {
             return false;
         };
+        let mapping = file.mapping();
         let Ok(start) = usize::try_from(offset) else {
             return false;
         };
@@ -196,11 +315,9 @@ impl MappedFile {
         if length == 0 {
             return true;
         }
-        // SAFETY: getpagesize has no preconditions.
-        let page = usize::try_from(unsafe { getpagesize() }).unwrap_or(0);
-        if !page.is_power_of_two() {
+        let Ok(page) = page_size() else {
             return false;
-        }
+        };
         let begin = (mapping.as_ptr() as usize + start) & !(page - 1);
         let end = mapping.as_ptr() as usize + start + length;
         let mut resident = vec![0u8; (end - begin).div_ceil(page)];
@@ -226,10 +343,11 @@ impl MappedFile {
         mut output: CudaSlice<u8>,
         pad: usize,
     ) -> VortexResult<CudaSlice<u8>> {
-        let mapping = self
-            .mapping
+        let file = self
+            .file
             .as_ref()
-            .vortex_expect("mapping is present until drop");
+            .vortex_expect("file is present until drop");
+        let mapping = file.mapping();
         let length = output.len() - pad;
         self.stream
             .context()
@@ -269,22 +387,14 @@ impl MappedFile {
 
 impl Drop for MappedFile {
     fn drop(&mut self) {
-        let Some(mapping) = self.mapping.take() else {
+        let Some(file) = self.file.take() else {
             return;
         };
-        // Queued copies may still read the mapping.
+        // Queued copies may still read the mapping, which the last release unmaps.
         if self.stream.synchronize().is_err() {
             // Without proof the copies finished, never unmap memory the device may read.
-            std::mem::forget(mapping);
-            return;
+            let _leaked = ManuallyDrop::new(file);
         }
-        // Unmapping filled page tables costs milliseconds per GiB; keep it off the caller. If
-        // the thread cannot start, the returned closure unmaps here.
-        drop(
-            std::thread::Builder::new()
-                .name("vortex-unmap".to_string())
-                .spawn(move || drop(mapping)),
-        );
     }
 }
 
@@ -359,34 +469,34 @@ impl PooledFileReadAt {
         Ok(self)
     }
 
+    /// Copy a cached range through the mapping, or return `None` for the staged path.
+    ///
+    /// Check residency and allocate on the submitting future; only page-table fills and copy
+    /// launches run on a blocking worker.
     async fn read_mapped(
         &self,
         mapped: Arc<MappedFile>,
         offset: u64,
         length: usize,
-    ) -> VortexResult<BufferHandle> {
+    ) -> VortexResult<Option<BufferHandle>> {
+        if !mapped.is_cached(offset, length) {
+            return Ok(None);
+        }
         let start = usize::try_from(offset)?;
-        vortex_ensure!(
-            start
-                .checked_add(length)
-                .is_some_and(|end| end <= mapped.len()),
-            "file read range exceeds file length {}: offset={offset}, length={length}",
-            mapped.len()
-        );
         // Start the target at the source's offset within 16 bytes so the copy moves aligned
         // words. The slice keeps the file's alignment, which the caller's alignment follows.
         let pad = start % 16;
-        let output = self.stream.device_alloc::<u8>(pad + length)?;
+        let output = mapped.stream.device_alloc::<u8>(pad + length)?;
         // The job owns the output until its copies are queued, so a cancelled read cannot free
         // memory a later copy would write.
         let output = self
             .handle
             .spawn_blocking(move || mapped.copy_to_device(start, output, pad))
             .await?;
-        Ok(
+        Ok(Some(
             BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)))
                 .slice(pad..pad + length),
-        )
+        ))
     }
 
     /// Read into pinned memory under the file's shared concurrency limit.
@@ -440,9 +550,11 @@ impl VortexReadAt for PooledFileReadAt {
                 "file read range overflow: offset={offset}, length={length}"
             );
             if let Some(mapped) = &reader.mapped
-                && mapped.is_cached(offset, length)
+                && let Some(buffer) = reader
+                    .read_mapped(Arc::clone(mapped), offset, length)
+                    .await?
             {
-                return reader.read_mapped(Arc::clone(mapped), offset, length).await;
+                return Ok(buffer);
             }
             if length <= FILE_READ_CHUNK_BYTES {
                 let read = reader.read_host(offset, length).await?;

@@ -99,6 +99,17 @@ impl Default for vx_cuda_scan_options {
     }
 }
 
+/// Release Vortex's cached file mappings that no open scan uses.
+///
+/// Scans keep their files mapped so later scans of the same file reuse filled page tables. The
+/// operating system cannot evict mapped pages from the page cache, so call this before evicting
+/// files, for example before a cold-cache measurement. Mappings still used by open streams stay
+/// mapped until those streams are released.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn vx_cuda_release_file_mappings() {
+    vortex_cuda::release_file_mappings();
+}
+
 fn session_with_cuda(session: &VortexSession) -> &VortexSession {
     session.get::<CudaSession>();
     register_cuda_layout(session);

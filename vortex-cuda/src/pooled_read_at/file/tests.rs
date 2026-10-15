@@ -6,6 +6,7 @@ use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use futures::future::try_join_all;
 use futures::poll;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -23,6 +24,10 @@ use crate::CudaSessionExt;
 
 const WAIT: Duration = Duration::from_secs(30);
 const FILE_OFFSET: u64 = (1 << 32) + 37;
+
+/// Serializes tests that observe or clear the process-wide mapping cache, because releasing it
+/// concurrently would make another test's reopened file map again.
+static MAPPING_CACHE: Mutex<()> = Mutex::new(());
 
 #[derive(Default)]
 struct FakeFileReadBackend {
@@ -361,6 +366,95 @@ async fn mapped_reads_preserve_bytes_and_offsets(
     if length > 0 {
         assert_bytes(buffer, offset, length).await?;
     }
+    Ok(())
+}
+
+/// Concurrent overlapping mapped reads preserve bytes across chunk boundaries and complete
+/// without deadlocking on the shared fill lock.
+#[crate::test]
+async fn concurrent_mapped_reads_preserve_bytes_and_offsets() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    // Populate the mapping explicitly: freshly written pages may not all remain resident.
+    let mapped = reader.mapped.as_ref().unwrap();
+    mapped
+        .file
+        .as_ref()
+        .unwrap()
+        .mapping()
+        .advise(Advice::PopulateRead)?;
+    assert!(mapped.is_cached(0, MAPPED_FILE_BYTES));
+    // A staged fallback must fail rather than silently bypass mapped-copy coverage.
+    reader.read_slots.close();
+
+    let reads = [
+        (4091, 2 * FILE_READ_CHUNK_BYTES + 3),
+        (0, MAPPED_FILE_BYTES),
+        (FILE_READ_CHUNK_BYTES as u64 - 7, 3 * 4096),
+    ];
+    let buffers = wait_for(
+        "concurrent mapped reads did not finish",
+        try_join_all(
+            reads
+                .iter()
+                .map(|&(offset, length)| reader.read_at(offset, length, Alignment::of::<u8>())),
+        ),
+    )
+    .await?;
+    for ((offset, length), buffer) in reads.into_iter().zip(buffers) {
+        assert_bytes(buffer, offset, length).await?;
+    }
+    Ok(())
+}
+
+/// Opens of one file version share a mapping, so hot scans neither remap nor unmap the file.
+/// Changing the file maps its new version.
+#[crate::test]
+async fn reopened_files_share_mappings_until_modified() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, mut file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    let first = Arc::clone(
+        mapped
+            .file
+            .as_ref()
+            .vortex_expect("open file has a mapping"),
+    );
+    let again = FileMapping::open(file.path())?;
+    assert!(Arc::ptr_eq(&first, &again));
+
+    io::Write::write_all(&mut file, &[7; 4096])?;
+    let modified = FileMapping::open(file.path())?;
+    assert!(!Arc::ptr_eq(&first, &modified));
+    assert_eq!(modified.mapping().len(), MAPPED_FILE_BYTES + 4096);
+    assert_eq!(modified.mapping()[MAPPED_FILE_BYTES], 7);
+    Ok(())
+}
+
+/// Releasing cached mappings unmaps idle ones, so the next open maps the file again, while a
+/// mapping an open reader still uses stays alive.
+#[crate::test]
+async fn released_mappings_are_remapped() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    let in_use = Arc::clone(
+        mapped
+            .file
+            .as_ref()
+            .vortex_expect("open file has a mapping"),
+    );
+    release_file_mappings();
+    // The open reader keeps its mapping.
+    assert_eq!(in_use.mapping()[0], file_byte(0));
+    let reopened = FileMapping::open(file.path())?;
+    assert!(!Arc::ptr_eq(&in_use, &reopened));
     Ok(())
 }
 

@@ -69,6 +69,7 @@ pub use pooled_read_at::PooledByteBufferReadAt;
 pub use pooled_read_at::PooledFileReadAt;
 pub use pooled_read_at::PooledFileReadAtOptions;
 pub use pooled_read_at::PooledObjectStoreReadAt;
+pub use pooled_read_at::release_file_mappings;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use session::DictionaryExport;
