@@ -71,11 +71,13 @@ pub(super) fn try_new(
 /// materializes child buffers and validity once per batch of needles, including decimal widening
 /// and nested offsets. Each search then reads those buffers directly.
 #[derive(Clone, Debug)]
-pub(crate) struct RowsHaystack;
+pub struct RowsHaystack;
 
 impl RowsHaystack {
-    const ELEMENTS: usize = 0;
-    const ORDER: usize = 1;
+    /// The slot of the elements, recursively canonical.
+    pub const ELEMENTS: usize = 0;
+    /// The slot of the `u64` indices of the distinct elements in sorted order.
+    pub const ORDER: usize = 1;
     const NAMES: [&'static str; 2] = ["elements", "order"];
 }
 

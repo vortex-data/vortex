@@ -68,7 +68,12 @@ impl PreparedSet {
     }
 
     /// An array of `len` rows that share the prepared set `set`.
-    pub(crate) fn new_array(set: PreparedSetData, len: usize) -> ArrayRef {
+    ///
+    /// A set made by [`PreparedSetData::try_with_haystack`] reaches execution this way, as the list
+    /// of a [`ListContains`].
+    ///
+    /// [`ListContains`]: crate::scalar_fn::fns::list_contains::ListContains
+    pub fn new_array(set: PreparedSetData, len: usize) -> ArrayRef {
         ScalarFnArray::try_new_with_len(Self.bind(set), [], len)
             .vortex_expect("A prepared set has no children, and its dtype is the list dtype")
             .into_array()

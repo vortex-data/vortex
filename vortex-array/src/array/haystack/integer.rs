@@ -173,10 +173,11 @@ pub(super) fn try_new(members: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult
 /// to the binary search at every set size measured by the `list_contains_set` benchmark, up to
 /// 16 384 elements.
 #[derive(Clone, Debug)]
-pub(crate) struct SortedHaystack;
+pub struct SortedHaystack;
 
 impl SortedHaystack {
-    const VALUES: usize = 0;
+    /// The slot of the sorted values.
+    pub const VALUES: usize = 0;
 
     fn new(values: ArrayRef) -> Array<Self> {
         let dtype = values.dtype().clone();
@@ -278,11 +279,13 @@ impl HaystackVTable for SortedHaystack {
 /// over the span above it. Its rows are the integers of the set bits, in increasing order of
 /// offset from the smallest.
 #[derive(Clone, Debug)]
-pub(crate) struct BitmapHaystack;
+pub struct BitmapHaystack;
 
 impl BitmapHaystack {
-    const MIN: usize = 0;
-    const BITMAP: usize = 1;
+    /// The slot of the smallest value, an array of one row.
+    pub const MIN: usize = 0;
+    /// The slot of the bitmap over the span above the smallest value.
+    pub const BITMAP: usize = 1;
     const NAMES: [&'static str; 2] = ["min", "bitmap"];
 
     fn new(min: ArrayRef, bitmap: BitBuffer) -> Array<Self> {

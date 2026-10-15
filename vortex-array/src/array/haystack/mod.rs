@@ -14,6 +14,11 @@ mod rows;
 #[cfg(test)]
 mod tests;
 
+pub use bytes::BytesHaystack;
+pub use bytes::BytesTables;
+pub use integer::BitmapHaystack;
+pub use integer::SortedHaystack;
+pub use rows::RowsHaystack;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
@@ -131,7 +136,7 @@ fn contains_of<V: HaystackVTable>(
 
 /// The validity that the lookup arrays of Vortex share: every row is valid.
 #[derive(Clone, Debug)]
-pub(crate) struct HaystackValidity;
+pub struct HaystackValidity;
 
 impl<V: VTable> ValidityVTable<V> for HaystackValidity {
     fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {

@@ -81,15 +81,16 @@ pub(super) fn try_new(
 /// removed: it helped short needles by about a tenth and cost long needles that share a prefix,
 /// whose heads collide, up to a quarter.
 #[derive(Clone, Debug)]
-pub(crate) struct BytesHaystack;
+pub struct BytesHaystack;
 
 impl BytesHaystack {
-    const ELEMENTS: usize = 0;
+    /// The slot of the elements, a `VarBinView` array.
+    pub const ELEMENTS: usize = 0;
 }
 
 /// The hash tables of a [`BytesHaystack`], over the views of its elements.
 #[derive(Clone)]
-pub(crate) struct BytesTables(Arc<Tables>);
+pub struct BytesTables(Arc<Tables>);
 
 struct Tables {
     hasher: RandomState,

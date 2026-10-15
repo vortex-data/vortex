@@ -34,7 +34,13 @@ mod plugin;
 pub use plugin::*;
 mod haystack;
 pub use haystack::ArrayHaystack;
+pub use haystack::BitmapHaystack;
+pub use haystack::BytesHaystack;
+pub use haystack::BytesTables;
 pub use haystack::HaystackVTable;
+pub use haystack::HaystackValidity;
+pub use haystack::RowsHaystack;
+pub use haystack::SortedHaystack;
 mod probe;
 pub use probe::*;
 

@@ -49,7 +49,9 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
+use crate::scalar_fn::fns::list_contains::PreparedSet;
 use crate::scalar_fn::fns::list_contains::PreparedSetData;
 use crate::validity::Validity;
 
@@ -284,6 +286,21 @@ fn test_prepared_set_looks_up_through_your_own_haystack() -> VortexResult<()> {
         BoolArray::from_iter([true, false, false]),
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn test_list_contains_executes_through_your_own_haystack() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let haystack = ArrayHaystack::new(LinearHaystack::new(buffer![7i32].into_array()));
+    let set = PreparedSetData::try_with_haystack(i32_list(&[3, 7]), haystack)?;
+    let result = ListContains::try_new(
+        PreparedSet::new_array(set, 3),
+        buffer![7i32, 3, 1].into_array(),
+    )?
+    .into_array();
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
     Ok(())
 }
 
