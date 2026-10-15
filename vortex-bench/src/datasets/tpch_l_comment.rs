@@ -39,7 +39,7 @@ async fn ensure_tpch_parquet() -> Result<PathBuf> {
     if !data_dir.exists() {
         let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
             .with_format(Format::Parquet)
-            .with_target_file_bytes(None);
+            .with_split_files(false);
         generate_tpch_tables(options).await?;
     }
 
@@ -65,7 +65,7 @@ impl Dataset for TPCHLCommentChunked {
             // Use blocking call like TPC-H benchmark does
             let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
                 .with_format(Format::OnDiskVortex)
-                .with_target_file_bytes(None);
+                .with_split_files(false);
 
             futures::executor::block_on(generate_tpch_tables(options))?;
         }

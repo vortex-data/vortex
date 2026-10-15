@@ -42,28 +42,22 @@ use crate::IdempotentPath;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::split;
 
 /// The parquet-rs default, kept explicit so the shared writer settings do not change the
 /// parallelism of existing TPC-H Parquet benchmarks.
 const ROW_GROUP_SIZE: usize = 1024 * 1024;
 
-/// Target compressed size of each generated TPC-H file.
-///
-/// Tables expected to compress to more than this are split into several files. The split depends
-/// only on the scale factor, so Parquet and Vortex files cover identical row ranges and benchmarks
-/// compare the same partitioning across formats. At this target, a `lineitem` file holds roughly
-/// 7.3M rows, about 1.6GB as uncompressed Arrow.
-pub const TARGET_FILE_COMPRESSED_BYTES: u64 = 200 * 1024 * 1024;
-
-// Compressed size of each TPC-H table at scale factor 1: the mean of the zstd(3) Parquet and
-// default Vortex sizes, measured at scale factor 10. Every table but nation and region scales
-// linearly with the scale factor.
-const PART_BYTES_SF1: u64 = 4_983_319;
-const SUPPLIER_BYTES_SF1: u64 = 608_751;
-const CUSTOMER_BYTES_SF1: u64 = 8_842_254;
-const PARTSUPP_BYTES_SF1: u64 = 27_874_360;
-const ORDERS_BYTES_SF1: u64 = 45_455_425;
-const LINEITEM_BYTES_SF1: u64 = 171_537_513;
+// Compressed size of each TPC-H table at scale factor 1, used to split tables into files of about
+// `split::TARGET_FILE_COMPRESSED_BYTES`: the mean of the Parquet and default Vortex sizes, measured at
+// scale factor 10. Every table but nation and region scales linearly with the scale factor. At
+// this size, a `lineitem` file holds about 7.4M rows.
+const PART_BYTES_SF1: u64 = 4_773_797;
+const SUPPLIER_BYTES_SF1: u64 = 575_964;
+const CUSTOMER_BYTES_SF1: u64 = 8_755_891;
+const PARTSUPP_BYTES_SF1: u64 = 27_226_229;
+const ORDERS_BYTES_SF1: u64 = 45_329_810;
+const LINEITEM_BYTES_SF1: u64 = 169_204_254;
 
 /// Configuration for TPC-H data generation
 #[derive(Debug, Clone)]
@@ -76,9 +70,9 @@ pub struct TpchGenOptions {
     pub format: Format,
     /// Batch size for streaming
     pub batch_size: usize,
-    /// Split each table into files of roughly this many compressed bytes, named
-    /// `{table}_{part}.{ext}`. `None` writes each table as a single `{table}.{ext}` file.
-    pub target_file_bytes: Option<u64>,
+    /// Split each table into files of about [`split::TARGET_FILE_COMPRESSED_BYTES`] named by
+    /// [`split::part_file_name`]. Otherwise each table is a single `{table}.{ext}` file.
+    pub split_files: bool,
 }
 
 impl Default for TpchGenOptions {
@@ -88,7 +82,7 @@ impl Default for TpchGenOptions {
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
-            target_file_bytes: Some(TARGET_FILE_COMPRESSED_BYTES),
+            split_files: true,
         }
     }
 }
@@ -112,8 +106,8 @@ impl TpchGenOptions {
         self
     }
 
-    pub fn with_target_file_bytes(mut self, target_file_bytes: Option<u64>) -> Self {
-        self.target_file_bytes = target_file_bytes;
+    pub fn with_split_files(mut self, split_files: bool) -> Self {
+        self.split_files = split_files;
         self
     }
 }
@@ -125,7 +119,11 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     let scale_factor = options.scale_factor.parse::<f64>()?;
     let mut all_futures = Vec::new();
     for generator in TableGenerator::ALL {
-        let num_parts = generator.num_parts(scale_factor, options.target_file_bytes)?;
+        let num_parts = if options.split_files {
+            generator.num_parts(scale_factor)?
+        } else {
+            1
+        };
         info!(
             scale_factor = options.scale_factor,
             format = %options.format,
@@ -220,20 +218,17 @@ impl TableGenerator {
         }
     }
 
-    /// Number of files to split the table into so each is close to `target_file_bytes`.
-    fn num_parts(self, scale_factor: f64, target_file_bytes: Option<u64>) -> Result<i32> {
-        let (Some(target), Some(bytes_sf1)) = (target_file_bytes, self.compressed_bytes_sf1())
-        else {
+    /// Number of files to split the table into at `scale_factor`.
+    fn num_parts(self, scale_factor: f64) -> Result<i32> {
+        let Some(bytes_sf1) = self.compressed_bytes_sf1() else {
             return Ok(1);
         };
         #[expect(
-            clippy::cast_possible_truncation,
             clippy::cast_precision_loss,
-            clippy::cast_sign_loss,
-            reason = "estimated table sizes are far below the f64 and i32 limits"
+            reason = "table sizes are far below the f64 limit"
         )]
-        let parts = ((bytes_sf1 as f64 * scale_factor) / target as f64).round() as u64;
-        Ok(i32::try_from(parts.max(1))?)
+        let bytes = bytes_sf1 as f64 * scale_factor;
+        Ok(i32::try_from(split::num_files(bytes))?)
     }
 }
 
@@ -258,12 +253,15 @@ fn generate_table_file(
     fs::create_dir_all(&output_dir)?;
 
     let table_name = generator.name();
-    let file_stem = if options.target_file_bytes.is_some() {
-        format!("{table_name}_{part:04}")
+    let output_file = if options.split_files {
+        output_dir.join(split::part_file_name(
+            table_name,
+            usize::try_from(part)?,
+            write_format.ext(),
+        ))
     } else {
-        table_name.to_string()
+        output_dir.join(format!("{table_name}.{}", write_format.ext()))
     };
-    let output_file = output_dir.join(format!("{file_stem}.{}", write_format.ext()));
 
     let future = async move {
         let of = output_file.clone();

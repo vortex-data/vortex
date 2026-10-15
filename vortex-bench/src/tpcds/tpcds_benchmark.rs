@@ -16,6 +16,7 @@ use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::tpcds::tpcds_queries;
 use crate::tpcds::tpcdsgen::generate_tpcds;
+use crate::utils::split;
 
 /// TPC-DS benchmark implementation
 pub struct TpcDsBenchmark {
@@ -128,12 +129,7 @@ impl Benchmark for TpcDsBenchmark {
         ]
     }
 
-    #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
-        Some(
-            format!("{}.{}", table_name, format.ext())
-                .parse()
-                .expect("valid glob pattern"),
-        )
+        Some(split::part_pattern(table_name, format.ext()))
     }
 }

@@ -5,6 +5,7 @@ pub mod constants;
 pub mod file;
 pub mod logging;
 pub mod parquet;
+pub mod split;
 
 use std::process::Command;
 use std::sync::LazyLock;
