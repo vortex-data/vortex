@@ -33,6 +33,8 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -352,6 +354,8 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
+    // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
+    aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -370,6 +374,7 @@ impl ExecutionCtx {
             session,
             allocator: OnceLock::new(),
             execute_parent_kernels,
+            aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -388,6 +393,15 @@ impl ExecutionCtx {
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
+    }
+
+    /// Get the aggregate kernels for this execution context.
+    ///
+    /// The session's aggregate kernel registries are snapshotted on first use. Kernels registered
+    /// after that are not visible to this context.
+    pub(crate) fn aggregate_kernels(&self) -> &AggregateKernels {
+        self.aggregate_kernels
+            .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
     /// Set the allocator for this execution context.

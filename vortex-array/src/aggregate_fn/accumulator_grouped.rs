@@ -21,7 +21,6 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::arrays::ChunkedArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -289,12 +288,10 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-        let session = ctx.session().clone();
-
         for _ in 0..max_iterations() {
             // Try a registered grouped kernel for the current element encoding.
-            if let Some(kernel) = session
-                .aggregate_fns()
+            if let Some(kernel) = ctx
+                .aggregate_kernels()
                 .find_grouped_encoding_kernel(elements.encoding_id(), self.aggregate_fn.id())
             {
                 // SAFETY: we assume that elements execution is safe
@@ -307,8 +304,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             // Try a grouped kernel for the current aggregate regardless of element encoding.
-            if let Some(kernel) = session
-                .aggregate_fns()
+            if let Some(kernel) = ctx
+                .aggregate_kernels()
                 .find_grouped_kernel(self.aggregate_fn.id())
             {
                 // SAFETY: we preserve the grouped shape and validity while replacing the
