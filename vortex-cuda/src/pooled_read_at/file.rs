@@ -57,6 +57,13 @@ pub const DEFAULT_FILE_CONCURRENCY: usize = 32;
 // to limit blocking read sizes and start transfers before the whole segment is read.
 const FILE_READ_CHUNK_BYTES: usize = 8 << 20;
 
+/// Bytes copied per mapped copy launch, after filling their page tables.
+///
+/// Each launch ramps up and drains its blocks, so small launches leave the host link idle
+/// between them: an isolated 128 MiB range copies at 274 GB/s in 8 MiB launches and 297 GB/s in
+/// 32 MiB launches. Larger launches would keep decode kernels off the SMs for longer.
+const MAPPED_COPY_CHUNK_BYTES: usize = 32 << 20;
+
 /// Upper bound on blocks per mapped copy launch: a few per SM saturates host-memory reads.
 const MAPPED_COPY_BLOCKS_MAX: u64 = 1024;
 const MAPPED_COPY_THREADS: u32 = 256;
@@ -388,8 +395,8 @@ impl MappedFile {
         // The guard records the queued copies as the output's write when this scope ends,
         // including on error, so frees and readers on other streams wait for them.
         let (base, write) = output.device_ptr_mut(&self.stream);
-        for chunk in (0..length).step_by(FILE_READ_CHUNK_BYTES) {
-            let size = (length - chunk).min(FILE_READ_CHUNK_BYTES);
+        for chunk in (0..length).step_by(MAPPED_COPY_CHUNK_BYTES) {
+            let size = (length - chunk).min(MAPPED_COPY_CHUNK_BYTES);
             {
                 let _fill = MAPPED_FILL.lock();
                 mapping.advise_range(Advice::PopulateRead, start + chunk, size)?;
