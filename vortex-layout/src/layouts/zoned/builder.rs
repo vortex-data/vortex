@@ -119,8 +119,8 @@ pub(crate) fn aggregate_partials(
         .collect()
 }
 
-/// Aggregate only the rows of `array` selected by `demand`, e.g. the rows of a struct field
-/// where the struct is valid.
+/// Aggregate `array` as null wherever `demand` is false, e.g. a struct field as null wherever the
+/// struct is null.
 pub(crate) fn aggregate_demanded_partials(
     array: &ArrayRef,
     demand: &Mask,

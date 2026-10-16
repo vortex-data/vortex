@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Accumulating the demanded rows of a batch, compared with accumulating a nullable batch whose
-//! validity equals the demand, and with filtering the batch before accumulating it.
+//! Accumulating a nested field with the demand of its nullable parent, compared with accumulating the
+//! logical field, whose validity already excludes the rows the parent nulls out.
 
 #![allow(clippy::unwrap_used)]
 
@@ -109,27 +109,20 @@ fn run(aggregate_fn: &AggregateFnRef, batch: &ArrayRef, demand: Option<&Mask>) -
 
 /// Check that every benchmark computes the right result before timing it.
 ///
-/// The demanded rows give the same result as the filtered batch for every aggregate. The null count
-/// counts only the field's nulls in demanded rows, while aggregates that skip nulls match the
-/// logical field, whose undemanded rows are null.
+/// Undemanded rows are null, so the demanded field gives the same result as the logical field for
+/// every aggregate. The null count counts the field's own nulls and the rows the struct nulls out.
 fn check_results() {
     let (field, demand) = (field(), demand());
-    let filtered = field.filter(demand.clone()).unwrap();
     for name in AGGREGATES {
         let aggregate_fn = aggregate(name);
-        let demanded = run(&aggregate_fn, &field, Some(&demand));
-        assert_eq!(demanded, run(&aggregate_fn, &filtered, None), "{name}");
-        if matches!(*name, "sum" | "min" | "max" | "count") {
-            assert_eq!(
-                demanded,
-                run(&aggregate_fn, &masked_field(), None),
-                "{name}"
-            );
-        }
+        assert_eq!(
+            run(&aggregate_fn, &field, Some(&demand)),
+            run(&aggregate_fn, &masked_field(), None),
+            "{name}"
+        );
     }
 
-    let expected_nulls = (&demand & &!&field_validity()).true_count() as u64;
-    assert!(expected_nulls > 0);
+    let expected_nulls = (!&(&field_validity() & &demand)).true_count() as u64;
     let null_count = run(&aggregate("null_count"), &field, Some(&demand));
     assert_eq!(
         null_count.as_primitive().typed_value::<u64>(),
@@ -137,7 +130,7 @@ fn check_results() {
     );
 }
 
-/// Accumulate the demanded rows of the field.
+/// Accumulate the field with the demand of its parent.
 #[divan::bench(args = AGGREGATES)]
 fn demanded(bencher: Bencher, name: &str) {
     let aggregate_fn = aggregate(name);
@@ -172,47 +165,6 @@ fn nullable(bencher: Bencher, name: &str) {
         })
         .bench_values(|(mut acc, batch, mut ctx)| {
             acc.accumulate(&batch, &mut ctx).unwrap();
-            acc.flush().unwrap()
-        });
-}
-
-/// Filter the logical field to its valid rows, as a row function's valid-only policy would, then
-/// accumulate it.
-#[divan::bench(args = AGGREGATES)]
-fn nullable_valid_only(bencher: Bencher, name: &str) {
-    let aggregate_fn = aggregate(name);
-    let batch = masked_field();
-    let valid = &field_validity() & &demand();
-    bencher
-        .with_inputs(|| {
-            (
-                aggregate_fn.accumulator(batch.dtype()).unwrap(),
-                SESSION.create_execution_ctx(),
-            )
-        })
-        .bench_values(|(mut acc, mut ctx)| {
-            acc.accumulate(&batch.filter(valid.clone()).unwrap(), &mut ctx)
-                .unwrap();
-            acc.flush().unwrap()
-        });
-}
-
-/// Filter the field down to its demanded rows, then accumulate it.
-#[divan::bench(args = AGGREGATES)]
-fn filtered(bencher: Bencher, name: &str) {
-    let aggregate_fn = aggregate(name);
-    let batch = field();
-    let demand = demand();
-    bencher
-        .with_inputs(|| {
-            (
-                aggregate_fn.accumulator(batch.dtype()).unwrap(),
-                SESSION.create_execution_ctx(),
-            )
-        })
-        .bench_values(|(mut acc, mut ctx)| {
-            let filtered = batch.filter(demand.clone()).unwrap();
-            acc.accumulate(&filtered, &mut ctx).unwrap();
             acc.flush().unwrap()
         });
 }

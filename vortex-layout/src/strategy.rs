@@ -112,12 +112,12 @@ impl LayoutWriterContext {
     }
 
     /// Marks this write as nested under a nullable container that publishes, on `demand`, which
-    /// rows of the written stream the logical column contains.
+    /// rows of the written stream it nulls out.
     ///
     /// Container writers store their children unmasked: a field holds a value even in rows where
     /// the containing struct is null, and a list's elements include those of null lists. Writers
-    /// that record statistics [claim](Self::claim_demand) the demand and aggregate only the
-    /// demanded rows.
+    /// that record statistics [claim](Self::claim_demand) the demand and aggregate the logical
+    /// column, which is null in the undemanded rows.
     pub fn with_demand(mut self, demand: DemandChannel) -> Self {
         self.demand = Some(demand);
         self

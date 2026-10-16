@@ -10,6 +10,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::StructArray;
@@ -17,6 +18,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
@@ -446,7 +448,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
 /// An array stream processor that computes aggregate statistics for all fields.
 ///
 /// Note: for now this only collects top-level struct fields. The fields of a nullable top-level
-/// struct only collect the rows where the struct is valid.
+/// struct are null wherever the struct is null.
 #[derive(Clone)]
 pub struct FileStatsAccumulator {
     stats: Arc<[Stat]>,
@@ -491,8 +493,8 @@ impl FileStatsAccumulator {
         let mut ctx = self.ctx.lock();
         if chunk.dtype().is_struct() {
             let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
-            // Fields are unmasked, so their statistics cover only the rows where the struct is
-            // valid, as the zone maps of fields of a nullable struct do.
+            // Fields are unmasked, so their statistics describe the logical fields, null wherever
+            // the struct is null, as the zone maps of fields of a nullable struct do.
             let demand = struct_chunk
                 .validity()?
                 .execute_mask(struct_chunk.len(), &mut ctx)?;
@@ -505,7 +507,8 @@ impl FileStatsAccumulator {
                 if demand.all_true() {
                     acc.push_chunk(field, &mut ctx)?;
                 } else {
-                    acc.push_chunk(&field.filter(demand.clone())?, &mut ctx)?;
+                    let logical_field = field.clone().mask(demand.clone().into_array())?;
+                    acc.push_chunk(&logical_field, &mut ctx)?;
                 }
             }
         } else {
@@ -669,8 +672,8 @@ mod tests {
         Ok(())
     }
 
-    /// A nullable top-level struct is accepted, and its fields' statistics skip the values under
-    /// the struct's null rows.
+    /// A nullable top-level struct is accepted, and its fields' statistics treat the struct's null
+    /// rows as null, whatever the field holds there.
     #[test]
     fn nullable_top_level_struct_fields_skip_null_rows() -> VortexResult<()> {
         let session = array_session();
@@ -705,7 +708,7 @@ mod tests {
         );
         assert_eq!(
             stats.get_as::<u64>(Stat::NullCount, &u64_dtype),
-            Precision::exact(1u64)
+            Precision::exact(2u64)
         );
         Ok(())
     }

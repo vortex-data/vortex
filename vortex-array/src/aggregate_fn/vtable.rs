@@ -126,12 +126,12 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Whether null input rows contribute nothing to the partial state.
     ///
-    /// Like a row function's validity, this is handled by the accumulator, not the kernel: when a
-    /// [demanded](crate::aggregate_fn::DynAccumulator::accumulate_demanded) batch is partially
-    /// selected, the accumulator conjoins the demand with the batch's validity and filters both away
-    /// at once, so the kernel sees only valid rows and can take its dense path. An aggregate that
-    /// observes nulls, such as the null count, keeps `false` and receives the demanded rows with
-    /// their validity.
+    /// Like a row function's validity, this is handled by the accumulator, not the kernel. The rows
+    /// a [demand](crate::aggregate_fn::DynAccumulator::accumulate_demanded) leaves out are null, so
+    /// the demand merges into the batch's validity. For an aggregate that skips nulls, the
+    /// accumulator then filters a partially valid batch to its valid rows once, so the kernel sees
+    /// an all-valid batch and can take its dense path. An aggregate that observes nulls, such as
+    /// the null count, keeps `false` and receives the masked batch.
     ///
     /// A conservative `false` is always sound.
     const SKIPS_NULLS: bool = false;

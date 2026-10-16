@@ -367,8 +367,8 @@ impl AggregateFnVTable for IsConstant {
         !partial.is_constant
     }
 
-    /// Decide batches with nulls from their validity alone, before executing them: a filtered
-    /// batch, e.g. the demanded rows of a struct field, then only filters its validity.
+    /// Decide batches with nulls from their validity alone, before executing them, e.g. a struct
+    /// field masked to null where the struct is null only conjoins the two validities.
     fn try_accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,

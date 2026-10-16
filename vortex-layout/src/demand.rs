@@ -5,8 +5,8 @@
 //!
 //! Container writers store their children unmasked: a struct field holds a value in rows where the
 //! struct is null, and a list's elements include the elements of null lists. A [`DemandChannel`]
-//! carries, for every row of such a child stream, whether the logical column contains it, so that
-//! writers recording statistics aggregate only the demanded rows (see
+//! carries, for every row of such a child stream, whether the container nulls it out, so that
+//! writers recording statistics aggregate the logical column, null in the undemanded rows (see
 //! [`DynAccumulator::accumulate_demanded`]).
 //!
 //! The container publishes the demand on each chunk before sending the chunk to its child, and the

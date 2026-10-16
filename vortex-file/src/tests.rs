@@ -1449,7 +1449,7 @@ async fn file_take() -> VortexResult<()> {
 }
 
 /// A nullable top-level struct round-trips, including the field values under its null rows,
-/// which its file statistics leave out.
+/// which its file statistics treat as null.
 #[tokio::test]
 async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);

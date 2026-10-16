@@ -7,9 +7,10 @@
 //! the rows where the struct is null, and a list's elements may include values that only null lists
 //! reference. Aggregating such a child directly folds in values the logical column does not contain.
 //!
-//! A *demand* mask selects the rows whose values an aggregate must see. The helpers here derive the
-//! demand on a child from the demand on its parent, so that the child can be aggregated with
-//! [`DynAccumulator::accumulate_demanded`] without first being masked or filtered:
+//! A *demand* mask is false in the rows a parent nulls out: those rows are null in the logical
+//! column, whatever the child holds there. The helpers here derive the demand on a child from the
+//! demand on its parent, so that the child can be aggregated with
+//! [`DynAccumulator::accumulate_demanded`] as its logical column, without first being masked:
 //!
 //! - a struct field is demanded in the rows where the struct is demanded and valid, see
 //!   [`struct_field_demand`];
@@ -304,8 +305,9 @@ mod tests {
         ]
     }
 
-    /// Accumulating the demanded rows gives the same partial as accumulating the filtered batch.
-    fn assert_demand_matches_filter(
+    /// Accumulating a demanded batch gives the same partial as accumulating the batch masked to null
+    /// outside the demand.
+    fn assert_demand_matches_mask(
         aggregates: &[AggregateFnRef],
         batch: &ArrayRef,
         demand: &Mask,
@@ -315,12 +317,13 @@ mod tests {
             let mut demanded = aggregate_fn.accumulator(batch.dtype())?;
             demanded.accumulate_demanded(batch, demand, &mut ctx)?;
 
-            let mut filtered = aggregate_fn.accumulator(batch.dtype())?;
-            filtered.accumulate(&batch.filter(demand.clone())?, &mut ctx)?;
+            let masked = batch.clone().mask(demand.clone().into_array())?;
+            let mut logical = aggregate_fn.accumulator(masked.dtype())?;
+            logical.accumulate(&masked, &mut ctx)?;
 
             assert_eq!(
                 demanded.flush()?,
-                filtered.flush()?,
+                logical.flush()?,
                 "{aggregate_fn} over {} demanded by {demand:?}",
                 batch.display_values(),
             );
@@ -351,19 +354,19 @@ mod tests {
             .into_array()
     )]
     #[case::bool(BoolArray::from_iter([true, false, true, true, false, false]).into_array())]
-    fn demand_matches_filter(#[case] batch: ArrayRef) -> VortexResult<()> {
+    fn demand_matches_mask(#[case] batch: ArrayRef) -> VortexResult<()> {
         let aggregates: Vec<_> = numeric_aggregates()
             .into_iter()
             .filter(|aggregate_fn| aggregate_fn.return_dtype(batch.dtype()).is_some())
             .collect();
         for demand in demands(batch.len()) {
-            assert_demand_matches_filter(&aggregates, &batch, &demand)?;
+            assert_demand_matches_mask(&aggregates, &batch, &demand)?;
         }
         Ok(())
     }
 
     #[test]
-    fn demand_matches_filter_over_floats() -> VortexResult<()> {
+    fn demand_matches_mask_over_floats() -> VortexResult<()> {
         let batch = PrimitiveArray::from_option_iter([
             Some(f64::NAN),
             Some(2.5),
@@ -374,13 +377,13 @@ mod tests {
         ])
         .into_array();
         for demand in demands(batch.len()) {
-            assert_demand_matches_filter(&float_aggregates(), &batch, &demand)?;
+            assert_demand_matches_mask(&float_aggregates(), &batch, &demand)?;
         }
         Ok(())
     }
 
     #[test]
-    fn demand_matches_filter_over_strings() -> VortexResult<()> {
+    fn demand_matches_mask_over_strings() -> VortexResult<()> {
         let batch = VarBinViewArray::from_iter_nullable_str([
             Some("zebra"),
             Some("apple"),
@@ -390,7 +393,7 @@ mod tests {
         ])
         .into_array();
         for demand in demands(batch.len()) {
-            assert_demand_matches_filter(&string_aggregates(), &batch, &demand)?;
+            assert_demand_matches_mask(&string_aggregates(), &batch, &demand)?;
         }
         Ok(())
     }
@@ -513,7 +516,7 @@ mod tests {
             let mut demanded = aggregate_fn.accumulator(field.dtype())?;
             demanded.accumulate_demanded(&field, &field_demand, &mut ctx)?;
             let mut logical = aggregate_fn.accumulator(logical_field.dtype())?;
-            logical.accumulate(&logical_field.filter(field_demand.clone())?, &mut ctx)?;
+            logical.accumulate(&logical_field, &mut ctx)?;
             assert_eq!(demanded.finish()?, logical.finish()?, "{aggregate_fn}");
         }
 
@@ -523,11 +526,12 @@ mod tests {
             min.finish()?,
             Scalar::primitive(1i32, Nullability::Nullable)
         );
+        // The field's own null, and the two rows the struct nulls out.
         let mut null_count = aggregates[3].accumulator(field.dtype())?;
         null_count.accumulate_demanded(&field, &field_demand, &mut ctx)?;
         assert_eq!(
             null_count.finish()?,
-            Scalar::primitive(1u64, Nullability::NonNullable)
+            Scalar::primitive(3u64, Nullability::NonNullable)
         );
         Ok(())
     }

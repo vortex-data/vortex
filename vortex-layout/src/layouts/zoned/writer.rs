@@ -116,7 +116,7 @@ impl LayoutStrategy for ZonedStrategy {
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
         // Children of a nullable container are written unmasked, so an aggregate over all their
         // rows sees values the logical column does not contain. The container publishes which
-        // rows the logical column contains, and each zone aggregates only those demanded rows.
+        // rows it nulls out, and each zone aggregates its logical column, null in those rows.
         // Zone maps hold exact values only, so if that demand is unknown no zone map is written.
         let demand = match ctx.claim_demand() {
             ClaimedDemand::All => None,
@@ -383,8 +383,9 @@ mod tests {
         Ok((layout, segments))
     }
 
-    /// Under a nullable ancestor that publishes its demand, each zone aggregates only the rows
-    /// the ancestor demands, and undemanded values never widen the zone's bounds.
+    /// Under a nullable ancestor that publishes its demand, each zone aggregates its logical
+    /// column, null in the rows the ancestor nulls out, so undemanded values never widen the
+    /// zone's bounds and count as nulls.
     #[test]
     fn demanded_zones_aggregate_only_demanded_rows() -> VortexResult<()> {
         let demand = DemandChannel::new();
@@ -415,11 +416,12 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(3i32), Some(6), Some(7)]),
             &mut exec_ctx
         );
-        // The null in the second zone is demanded, the null in the third zone is not.
+        // Undemanded rows are null: the second zone has its own null and one undemanded row, the
+        // third zone two undemanded rows, one of which is also null.
         let null_count = read_zone_stats(&layout, &segments, &NullCount.bind(EmptyOptions))?;
         assert_arrays_eq!(
             null_count,
-            PrimitiveArray::from_option_iter([Some(0u64), Some(1), Some(0)]),
+            PrimitiveArray::from_option_iter([Some(0u64), Some(2), Some(2)]),
             &mut exec_ctx
         );
         Ok(())
