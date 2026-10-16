@@ -18,7 +18,7 @@ fn bounds_stats(value: &DFScalarValue) -> VortexResult<(StatsSet, DType)> {
     let value = scalar
         .value()
         .cloned()
-        .ok_or_else(|| vortex_err!("expected non-null bounds"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "expected non-null bounds"))?;
     let mut stats = StatsSet::of(Stat::Min, VortexPrecision::exact(value.clone()));
     stats.set(Stat::Max, VortexPrecision::exact(value));
     stats.set(Stat::NullCount, VortexPrecision::exact(0u64));

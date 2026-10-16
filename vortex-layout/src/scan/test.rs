@@ -183,14 +183,14 @@ impl LayoutReader for TestLayoutReader {
         if self.fail_first_filter && row_range.start == 0 {
             let len = mask.len();
             return Ok(MaskFuture::new(len, async move {
-                Err(vortex_err!("first split filter failed"))
+                Err(vortex_err!(Other: "first split filter failed"))
             }));
         }
 
         let row_range = row_range.clone();
         let keep_row = self.keep_row;
         let row_count = usize::try_from(row_range.end - row_range.start)
-            .map_err(|_| vortex_err!("row range must fit in usize"))?;
+            .map_err(|_| vortex_err!(Overflow: "row range must fit in usize"))?;
 
         Ok(MaskFuture::new(row_count, async move {
             let input_mask = mask.await?;
@@ -219,12 +219,12 @@ impl LayoutReader for TestLayoutReader {
                 projection_masks.lock().push(mask.true_count());
             }
             if fail {
-                return Err(vortex_err!("projection failed"));
+                return Err(vortex_err!(Other: "projection failed"));
             }
             let start = i32::try_from(row_range.start)
-                .map_err(|_| vortex_err!("row_range.start must fit in i32"))?;
+                .map_err(|_| vortex_err!(Overflow: "row_range.start must fit in i32"))?;
             let end = i32::try_from(row_range.end)
-                .map_err(|_| vortex_err!("row_range.end must fit in i32"))?;
+                .map_err(|_| vortex_err!(Overflow: "row_range.end must fit in i32"))?;
             PrimitiveArray::from_iter((start..end).map(|value| base + value))
                 .into_array()
                 .filter(mask)

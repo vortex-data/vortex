@@ -95,10 +95,10 @@ impl VTable for FoR {
             (Some(reference), None) => FoRReferences::Global(reference),
             (None, Some(references)) => FoRReferences::Blocked(references),
             (Some(_), Some(_)) => {
-                vortex_bail!("FoR cannot have both a global reference and blocked references")
+                vortex_bail!(InvalidArgument: "FoR cannot have both a global reference and blocked references")
             }
             (None, None) => {
-                vortex_bail!("FoR needs either a global reference or blocked references")
+                vortex_bail!(InvalidArgument: "FoR needs either a global reference or blocked references")
             }
         };
         validate_parts(slots.encoded, references, data.offset, dtype, len)
@@ -109,7 +109,7 @@ impl VTable for FoR {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("FoRArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "FoRArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -132,7 +132,7 @@ impl VTable for FoR {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("FoR serialization requires FoRPlugin")
+        vortex_bail!(Serde: "FoR serialization requires FoRPlugin")
     }
 
     fn deserialize(
@@ -144,7 +144,7 @@ impl VTable for FoR {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("FoR deserialization requires FoRPlugin")
+        vortex_bail!(Serde: "FoR deserialization requires FoRPlugin")
     }
 
     fn reduce_parent(
@@ -182,7 +182,7 @@ pub struct FoR;
 impl FoR {
     /// Construct a FoR array with one global reference.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
-        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
+        vortex_ensure!(!reference.is_null(), InvalidArgument: "Reference value cannot be null");
         let dtype = reference
             .dtype()
             .with_nullability(encoded.dtype().nullability());
@@ -204,7 +204,7 @@ impl FoR {
             vortex_ensure_eq!(
                 references.len(),
                 num_chunks(offset, encoded.len()),
-                "FoR expects one reference per chunk"
+                InvalidArgument: "FoR expects one reference per chunk"
             );
             return Self::try_new(encoded, reference);
         }
@@ -242,29 +242,29 @@ fn validate_parts(
     dtype: &DType,
     len: usize,
 ) -> VortexResult<()> {
-    vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
-    vortex_ensure_eq!(encoded.dtype(), dtype, "FoR encoded dtype mismatch");
-    vortex_ensure_eq!(encoded.len(), len, "FoR encoded length mismatch");
+    vortex_ensure!(dtype.is_int(), MismatchedTypes: "FoR requires an integer dtype, got {dtype}");
+    vortex_ensure_eq!(encoded.dtype(), dtype, MismatchedTypes: "FoR encoded dtype mismatch");
+    vortex_ensure_eq!(encoded.len(), len, InvalidArgument: "FoR encoded length mismatch");
     let references_dtype = dtype.as_nonnullable();
     match references {
         FoRReferences::Global(reference) => {
-            vortex_ensure!(!reference.is_null(), "FoR global reference cannot be null");
+            vortex_ensure!(!reference.is_null(), InvalidArgument: "FoR global reference cannot be null");
             vortex_ensure_eq!(
                 reference.dtype(),
                 &references_dtype,
-                "FoR global reference dtype mismatch"
+                MismatchedTypes: "FoR global reference dtype mismatch"
             );
         }
         FoRReferences::Blocked(references) => {
             vortex_ensure_eq!(
                 references.dtype(),
                 &references_dtype,
-                "FoR references dtype mismatch"
+                MismatchedTypes: "FoR references dtype mismatch"
             );
             vortex_ensure_eq!(
                 references.len(),
                 num_chunks(offset, len),
-                "FoR expects one reference per chunk"
+                InvalidArgument: "FoR expects one reference per chunk"
             );
         }
     }

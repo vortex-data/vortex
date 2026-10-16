@@ -46,7 +46,7 @@ impl Operator for MaskStage {
         let end = self.cursor + batch.len();
         vortex_ensure!(
             end <= self.mask.len(),
-            "Filter input is longer than its mask"
+            AssertionFailed: "Filter input is longer than its mask"
         );
         let mask = self.mask.slice(self.cursor..end);
         self.cursor = end;

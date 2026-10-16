@@ -56,7 +56,7 @@ where
         vortex_ensure_eq!(
             sink_row_count,
             row_count,
-            "the output sink has the wrong row count",
+            AssertionFailed: "the output sink has the wrong row count",
         );
 
         let views = Args::views_if_no_consts(&columns);
@@ -140,7 +140,7 @@ where
         vortex_ensure_eq!(
             initialized_row_count,
             row_count,
-            "the initialized output sink has the wrong row count",
+            AssertionFailed: "the initialized output sink has the wrong row count",
         );
 
         if let Some(views) = views {
@@ -204,7 +204,7 @@ where
     vortex_ensure_eq!(
         valid.true_count(),
         filtered_len,
-        "the filtered batch must contain one row per valid row",
+        AssertionFailed: "the filtered batch must contain one row per valid row",
     );
 
     let original_len = valid.len();
@@ -227,7 +227,7 @@ where
         vortex_ensure_eq!(
             initialized_row_count,
             original_len,
-            "the initialized output sink has the wrong row count",
+            AssertionFailed: "the initialized output sink has the wrong row count",
         );
 
         let mut filtered_index = 0;
@@ -280,7 +280,7 @@ where
 #[cold]
 #[inline(never)]
 fn decoded_length_error(row_count: usize) -> VortexResult<()> {
-    vortex_bail!("a decoded row input does not address exactly {row_count} rows")
+    vortex_bail!(AssertionFailed: "a decoded row input does not address exactly {row_count} rows")
 }
 
 /// State resolved before preparing the skip-invalid row loop.
@@ -323,7 +323,7 @@ where
     vortex_ensure_eq!(
         valid_rows.len(),
         row_count,
-        "the validity mask has the wrong row count",
+        AssertionFailed: "the validity mask has the wrong row count",
     );
 
     Ok(Some(ValidRowsSetup {
@@ -397,7 +397,7 @@ mod tests {
         let input = PrimitiveArray::from_iter([10_i64, 20]).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
         let Mask::Values(valid) = Mask::from_iter([false, true]) else {
-            vortex_bail!("the test validity must be partially valid");
+            vortex_bail!(InvalidArgument: "the test validity must be partially valid");
         };
         let mut ctx = array_session().create_execution_ctx();
 
@@ -414,7 +414,9 @@ mod tests {
 
         let error = match result {
             Err(error) => error,
-            Ok(_) => vortex_bail!("the sink must reject rows changed by its initializer"),
+            Ok(_) => {
+                vortex_bail!(AssertionFailed: "the sink must reject rows changed by its initializer")
+            }
         };
         assert!(
             error

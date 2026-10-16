@@ -97,7 +97,7 @@ impl FilterExpr {
     pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
             vortex_panic!(
-                "selectivity {} must be in the range [0.0, 1.0]",
+                InvalidArgument: "selectivity {} must be in the range [0.0, 1.0]",
                 selectivity
             );
         }
@@ -121,7 +121,7 @@ impl FilterExpr {
                 histogram
                     .read()
                     .quantile(self.selectivity_quantile)
-                    .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
+                    .map_err(|e| vortex_err!(InvalidArgument: "{e}")) // Only errors when the quantile is out of range
                     .vortex_expect("quantile out of range")
             })
             .collect::<Option<Vec<_>>>()

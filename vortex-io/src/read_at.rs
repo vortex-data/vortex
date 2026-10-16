@@ -224,7 +224,7 @@ impl VortexReadAt for ByteBuffer {
                 usize::try_from(offset + length as u64).vortex_expect("end too big for usize");
             if end > buffer.len() {
                 vortex_bail!(
-                    "Requested range {}..{} out of bounds for buffer of length {}",
+                    OutOfBounds: "Requested range {}..{} out of bounds for buffer of length {}",
                     start,
                     end,
                     buffer.len()

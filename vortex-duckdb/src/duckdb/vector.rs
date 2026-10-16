@@ -277,7 +277,7 @@ impl VectorRef {
         let state = unsafe { cpp::duckdb_list_vector_reserve(self.as_ptr(), required_capacity) };
         match state {
             cpp::duckdb_state::DuckDBSuccess => Ok(()),
-            cpp::duckdb_state::DuckDBError => vortex_bail!("vector was nullptr!"),
+            cpp::duckdb_state::DuckDBError => vortex_bail!(InvalidArgument: "vector was nullptr!"),
         }
     }
 
@@ -305,7 +305,7 @@ impl VectorRef {
         let state = unsafe { cpp::duckdb_list_vector_set_size(self.as_ptr(), size) };
         match state {
             cpp::duckdb_state::DuckDBSuccess => Ok(()),
-            cpp::duckdb_state::DuckDBError => vortex_bail!("vector was nullptr!"),
+            cpp::duckdb_state::DuckDBError => vortex_bail!(InvalidArgument: "vector was nullptr!"),
         }
     }
 

@@ -222,7 +222,7 @@ impl CanonicalCudaExt for Canonical {
                     host_storage,
                 )))
             }
-            c => vortex_bail!("into_host is not implemented for {}", c.dtype()),
+            c => vortex_bail!(NotImplemented: "into_host is not implemented for {}", c.dtype()),
         }
     }
 }

@@ -112,7 +112,7 @@ impl ValidityBuilder {
 
         let validity = Validity::concat(runs).vortex_expect("runs is not empty");
         if nullability == NonNullable {
-            vortex_panic!("cannot finish a non-nullable builder holding {validity:?} validity");
+            vortex_panic!(AssertionFailed: "cannot finish a non-nullable builder holding {validity:?} validity");
         }
         validity
     }

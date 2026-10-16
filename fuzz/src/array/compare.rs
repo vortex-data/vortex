@@ -107,7 +107,9 @@ pub fn compare_canonical_array(
                     .decimal_value()
                     .vortex_expect("nulls handled before")
                     .cast::<D>()
-                    .unwrap_or_else(|| vortex_panic!("todo: handle upcast of decimal array"));
+                    .unwrap_or_else(
+                        || vortex_panic!(NotImplemented: "todo: handle upcast of decimal array"),
+                    );
                 let buf = decimal_array.buffer::<D>();
                 compare_to(
                     buf.as_slice()

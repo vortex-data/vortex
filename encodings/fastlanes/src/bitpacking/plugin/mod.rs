@@ -73,9 +73,9 @@ impl ArrayPlugin for BitPackedPlugin {
         array: &ArrayRef,
         _session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        let view = array.as_opt::<BitPacked>().ok_or_else(|| {
-            vortex_err!("BitPacked plugin cannot serialize {}", array.encoding_id())
-        })?;
+        let view = array.as_opt::<BitPacked>().ok_or_else(
+            || vortex_err!(Serde: "BitPacked plugin cannot serialize {}", array.encoding_id()),
+        )?;
         let serialization = match view.bit_widths() {
             BitWidthsView::Global(bit_width) => v1::serialize(array, view, bit_width)?,
             BitWidthsView::Blocked(block_offsets) => v2::serialize(array, view, block_offsets)?,
@@ -94,7 +94,7 @@ impl ArrayPlugin for BitPackedPlugin {
             v2::deserialize(parts)
         } else {
             vortex_bail!(
-                "BitPacked plugin does not recognize serialized ID {}",
+                Serde: "BitPacked plugin does not recognize serialized ID {}",
                 parts.serialized_id
             )
         }
@@ -134,14 +134,14 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             self.serialized_ids().contains(&parts.serialized_id),
-            "BitPacked plugin does not recognize serialized ID {}",
+            Serde: "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
         let bitpacked: BitPackedArray = BitPackedPlugin
             .deserialize(parts, session)?
             .try_downcast()
             .map_err(|_| {
-                vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked")
+                vortex_err!(Serde: "BitPacked plugin should only deserialize fastlanes.bitpacked")
             })?;
 
         // Create a new BitPackedArray without the interior patches installed.

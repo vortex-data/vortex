@@ -84,12 +84,12 @@ pub(crate) fn validate_block_offsets(
 ) -> VortexResult<()> {
     vortex_ensure!(
         offsets.dtype().is_unsigned_int() && !offsets.dtype().is_nullable(),
-        "Expected non-nullable unsigned integer block offsets, got {}",
+        MismatchedTypes: "Expected non-nullable unsigned integer block offsets, got {}",
         offsets.dtype()
     );
     vortex_ensure!(
         offsets.len() == num_blocks + 1,
-        "Expected {} block boundaries, got {}",
+        InvalidArgument: "Expected {} block boundaries, got {}",
         num_blocks + 1,
         offsets.len()
     );
@@ -132,7 +132,7 @@ where
     };
     vortex_ensure!(
         span == packed_len as u64,
-        "Block offsets span {span} bytes, but the packed buffer has {packed_len}"
+        InvalidArgument: "Block offsets span {span} bytes, but the packed buffer has {packed_len}"
     );
     Ok(())
 }
@@ -151,22 +151,22 @@ fn block_range(
 ) -> VortexResult<Range<usize>> {
     vortex_ensure!(
         base <= start,
-        "Block boundary {start} is below the first boundary {base}"
+        InvalidArgument: "Block boundary {start} is below the first boundary {base}"
     );
     vortex_ensure!(
         start <= end,
-        "Block boundaries {start} and {end} are decreasing"
+        InvalidArgument: "Block boundaries {start} and {end} are decreasing"
     );
     vortex_ensure!(
         end - base <= packed_len as u64,
-        "Block boundaries {start} and {end} are outside the packed buffer (base {base})"
+        InvalidArgument: "Block boundaries {start} and {end} are outside the packed buffer (base {base})"
     );
     let size = end - start;
     vortex_ensure!(
         (start - base).is_multiple_of(128)
             && size.is_multiple_of(128)
             && size / 128 <= max_bit_width,
-        "Block boundaries {start} and {end} do not hold a supported bit width (at most {max_bit_width} bits)"
+        InvalidArgument: "Block boundaries {start} and {end} do not hold a supported bit width (at most {max_bit_width} bits)"
     );
     // Both differences are at most `packed_len`, so they fit in `usize`.
     Ok((start - base) as usize..(end - base) as usize)
@@ -288,10 +288,10 @@ impl BitPackedData {
         bit_width: u8,
         offset: u16,
     ) -> VortexResult<Self> {
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        vortex_ensure!(bit_width <= 64, InvalidArgument: "Unsupported bit width {bit_width}");
         vortex_ensure!(
             offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
+            InvalidArgument: "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
         Ok(Self {
@@ -310,7 +310,7 @@ impl BitPackedData {
     ) -> VortexResult<Self> {
         vortex_ensure!(
             offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
+            InvalidArgument: "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
         Ok(Self {
@@ -330,13 +330,17 @@ impl BitPackedData {
         length: usize,
         offset: u16,
     ) -> VortexResult<()> {
-        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
+        vortex_ensure!(
+            ptype.is_int(),
+            MismatchedTypes: "expected type: integer but instead got {}",
+            ptype
+        );
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,
                 length,
-                "BitPackedArray validity length must match array length"
+                InvalidArgument: "BitPackedArray validity length must match array length"
             );
         }
 
@@ -349,11 +353,11 @@ impl BitPackedData {
         if let Some(bit_width) = bit_width {
             vortex_ensure!(
                 usize::from(bit_width) <= ptype.bit_width(),
-                "Unsupported bit width {bit_width} for {ptype}"
+                InvalidArgument: "Unsupported bit width {bit_width} for {ptype}"
             );
             let expected_packed_len =
                 (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
-            vortex_ensure_eq!(packed.len(), expected_packed_len);
+            vortex_ensure_eq!(packed.len(), expected_packed_len, InvalidArgument);
         }
 
         Ok(())
@@ -363,7 +367,7 @@ impl BitPackedData {
         // Ensure that array and patches have same ptype
         vortex_ensure!(
             patches.dtype().eq_ignore_nullability(ptype.into()),
-            "Patches DType {} does not match BitPackedArray dtype {}",
+            MismatchedTypes: "Patches DType {} does not match BitPackedArray dtype {}",
             patches.dtype().as_nonnullable(),
             ptype
         );
@@ -371,7 +375,7 @@ impl BitPackedData {
         vortex_ensure_eq!(
             patches.array_len(),
             len,
-            "BitPackedArray patches length mismatch"
+            InvalidArgument: "BitPackedArray patches length mismatch"
         );
 
         Ok(())
@@ -482,7 +486,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
             (Some(bit_width), None) => BitWidthsView::Global(bit_width),
             (None, Some(block_offsets)) => BitWidthsView::Blocked(block_offsets),
             _ => vortex_panic!(
-                "BitPacked must have exactly one of a global bit width and block offsets"
+                AssertionFailed: "BitPacked must have exactly one of a global bit width and block offsets"
             ),
         }
     }

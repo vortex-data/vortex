@@ -164,14 +164,13 @@ fn gather_view_slices_constant_length<S>(
 where
     S: UnsignedPType,
 {
-    let computed_len = starts
-        .len()
-        .checked_mul(length)
-        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    let computed_len = starts.len().checked_mul(length).ok_or_else(
+        || vortex_err!(Overflow: "PiecewiseSequenceArray output length overflows usize"),
+    )?;
     vortex_ensure_eq!(
         computed_len,
         output_len,
-        "PiecewiseSequenceArray expanded length does not match declared length",
+        AssertionFailed: "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
@@ -188,7 +187,7 @@ where
     vortex_ensure_eq!(
         views.len(),
         output_len,
-        "PiecewiseSequenceArray expanded length does not match declared length",
+        AssertionFailed: "PiecewiseSequenceArray expanded length does not match declared length",
     );
     Ok(views.freeze())
 }
@@ -218,7 +217,7 @@ where
     vortex_ensure_eq!(
         views.len(),
         output_len,
-        "PiecewiseSequenceArray expanded length does not match declared length",
+        AssertionFailed: "PiecewiseSequenceArray expanded length does not match declared length",
     );
     Ok(views.freeze())
 }

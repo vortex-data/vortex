@@ -68,7 +68,7 @@ pub fn sum_canonical_array(
                 )
             })
         }
-        _ => vortex_bail!("Unsupported sum dtype: {}", array.dtype()),
+        _ => vortex_bail!(NotImplemented: "Unsupported sum dtype: {}", array.dtype()),
     }
 }
 
@@ -141,6 +141,6 @@ fn native_values<T: BigCast>(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vortex
                 .map(|value| T::from(value).vortex_expect("decimal value fits accumulator"))
                 .collect()
         }),
-        _ => vortex_bail!("Unsupported sum dtype: {}", array.dtype()),
+        _ => vortex_bail!(NotImplemented: "Unsupported sum dtype: {}", array.dtype()),
     })
 }

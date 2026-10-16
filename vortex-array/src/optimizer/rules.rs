@@ -194,7 +194,7 @@ impl<V: VTable> ParentRuleSet<V> {
                     vortex_error::vortex_ensure_eq!(
                         reduced.len(),
                         parent.len(),
-                        "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        AssertionFailed: "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
                         rule,
                         parent.encoding_id(),
                         reduced.encoding_id()
@@ -202,7 +202,7 @@ impl<V: VTable> ParentRuleSet<V> {
                     vortex_error::vortex_ensure_eq!(
                         reduced.dtype(),
                         parent.dtype(),
-                        "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
+                        AssertionFailed: "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
                         rule,
                         parent.encoding_id(),
                         reduced.encoding_id()

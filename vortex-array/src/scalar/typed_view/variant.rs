@@ -34,7 +34,7 @@ impl<'a> VariantScalar<'a> {
     #[inline]
     pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Variant(_)) {
-            vortex_bail!("Expected variant scalar, found {}", dtype)
+            vortex_bail!(InvalidArgument: "Expected variant scalar, found {}", dtype)
         }
 
         Ok(Self {

@@ -984,7 +984,7 @@ fn test_decimal_scalar_mul_widens_beyond_operand_storage() -> VortexResult<()> {
     let operand = DecimalValue::I64(100_000_000_000_000_000);
 
     let (value, result_dtype) = checked_op(operand, operand, dtype, NumericOperator::Mul)?
-        .ok_or_else(|| vortex_err!("expected an in-precision product"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected an in-precision product"))?;
     assert_eq!(result_dtype, DecimalDType::new(37, 0));
     assert_eq!(
         value,
@@ -1005,7 +1005,7 @@ fn test_decimal_scalar_add_reserves_carry_digit() -> VortexResult<()> {
         dtype,
         NumericOperator::Add,
     )?
-    .ok_or_else(|| vortex_err!("expected the carry digit to absorb the result"))?;
+    .ok_or_else(|| vortex_err!(InvalidArgument: "expected the carry digit to absorb the result"))?;
     assert_eq!(result_dtype, DecimalDType::new(4, 0));
     assert_eq!(value, DecimalValue::I16(1_001));
     assert_eq!(value.decimal_type(), DecimalType::I16);
@@ -1039,7 +1039,7 @@ fn test_decimal_scalar_div_reports_unrepresentable_intermediate() -> VortexResul
     let pow10 = |exp: u32| {
         i256::from_i128(10)
             .checked_pow(exp)
-            .ok_or_else(|| vortex_err!("10^{exp} is representable as i256"))
+            .ok_or_else(|| vortex_err!(AssertionFailed: "10^{exp} is representable as i256"))
     };
     let lhs = DecimalValue::I256(pow10(75)?);
     let rhs = DecimalValue::I256(pow10(70)?);
@@ -1061,7 +1061,9 @@ fn test_decimal_scalar_null_handling() -> VortexResult<()> {
     let result = null
         .as_decimal()
         .checked_binary_numeric(&value.as_decimal(), NumericOperator::Add)?
-        .ok_or_else(|| vortex_err!("a null operand yields a null result, not an overflow"))?;
+        .ok_or_else(
+            || vortex_err!(Overflow: "a null operand yields a null result, not an overflow"),
+        )?;
     assert!(result.is_null());
     assert_eq!(
         result.dtype(),

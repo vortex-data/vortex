@@ -37,7 +37,7 @@ impl TryFrom<u8> for TimeUnit {
             2 => Ok(TimeUnit::Milliseconds),
             3 => Ok(TimeUnit::Seconds),
             4 => Ok(TimeUnit::Days),
-            _ => vortex_bail!("invalid time unit: {value}u8"),
+            _ => vortex_bail!(InvalidArgument: "invalid time unit: {value}u8"),
         }
     }
 }

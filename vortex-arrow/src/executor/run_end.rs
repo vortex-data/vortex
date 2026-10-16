@@ -97,7 +97,7 @@ fn run_end_to_arrow(
         DataType::Int16 => build_run_array::<Int16Type>(&arrow_ends, &arrow_values, offset, length),
         DataType::Int32 => build_run_array::<Int32Type>(&arrow_ends, &arrow_values, offset, length),
         DataType::Int64 => build_run_array::<Int64Type>(&arrow_ends, &arrow_values, offset, length),
-        _ => vortex_bail!("Unsupported run-end index type: {:?}", ends_type),
+        _ => vortex_bail!(InvalidArgument: "Unsupported run-end index type: {:?}", ends_type),
     }
 }
 
@@ -111,9 +111,9 @@ where
     R::Native: std::ops::Sub<Output = R::Native> + Ord,
 {
     let offset_native = R::Native::from_usize(offset)
-        .ok_or_else(|| vortex_err!("Offset {offset} exceeds run-end index capacity"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "Offset {offset} exceeds run-end index capacity"))?;
     let length_native = R::Native::from_usize(length)
-        .ok_or_else(|| vortex_err!("Length {length} exceeds run-end index capacity"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "Length {length} exceeds run-end index capacity"))?;
 
     let ends_prim = ends.as_primitive::<R>();
     if offset == 0 && ends_prim.values().last() == Some(&length_native) {
@@ -171,7 +171,7 @@ fn constant_to_run_end(
         DataType::Int16 => build_constant_run_array::<Int16Type>(len, &values),
         DataType::Int32 => build_constant_run_array::<Int32Type>(len, &values),
         DataType::Int64 => build_constant_run_array::<Int64Type>(len, &values),
-        _ => vortex_bail!("Unsupported run-end index type: {:?}", ends_type),
+        _ => vortex_bail!(InvalidArgument: "Unsupported run-end index type: {:?}", ends_type),
     }
 }
 
@@ -179,8 +179,9 @@ fn build_constant_run_array<R: RunEndIndexType>(
     len: usize,
     values: &ArrowArrayRef,
 ) -> VortexResult<ArrowArrayRef> {
-    let end = R::Native::from_usize(len)
-        .ok_or_else(|| vortex_err!("Array length {len} exceeds run-end index capacity"))?;
+    let end = R::Native::from_usize(len).ok_or_else(
+        || vortex_err!(Overflow: "Array length {len} exceeds run-end index capacity"),
+    )?;
     let run_ends = arrow_array::PrimitiveArray::<R>::from_value(end, 1);
     Ok(Arc::new(RunArray::<R>::try_new(&run_ends, values)?) as ArrowArrayRef)
 }
@@ -313,7 +314,7 @@ mod tests {
         let ree_arrow = result
             .as_any()
             .downcast_ref::<RunArray<Int32Type>>()
-            .ok_or_else(|| vortex_err!("expected Int32 run-end array"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected Int32 run-end array"))?;
         assert_eq!(ree_arrow.run_ends().values(), &[2, 4]);
 
         // The RunEnd fast path exports the values buffer zero-copy; the flat-then-recode
@@ -322,7 +323,7 @@ mod tests {
             .values()
             .as_any()
             .downcast_ref::<Int64Array>()
-            .ok_or_else(|| vortex_err!("expected Int64 values"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected Int64 values"))?;
         assert_eq!(arrow_values.values().as_ptr(), values_ptr);
         Ok(())
     }
@@ -364,13 +365,13 @@ mod tests {
         let ree = result
             .as_any()
             .downcast_ref::<RunArray<Int32Type>>()
-            .ok_or_else(|| vortex_err!("expected Int32 run-end array"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected Int32 run-end array"))?;
         assert_eq!(ree.run_ends().values(), expected_ends);
         let values = ree
             .values()
             .as_any()
             .downcast_ref::<Int64Array>()
-            .ok_or_else(|| vortex_err!("expected Int64 values"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected Int64 values"))?;
         assert_eq!(values.values(), expected_values);
         Ok(())
     }

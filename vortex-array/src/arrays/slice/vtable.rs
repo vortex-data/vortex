@@ -81,7 +81,7 @@ impl VTable for Slice {
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots[SliceSlots::CHILD].is_some(),
-            "SliceArray child slot must be present"
+            InvalidArgument: "SliceArray child slot must be present"
         );
         let child = slots[SliceSlots::CHILD]
             .as_ref()
@@ -89,16 +89,16 @@ impl VTable for Slice {
         vortex_ensure_eq!(
             child.dtype(),
             dtype,
-            "SliceArray dtype does not match outer dtype",
+            MismatchedTypes: "SliceArray dtype does not match outer dtype",
         );
         vortex_ensure_eq!(
             data.len(),
             len,
-            "SliceArray length does not match outer length",
+            InvalidArgument: "SliceArray length does not match outer length",
         );
         vortex_ensure!(
             data.range.end <= child.len(),
-            "SliceArray range {:?} exceeds child length {}",
+            InvalidArgument: "SliceArray range {:?} exceeds child length {}",
             data.range,
             child.len()
         );
@@ -110,7 +110,7 @@ impl VTable for Slice {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
-        vortex_panic!("SliceArray has no buffers")
+        vortex_panic!(OutOfBounds: "SliceArray has no buffers")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -134,7 +134,7 @@ impl VTable for Slice {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
-        vortex_bail!("Slice array is not serializable")
+        vortex_bail!(Serde: "Slice array is not serializable")
     }
 
     fn deserialize(
@@ -147,7 +147,7 @@ impl VTable for Slice {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Slice array is not serializable")
+        vortex_bail!(Serde: "Slice array is not serializable")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -180,7 +180,7 @@ impl OperationsVTable<Slice> for Slice {
         let child_index = state.array().range.start + index;
         state
             .slot(SliceSlots::CHILD)?
-            .ok_or_else(|| vortex_err!("Slice child slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Slice child slot is missing"))?
             .execute_scalar(child_index, ctx)
     }
 

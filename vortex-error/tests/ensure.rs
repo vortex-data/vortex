@@ -8,7 +8,21 @@ mod tests {
     use std::cell::Cell;
 
     use vortex_error::VortexError;
+    use vortex_error::VortexErrorKind;
     use vortex_error::VortexResult;
+
+    /// Asserts the error's kind and the message shown after its kind prefix.
+    fn assert_error(error: &VortexError, kind: VortexErrorKind, message: &str) {
+        assert_eq!(error.kind(), kind, "{error}");
+        let shown = error.to_string();
+        let body = shown
+            .split_once(": ")
+            .map_or(shown.as_str(), |(_, body)| body);
+        assert!(
+            body == message || body.starts_with(&format!("{message}\nBacktrace:")),
+            "{shown:?}"
+        );
+    }
 
     fn check_default(left: &Cell<u32>, right: &Cell<u32>) -> VortexResult<()> {
         vortex_error::vortex_ensure_eq!(
@@ -39,12 +53,10 @@ mod tests {
 
         assert_eq!(left.get(), 2);
         assert_eq!(right.get(), 3);
-        let VortexError::AssertionFailed(message, _) = error else {
-            panic!("expected AssertionFailed, got {error}");
-        };
-        assert_eq!(
-            message.as_ref(),
-            "`left.replace(left.get() + 1) == right.replace(right.get() + 1)`\n  left: 1\n right: 2"
+        assert_error(
+            &error,
+            VortexErrorKind::AssertionFailed,
+            "`left.replace(left.get() + 1) == right.replace(right.get() + 1)`\n  left: 1\n right: 2",
         );
     }
 
@@ -58,7 +70,7 @@ mod tests {
             vortex_error::vortex_ensure_eq!(
                 &left,
                 right,
-                "{context} mismatch {}",
+                InvalidArgument: "{context} mismatch {}",
                 message_calls.replace(message_calls.get() + 1),
             );
             Ok(())
@@ -70,12 +82,10 @@ mod tests {
         let error = check(&right).unwrap_err();
 
         assert_eq!(message_calls.get(), 1);
-        let VortexError::Other(message, _) = error else {
-            panic!("expected Other, got {error}");
-        };
-        assert_eq!(
-            message.as_ref(),
-            "field mismatch 0\n  left: left\n right: right"
+        assert_error(
+            &error,
+            VortexErrorKind::InvalidArgument,
+            "field mismatch 0\n  left: left\n right: right",
         );
         assert_eq!(left, "left");
         assert_eq!(right, "right");
@@ -91,10 +101,27 @@ mod tests {
 
         let error = check().unwrap_err();
 
-        let VortexError::InvalidArgument(message, _) = error else {
-            panic!("expected InvalidArgument, got {error}");
+        assert_error(
+            &error,
+            VortexErrorKind::InvalidArgument,
+            "expected 2 fields\n  left: 1\n right: 2",
+        );
+    }
+
+    #[test]
+    fn kind_without_message_reports_the_values_compared() {
+        let check = || -> VortexResult<()> {
+            vortex_error::vortex_ensure_eq!(1 + 1, 3, OutOfBounds);
+            Ok(())
         };
-        assert_eq!(message.as_ref(), "expected 2 fields\n  left: 1\n right: 2");
+
+        let error = check().unwrap_err();
+
+        assert_error(
+            &error,
+            VortexErrorKind::OutOfBounds,
+            "`1 + 1 == 3`\n  left: 2\n right: 3",
+        );
     }
 
     #[test]
@@ -106,9 +133,6 @@ mod tests {
 
         let error = check().unwrap_err();
 
-        let VortexError::AssertionFailed(message, _) = error else {
-            panic!("expected AssertionFailed, got {error}");
-        };
-        assert_eq!(message.as_ref(), "false");
+        assert_error(&error, VortexErrorKind::AssertionFailed, "false");
     }
 }

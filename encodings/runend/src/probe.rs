@@ -22,13 +22,13 @@ pub(crate) fn scalar_at(
     let logical_index = array
         .offset()
         .checked_add(index)
-        .ok_or_else(|| vortex_err!("RunEnd logical index overflow"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "RunEnd logical index overflow"))?;
     // Search for the first end strictly greater than the logical index. Every comparison
     // uses the same ends probe, so a retained read keeps the child's preparation within and
     // between searches.
     let mut ends = state
         .slot(RunEndSlots::ENDS)?
-        .ok_or_else(|| vortex_err!("RunEnd ends slot is missing"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "RunEnd ends slot is missing"))?;
     let mut left = 0;
     let mut right = ends.array().len();
     while left < right {
@@ -42,7 +42,7 @@ pub(crate) fn scalar_at(
     }
     state
         .slot(RunEndSlots::VALUES)?
-        .ok_or_else(|| vortex_err!("RunEnd values slot is missing"))?
+        .ok_or_else(|| vortex_err!(InvalidArgument: "RunEnd values slot is missing"))?
         .execute_scalar(left, ctx)
 }
 

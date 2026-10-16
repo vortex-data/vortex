@@ -168,7 +168,7 @@ impl PooledFileReadAt {
         let permit = Arc::clone(&self.read_slots)
             .acquire_owned()
             .await
-            .map_err(|error| vortex_err!("file read semaphore closed: {error}"))?;
+            .map_err(|error| vortex_err!(Io: "file read semaphore closed: {error}"))?;
         self.handle
             .spawn_blocking(move || {
                 // A started blocking read cannot be cancelled. Keep its permit and buffer owners
@@ -208,7 +208,7 @@ impl VortexReadAt for PooledFileReadAt {
         async move {
             vortex_ensure!(
                 offset.checked_add(u64::try_from(length)?).is_some(),
-                "file read range overflow: offset={offset}, length={length}"
+                Overflow: "file read range overflow: offset={offset}, length={length}"
             );
             if length <= FILE_READ_CHUNK_BYTES {
                 let read = reader.read_host(offset, length).await?;

@@ -90,7 +90,7 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
         let _ = (rows, mask, compiler);
-        vortex_bail!("Plan {} has no pipeline implementation", plan.vtable().id())
+        vortex_bail!(NotImplemented: "Plan {} has no pipeline implementation", plan.vtable().id())
     }
 
     /// Visits every segment compiling this plan over `rows` could read, under any mask, with

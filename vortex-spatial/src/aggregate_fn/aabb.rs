@@ -97,7 +97,7 @@ fn rect_from_storage(scalar: &Scalar) -> VortexResult<Option<SpatialRect<f64>>> 
         f64::try_from(
             &fields
                 .field(name)
-                .ok_or_else(|| vortex_err!("AABB missing {name}"))?,
+                .ok_or_else(|| vortex_err!(NotFound: "AABB missing {name}"))?,
         )
     };
     Ok(Some(SpatialRect::new(

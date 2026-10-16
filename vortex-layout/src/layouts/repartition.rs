@@ -280,7 +280,7 @@ fn exact_size(chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
         return Ok(chunk.nbytes());
     }
     let size = uncompressed_size_in_bytes(chunk, UncompressedSizeOpts::exact(), ctx)?;
-    u64::try_from(size).map_err(|e| vortex_err!("block size does not fit in u64: {e}"))
+    u64::try_from(size).map_err(|e| vortex_err!(Overflow: "block size does not fit in u64: {e}"))
 }
 
 #[cfg(test)]

@@ -96,7 +96,7 @@ impl PlanRef {
     /// Returns the child at `index`, or an error when the index is out of bounds.
     pub fn child_required(&self, index: usize) -> VortexResult<PlanRef> {
         self.child(index)?
-            .ok_or_else(|| vortex_err!("Missing plan child {index}"))
+            .ok_or_else(|| vortex_err!(NotFound: "Missing plan child {index}"))
     }
 
     /// Rebuilds this plan with `children` stored outside its erased operator data.
@@ -145,12 +145,12 @@ impl PlanRef {
     ) -> VortexResult<Option<Chain>> {
         vortex_ensure!(
             rows.start <= rows.end && rows.end <= self.row_count(),
-            "Compile rows {rows:?} exceed plan row count {}",
+            OutOfBounds: "Compile rows {rows:?} exceed plan row count {}",
             self.row_count()
         );
         vortex_ensure!(
             mask.len() as u64 == rows.end - rows.start,
-            "Compile mask length {} does not match rows {rows:?}",
+            InvalidArgument: "Compile mask length {} does not match rows {rows:?}",
             mask.len()
         );
         self.dyn_plan().dyn_compile(self, rows, mask, compiler)

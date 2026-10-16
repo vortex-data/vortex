@@ -27,11 +27,11 @@ impl OperationsVTable<Union> for Union {
         };
 
         let Some(child_index) = array.variants().tag_to_child_index(type_id) else {
-            vortex_panic!("Unknown UnionArray type ID {type_id}")
+            vortex_panic!(NotFound: "Unknown UnionArray type ID {type_id}")
         };
         let child = array
             .child(child_index)
-            .ok_or_else(|| vortex_err!("UnionArray is missing child {child_index}"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "UnionArray is missing child {child_index}"))?;
         let child_scalar = child.execute_scalar(index, ctx)?;
 
         Scalar::union(

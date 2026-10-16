@@ -47,7 +47,7 @@ pub fn write_fixtures(
     }
 
     std::fs::create_dir_all(output_dir)
-        .map_err(|e| vortex_err!("failed to create output dir: {e}"))?;
+        .map_err(|e| vortex_err!(Io: "failed to create output dir: {e}"))?;
 
     eprintln!("generating {} fixtures...", fixtures.len());
 
@@ -57,7 +57,7 @@ pub fn write_fixtures(
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
-                .map_err(|e| vortex_err!("failed to read back {}: {e}", path.display()))?;
+                .map_err(|e| vortex_err!(Io: "failed to read back {}: {e}", path.display()))?;
             let sha256 = format!("{:x}", HexDisplay(&Sha256::digest(&file_bytes)));
             eprintln!("  wrote {}", entry.name);
             infos.push(FixtureInfo {
@@ -75,9 +75,9 @@ pub fn write_fixtures(
 pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResult<()> {
     let fixtures_json = FixturesJson { fixtures: infos };
     let json = serde_json::to_string_pretty(&fixtures_json)
-        .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
+        .map_err(|e| vortex_err!(Serde: "failed to serialize fixtures.json: {e}"))?;
     std::fs::write(output_dir.join("fixtures.json"), format!("{json}\n"))
-        .map_err(|e| vortex_err!("failed to write fixtures.json: {e}"))?;
+        .map_err(|e| vortex_err!(Io: "failed to write fixtures.json: {e}"))?;
     eprintln!("  wrote fixtures.json");
 
     eprintln!(

@@ -49,23 +49,23 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
     pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
         let precision = NonZero::new(precision).ok_or_else(|| {
             vortex_err!(
-                "precision cannot be 0, has to be between [1, {}]",
+                InvalidArgument: "precision cannot be 0, has to be between [1, {}]",
                 D::MAX_PRECISION
             )
         })?;
 
         if precision.get() > D::MAX_PRECISION {
             vortex_bail!(
-                "Precision {} is greater than max {}",
+                InvalidArgument: "Precision {} is greater than max {}",
                 precision,
                 D::MAX_PRECISION
             );
         }
         if scale > D::MAX_SCALE {
-            vortex_bail!("Scale {} is greater than max {}", scale, D::MAX_SCALE);
+            vortex_bail!(InvalidArgument: "Scale {} is greater than max {}", scale, D::MAX_SCALE);
         }
         if scale > 0 && scale as u8 > precision.get() {
-            vortex_bail!("Scale {} is greater than precision {}", scale, precision);
+            vortex_bail!(InvalidArgument: "Scale {} is greater than precision {}", scale, precision);
         }
         Ok(Self {
             precision,

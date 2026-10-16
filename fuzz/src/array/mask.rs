@@ -165,7 +165,7 @@ pub fn mask_canonical_array(
             ExtensionArray::new(ext_dtype, masked_storage).into_array()
         }
         Canonical::Union(_) => {
-            vortex_bail!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
+            vortex_bail!(NotImplemented: "TODO(connor)[Union]: support Union arrays in the mask fuzzer")
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

@@ -106,7 +106,7 @@ pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> Vorte
     let output = SegmentsOutput { columns };
 
     let json_output = serde_json::to_string_pretty(&output)
-        .map_err(|e| vortex::error::vortex_err!("Failed to serialize JSON: {e}"))?;
+        .map_err(|e| vortex::error::vortex_err!(Serde: "Failed to serialize JSON: {e}"))?;
     println!("{json_output}");
 
     Ok(())

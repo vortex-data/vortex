@@ -42,7 +42,7 @@ impl AggregateFnVTable for Count {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("Count is not yet serializable");
+        vortex_bail!(NotImplemented: "Count is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {

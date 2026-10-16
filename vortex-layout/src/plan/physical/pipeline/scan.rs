@@ -192,7 +192,7 @@ fn drive(
             cx.changed.clear();
             vortex_ensure!(
                 cx.reads.is_empty() || ready == SourceReady::Blocked(SourceBlocked::Io),
-                "A source that queues reads must block on IO"
+                AssertionFailed: "A source that queues reads must block on IO"
             );
             match ready {
                 SourceReady::Ready => {}
@@ -402,7 +402,7 @@ impl Core {
     fn run(&mut self, id: PipelineId) -> VortexResult<()> {
         let pipe = self.pipelines[id]
             .as_mut()
-            .ok_or_else(|| vortex_err!("Pipeline {id} is not live"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Pipeline {id} is not live"))?;
         pipe.queued = false;
         let mut reads = SmallVec::new();
         let progress = drive(
@@ -556,7 +556,7 @@ impl Core {
         let (owner, segment) = self
             .reads
             .remove(&read)
-            .ok_or_else(|| vortex_err!("Unknown read {read:?}"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Unknown read {read:?}"))?;
         if let Some(id) = owner {
             let pipe = self.pipeline_mut(id);
             pipe.pending -= 1;
@@ -659,7 +659,7 @@ impl Scan {
                 split.rows.start <= split.rows.end
                     && split.rows.end <= plan.row_count()
                     && split.mask.len() as u64 == split.rows.end - split.rows.start,
-                "Split {:?} with a mask of {} rows does not fit a plan of {} rows",
+                InvalidArgument: "Split {:?} with a mask of {} rows does not fit a plan of {} rows",
                 split.rows,
                 split.mask.len(),
                 plan.row_count()
@@ -745,7 +745,7 @@ impl Scan {
                 return Ok(Turn::Waiting);
             }
             vortex_bail!(
-                "Scan is stuck with nothing runnable and no read in flight: {}",
+                AssertionFailed: "Scan is stuck with nothing runnable and no read in flight: {}",
                 self.core.describe_blocked()
             );
         }
@@ -762,7 +762,7 @@ impl Scan {
             .active
             .iter()
             .position(Option::is_none)
-            .ok_or_else(|| vortex_err!("No free split slot"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "No free split slot"))?;
         let index = self.next;
         self.next += 1;
         let split = self.splits[index].clone();

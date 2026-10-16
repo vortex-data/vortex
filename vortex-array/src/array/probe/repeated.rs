@@ -122,7 +122,7 @@ pub(super) fn is_valid_scalar(scalar: Scalar, index: usize) -> VortexResult<bool
     scalar
         .as_bool()
         .value()
-        .ok_or_else(|| vortex_err!("validity value at index {index} is null"))
+        .ok_or_else(|| vortex_err!(AssertionFailed: "validity value at index {index} is null"))
 }
 
 /// Get or create the [`RepeatedState`] for encoding state `S` in a probe's erased slot.
@@ -131,7 +131,7 @@ pub(crate) fn repeated_state<S: Default + 'static>(
 ) -> VortexResult<&mut RepeatedState<S>> {
     slot.get_or_insert_with(|| Box::new(RepeatedState::<S>::default()))
         .downcast_mut::<RepeatedState<S>>()
-        .ok_or_else(|| vortex_err!("Probe state type mismatch"))
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "Probe state type mismatch"))
 }
 
 /// What a [`RepeatedArrayProbe`] keeps for its encoding between reads.
@@ -265,7 +265,7 @@ mod tests {
         let Some(ResolvedValidity::Array(validity)) =
             &repeated_state::<()>(&mut probe.state)?.validity
         else {
-            return Err(vortex_err!("validity slot should hold a probe"));
+            return Err(vortex_err!(AssertionFailed: "validity slot should hold a probe"));
         };
         assert!(validity.state.is_some());
         assert!(probe.execute_scalar(1, &mut ctx)?.is_null());
@@ -293,14 +293,16 @@ mod tests {
         let array = struct_of_two_fields()?;
         let typed = array
             .as_opt::<Struct>()
-            .ok_or_else(|| vortex_err!("expected a struct"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected a struct"))?;
         let mut repeated = RepeatedState::<()>::default();
         {
             let mut state = ProbeState::repeated(typed, &mut repeated);
             assert!(state.slot(5).is_err());
             assert!(state.slot(0)?.is_none());
             assert!(state.retained().is_some());
-            let mut field = state.slot(2)?.ok_or_else(|| vortex_err!("missing field"))?;
+            let mut field = state
+                .slot(2)?
+                .ok_or_else(|| vortex_err!(NotFound: "missing field"))?;
             assert!(matches!(field, ArrayProbe::Repeated(_)));
             assert_eq!(field.execute_scalar(1, &mut ctx)?, Scalar::from(4i64));
             assert_eq!(field.execute_scalar(0, &mut ctx)?, Scalar::from(3i64));
@@ -310,7 +312,7 @@ mod tests {
         assert!(repeated.slots[1].is_none());
         let child = repeated.slots[2]
             .as_ref()
-            .ok_or_else(|| vortex_err!("missing child probe"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "missing child probe"))?;
         assert_eq!(child.array().len(), 2);
         Ok(())
     }

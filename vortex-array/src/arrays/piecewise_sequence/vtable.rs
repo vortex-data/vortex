@@ -64,19 +64,23 @@ impl VTable for PiecewiseSequence {
         vortex_ensure_eq!(
             dtype,
             &DType::from(PType::U64),
-            "PiecewiseSequenceArray dtype must be u64",
+            MismatchedTypes: "PiecewiseSequenceArray dtype must be u64",
         );
-        vortex_ensure_eq!(slots.len(), PiecewiseSequenceSlots::NAMES.len());
-        let starts = slots[PiecewiseSequenceSlots::STARTS]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray starts slot must be present"))?;
-        let lengths = slots[PiecewiseSequenceSlots::LENGTHS]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray lengths slot must be present"))?;
+        vortex_ensure_eq!(
+            slots.len(),
+            PiecewiseSequenceSlots::NAMES.len(),
+            InvalidArgument
+        );
+        let starts = slots[PiecewiseSequenceSlots::STARTS].as_ref().ok_or_else(
+            || vortex_err!(InvalidArgument: "PiecewiseSequenceArray starts slot must be present"),
+        )?;
+        let lengths = slots[PiecewiseSequenceSlots::LENGTHS].as_ref().ok_or_else(
+            || vortex_err!(InvalidArgument: "PiecewiseSequenceArray lengths slot must be present"),
+        )?;
         let multipliers = slots[PiecewiseSequenceSlots::MULTIPLIERS]
             .as_ref()
             .ok_or_else(|| {
-                vortex_err!("PiecewiseSequenceArray multipliers slot must be present")
+                vortex_err!(InvalidArgument: "PiecewiseSequenceArray multipliers slot must be present")
             })?;
         check_index_arrays(starts, lengths, multipliers)
     }
@@ -86,7 +90,7 @@ impl VTable for PiecewiseSequence {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
-        vortex_panic!("PiecewiseSequenceArray has no buffers")
+        vortex_panic!(OutOfBounds: "PiecewiseSequenceArray has no buffers")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -121,7 +125,7 @@ impl VTable for PiecewiseSequence {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("PiecewiseSequenceArray is not serializable")
+        vortex_bail!(Serde: "PiecewiseSequenceArray is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -189,15 +193,15 @@ where
         if remaining < length {
             let start: usize = start.as_();
             let multiplier: usize = multiplier.as_();
-            let offset = remaining
-                .checked_mul(multiplier)
-                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-            let value = start
-                .checked_add(offset)
-                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+            let offset = remaining.checked_mul(multiplier).ok_or_else(
+                || vortex_err!(Overflow: "PiecewiseSequenceArray range overflows usize"),
+            )?;
+            let value = start.checked_add(offset).ok_or_else(
+                || vortex_err!(Overflow: "PiecewiseSequenceArray range overflows usize"),
+            )?;
             return Ok(value as u64);
         }
         remaining -= length;
     }
-    vortex_bail!("PiecewiseSequenceArray index {index} out of bounds")
+    vortex_bail!(OutOfBounds: "PiecewiseSequenceArray index {index} out of bounds")
 }

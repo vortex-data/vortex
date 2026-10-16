@@ -137,7 +137,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(array.dtype(), self.element_dtype());
+        vortex_ensure_eq!(array.dtype(), self.element_dtype(), MismatchedTypes);
 
         self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
@@ -154,7 +154,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         match value.elements() {
             None => {
                 if self.dtype.nullability() == NonNullable {
-                    vortex_bail!("Cannot append null value to non-nullable list");
+                    vortex_bail!(InvalidArgument: "Cannot append null value to non-nullable list");
                 }
                 self.append_null();
             }
@@ -196,7 +196,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     /// the outer `List`.
     pub fn element_dtype(&self) -> &DType {
         let DType::List(element_dtype, _) = &self.dtype else {
-            vortex_panic!("`ListBuilder` has an incorrect dtype: {}", self.dtype);
+            vortex_panic!(AssertionFailed: "`ListBuilder` has an incorrect dtype: {}", self.dtype);
         };
 
         element_dtype
@@ -390,7 +390,7 @@ impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
         vortex_ensure_eq!(
             scalar.dtype(),
             self.dtype(),
-            "ListBuilder received a scalar with the wrong dtype"
+            MismatchedTypes: "ListBuilder received a scalar with the wrong dtype"
         );
 
         self.append_value(scalar.as_list())

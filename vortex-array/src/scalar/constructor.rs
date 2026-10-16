@@ -170,9 +170,9 @@ impl Scalar {
         dtype: DType,
         entries: impl IntoIterator<Item = (Scalar, Scalar)>,
     ) -> VortexResult<Self> {
-        let map = dtype
-            .as_map_opt()
-            .ok_or_else(|| vortex_error::vortex_err!("Expected map dtype, found {dtype}"))?;
+        let map = dtype.as_map_opt().ok_or_else(
+            || vortex_error::vortex_err!(InvalidArgument: "Expected map dtype, found {dtype}"),
+        )?;
         let key_dtype = map.key_dtype();
         let value_dtype = map.value_dtype();
 
@@ -182,13 +182,13 @@ impl Scalar {
             .map(|(index, (key, value))| {
                 if key.dtype() != &key_dtype {
                     vortex_bail!(
-                        "map entry {index} expected key dtype {key_dtype}, got {}",
+                        MismatchedTypes: "map entry {index} expected key dtype {key_dtype}, got {}",
                         key.dtype()
                     );
                 }
                 if value.dtype() != &value_dtype {
                     vortex_bail!(
-                        "map entry {index} expected value dtype {value_dtype}, got {}",
+                        MismatchedTypes: "map entry {index} expected value dtype {value_dtype}, got {}",
                         value.dtype()
                     );
                 }
@@ -217,7 +217,7 @@ impl Scalar {
             .map(|child| {
                 if child.dtype() != &*element_dtype {
                     vortex_panic!(
-                        "tried to create list of {} with values of type {}",
+                        MismatchedTypes: "tried to create list of {} with values of type {}",
                         element_dtype,
                         child.dtype()
                     );
@@ -278,7 +278,7 @@ impl Scalar {
     ) -> VortexResult<Self> {
         let child_index = variants.tag_to_child_index(type_id).ok_or_else(|| {
             vortex_err!(
-                "union type ID {type_id} is not present in {:?}",
+                NotFound: "union type ID {type_id} is not present in {:?}",
                 variants.type_ids()
             )
         })?;
@@ -290,7 +290,7 @@ impl Scalar {
         vortex_ensure_eq!(
             child.dtype(),
             &expected_dtype,
-            "union type ID {type_id} selects a different child dtype"
+            MismatchedTypes: "union type ID {type_id} selects a different child dtype"
         );
 
         Self::try_new(

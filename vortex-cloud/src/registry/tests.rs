@@ -264,7 +264,6 @@ async fn test_resolved_key_reaches_the_object(
     #[case] key: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use object_store::ObjectStoreExt;
-    use vortex_error::VortexError;
     use vortex_file::OpenOptionsSessionExt;
 
     let session = vortex_array::array_session()
@@ -293,11 +292,11 @@ async fn test_resolved_key_reaches_the_object(
     let Err(err) = session.open_options().open_object_store(&store, path).await else {
         panic!("the payload is not a Vortex file, so opening it must fail")
     };
+    let missing_key = std::error::Error::source(&err)
+        .and_then(|source| source.downcast_ref::<object_store::Error>())
+        .is_some_and(|source| matches!(source, object_store::Error::NotFound { .. }));
     assert!(
-        !matches!(
-            err,
-            VortexError::ObjectStore(object_store::Error::NotFound { .. }, _)
-        ),
+        !missing_key,
         "opening {key:?} requested a key the store does not have: {err}"
     );
     Ok(())

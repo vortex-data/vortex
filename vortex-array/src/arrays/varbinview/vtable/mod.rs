@@ -94,15 +94,15 @@ impl VTable for VarBinView {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(slots.len(), VarBinViewSlots::COUNT);
+        vortex_ensure_eq!(slots.len(), VarBinViewSlots::COUNT, InvalidArgument);
         vortex_ensure_eq!(
             data.len(),
             len,
-            "VarBinViewArray length does not match outer length",
+            InvalidArgument: "VarBinViewArray length does not match outer length",
         );
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
-            "VarBinViewArray dtype must be binary or utf8, got {dtype}"
+            MismatchedTypes: "VarBinViewArray dtype must be binary or utf8, got {dtype}"
         );
         Ok(())
     }
@@ -114,7 +114,7 @@ impl VTable for VarBinView {
         } else if idx == ndata {
             array.views_handle().clone()
         } else {
-            vortex_panic!("VarBinViewArray buffer index {idx} out of bounds")
+            vortex_panic!(OutOfBounds: "VarBinViewArray buffer index {idx} out of bounds")
         }
     }
 
@@ -125,7 +125,7 @@ impl VTable for VarBinView {
         } else if idx == ndata {
             Some("views".to_string())
         } else {
-            vortex_panic!("VarBinViewArray buffer_name index {idx} out of bounds")
+            vortex_panic!(OutOfBounds: "VarBinViewArray buffer_name index {idx} out of bounds")
         }
     }
 
@@ -135,7 +135,7 @@ impl VTable for VarBinView {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         let Some((views, data_buffers)) = buffers.split_last() else {
-            vortex_bail!("Expected at least 1 buffer, got 0");
+            vortex_bail!(MismatchedTypes: "Expected at least 1 buffer, got 0");
         };
         let data = VarBinViewData::try_new_handle(
             views.clone(),
@@ -171,12 +171,12 @@ impl VTable for VarBinView {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "VarBinViewArray expects empty metadata, got {} bytes",
+                InvalidArgument: "VarBinViewArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
         let Some((views_handle, data_handles)) = buffers.split_last() else {
-            vortex_bail!("Expected at least 1 buffer, got 0");
+            vortex_bail!(MismatchedTypes: "Expected at least 1 buffer, got 0");
         };
 
         let validity = if children.is_empty() {
@@ -185,16 +185,16 @@ impl VTable for VarBinView {
             let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 children, got {}", children.len());
+            vortex_bail!(MismatchedTypes: "Expected 0 or 1 children, got {}", children.len());
         };
 
         let views_nbytes = views_handle.len();
         let expected_views_nbytes = len
             .checked_mul(size_of::<BinaryView>())
-            .ok_or_else(|| vortex_err!("views byte length overflow for len={len}"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "views byte length overflow for len={len}"))?;
         if views_nbytes != expected_views_nbytes {
             vortex_bail!(
-                "Expected views buffer length {} bytes, got {} bytes",
+                MismatchedTypes: "Expected views buffer length {} bytes, got {} bytes",
                 expected_views_nbytes,
                 views_nbytes
             );
@@ -266,7 +266,7 @@ impl VTable for VarBinView {
         {
             return result;
         }
-        vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
+        vortex_bail!(InvalidArgument: "append_to_builder for VarBinView requires a variable-binary builder")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

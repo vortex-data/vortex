@@ -114,16 +114,16 @@ where
     vortex_ensure_eq!(
         rows.len(),
         branches.len(),
-        "interleave row_indices length does not match array_indices length",
+        InvalidArgument: "interleave row_indices length does not match array_indices length",
     );
 
     let mut output = BufferMut::with_capacity_in(branches.len(), allocator.clone());
     output.try_extend_trusted(branches.iter().zip(rows).map(|(branch, row)| {
         let Some(source) = values.get((*branch).as_()) else {
-            vortex_bail!("interleave array index out of bounds");
+            vortex_bail!(OutOfBounds: "interleave array index out of bounds");
         };
         let row = (*row).as_();
-        vortex_ensure!(row < source.len, "interleave row index out of bounds");
+        vortex_ensure!(row < source.len, OutOfBounds: "interleave row index out of bounds");
         Ok(source.data[row & source.row_mask])
     }))?;
     Ok(output.freeze())

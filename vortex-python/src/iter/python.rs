@@ -52,7 +52,7 @@ impl Iterator for PythonArrayIterator {
                             Ok(array)
                         }
                     })
-                    .map_err(|pyerr| vortex_err!("{}", pyerr))
+                    .map_err(|pyerr| vortex_err!(Other: "{}", pyerr))
             })
         })
     }

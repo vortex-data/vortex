@@ -66,7 +66,7 @@ fn run(
             }
             Turn::Waiting => {
                 if inflight.is_empty() {
-                    return Err(vortex_err!("scan waits with no reads in flight"));
+                    return Err(vortex_err!(AssertionFailed: "scan waits with no reads in flight"));
                 }
                 let read = inflight.remove(pick(&inflight));
                 events.push(Some(*read.segment_id));
@@ -275,7 +275,7 @@ fn a_source_has_several_reads_in_flight(#[values(1, 3)] deliveries: usize) -> Vo
                 for _ in 0..deliveries {
                     let read = inflight
                         .pop()
-                        .ok_or_else(|| vortex_err!("no read in flight"))?;
+                        .ok_or_else(|| vortex_err!(AssertionFailed: "no read in flight"))?;
                     scan.deliver(read.id, empty_segment())?;
                 }
             }
@@ -325,7 +325,7 @@ impl Operator for ReadAfterInlet {
         };
         let (segment, _) = cx
             .take_segment()
-            .ok_or_else(|| vortex_err!("computed before the read arrived"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "computed before the read arrived"))?;
         assert_eq!(*segment, u32::try_from(batch.len())?);
         Ok(Step::Final(batch))
     }
@@ -341,7 +341,7 @@ fn readiness_can_take_an_inlet_and_request_a_read() -> VortexResult<()> {
         move |rows, mask, compiler| {
             let chain = compiler
                 .compile(&child, rows, mask)?
-                .ok_or_else(|| vortex_err!("child has no rows"))?;
+                .ok_or_else(|| vortex_err!(AssertionFailed: "child has no rows"))?;
             Ok(Some(compiler.join_with(
                 vec![chain],
                 |_| 1,
@@ -389,9 +389,9 @@ impl Operator for FirstOf {
         if self.done {
             return Ok(Step::End);
         }
-        let (segment, _) = cx
-            .take_segment()
-            .ok_or_else(|| vortex_err!("FirstOf computed before a read arrived"))?;
+        let (segment, _) = cx.take_segment().ok_or_else(
+            || vortex_err!(AssertionFailed: "FirstOf computed before a read arrived"),
+        )?;
         self.done = true;
         Ok(Step::Final(indices([u64::from(*segment)])))
     }
@@ -627,7 +627,7 @@ mod contract {
 
     impl Operator for WaitsWhenFull {
         fn compute(&mut self, _input: Input, _cx: &mut Cx<'_>) -> VortexResult<Step> {
-            Err(vortex_err!("a blocked source must not compute"))
+            Err(vortex_err!(AssertionFailed: "a blocked source must not compute"))
         }
     }
 

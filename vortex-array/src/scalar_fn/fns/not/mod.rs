@@ -78,7 +78,7 @@ impl ScalarFnVTable for Not {
         let child_dtype = &arg_dtypes[0];
         if !matches!(child_dtype, DType::Bool(_)) {
             vortex_bail!(
-                "Not expression expects a boolean child, got: {}",
+                InvalidArgument: "Not expression expects a boolean child, got: {}",
                 child_dtype
             );
         }

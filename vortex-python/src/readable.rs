@@ -202,9 +202,9 @@ impl VortexReadAt for PyReadable {
             // Reject an invalid range before it waits for a permit or occupies a blocking thread.
             let end = offset
                 .checked_add(length as u64)
-                .ok_or_else(|| vortex_err!("read {offset}+{length} overflows u64"))?;
+                .ok_or_else(|| vortex_err!(Overflow: "read {offset}+{length} overflows u64"))?;
             if end > len {
-                vortex_bail!("read {offset}..{end} out of bounds for file of length {len}");
+                vortex_bail!(OutOfBounds: "read {offset}..{end} out of bounds for file of length {len}");
             }
 
             // Take a permit before occupying a blocking thread. For file objects the single permit
@@ -228,7 +228,7 @@ impl VortexReadAt for PyReadable {
                                 read_fully(py, obj, protocol, offset, buffer).map(|b| b.freeze())
                             }
                         }
-                        .map_err(|err| vortex_err!("Python read of {offset}..{end} failed: {err}"))
+                        .map_err(|err| vortex_err!(Io: "Python read of {offset}..{end} failed: {err}"))
                     })?;
                     Ok(BufferHandle::new_host(buffer))
                 })

@@ -121,7 +121,7 @@ impl ScalarFnVTable for JsonToVariant {
                 let dtype = field
                     .dtype
                     .as_ref()
-                    .ok_or_else(|| vortex_err!("ShreddingSpecField missing dtype"))
+                    .ok_or_else(|| vortex_err!(NotFound: "ShreddingSpecField missing dtype"))
                     .and_then(|dtype| DType::from_proto(dtype, session))?;
                 Ok((path, dtype))
             })
@@ -147,7 +147,7 @@ impl ScalarFnVTable for JsonToVariant {
             input_dtype
                 .as_extension_opt()
                 .is_some_and(|ext_dtype| ext_dtype.is::<Json>()),
-            "JsonToVariant input must be a Json extension, found {input_dtype}"
+            MismatchedTypes: "JsonToVariant input must be a Json extension, found {input_dtype}"
         );
 
         Ok(DType::Variant(input_dtype.nullability()))
@@ -169,7 +169,7 @@ impl ScalarFnVTable for JsonToVariant {
         // looping.
         let no_kernel = || {
             vortex_err!(
-                "json_to_variant requires a registered Variant encoding to build Variant values \
+                InvalidArgument: "json_to_variant requires a registered Variant encoding to build Variant values \
                  from JSON, but none is registered with this session"
             )
         };
@@ -185,7 +185,7 @@ impl ScalarFnVTable for JsonToVariant {
             input.execute::<ExtensionArray>(ctx)?.into_array()
         } else {
             vortex_bail!(
-                "JsonToVariant input must be a Json extension, found {}",
+                MismatchedTypes: "JsonToVariant input must be a Json extension, found {}",
                 input.dtype()
             );
         };
@@ -243,7 +243,7 @@ impl ShreddingSpec {
                 path.elements()
                     .iter()
                     .all(|element| matches!(element, VariantPathElement::Field(_))),
-                "ShreddingSpec paths must only contain object fields, found list index in {path}"
+                InvalidArgument: "ShreddingSpec paths must only contain object fields, found list index in {path}"
             );
         }
         Ok(Self(fields))

@@ -339,5 +339,6 @@ pub(super) fn exact_uncompressed_size(
         return Ok(array.nbytes());
     }
     let size = uncompressed_size_in_bytes(array, UncompressedSizeOpts::exact(), exec_ctx)?;
-    u64::try_from(size).map_err(|e| vortex_err!("uncompressed size does not fit in u64: {e}"))
+    u64::try_from(size)
+        .map_err(|e| vortex_err!(Overflow: "uncompressed size does not fit in u64: {e}"))
 }

@@ -63,7 +63,7 @@ fn xy_struct(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
 
 /// A list offset as `i32`.
 fn offset(n: usize) -> VortexResult<i32> {
-    i32::try_from(n).map_err(|_| vortex_err!("geometry offset overflow"))
+    i32::try_from(n).map_err(|_| vortex_err!(Overflow: "geometry offset overflow"))
 }
 
 /// Wrap `elements` — built from `rows` flattened one level — in a non-nullable `List` with one

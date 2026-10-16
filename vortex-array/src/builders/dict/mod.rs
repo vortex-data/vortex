@@ -70,7 +70,7 @@ pub fn dict_encoder_in(
     } else if let Some(vb) = array.as_opt::<VarBin>() {
         bytes_dict_builder(vb.dtype().clone(), constraints, allocator)
     } else {
-        vortex_panic!("Can only encode primitive or varbin/view arrays")
+        vortex_panic!(MismatchedTypes: "Can only encode primitive or varbin/view arrays")
     };
     dict_builder
 }
@@ -100,7 +100,7 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
     let dict_array = dict_encode_with_constraints(array, &UNCONSTRAINED, ctx)?;
     if dict_array.len() != array.len() {
         vortex_bail!(
-            "must have encoded all {} elements, but only encoded {}",
+            AssertionFailed: "must have encoded all {} elements, but only encoded {}",
             array.len(),
             dict_array.len(),
         );

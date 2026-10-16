@@ -42,11 +42,9 @@ fn enable_latest_core_edition(session: &vortex_session::VortexSession) {
     use vortex::editions::CORE_2026_08_3;
     use vortex::editions::EditionSessionExt;
     use vortex_error::VortexExpect;
-    use vortex_error::vortex_err;
 
     session
         .enable_edition(CORE_2026_08_3)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("latest core edition is registered");
 }
 

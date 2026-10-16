@@ -116,12 +116,12 @@ mod tests {
             .aggregate_fns()
             .find_aggregate_kernel(arr.encoding_id(), aggregate.id())
         else {
-            vortex_bail!("Sparse SumV2 kernel is not registered");
+            vortex_bail!(NotFound: "Sparse SumV2 kernel is not registered");
         };
         let Some(partial) =
             kernel.aggregate(&aggregate, arr, &mut SESSION.create_execution_ctx())?
         else {
-            vortex_bail!("Sparse SumV2 kernel declined the aggregate");
+            vortex_bail!(AssertionFailed: "Sparse SumV2 kernel declined the aggregate");
         };
 
         let mut accumulator = Accumulator::try_new(SumV2, options, arr.dtype().clone())?;

@@ -217,17 +217,19 @@ impl ArrayChildren for MetadataChildren {
             .0
             .as_slice()
             .get(index)
-            .ok_or_else(|| vortex_err!("array metadata child index {index} out of bounds"))?
+            .ok_or_else(
+                || vortex_err!(OutOfBounds: "array metadata child index {index} out of bounds"),
+            )?
             .clone();
         vortex_ensure_eq!(
             child.dtype(),
             dtype,
-            "array metadata child {index} dtype mismatch"
+            MismatchedTypes: "array metadata child {index} dtype mismatch"
         );
         vortex_ensure_eq!(
             child.len(),
             len,
-            "array metadata child {index} length mismatch"
+            InvalidArgument: "array metadata child {index} length mismatch"
         );
         Ok(child)
     }
@@ -296,11 +298,10 @@ fn deserialize_metadata_tree(
     let children = MetadataChildren(children);
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     let encoding_id = ArrayId::new(&metadata.encoding_id);
-    let plugin = session
-        .arrays()
-        .registry()
-        .get(&encoding_id)
-        .ok_or_else(|| vortex_err!("Unknown array encoding: {}", metadata.encoding_id))?;
+    let plugin =
+        session.arrays().registry().get(&encoding_id).ok_or_else(
+            || vortex_err!(NotFound: "Unknown array encoding: {}", metadata.encoding_id),
+        )?;
     let decoded = plugin.deserialize(
         ArrayDeserialization::new(
             encoding_id,
@@ -315,18 +316,18 @@ fn deserialize_metadata_tree(
     vortex_ensure_eq!(
         decoded.len(),
         metadata.len,
-        "Array decoded from {} has incorrect length",
+        InvalidArgument: "Array decoded from {} has incorrect length",
         metadata.encoding_id
     );
     vortex_ensure_eq!(
         decoded.dtype(),
         &dtype,
-        "Array decoded from {} has incorrect dtype",
+        MismatchedTypes: "Array decoded from {} has incorrect dtype",
         metadata.encoding_id
     );
     vortex_ensure!(
         plugin.is_supported_encoding(&decoded.encoding_id()),
-        "Array decoded from {} has incorrect encoding {}",
+        MismatchedTypes: "Array decoded from {} has incorrect encoding {}",
         metadata.encoding_id,
         decoded.encoding_id()
     );

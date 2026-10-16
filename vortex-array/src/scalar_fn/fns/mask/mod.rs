@@ -94,7 +94,7 @@ impl ScalarFnVTable for Mask {
         vortex_ensure_eq!(
             arg_dtypes[1],
             DType::Bool(Nullability::NonNullable),
-            "The mask argument to 'mask' must be a non-nullable boolean array"
+            MismatchedTypes: "The mask argument to 'mask' must be a non-nullable boolean array"
         );
         Ok(arg_dtypes[0].as_nullable())
     }

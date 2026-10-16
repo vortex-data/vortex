@@ -57,7 +57,7 @@ impl VortexCudaStream {
         // SAFETY: No safety guarantees for allocations on the GPU.
         unsafe {
             self.alloc::<T>(len)
-                .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))
+                .map_err(|e| vortex_err!(Io: "Failed to allocate device memory: {}", e))
         }
     }
 
@@ -101,7 +101,7 @@ impl VortexCudaStream {
 
         let mut values = cuda_slice.slice_mut(..host_slice.len());
         self.memcpy_htod(host_slice, &mut values)
-            .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to schedule H2D copy: {}", e))?;
 
         zero_padding(self, &mut cuda_slice, host_slice.len())?;
 
@@ -143,7 +143,7 @@ impl VortexCudaStream {
 
         let mut values = cuda_slice.slice_mut(..data.len());
         self.memcpy_htod(data, &mut values)
-            .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to schedule H2D copy: {}", e))?;
 
         zero_padding(self, &mut cuda_slice, data.len())?;
 
@@ -161,7 +161,7 @@ fn padded_device_allocation_len<T>(byte_count: usize) -> VortexResult<usize> {
     let element_size = size_of::<T>();
     vortex_ensure!(
         element_size != 0,
-        "cannot copy zero-sized values to CUDA device"
+        InvalidArgument: "cannot copy zero-sized values to CUDA device"
     );
     let min_allocation_bytes = byte_count.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
     Ok(min_allocation_bytes.div_ceil(element_size))
@@ -184,7 +184,7 @@ pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
     let mut padding = cuda_slice.slice_mut(initialized_count..);
     stream
         .memset_zeros(&mut padding)
-        .map_err(|e| vortex_err!("Failed to zero device buffer padding: {}", e))
+        .map_err(|e| vortex_err!(Io: "Failed to zero device buffer padding: {}", e))
 }
 
 /// Registers a callback and asynchronously waits for its completion.
@@ -208,7 +208,7 @@ pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<(
 
     rx.recv()
         .await
-        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))
+        .map_err(|e| vortex_err!(Io: "CUDA stream callback channel closed unexpectedly: {}", e))
 }
 
 /// Registers a host function callback on the stream.
@@ -229,7 +229,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
     stream
         .context()
         .bind_to_thread()
-        .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to bind CUDA context: {}", e))?;
 
     /// Called from CUDA driver thread when all preceding work on the stream completes.
     unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
@@ -259,7 +259,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
             // SAFETY: Registration failed, so the callback will never run.
             // We have unique ownership and can therefore free it.
             drop(Box::from_raw(tx_ptr));
-            vortex_err!("Failed to register CUDA stream callback: {}", err)
+            vortex_err!(Io: "Failed to register CUDA stream callback: {}", err)
         })?;
     }
 

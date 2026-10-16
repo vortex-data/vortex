@@ -92,7 +92,7 @@ fn read_plain(array: &ArrowArray, dtype: &DType) -> VortexResult<ArrayRef> {
             }
             Ok(StructArray::try_new(fields.names().clone(), children, len, validity)?.into_array())
         }
-        _ => vortex_bail!("unsupported test dtype {dtype}"),
+        _ => vortex_bail!(InvalidArgument: "unsupported test dtype {dtype}"),
     }
 }
 
@@ -129,7 +129,7 @@ fn dictionary(values: ArrayRef, width: PType) -> VortexResult<ArrayRef> {
         PType::U8 => PrimitiveArray::from_iter([2u8, 1, 0, 2]).into_array(),
         PType::U16 => PrimitiveArray::from_iter([2u16, 1, 0, 2]).into_array(),
         PType::U32 => PrimitiveArray::from_iter([2u32, 1, 0, 2]).into_array(),
-        _ => vortex_bail!("unsupported test index width {width}"),
+        _ => vortex_bail!(InvalidArgument: "unsupported test index width {width}"),
     };
     Ok(DictArray::try_new(codes, values)?.into_array())
 }
@@ -241,7 +241,7 @@ fn test_decode_stream_schema_does_not_poll(
     let dtype = array.dtype().clone();
     let mut batch = has_batch.then(|| {
         if fails {
-            Err(vortex_err!("deferred scan error"))
+            Err(vortex_err!(Io: "deferred scan error"))
         } else {
             Ok(array)
         }
@@ -372,7 +372,7 @@ async fn test_decode_unsupported_device_dictionary_does_not_fall_back_to_cpu() -
     let error = match array.export_device_array_with_schema(&mut ctx).await {
         Ok(mut exported) => {
             release_device_array(&mut exported.array);
-            vortex_bail!("unsupported device dictionary unexpectedly decoded");
+            vortex_bail!(InvalidArgument: "unsupported device dictionary unexpectedly decoded");
         }
         Err(error) => error,
     };

@@ -86,7 +86,7 @@ fn fused_decompress_typed<
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let FoRReferences::Global(reference) = for_.references() else {
-        vortex_bail!("fused FoR decompression requires a global reference");
+        vortex_bail!(NotImplemented: "fused FoR decompression requires a global reference");
     };
     let ref_ = reference
         .as_primitive()

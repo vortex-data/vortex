@@ -86,7 +86,7 @@ fn for_array<T: NativePType + TryFrom<usize>>(len: usize, child: Child) -> Array
         }
     };
     let FoRReferences::Blocked(references) = for_array.references() else {
-        vortex_panic!("every chunk has its own reference");
+        vortex_panic!(AssertionFailed: "every chunk has its own reference");
     };
     FoR::try_new_chunked(packed.into_array(), references.clone(), 0)
         .unwrap()

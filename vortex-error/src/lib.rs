@@ -5,6 +5,11 @@
 
 //! This crate defines error & result types for Vortex.
 //! It also contains a variety of useful macros for error handling.
+//!
+//! Vortex models errors the way Python models exceptions: a small, stable set of classes
+//! ([`VortexErrorKind`]) carrying a human-readable message, rather than one enum variant per
+//! library that Vortex happens to depend on. An error from a dependency is attached as the
+//! [`Error::source`] of a [`VortexError`] and is recovered by downcasting that source.
 
 use std::backtrace::Backtrace;
 use std::backtrace::BacktraceStatus;
@@ -23,7 +28,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 /// A string that can be used as an error message.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ErrString(Cow<'static, str>);
 
 #[expect(
@@ -73,194 +78,190 @@ impl Display for ErrString {
     }
 }
 
-impl From<Infallible> for VortexError {
-    fn from(_: Infallible) -> Self {
-        unreachable!()
+/// The classification of a [`VortexError`], analogous to a Python exception class.
+///
+/// The set is deliberately small and is mirrored by the `vx_error_code` enum in the C API, so a
+/// kind only earns its place if a caller would branch on it. Failures originating in a dependency
+/// are classified by what they mean to Vortex, not by which crate produced them.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum VortexErrorKind {
+    /// An otherwise unclassified error. The analogue of Python's `RuntimeError`.
+    Other,
+    /// An index is out of bounds. The analogue of Python's `IndexError`.
+    OutOfBounds,
+    /// A name was looked up and nothing was bound to it. The analogue of Python's `KeyError`.
+    NotFound,
+    /// A numeric value does not fit its target type. The analogue of Python's `OverflowError`.
+    Overflow,
+    /// An invalid argument was provided. The analogue of Python's `ValueError`.
+    InvalidArgument,
+    /// An error occurred while serializing or deserializing. Closest to Python's `ValueError`,
+    /// as raised by `json.JSONDecodeError`.
+    Serde,
+    /// An unimplemented function was called. The analogue of Python's `NotImplementedError`.
+    NotImplemented,
+    /// A value did not have the expected type. The analogue of Python's `TypeError`.
+    MismatchedTypes,
+    /// An internal invariant was violated. The analogue of Python's `AssertionError`.
+    AssertionFailed,
+    /// An IO operation, or a call into the operating system or a device driver, failed. The
+    /// analogue of Python's `OSError`, which covers any system function that reports an error.
+    Io,
+}
+
+impl VortexErrorKind {
+    /// The human-readable prefix used when displaying an error of this kind.
+    const fn prefix(self) -> &'static str {
+        match self {
+            Self::Other => "Other error: ",
+            Self::OutOfBounds => "Out of bounds error: ",
+            Self::NotFound => "Not found error: ",
+            Self::Overflow => "Overflow error: ",
+            Self::InvalidArgument => "Invalid argument error: ",
+            Self::Serde => "Serde error: ",
+            Self::NotImplemented => "Not implemented error: ",
+            Self::MismatchedTypes => "Mismatched types error: ",
+            Self::AssertionFailed => "Assertion failed error: ",
+            Self::Io => "IO error: ",
+        }
     }
 }
 
-const _: () = assert!(size_of::<VortexError>() < 128);
-
 /// The top-level error type for Vortex.
-#[non_exhaustive]
-pub enum VortexError {
-    /// A catch-all error variant
-    Other(ErrString, Box<Backtrace>),
-    /// A wrapped external error
-    External(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
-    /// An index is out of bounds.
-    OutOfBounds(usize, usize, usize, Box<Backtrace>),
-    /// An error occurred while executing a compute kernel.
-    Compute(ErrString, Box<Backtrace>),
-    /// An invalid argument was provided.
-    InvalidArgument(ErrString, Box<Backtrace>),
-    /// An error occurred while serializing or deserializing.
-    Serde(ErrString, Box<Backtrace>),
-    /// An unimplemented function was called.
-    NotImplemented(ErrString, ErrString, Box<Backtrace>),
-    /// A type mismatch occurred.
-    MismatchedTypes(ErrString, ErrString, Box<Backtrace>),
-    /// An assertion failed.
-    AssertionFailed(ErrString, Box<Backtrace>),
-    /// A wrapper for other errors, carrying additional context.
-    Context(ErrString, Box<VortexError>),
-    /// A wrapper for shared errors that require cloning.
-    Shared(Arc<VortexError>),
-    /// A wrapper for errors from the Arrow library.
-    Arrow(arrow_schema::ArrowError, Box<Backtrace>),
-    /// A wrapper for errors from the FlatBuffers library.
-    #[cfg(feature = "flatbuffers")]
-    FlatBuffers(flatbuffers::InvalidFlatbuffer, Box<Backtrace>),
-    /// A wrapper for formatting errors.
-    Fmt(fmt::Error, Box<Backtrace>),
-    /// A wrapper for IO errors.
-    Io(io::Error, Box<Backtrace>),
-    /// A wrapper for errors from the Object Store library.
-    #[cfg(feature = "object_store")]
-    ObjectStore(object_store::Error, Box<Backtrace>),
-    /// A wrapper for errors from the Jiff library.
-    Jiff(jiff::Error, Box<Backtrace>),
-    /// A wrapper for Tokio join error.
-    #[cfg(feature = "tokio")]
-    Join(tokio::task::JoinError, Box<Backtrace>),
-    /// Wrap errors for fallible integer casting.
-    TryFromInt(TryFromIntError, Box<Backtrace>),
-    /// Wrap protobuf-related errors
-    Prost(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
+///
+/// An error is a [`VortexErrorKind`], a message, an optional underlying error, and a backtrace
+/// captured at construction. Cloning is cheap: the payload is shared, never copied.
+///
+/// The payload sits behind one pointer, so a `VortexResult<T>` costs the same as `T` plus at
+/// most a word on the success path. Most results fit in two registers and are returned in them,
+/// rather than through a stack slot the caller must reserve and read back. Constructing an error
+/// is no more expensive for it: the payload's allocation is the one the backtrace needed anyway.
+#[derive(Clone)]
+pub struct VortexError(Arc<ErrorInner>);
+
+const _: () = assert!(size_of::<VortexError>() == size_of::<usize>());
+const _: () = assert!(size_of::<VortexResult<()>>() == size_of::<usize>());
+
+struct ErrorInner {
+    kind: VortexErrorKind,
+    /// `None` defers the message to the source, keeping the `?` conversion path allocation-free.
+    message: Option<ErrString>,
+    origin: Origin,
+}
+
+/// Where an error's source and backtrace come from.
+enum Origin {
+    /// Captured when this error was created.
+    Own {
+        source: Option<Box<dyn Error + Send + Sync + 'static>>,
+        backtrace: Backtrace,
+    },
+    /// Shared with the error this one adds context to.
+    ///
+    /// Context is normally added in place. This is only for an error that has been cloned, whose
+    /// payload the other clones still see.
+    Context(VortexError),
 }
 
 impl VortexError {
-    /// Adds additional context to an error.
-    pub fn with_context<T: Into<ErrString>>(self, msg: T) -> Self {
-        VortexError::Context(msg.into(), Box::new(self))
+    /// Creates an error of the given kind carrying `message`.
+    pub fn new<T: Into<ErrString>>(kind: VortexErrorKind, message: T) -> Self {
+        Self::from_parts(kind, Some(message.into()), None)
     }
 
-    /// Error prefix by variant
-    fn variant_prefix(&self) -> &'static str {
-        use VortexError::*;
+    /// Wraps an underlying error as a Vortex error of the given kind.
+    ///
+    /// The wrapped error is preserved as the [`Error::source`], so callers that care about the
+    /// concrete type can recover it with [`Error::source`] and `downcast_ref`.
+    pub fn wrap<E>(kind: VortexErrorKind, source: E) -> Self
+    where
+        E: Into<Box<dyn Error + Send + Sync + 'static>>,
+    {
+        Self::from_parts(kind, None, Some(source.into()))
+    }
 
-        match self {
-            Other(..) => "Other error: ",
-            External(..) => "External error: ",
-            OutOfBounds(..) => "Out of bounds error: ",
-            Compute(..) => "Compute error: ",
-            InvalidArgument(..) => "Invalid argument error: ",
-            Serde(..) => "Serde error: ",
-            NotImplemented(..) => "Not implemented error: ",
-            MismatchedTypes(..) => "Mismatched types error: ",
-            AssertionFailed(..) => "Assertion failed error: ",
-            Context(..) | Shared(..) => "", // basically delegate to the underlying one
-            Arrow(..) => "Arrow error: ",
-            #[cfg(feature = "flatbuffers")]
-            FlatBuffers(..) => "Flat buffers error: ",
-            Fmt(..) => "Fmt: ",
-            Io(..) => "Io: ",
-            #[cfg(feature = "object_store")]
-            ObjectStore(..) => "Object store error: ",
-            Jiff(..) => "Jiff error: ",
-            #[cfg(feature = "tokio")]
-            Join(..) => "Tokio join error:",
-            TryFromInt(..) => "Try from int error:",
-            Prost(..) => "Prost error:",
+    /// Wraps an underlying error that does not fit any more specific [`VortexErrorKind`].
+    pub fn external<E>(source: E) -> Self
+    where
+        E: Into<Box<dyn Error + Send + Sync + 'static>>,
+    {
+        Self::wrap(VortexErrorKind::Other, source)
+    }
+
+    fn from_parts(
+        kind: VortexErrorKind,
+        message: Option<ErrString>,
+        source: Option<Box<dyn Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self(Arc::new(ErrorInner {
+            kind,
+            message,
+            origin: Origin::Own {
+                source,
+                backtrace: Backtrace::capture(),
+            },
+        }))
+    }
+
+    /// The classification of this error.
+    pub fn kind(&self) -> VortexErrorKind {
+        self.0.kind
+    }
+
+    /// Adds additional context to an error, preserving its kind, source and backtrace.
+    pub fn with_context<T: Into<ErrString>>(mut self, msg: T) -> Self {
+        let msg: ErrString = msg.into();
+        // Build the combined string directly: `msg` has already been through the
+        // `VORTEX_PANIC_ON_ERR` check and must not trip it a second time.
+        let message = ErrString(Cow::Owned(format!("{msg}:\n  {}", self.message_body())));
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            inner.message = Some(message);
+            return self;
+        }
+        Self(Arc::new(ErrorInner {
+            kind: self.kind(),
+            message: Some(message),
+            origin: Origin::Context(self),
+        }))
+    }
+
+    /// The error message, falling back to the underlying error when none was provided.
+    fn message_body(&self) -> Cow<'_, str> {
+        match (&self.0.message, self.source_ref()) {
+            (Some(message), _) => Cow::Borrowed(message.as_ref()),
+            (None, Some(source)) => Cow::Owned(source.to_string()),
+            (None, None) => Cow::Borrowed(""),
         }
     }
 
-    fn backtrace(&self) -> Option<&Backtrace> {
-        use VortexError::*;
-
-        match self {
-            Other(.., bt) => Some(bt.as_ref()),
-            External(.., bt) => Some(bt.as_ref()),
-            OutOfBounds(.., bt) => Some(bt.as_ref()),
-            Compute(.., bt) => Some(bt.as_ref()),
-            InvalidArgument(.., bt) => Some(bt.as_ref()),
-            Serde(.., bt) => Some(bt.as_ref()),
-            NotImplemented(.., bt) => Some(bt.as_ref()),
-            MismatchedTypes(.., bt) => Some(bt.as_ref()),
-            AssertionFailed(.., bt) => Some(bt.as_ref()),
-            Arrow(.., bt) => Some(bt.as_ref()),
-            #[cfg(feature = "flatbuffers")]
-            FlatBuffers(.., bt) => Some(bt.as_ref()),
-            Fmt(.., bt) => Some(bt.as_ref()),
-            Io(.., bt) => Some(bt.as_ref()),
-            #[cfg(feature = "object_store")]
-            ObjectStore(.., bt) => Some(bt.as_ref()),
-            Jiff(.., bt) => Some(bt.as_ref()),
-            #[cfg(feature = "tokio")]
-            Join(.., bt) => Some(bt.as_ref()),
-            TryFromInt(.., bt) => Some(bt.as_ref()),
-            Prost(.., bt) => Some(bt.as_ref()),
-            Context(_, inner) => inner.backtrace(),
-            Shared(inner) => inner.backtrace(),
+    fn source_ref(&self) -> Option<&(dyn Error + Send + Sync + 'static)> {
+        match &self.0.origin {
+            Origin::Own { source, .. } => source.as_deref(),
+            Origin::Context(error) => error.source_ref(),
         }
     }
 
-    fn message(&self) -> String {
-        use VortexError::*;
-
-        match self {
-            Other(msg, _) => msg.to_string(),
-            External(err, _) => err.to_string(),
-            OutOfBounds(idx, start, stop, _) => {
-                format!("index {idx} out of bounds from {start} to {stop}")
-            }
-            Compute(msg, _) | InvalidArgument(msg, _) | Serde(msg, _) | AssertionFailed(msg, _) => {
-                format!("{msg}")
-            }
-            NotImplemented(func, by_whom, _) => {
-                format!("function {func} not implemented for {by_whom}")
-            }
-            MismatchedTypes(expected, actual, _) => {
-                format!("expected type: {expected} but instead got {actual}")
-            }
-            Context(msg, inner) => {
-                format!("{msg}:\n  {inner}")
-            }
-            Shared(inner) => inner.message(),
-            Arrow(err, _) => {
-                format!("{err}")
-            }
-            #[cfg(feature = "flatbuffers")]
-            FlatBuffers(err, _) => {
-                format!("{err}")
-            }
-            Fmt(err, _) => {
-                format!("{err}")
-            }
-            Io(err, _) => {
-                format!("{err}")
-            }
-            #[cfg(feature = "object_store")]
-            ObjectStore(err, _) => {
-                format!("{err}")
-            }
-            Jiff(err, _) => {
-                format!("{err}")
-            }
-            #[cfg(feature = "tokio")]
-            Join(err, _) => {
-                format!("{err}")
-            }
-            TryFromInt(err, _) => {
-                format!("{err}")
-            }
-            Prost(err, _) => {
-                format!("{err}")
-            }
+    fn backtrace(&self) -> &Backtrace {
+        match &self.0.origin {
+            Origin::Own { backtrace, .. } => backtrace,
+            Origin::Context(error) => error.backtrace(),
         }
     }
 }
 
 impl Display for VortexError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.variant_prefix())?;
-        write!(f, "{}", self.message())?;
-        if let Some(backtrace) = self.backtrace()
-            && backtrace.status() == BacktraceStatus::Captured
-        {
+        f.write_str(self.kind().prefix())?;
+        match (&self.0.message, self.source_ref()) {
+            (Some(message), _) => Display::fmt(message, f)?,
+            (None, Some(source)) => Display::fmt(source, f)?,
+            (None, None) => {}
+        }
+        let backtrace = self.backtrace();
+        if backtrace.status() == BacktraceStatus::Captured {
             write!(f, "\nBacktrace:\n{backtrace}")?;
         }
-
         Ok(())
     }
 }
@@ -273,24 +274,8 @@ impl Debug for VortexError {
 
 impl Error for VortexError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        use VortexError::*;
-
-        match self {
-            External(err, _) => Some(err.as_ref()),
-            Context(_, inner) => inner.source(),
-            Shared(inner) => inner.source(),
-            Arrow(err, _) => Some(err),
-            #[cfg(feature = "flatbuffers")]
-            FlatBuffers(err, _) => Some(err),
-            Io(err, _) => Some(err),
-            #[cfg(feature = "object_store")]
-            ObjectStore(err, _) => Some(err),
-            Jiff(err, _) => Some(err),
-            #[cfg(feature = "tokio")]
-            Join(err, _) => Some(err),
-            Prost(err, _) => Some(err.as_ref()),
-            _ => None,
-        }
+        self.source_ref()
+            .map(|source| source as &(dyn Error + 'static))
     }
 }
 
@@ -302,18 +287,13 @@ pub type SharedVortexResult<T> = Result<T, Arc<VortexError>>;
 
 impl From<Arc<VortexError>> for VortexError {
     fn from(value: Arc<VortexError>) -> Self {
-        Self::from(&value)
+        Arc::try_unwrap(value).unwrap_or_else(|value| (*value).clone())
     }
 }
 
 impl From<&Arc<VortexError>> for VortexError {
-    fn from(e: &Arc<VortexError>) -> Self {
-        if let VortexError::Shared(e_inner) = e.as_ref() {
-            // don't re-wrap
-            VortexError::Shared(Arc::clone(e_inner))
-        } else {
-            VortexError::Shared(Arc::clone(e))
-        }
+    fn from(value: &Arc<VortexError>) -> Self {
+        (**value).clone()
     }
 }
 
@@ -363,45 +343,44 @@ impl<T> VortexExpect for Option<T> {
 }
 
 /// A convenient macro for creating a VortexError.
+///
+/// The leading `Kind:` names the [`VortexErrorKind`] and is required: pick the kind that says
+/// what went wrong, and `Other` only when none does. Every kind takes the same
+/// `Kind: "format", args..` shape, so no kind gets a bespoke argument grammar that a format string
+/// could be mistaken for.
+///
+/// ```
+/// use vortex_error::{VortexErrorKind, vortex_err};
+///
+/// let err = vortex_err!(InvalidArgument: "negative length {}", -1);
+/// assert_eq!(err.kind(), VortexErrorKind::InvalidArgument);
+/// ```
+///
+/// A message without a kind does not compile:
+///
+/// ```compile_fail
+/// let err = vortex_error::vortex_err!("negative length {}", -1);
+/// ```
 #[macro_export]
 macro_rules! vortex_err {
-    (Other: $($tts:tt)*) => {
-        $crate::__private::fmt_err($crate::VortexError::Other, &format_args!($($tts)*))
-    };
-    (AssertionFailed: $($tts:tt)*) => {
-        $crate::__private::fmt_err($crate::VortexError::AssertionFailed, &format_args!($($tts)*))
-    };
-    (IOError: $($tts:tt)*) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::IOError(err_string.into(), Box::new(Backtrace::capture()))
-        )
-    }};
-    (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {
-        $crate::__private::out_of_bounds($idx, $start, $stop)
-    };
-    (NotImplemented: $func:expr, $by_whom:expr) => {
-        $crate::__private::not_implemented($func, &format_args!("{}", $by_whom))
-    };
-    (MismatchedTypes: $expected:expr, $actual:expr) => {
-        $crate::__private::mismatched_types(&$expected, &$actual)
-    };
     (Context: $msg:literal, $err:expr) => {
         $crate::__private::context($msg, $err)
     };
-    (External: $err:expr) => {
+    (External: $err:expr $(,)?) => {
         $crate::__private::external($err)
     };
-    ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::__private::fmt_err($crate::VortexError::$variant, &format_args!($fmt $(, $arg)*))
+    ($kind:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
+        $crate::__private::fmt_err($crate::VortexErrorKind::$kind, &format_args!($fmt $(, $arg)*))
     };
-    ($variant:ident: $err:expr $(,)?) => {
-        $crate::__private::must_use(
-            $crate::VortexError::$variant($err)
-        )
+    ($kind:ident: $err:expr $(,)?) => {
+        $crate::__private::fmt_err($crate::VortexErrorKind::$kind, &format_args!("{}", $err))
     };
-    ($fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::vortex_err!(Other: $fmt, $($arg),*)
+    ($fmt:literal $($rest:tt)*) => {
+        ::core::compile_error!(::core::concat!(
+            "vortex_err! needs a kind before its message, e.g. `vortex_err!(InvalidArgument: ",
+            ::core::stringify!($fmt),
+            ")`"
+        ))
     };
 }
 
@@ -415,6 +394,16 @@ macro_rules! vortex_bail {
 
 /// A macro that mirrors `assert!` but instead of panicking on a failed condition,
 /// it will immediately return an erroneous `VortexResult` to the calling context.
+///
+/// Without a message the error is an [`VortexErrorKind::AssertionFailed`] naming the condition. A
+/// message needs a leading `Kind:`, as in [`vortex_err!`]:
+///
+/// ```compile_fail
+/// fn check(len: usize) -> vortex_error::VortexResult<()> {
+///     vortex_error::vortex_ensure!(len > 0, "length must be positive");
+///     Ok(())
+/// }
+/// ```
 #[macro_export]
 macro_rules! vortex_ensure {
     ($cond:expr) => {
@@ -433,7 +422,7 @@ macro_rules! vortex_ensure {
 /// Both values must implement [`PartialEq`] and [`Display`], and each is
 /// evaluated exactly once. Use [`vortex_ensure!`] for values that do not implement `Display`.
 ///
-/// By default this returns an [`AssertionFailed`](VortexError::AssertionFailed) error that
+/// By default this returns an [`AssertionFailed`](VortexErrorKind::AssertionFailed) error that
 /// shows both expressions and their values, so most callers do not need a message:
 ///
 /// ```
@@ -447,8 +436,23 @@ macro_rules! vortex_ensure {
 /// assert!(err.starts_with("Assertion failed error: `len == 2`\n  left: 3\n right: 2"));
 /// ```
 ///
-/// A custom message, optionally prefixed with an error variant, replaces the expressions. The
-/// values are still appended, so the message does not need to repeat them:
+/// A check on the caller's input, rather than on an internal invariant, names its kind, either
+/// alone or before a message:
+///
+/// ```
+/// # use vortex_error::{VortexErrorKind, VortexResult, vortex_ensure_eq};
+/// fn check(len: usize) -> VortexResult<()> {
+///     vortex_ensure_eq!(len, 2, InvalidArgument);
+///     Ok(())
+/// }
+///
+/// let err = check(3).unwrap_err();
+/// assert_eq!(err.kind(), VortexErrorKind::InvalidArgument);
+/// assert!(err.to_string().starts_with("Invalid argument error: `len == 2`\n  left: 3\n right: 2"));
+/// ```
+///
+/// A message replaces the expressions. The values are still appended, so the message does not
+/// need to repeat them:
 ///
 /// ```
 /// # use vortex_error::{VortexResult, vortex_ensure_eq};
@@ -462,14 +466,40 @@ macro_rules! vortex_ensure {
 ///     "Invalid argument error: map entries must have 2 fields\n  left: 3\n right: 2"
 /// ));
 /// ```
+///
+/// Like [`vortex_err!`], a message without a kind does not compile:
+///
+/// ```compile_fail
+/// fn check(len: usize) -> vortex_error::VortexResult<()> {
+///     vortex_error::vortex_ensure_eq!(len, 2, "map entries must have 2 fields");
+///     Ok(())
+/// }
+/// ```
 #[macro_export]
 macro_rules! vortex_ensure_eq {
     ($left:expr, $right:expr $(,)?) => {
+        $crate::vortex_ensure_eq!($left, $right, AssertionFailed)
+    };
+    ($left:expr, $right:expr, $kind:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
         match (&$left, &$right) {
             (left_val, right_val) => {
                 if *left_val != *right_val {
                     $crate::vortex_bail!(
-                        AssertionFailed: "`{} == {}`\n  left: {}\n right: {}",
+                        $kind: "{}\n  left: {}\n right: {}",
+                        format_args!($fmt $(, $arg)*),
+                        left_val,
+                        right_val
+                    );
+                }
+            }
+        }
+    };
+    ($left:expr, $right:expr, $kind:ident $(,)?) => {
+        match (&$left, &$right) {
+            (left_val, right_val) => {
+                if *left_val != *right_val {
+                    $crate::vortex_bail!(
+                        $kind: "`{} == {}`\n  left: {}\n right: {}",
                         stringify!($left),
                         stringify!($right),
                         left_val,
@@ -479,87 +509,110 @@ macro_rules! vortex_ensure_eq {
             }
         }
     };
-    ($left:expr, $right:expr, $variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
-        match (&$left, &$right) {
-            (left_val, right_val) => {
-                if *left_val != *right_val {
-                    $crate::vortex_bail!(
-                        $variant: "{}\n  left: {}\n right: {}",
-                        format_args!($fmt $(, $arg)*),
-                        left_val,
-                        right_val
-                    );
-                }
-            }
-        }
-    };
-    ($left:expr, $right:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::vortex_ensure_eq!($left, $right, Other: $fmt $(, $arg)*)
+    ($left:expr, $right:expr, $fmt:literal $($rest:tt)*) => {
+        ::core::compile_error!(::core::concat!(
+            "vortex_ensure_eq! needs a kind before its message, e.g. `vortex_ensure_eq!(a, b, ",
+            "InvalidArgument: ",
+            ::core::stringify!($fmt),
+            ")`"
+        ))
     };
 }
 
 /// A convenient macro for panicking with a VortexError in the presence of a programmer error
 /// (e.g., an invariant has been violated).
+///
+/// Like [`vortex_err!`], a message needs a leading `Kind:`; an existing error can be passed as is.
+///
+/// ```compile_fail
+/// vortex_error::vortex_panic!("unreachable state {}", 3);
+/// ```
 #[macro_export]
 macro_rules! vortex_panic {
-    (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {{
-        $crate::vortex_panic!($crate::vortex_err!(OutOfBounds: $idx, $start, $stop))
-    }};
-    (NotImplemented: $func:expr, $for_whom:expr) => {{
-        $crate::vortex_panic!($crate::vortex_err!(NotImplemented: $func, $for_whom))
-    }};
-    (MismatchedTypes: $expected:literal, $actual:expr) => {{
-        $crate::vortex_panic!($crate::vortex_err!(MismatchedTypes: $expected, $actual))
-    }};
-    (MismatchedTypes: $expected:expr, $actual:expr) => {{
-        $crate::vortex_panic!($crate::vortex_err!(MismatchedTypes: $expected, $actual))
-    }};
     (Context: $msg:literal, $err:expr) => {{
         $crate::vortex_panic!($crate::vortex_err!(Context: $msg, $err))
     }};
-    ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::vortex_panic!($crate::vortex_err!($variant: $fmt, $($arg),*))
+    ($kind:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
+        $crate::vortex_panic!($crate::vortex_err!($kind: $fmt, $($arg),*))
+    };
+    // Before the `$err:expr` arms, which a bare message would otherwise match.
+    ($fmt:literal $($rest:tt)*) => {
+        ::core::compile_error!(::core::concat!(
+            "vortex_panic! needs a kind before its message, e.g. `vortex_panic!(AssertionFailed: ",
+            ::core::stringify!($fmt),
+            ")`"
+        ))
     };
     ($err:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {
         $crate::__private::panic_err_ctx($err, &format_args!($fmt $(, $arg)*))
-    };
-    ($fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::__private::panic_fmt(&format_args!($fmt $(, $arg)*))
     };
     ($err:expr) => {
         $crate::__private::panic_err($err)
     };
 }
 
+impl From<Infallible> for VortexError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
+    }
+}
+
 impl From<arrow_schema::ArrowError> for VortexError {
     fn from(value: arrow_schema::ArrowError) -> Self {
-        VortexError::Arrow(value, Box::new(Backtrace::capture()))
+        use arrow_schema::ArrowError::*;
+        let kind = match &value {
+            NotYetImplemented(_) => VortexErrorKind::NotImplemented,
+            // A cast or parse Arrow rejects is a value it cannot represent, not a type it
+            // cannot handle, which is why `int("x")` is a ValueError.
+            CastError(_) | ParseError(_) | DivideByZero | InvalidArgumentError(_) => {
+                VortexErrorKind::InvalidArgument
+            }
+            SchemaError(_) => VortexErrorKind::MismatchedTypes,
+            ArithmeticOverflow(_)
+            | DictionaryKeyOverflowError
+            | RunEndIndexOverflowError
+            | OffsetOverflowError(_) => VortexErrorKind::Overflow,
+            CsvError(_) | JsonError(_) | IpcError(_) | ParquetError(_) | CDataInterface(_) => {
+                VortexErrorKind::Serde
+            }
+            IoError(..) => VortexErrorKind::Io,
+            AvroError(_) => VortexErrorKind::Serde,
+            ExternalError(_) | MemoryError(_) | ComputeError(_) => VortexErrorKind::Other,
+        };
+        VortexError::wrap(kind, value)
     }
 }
 
 #[cfg(feature = "flatbuffers")]
 impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
     fn from(value: flatbuffers::InvalidFlatbuffer) -> Self {
-        VortexError::FlatBuffers(value, Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Serde, value)
     }
 }
 
 impl From<io::Error> for VortexError {
     fn from(value: io::Error) -> Self {
-        VortexError::Io(value, Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Io, value)
     }
 }
 
 #[cfg(feature = "object_store")]
 impl From<object_store::Error> for VortexError {
     fn from(value: object_store::Error) -> Self {
-        VortexError::ObjectStore(value, Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Io, value)
     }
 }
 
 impl From<jiff::Error> for VortexError {
     fn from(value: jiff::Error) -> Self {
-        VortexError::Jiff(value, Box::new(Backtrace::capture()))
+        // A date that does not exist and a unit that makes no sense for the call are both what
+        // Python's datetime raises ValueError for; jiff reports anything else only as text.
+        let kind = if value.is_range() || value.is_invalid_parameter() {
+            VortexErrorKind::InvalidArgument
+        } else {
+            VortexErrorKind::Other
+        };
+        VortexError::wrap(kind, value)
     }
 }
 
@@ -569,32 +622,32 @@ impl From<tokio::task::JoinError> for VortexError {
         if value.is_panic() {
             std::panic::resume_unwind(value.into_panic())
         } else {
-            VortexError::Join(value, Box::new(Backtrace::capture()))
+            VortexError::external(value)
         }
     }
 }
 
 impl From<TryFromIntError> for VortexError {
     fn from(value: TryFromIntError) -> Self {
-        VortexError::TryFromInt(value, Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Overflow, value)
     }
 }
 
 impl From<prost::EncodeError> for VortexError {
     fn from(value: prost::EncodeError) -> Self {
-        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Serde, value)
     }
 }
 
 impl From<prost::DecodeError> for VortexError {
     fn from(value: prost::DecodeError) -> Self {
-        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Serde, value)
     }
 }
 
 impl From<prost::UnknownEnumValue> for VortexError {
     fn from(value: prost::UnknownEnumValue) -> Self {
-        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
+        VortexError::wrap(VortexErrorKind::Serde, value)
     }
 }
 
@@ -610,13 +663,12 @@ impl From<prost::UnknownEnumValue> for VortexError {
     reason = "cold handlers for vortex_panic!/vortex_expect intentionally panic"
 )]
 pub mod __private {
-    use std::backtrace::Backtrace;
+
     use std::error::Error;
-    use std::fmt;
     use std::fmt::Arguments;
 
-    use crate::ErrString;
     use crate::VortexError;
+    use crate::VortexErrorKind;
 
     #[doc(hidden)]
     #[inline]
@@ -630,43 +682,8 @@ pub mod __private {
     #[cold]
     #[inline(never)]
     #[must_use]
-    pub fn fmt_err(
-        variant: fn(ErrString, Box<Backtrace>) -> VortexError,
-        args: &Arguments<'_>,
-    ) -> VortexError {
-        variant(args.to_string().into(), Box::new(Backtrace::capture()))
-    }
-
-    #[doc(hidden)]
-    #[cold]
-    #[inline(never)]
-    #[must_use]
-    pub fn out_of_bounds(idx: usize, start: usize, stop: usize) -> VortexError {
-        VortexError::OutOfBounds(idx, start, stop, Box::new(Backtrace::capture()))
-    }
-
-    #[doc(hidden)]
-    #[cold]
-    #[inline(never)]
-    #[must_use]
-    pub fn not_implemented(func: impl Into<ErrString>, by_whom: &Arguments<'_>) -> VortexError {
-        VortexError::NotImplemented(
-            func.into(),
-            by_whom.to_string().into(),
-            Box::new(Backtrace::capture()),
-        )
-    }
-
-    #[doc(hidden)]
-    #[cold]
-    #[inline(never)]
-    #[must_use]
-    pub fn mismatched_types(expected: &dyn fmt::Display, actual: &dyn fmt::Display) -> VortexError {
-        VortexError::MismatchedTypes(
-            expected.to_string().into(),
-            actual.to_string().into(),
-            Box::new(Backtrace::capture()),
-        )
+    pub fn fmt_err(kind: VortexErrorKind, args: &Arguments<'_>) -> VortexError {
+        VortexError::new(kind, args.to_string())
     }
 
     #[doc(hidden)]
@@ -674,7 +691,7 @@ pub mod __private {
     #[inline(never)]
     #[must_use]
     pub fn context(msg: &'static str, err: VortexError) -> VortexError {
-        VortexError::Context(msg.into(), Box::new(err))
+        err.with_context(msg)
     }
 
     #[doc(hidden)]
@@ -682,7 +699,7 @@ pub mod __private {
     #[inline(never)]
     #[must_use]
     pub fn external(err: impl Into<Box<dyn Error + Send + Sync + 'static>>) -> VortexError {
-        VortexError::External(err.into(), Box::new(Backtrace::capture()))
+        VortexError::external(err)
     }
 
     #[doc(hidden)]
@@ -690,16 +707,6 @@ pub mod __private {
     #[inline(never)]
     pub fn panic_err(err: VortexError) -> ! {
         panic!("{err}")
-    }
-
-    #[doc(hidden)]
-    #[cold]
-    #[inline(never)]
-    pub fn panic_fmt(args: &Arguments<'_>) -> ! {
-        panic!(
-            "{}",
-            VortexError::Other(args.to_string().into(), Box::new(Backtrace::capture()))
-        )
     }
 
     #[doc(hidden)]
@@ -722,7 +729,7 @@ pub mod __private {
     pub fn option_expect_failed(msg: &'static str) -> ! {
         panic!(
             "{}",
-            VortexError::AssertionFailed(msg.into(), Box::new(Backtrace::capture()))
+            VortexError::new(VortexErrorKind::AssertionFailed, msg)
         )
     }
 }

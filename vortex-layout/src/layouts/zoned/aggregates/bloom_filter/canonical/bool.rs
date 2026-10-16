@@ -98,7 +98,9 @@ mod tests {
                     .iter()
                     .copied()
                     .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| vortex_err!("non-null test case contains a null"))?,
+                    .ok_or_else(
+                        || vortex_err!(AssertionFailed: "non-null test case contains a null"),
+                    )?,
             ),
             Nullability::Nullable => BoolArray::from_iter(values.iter().copied()),
         };

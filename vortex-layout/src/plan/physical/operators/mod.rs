@@ -44,9 +44,9 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
     let mut pieces: SmallVec<[ArrayRef; 2]> = SmallVec::new();
     let mut left = len;
     while left > 0 {
-        let front = inlet
-            .peek_mut()
-            .ok_or_else(|| vortex_err!("Taking {len} rows from an inlet holding fewer"))?;
+        let front = inlet.peek_mut().ok_or_else(
+            || vortex_err!(AssertionFailed: "Taking {len} rows from an inlet holding fewer"),
+        )?;
         if front.len() <= left {
             left -= front.len();
             pieces.extend(inlet.take());

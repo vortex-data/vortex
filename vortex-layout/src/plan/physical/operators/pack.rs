@@ -78,7 +78,7 @@ impl Source for PackSource {
         let available = self.states.len() - self.waiting.indices().len() - self.ended;
         vortex_ensure!(
             self.ended == 0 || available == 0,
-            "Pack fields ended at different rows"
+            AssertionFailed: "Pack fields ended at different rows"
         );
         Ok(match self.waiting.indices().last() {
             Some(&index) => SourceReady::Blocked(SourceBlocked::Inlet(index)),
@@ -97,9 +97,9 @@ impl Operator for PackSource {
         let mut len = usize::MAX;
         for index in 0..self.states.len() {
             let mut inlet = cx.inlet(index);
-            let front = inlet
-                .peek_mut()
-                .ok_or_else(|| vortex_err!("Pack computed before every inlet was ready"))?;
+            let front = inlet.peek_mut().ok_or_else(
+                || vortex_err!(AssertionFailed: "Pack computed before every inlet was ready"),
+            )?;
             len = len.min(front.len());
         }
         let mut arrays = Vec::with_capacity(self.states.len());
@@ -109,11 +109,9 @@ impl Operator for PackSource {
             self.observe(index, &inlet);
         }
         let validity = if self.nullable {
-            Validity::Array(
-                arrays
-                    .pop()
-                    .ok_or_else(|| vortex_err!("Nullable Pack is missing its validity"))?,
-            )
+            Validity::Array(arrays.pop().ok_or_else(
+                || vortex_err!(AssertionFailed: "Nullable Pack is missing its validity"),
+            )?)
         } else {
             Validity::NonNullable
         };

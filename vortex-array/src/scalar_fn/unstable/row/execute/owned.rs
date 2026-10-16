@@ -54,7 +54,7 @@ where
     let row_count = args.row_count();
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
-        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        vortex_bail!(AssertionFailed: "a decoded row input does not address exactly {row_count} rows");
     };
 
     Ok(Out::build_from(
@@ -136,7 +136,7 @@ where
     vortex_ensure_eq!(
         valid.true_count(),
         filtered_len,
-        "the filtered batch must contain one row per valid row",
+        AssertionFailed: "the filtered batch must contain one row per valid row",
     );
 
     let prepared = prepare(Args::const_values(&columns));
@@ -154,7 +154,7 @@ where
     if let Some(views) = Args::views_if_no_consts(&columns) {
         vortex_ensure!(
             Args::view_lens_match(&views, filtered_len),
-            "a decoded row input does not address exactly {filtered_len} rows",
+            AssertionFailed: "a decoded row input does not address exactly {filtered_len} rows",
         );
 
         valid_rows.for_each_set_index(|index| {
@@ -171,7 +171,7 @@ where
     } else {
         vortex_ensure!(
             Args::decoded_lens_match(&columns, filtered_len),
-            "a decoded row input does not address exactly {filtered_len} rows",
+            AssertionFailed: "a decoded row input does not address exactly {filtered_len} rows",
         );
 
         valid_rows.for_each_set_index(|index| {
@@ -215,7 +215,7 @@ where
     vortex_ensure_eq!(
         valid_rows.len(),
         row_count,
-        "the validity mask has the wrong row count",
+        AssertionFailed: "the validity mask has the wrong row count",
     );
 
     let prepared = prepare(Args::const_values(&columns));
@@ -231,7 +231,7 @@ where
     if let Some(views) = Args::views_if_no_consts(&columns) {
         vortex_ensure!(
             Args::view_lens_match(&views, row_count),
-            "a decoded row input does not address exactly {row_count} rows",
+            AssertionFailed: "a decoded row input does not address exactly {row_count} rows",
         );
 
         valid_rows.for_each_set_index(|index| {
@@ -247,7 +247,7 @@ where
     } else {
         vortex_ensure!(
             Args::decoded_lens_match(&columns, row_count),
-            "a decoded row input does not address exactly {row_count} rows",
+            AssertionFailed: "a decoded row input does not address exactly {row_count} rows",
         );
 
         valid_rows.for_each_set_index(|index| {
@@ -290,7 +290,7 @@ where
     let output = &mut values.slots()[..row_count];
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
-        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        vortex_bail!(AssertionFailed: "a decoded row input does not address exactly {row_count} rows");
     };
     let failure = source.map_checked_into(output, |elements| apply(&prepared, elements));
 

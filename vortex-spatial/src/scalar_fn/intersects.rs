@@ -137,10 +137,10 @@ mod tests {
     fn geometry_constant(geometry: &Geometry, len: usize) -> VortexResult<ArrayRef> {
         let mut buf = Vec::new();
         wkb::writer::write_geometry(&mut buf, geometry, &WriteOptions::default())
-            .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
+            .map_err(|e| vortex_err!(Serde: "writing WKB failed: {e}"))?;
         let session = vortex_array::array_session();
         let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session.arrow())?
-            .ok_or_else(|| vortex_err!("unsupported geometry type"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "unsupported geometry type"))?;
         Ok(ConstantArray::new(scalar, len).into_array())
     }
 

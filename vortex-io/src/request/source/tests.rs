@@ -79,7 +79,7 @@ fn a_range_is_read_at_its_alignment() -> VortexResult<()> {
         }],
     )?;
     let IoResult::Bytes(bytes) = source.wait()?.result? else {
-        vortex_bail!("expected bytes");
+        vortex_bail!(AssertionFailed: "expected bytes");
     };
     assert!(bytes.try_into_host_sync()?.is_aligned(alignment));
     assert_eq!(read.alignments(), vec![alignment]);

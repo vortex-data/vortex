@@ -119,7 +119,7 @@ impl FooterDeserializer {
             .then(|| {
                 postscript.dtype.as_ref().ok_or_else(|| {
                     vortex_err!(
-                        "Vortex file doesn't embed a DType and none provided to VortexOpenOptions"
+                        Serde: "Vortex file doesn't embed a DType and none provided to VortexOpenOptions"
                     )
                 })
             })
@@ -136,7 +136,7 @@ impl FooterDeserializer {
             .checked_sub(self.buffer.len() as u64)
             .ok_or_else(|| {
                 vortex_err!(
-                    "Footer buffer length {} exceeds declared file size {file_size}",
+                    Serde: "Footer buffer length {} exceeds declared file size {file_size}",
                     self.buffer.len()
                 )
             })?;
@@ -193,11 +193,11 @@ impl FooterDeserializer {
                     .offset
                     .checked_add(u64::from(segment.length))
                     .ok_or_else(|| {
-                        vortex_err!("Metadata segment {} range overflowed u64", metadata.key)
+                        vortex_err!(Overflow: "Metadata segment {} range overflowed u64", metadata.key)
                     })?;
                 if end > file_size {
                     vortex_bail!(
-                        "Metadata segment {} range {}..{} exceeds file size {}",
+                        Serde: "Metadata segment {} range {}..{} exceeds file size {}",
                         metadata.key,
                         segment.offset,
                         end,
@@ -207,7 +207,7 @@ impl FooterDeserializer {
                 let offset = usize::try_from(segment.offset)?;
                 if !segment.alignment.is_offset_aligned(offset) {
                     vortex_bail!(
-                        "Metadata segment {} offset {} is not aligned to {}",
+                        Serde: "Metadata segment {} offset {} is not aligned to {}",
                         metadata.key,
                         segment.offset,
                         segment.alignment
@@ -236,7 +236,7 @@ impl FooterDeserializer {
     fn parse_postscript(&self, initial_read: &[u8]) -> VortexResult<Postscript> {
         if initial_read.len() < EOF_SIZE {
             vortex_bail!(
-                "Initial read must be at least EOF_SIZE ({}) bytes",
+                InvalidArgument: "Initial read must be at least EOF_SIZE ({}) bytes",
                 EOF_SIZE
             );
         }
@@ -245,27 +245,27 @@ impl FooterDeserializer {
 
         let magic_number = &initial_read[magic_bytes_loc..];
         if magic_number != MAGIC_BYTES {
-            vortex_bail!("Malformed file, invalid magic bytes, got {magic_number:?}")
+            vortex_bail!(Serde: "Malformed file, invalid magic bytes, got {magic_number:?}")
         }
 
         let version = u16::from_le_bytes(
             initial_read[eof_loc..eof_loc + 2]
                 .try_into()
-                .map_err(|e| vortex_err!("Version was not a u16 {e}"))?,
+                .map_err(|e| vortex_err!(Serde: "Version was not a u16 {e}"))?,
         );
         if version != VERSION {
-            vortex_bail!("Malformed file, unsupported version {version}")
+            vortex_bail!(Serde: "Malformed file, unsupported version {version}")
         }
 
         let ps_size = u16::from_le_bytes(
             initial_read[eof_loc + 2..eof_loc + 4]
                 .try_into()
-                .map_err(|e| vortex_err!("Postscript size was not a u16 {e}"))?,
+                .map_err(|e| vortex_err!(Serde: "Postscript size was not a u16 {e}"))?,
         ) as usize;
 
         if initial_read.len() < ps_size + EOF_SIZE {
             vortex_bail!(
-                "Initial read must be at least {} bytes to include the Postscript",
+                InvalidArgument: "Initial read must be at least {} bytes to include the Postscript",
                 ps_size + EOF_SIZE
             );
         }
@@ -341,7 +341,7 @@ fn checked_segment_slice<'a>(
 ) -> VortexResult<&'a [u8]> {
     let offset = usize::try_from(segment.offset.checked_sub(read_offset).ok_or_else(|| {
         vortex_err!(
-            "Segment offset {} is smaller than file read offset {read_offset}",
+            Serde: "Segment offset {} is smaller than file read offset {read_offset}",
             segment.offset
         )
     })?)?;
@@ -350,7 +350,7 @@ fn checked_segment_slice<'a>(
         .and_then(|end| read.get(offset..end))
         .ok_or_else(|| {
             vortex_err!(
-                "Segment length {} (at offset {}) out of bounds of slice of length {}",
+                OutOfBounds: "Segment length {} (at offset {}) out of bounds of slice of length {}",
                 segment.length,
                 offset,
                 read.len()

@@ -74,7 +74,7 @@ impl VTable for Dict {
         vortex_ensure_eq!(
             args.children.nchildren(),
             2,
-            "DictLayout expects exactly 2 children"
+            InvalidArgument: "DictLayout expects exactly 2 children"
         );
         let codes_nullable = metadata
             .is_nullable_codes
@@ -86,7 +86,7 @@ impl VTable for Dict {
         vortex_ensure_eq!(
             codes.row_count(),
             args.row_count,
-            "Dictionary codes row count does not match parent"
+            InvalidArgument: "Dictionary codes row count does not match parent"
         );
         Ok(DictData {
             codes_dtype,
@@ -98,7 +98,7 @@ impl VTable for Dict {
         match idx {
             0 => Ok(layout.dtype().clone()),
             1 => Ok(layout.codes_dtype.clone()),
-            _ => vortex_bail!("Dict child index out of bounds: {idx}"),
+            _ => vortex_bail!(OutOfBounds: "Dict child index out of bounds: {idx}"),
         }
     }
 
@@ -106,7 +106,7 @@ impl VTable for Dict {
         match idx {
             0 => LayoutChildType::Auxiliary("values".into()),
             1 => LayoutChildType::Transparent("codes".into()),
-            _ => vortex_panic!("Dict child index out of bounds: {idx}"),
+            _ => vortex_panic!(OutOfBounds: "Dict child index out of bounds: {idx}"),
         }
     }
 

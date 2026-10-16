@@ -35,7 +35,7 @@ impl<B: Buf> Iterator for BufMessageReader<B> {
         match self.decoder.read_next(&mut self.buffer) {
             Ok(PollRead::Some(msg)) => Some(Ok(msg)),
             Ok(PollRead::NeedMore(_)) => Some(Err(vortex_err!(
-                "Buffer did not have sufficient bytes for an IPC message"
+                Serde: "Buffer did not have sufficient bytes for an IPC message"
             ))),
             Err(e) => Some(Err(e)),
         }

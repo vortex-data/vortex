@@ -60,7 +60,7 @@ fn sequential_take_len_typed<P: IntegerPType>(
     }
 
     if ranks.len() > filtered_len {
-        vortex_bail!(OutOfBounds: ranks.len() - 1, 0, filtered_len);
+        vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", ranks.len() - 1, 0, filtered_len);
     }
 
     Ok(Some(ranks.len()))
@@ -141,7 +141,7 @@ pub(in crate::arrays::filter) fn validate_rank<P: IntegerPType>(
 ) -> VortexResult<usize> {
     let rank: usize = rank.as_();
     if rank >= filtered_len {
-        vortex_bail!(OutOfBounds: rank, 0, filtered_len);
+        vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", rank, 0, filtered_len);
     }
     Ok(rank)
 }

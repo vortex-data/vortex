@@ -58,7 +58,7 @@ pub(crate) async fn load_device_patches(
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or_default();
     // Get or compute chunk_offsets
     let Some(co) = patches.chunk_offsets() else {
-        vortex_bail!("cannot load CUDA patches without chunk_offsets")
+        vortex_bail!(NotImplemented: "cannot load CUDA patches without chunk_offsets")
     };
 
     let (chunk_offsets, chunk_offset_ptype, n_chunks) = {

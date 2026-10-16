@@ -144,7 +144,7 @@ fn test_sum_decimal_storage(#[case] values_type: DecimalType) -> VortexResult<()
     let array = match_each_decimal_value_type!(values_type, |D| {
         let value = DecimalValue::I8(99)
             .cast::<D>()
-            .ok_or_else(|| vortex_err!("99 fits in every decimal storage type"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "99 fits in every decimal storage type"))?;
         DecimalArray::new(
             buffer![value, value, -value],
             DecimalDType::new(2, 0),
@@ -317,7 +317,7 @@ fn test_sum_action_accepts_unambiguous_inputs(
     actions.push((Action::Sum, ExpectedValue::Scalar(expected)));
     assert!(
         run_fuzz_action(FuzzArrayAction { array, actions })
-            .map_err(|error| vortex_err!("{error}"))?
+            .map_err(|error| vortex_err!(AssertionFailed: "{error}"))?
     );
     Ok(())
 }

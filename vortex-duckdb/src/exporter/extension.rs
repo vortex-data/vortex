@@ -69,5 +69,5 @@ pub(crate) fn new_exporter(
         return spatial::new_multipolygon_exporter(MultiPolygonData::try_from(ext)?, ctx);
     }
 
-    vortex_bail!("no non-temporal extension exporter")
+    vortex_bail!(NotImplemented: "no non-temporal extension exporter")
 }

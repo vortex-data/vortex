@@ -67,7 +67,7 @@ pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
         return lower_zoned(layout);
     }
     vortex_bail!(
-        "No physical plan implementation for layout '{}'",
+        NotImplemented: "No physical plan implementation for layout '{}'",
         layout.encoding_id()
     )
 }
@@ -89,7 +89,7 @@ fn lower_chunked(layout: &ChunkedLayout) -> VortexResult<ConcatPlan> {
         row_offsets.push(row_count);
         row_count = row_count
             .checked_add(layout.child_row_count(index))
-            .ok_or_else(|| vortex_err!("Chunked row count overflow"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "Chunked row count overflow"))?;
     }
     // SAFETY: Chunked layout construction validates that every child has the parent dtype and
     // that their row counts sum to the parent; offsets were computed with checked addition above.
@@ -158,10 +158,10 @@ fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
         let slot = slots
             .get(index)
             .copied()
-            .ok_or_else(|| vortex_err!("Missing plan child slot {index}"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Missing plan child slot {index}"))?;
         let child = layout
             .slot(slot)?
-            .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Layout child slot {slot} is absent"))?;
         lower(&child)
     })
 }
@@ -173,7 +173,7 @@ fn lower_zoned(layout: &LayoutRef) -> VortexResult<PlanRef> {
     } else if let Some(layout) = layout.as_opt::<LegacyStats>() {
         layout.data()
     } else {
-        vortex_bail!("Zoned plan requires a zoned layout")
+        vortex_bail!(AssertionFailed: "Zoned plan requires a zoned layout")
     };
     // Without zones, or with a zone table holding no statistics, nothing can be pruned.
     let no_stats = metadata
@@ -183,7 +183,7 @@ fn lower_zoned(layout: &LayoutRef) -> VortexResult<PlanRef> {
     if metadata.zone_len() == 0 || no_stats {
         let data = layout
             .slot(0)?
-            .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Zoned layout has no data child"))?;
         return lower(&data);
     }
     let children = lazy_children(Arc::clone(layout), vec![0, 1]);

@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 #[inline(never)]
 fn test_basic_display() {
     temp_env::with_var("RUST_BACKTRACE", Some("1"), || {
-        let err = vortex_err!("this is bad");
+        let err = vortex_err!(Other: "this is bad");
         let display = err.to_string();
 
         assert!(
@@ -45,8 +45,9 @@ fn test_from_arrow_with_backtrace() {
         let display = vx_error.to_string();
 
         assert!(
-            display
-                .contains("Arrow error: Not yet implemented: This feature isn't implemented yet"),
+            display.contains(
+                "Not implemented error: Not yet implemented: This feature isn't implemented yet"
+            ),
             "should contain arrow error message"
         );
         assert!(
@@ -72,7 +73,7 @@ fn test_from_arrow_no_backtrace() {
 
             assert!(
                 display.contains(
-                    "Arrow error: Not yet implemented: This feature isn't implemented yet"
+                    "Not implemented error: Not yet implemented: This feature isn't implemented yet"
                 ),
                 "should contain arrow error message"
             );

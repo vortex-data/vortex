@@ -259,9 +259,9 @@ impl Filter {
 }
 
 pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
-    let struct_dtype = dtype
-        .as_struct_fields_opt()
-        .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
+    let struct_dtype = dtype.as_struct_fields_opt().ok_or_else(
+        || vortex_err!(MismatchedTypes: "Vortex file must contain a struct array at the top level"),
+    )?;
 
     let len = struct_dtype.names().len();
     let mut fields = Vec::with_capacity(len);

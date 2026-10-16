@@ -286,14 +286,14 @@ impl ScalarFnVTable for Between {
 
         if !arr_dt.eq_ignore_nullability(lower_dt) {
             vortex_bail!(
-                "Array dtype {} does not match lower dtype {}",
+                MismatchedTypes: "Array dtype {} does not match lower dtype {}",
                 arr_dt,
                 lower_dt
             );
         }
         if !arr_dt.eq_ignore_nullability(upper_dt) {
             vortex_bail!(
-                "Array dtype {} does not match upper dtype {}",
+                MismatchedTypes: "Array dtype {} does not match upper dtype {}",
                 arr_dt,
                 upper_dt
             );
@@ -389,7 +389,7 @@ mod tests {
         let lazy = data.apply(&between(col("x"), col("lo"), col("hi"), NON_STRICT))?;
 
         let Validity::Array(validity) = lazy.validity()? else {
-            vortex_bail!("non-lazy validity");
+            vortex_bail!(AssertionFailed: "non-lazy validity");
         };
         assert_eq!(
             validity.encoding_id().to_string(),

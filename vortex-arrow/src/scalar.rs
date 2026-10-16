@@ -75,14 +75,22 @@ impl ToArrowDatum for Scalar {
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
-            DType::List(..) => vortex_bail!("list scalar conversion is not supported"),
+            DType::List(..) => {
+                vortex_bail!(InvalidArgument: "list scalar conversion is not supported")
+            }
             DType::FixedSizeList(..) => {
-                vortex_bail!("fixed-size list scalar conversion is not supported")
+                vortex_bail!(InvalidArgument: "fixed-size list scalar conversion is not supported")
             }
             DType::Map(..) => map_to_arrow(value.as_map()),
-            DType::Struct(..) => vortex_bail!("struct scalar conversion is not supported"),
-            DType::Union(..) => vortex_bail!("union scalar conversion is not supported"),
-            DType::Variant(_) => vortex_bail!("Variant scalar conversion is not supported"),
+            DType::Struct(..) => {
+                vortex_bail!(InvalidArgument: "struct scalar conversion is not supported")
+            }
+            DType::Union(..) => {
+                vortex_bail!(InvalidArgument: "union scalar conversion is not supported")
+            }
+            DType::Variant(_) => {
+                vortex_bail!(InvalidArgument: "Variant scalar conversion is not supported")
+            }
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
         }
     }
@@ -113,7 +121,7 @@ fn primitive_to_arrow(scalar: PrimitiveScalar<'_>) -> Result<Arc<dyn Datum>, Vor
 /// Convert a [`DecimalScalar`] to an Arrow [`Datum`].
 fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
-        vortex_bail!("Expected decimal scalar, got {}", scalar.dtype());
+        vortex_bail!(MismatchedTypes: "Expected decimal scalar, got {}", scalar.dtype());
     };
     let precision = decimal_dtype.precision();
     let scale = decimal_dtype.scale();
@@ -124,7 +132,7 @@ fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexE
             if precision <= 38 {
                 let value = value.maybe_i128().ok_or_else(|| {
                     vortex_err!(
-                        "Decimal value {value} cannot fit in Arrow Decimal128 for precision {precision}"
+                        Overflow: "Decimal value {value} cannot fit in Arrow Decimal128 for precision {precision}"
                     )
                 })?;
                 decimal128_scalar(value, precision, scale)
@@ -201,7 +209,7 @@ fn map_to_arrow(scalar: MapScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     let entries_len = entries.len();
     let entries_len = i32::try_from(entries_len).map_err(|_| {
         vortex_err!(
-            "Cannot convert map scalar with {entries_len} entries to Arrow: MapArray offsets are i32"
+            MismatchedTypes: "Cannot convert map scalar with {entries_len} entries to Arrow: MapArray offsets are i32"
         )
     })?;
     let offsets = OffsetBuffer::new(vec![0_i32, entries_len].into());
@@ -241,7 +249,7 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
     let ext_dtype = scalar.ext_dtype();
     let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
         vortex_bail!(
-            "Cannot convert extension scalar {} to Arrow",
+            MismatchedTypes: "Cannot convert extension scalar {} to Arrow",
             ext_dtype.id()
         )
     };
@@ -249,7 +257,7 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
     let storage_scalar = scalar.to_storage_scalar();
     let primitive = storage_scalar
         .as_primitive_opt()
-        .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected primitive scalar"))?;
 
     match temporal {
         TemporalMetadata::Timestamp(unit, tz) => {
@@ -268,7 +276,7 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
                     timestamp_to_arrow_scalar!(value, tz.clone(), TimestampSecondArray)
                 }
                 TimeUnit::Days => {
-                    vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
+                    vortex_bail!(InvalidArgument: "Unsupported TimeUnit {unit} for {}", ext_dtype.id())
                 }
             }
         }
@@ -280,7 +288,7 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
                 value_to_arrow_scalar!(primitive.as_::<i32>(), Date32Array)
             }
             TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
+                vortex_bail!(InvalidArgument: "Unsupported TimeUnit {unit} for {}", ext_dtype.id())
             }
         },
         TemporalMetadata::Time(unit) => match unit {
@@ -297,7 +305,7 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
                 value_to_arrow_scalar!(primitive.as_::<i32>(), Time32SecondArray)
             }
             TimeUnit::Days => {
-                vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
+                vortex_bail!(InvalidArgument: "Unsupported TimeUnit {unit} for {}", ext_dtype.id())
             }
         },
     }
@@ -789,11 +797,11 @@ mod tests {
             }
 
             fn serialize_metadata(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                vortex_bail!("not implemented")
+                vortex_bail!(NotImplemented: "not implemented")
             }
 
             fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                vortex_bail!("not implemented")
+                vortex_bail!(NotImplemented: "not implemented")
             }
 
             fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {

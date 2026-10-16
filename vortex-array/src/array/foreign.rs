@@ -169,7 +169,7 @@ impl VTable for ForeignArray {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         vortex_bail!(
-            "Cannot execute unknown array encoding '{}'",
+            NotFound: "Cannot execute unknown array encoding '{}'",
             array.encoding_id()
         )
     }

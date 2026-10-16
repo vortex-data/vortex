@@ -123,11 +123,11 @@ impl VTable for Patched {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("invalid buffer index for PatchedArray: {idx}");
+        vortex_panic!(OutOfBounds: "invalid buffer index for PatchedArray: {idx}");
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("invalid buffer index for PatchedArray: {idx}");
+        vortex_panic!(OutOfBounds: "invalid buffer index for PatchedArray: {idx}");
     }
 
     fn with_buffers(

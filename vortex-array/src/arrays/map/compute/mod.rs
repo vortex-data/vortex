@@ -22,7 +22,7 @@ use crate::dtype::MapDType;
 fn rebuild_map_from_array(map_dtype: MapDType, entries: ArrayRef) -> VortexResult<ArrayRef> {
     let map_entries = entries.try_downcast::<ListView>().map_err(|arr| {
         vortex_err!(
-            "Map entries operation expected vortex.listview/ListView, got {}",
+            MismatchedTypes: "Map entries operation expected vortex.listview/ListView, got {}",
             arr.encoding_id()
         )
     })?;

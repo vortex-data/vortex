@@ -118,7 +118,7 @@ pub(crate) fn execute_block_offsets(
     let num_blocks = (array.len() + usize::from(array.offset())).div_ceil(FL_CHUNK_SIZE);
     vortex_ensure!(
         offsets.len() == num_blocks + 1,
-        "Expected {} block boundaries, got {}",
+        InvalidArgument: "Expected {} block boundaries, got {}",
         num_blocks + 1,
         offsets.len()
     );
@@ -221,7 +221,7 @@ pub fn unpack_single_blocked(
     let block = index_in_encoded / FL_CHUNK_SIZE;
     vortex_ensure!(
         block + 1 < offsets.len(),
-        "BitPacked index {index} has no block boundaries"
+        OutOfBounds: "BitPacked index {index} has no block boundaries"
     );
     let (base, start, end) = if let Some(primitive) = offsets.as_opt::<Primitive>()
         && primitive.buffer_handle().is_on_host()
@@ -460,7 +460,7 @@ mod tests {
             None,
         )?;
         let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
-            vortex_bail!("expected block offsets");
+            vortex_bail!(AssertionFailed: "expected block offsets");
         };
         let array = BitPacked::try_new_with_block_offsets(
             array.packed().clone(),

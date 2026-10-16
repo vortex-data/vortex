@@ -113,7 +113,7 @@ fn values(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<i128>> {
 
 fn constant(value: i128, ptype: PType, len: usize) -> VortexResult<ArrayRef> {
     let value = narrow(value, ptype)
-        .ok_or_else(|| vortex_err!("{value} is not representable in {ptype}"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "{value} is not representable in {ptype}"))?;
     let scalar = Scalar::try_new(
         DType::Primitive(ptype, NonNullable),
         Some(ScalarValue::Primitive(value)),

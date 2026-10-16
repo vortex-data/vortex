@@ -84,11 +84,11 @@ pub(crate) fn compute_sizes(
 ) -> VortexResult<SizePassResult> {
     let n_inputs = args.num_inputs();
     if n_inputs == 0 {
-        vortex_bail!("at least one input column is required");
+        vortex_bail!(InvalidArgument: "at least one input column is required");
     }
     if options.len() != n_inputs {
         vortex_bail!(
-            "options len ({}) does not match num_inputs ({})",
+            MismatchedTypes: "options len ({}) does not match num_inputs ({})",
             options.len(),
             n_inputs
         );
@@ -106,7 +106,7 @@ pub(crate) fn compute_sizes(
         let col = args.get(i)?;
         if col.len() != nrows {
             vortex_bail!(
-                "column {} has length {} but expected {}",
+                InvalidArgument: "column {} has length {} but expected {}",
                 i,
                 col.len(),
                 nrows
@@ -121,8 +121,7 @@ pub(crate) fn compute_sizes(
                     prefix: running_fixed_prefix,
                     before_varlen: first_varlen_idx.is_none(),
                 });
-                let overflow =
-                    || vortex_error::vortex_err!("per-row fixed width overflows u32 at column {i}");
+                let overflow = || vortex_error::vortex_err!(Overflow: "per-row fixed width overflows u32 at column {i}");
                 fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(overflow)?;
                 running_fixed_prefix = running_fixed_prefix.checked_add(w).ok_or_else(overflow)?;
                 columns.push(PreparedField::Canonical(canonical));

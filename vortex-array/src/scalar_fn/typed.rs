@@ -157,7 +157,7 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
             vortex_error::vortex_ensure_eq!(
                 result.dtype(),
                 &expected_dtype,
-                "Expression execution {} returned vector of invalid dtype",
+                AssertionFailed: "Expression execution {} returned vector of invalid dtype",
                 self.vtable.id(),
             );
         }

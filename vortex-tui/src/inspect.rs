@@ -343,12 +343,12 @@ struct VortexInspector<'a> {
 
 impl<'a> VortexInspector<'a> {
     fn new(session: &'a VortexSession, path: PathBuf) -> VortexResult<Self> {
-        let mut file =
-            File::open(&path).map_err(|e| vortex_err!("Failed to open file {:?}: {}", path, e))?;
+        let mut file = File::open(&path)
+            .map_err(|e| vortex_err!(Io: "Failed to open file {:?}: {}", path, e))?;
 
         let file_size = file
             .seek(SeekFrom::End(0))
-            .map_err(|e| vortex_err!("Failed to get file size: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to get file size: {}", e))?;
 
         Ok(Self {
             session,
@@ -361,7 +361,7 @@ impl<'a> VortexInspector<'a> {
     fn read_eof(&mut self) -> VortexResult<EofInfo> {
         if self.file_size < EOF_SIZE as u64 {
             vortex_bail!(
-                "File too small ({} bytes) to contain EOF marker (requires {} bytes)",
+                InvalidArgument: "File too small ({} bytes) to contain EOF marker (requires {} bytes)",
                 self.file_size,
                 EOF_SIZE
             );
@@ -370,10 +370,10 @@ impl<'a> VortexInspector<'a> {
         let mut eof_bytes = [0u8; EOF_SIZE];
         self.file
             .seek(SeekFrom::End(-(EOF_SIZE as i64)))
-            .map_err(|e| vortex_err!("Failed to seek to EOF: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to seek to EOF: {}", e))?;
         self.file
             .read_exact(&mut eof_bytes)
-            .map_err(|e| vortex_err!("Failed to read EOF bytes: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to read EOF bytes: {}", e))?;
 
         let version = u16::from_le_bytes([eof_bytes[0], eof_bytes[1]]);
         let postscript_size = u16::from_le_bytes([eof_bytes[2], eof_bytes[3]]);
@@ -393,14 +393,14 @@ impl<'a> VortexInspector<'a> {
         let mut postscript_bytes = vec![0u8; postscript_size as usize];
         self.file
             .seek(SeekFrom::Start(postscript_offset))
-            .map_err(|e| vortex_err!("Failed to seek to postscript: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to seek to postscript: {}", e))?;
         self.file
             .read_exact(&mut postscript_bytes)
-            .map_err(|e| vortex_err!("Failed to read postscript: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to read postscript: {}", e))?;
 
         let postscript_buffer = ByteBuffer::from(postscript_bytes);
         let fb_postscript = root::<fb::Postscript>(&postscript_buffer)
-            .map_err(|e| vortex_err!("Failed to parse postscript flatbuffer: {}", e))?;
+            .map_err(|e| vortex_err!(Serde: "Failed to parse postscript flatbuffer: {}", e))?;
 
         let segment_info = |s: fb::PostscriptSegment<'_>| -> VortexResult<SegmentInfo> {
             Ok(SegmentInfo {
@@ -416,7 +416,7 @@ impl<'a> VortexInspector<'a> {
             .layout()
             .map(segment_info)
             .transpose()?
-            .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Postscript missing layout segment"))?;
 
         let statistics = fb_postscript.statistics().map(segment_info).transpose()?;
 
@@ -424,7 +424,7 @@ impl<'a> VortexInspector<'a> {
             .footer()
             .map(segment_info)
             .transpose()?
-            .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?;
+            .ok_or_else(|| vortex_err!(Serde: "Postscript missing footer segment"))?;
 
         Ok(PostscriptInfo {
             dtype,

@@ -645,7 +645,7 @@ impl FileFormat for VortexFormat {
                 return Ok(Statistics {
                     num_rows: DFPrecision::Exact(
                         usize::try_from(row_count)
-                            .map_err(|_| vortex_err!("Row count overflow"))
+                            .map_err(|_| vortex_err!(Overflow: "Row count overflow"))
                             .vortex_expect("Row count overflow"),
                     ),
                     total_byte_size: DFPrecision::Absent,
@@ -706,7 +706,7 @@ impl FileFormat for VortexFormat {
             Ok(Statistics {
                 num_rows: DFPrecision::Exact(
                     usize::try_from(row_count)
-                        .map_err(|_| vortex_err!("Row count overflow"))
+                        .map_err(|_| vortex_err!(Overflow: "Row count overflow"))
                         .vortex_expect("Row count overflow"),
                 ),
                 total_byte_size,
@@ -883,7 +883,7 @@ mod tests {
         let value = scalar
             .value()
             .cloned()
-            .ok_or_else(|| vortex_err!("expected non-null scalar"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected non-null scalar"))?;
         let target_dtype = expected.data_type();
         let (value, expected) = if exact {
             (Precision::Exact(value), DFPrecision::Exact(expected))
@@ -919,7 +919,7 @@ mod tests {
         let value = scalar
             .value()
             .cloned()
-            .ok_or_else(|| vortex_err!("expected non-null scalar"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected non-null scalar"))?;
         assert_eq!(
             scalar_stat_to_df(stat, Precision::Exact(value), scalar.dtype(), &target_dtype),
             DFPrecision::Absent

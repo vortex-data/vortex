@@ -85,7 +85,7 @@ pub(super) mod arrays {
             DecimalType::I256 => {
                 DecimalArray::new(i256_values(len), DecimalDType::new(76, 2), validity)
             }
-            _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+            _ => vortex_panic!(NotImplemented: "unsupported benchmark storage type: {values_type}"),
         }
     }
 }

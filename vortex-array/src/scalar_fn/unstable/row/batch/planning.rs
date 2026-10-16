@@ -33,7 +33,7 @@ impl RowFnExecutionArgs {
             vortex_ensure_eq!(
                 input.len(),
                 row_count,
-                "the {id} input {index} has the wrong row count",
+                InvalidArgument: "the {id} input {index} has the wrong row count",
             );
         }
 

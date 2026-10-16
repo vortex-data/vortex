@@ -180,7 +180,7 @@ impl IoSlot {
     /// its result has not been taken, since that is a bug in the owner.
     pub fn issue(&mut self, target: IoTarget) -> IoBatch {
         if self.request.is_some() || self.result.is_some() {
-            vortex_panic!("IoSlot: issue while a request is outstanding");
+            vortex_panic!(AssertionFailed: "IoSlot: issue while a request is outstanding");
         }
         let request = IoRequest {
             intent: IoIntent::Fetch,
@@ -201,11 +201,11 @@ impl IoSlot {
     /// does not match the target, since the driver guarantees both.
     pub fn deliver(&mut self, id: IoRequestId, result: IoResult) {
         let Some(request) = self.request.take_if(|request| request.request == id) else {
-            vortex_panic!("IoSlot: delivery of {id:?}, which is not outstanding");
+            vortex_panic!(AssertionFailed: "IoSlot: delivery of {id:?}, which is not outstanding");
         };
         if !result.matches(&request.target) {
             vortex_panic!(
-                "IoSlot: {id:?} for {:?} answered with {}",
+                AssertionFailed: "IoSlot: {id:?} for {:?} answered with {}",
                 request.target,
                 result.kind()
             );

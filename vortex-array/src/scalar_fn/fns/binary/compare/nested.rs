@@ -147,7 +147,7 @@ fn build_values_comparator(
 ) -> VortexResult<RowComparator> {
     if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
         vortex_bail!(
-            "Cannot compare different DTypes {} and {}",
+            MismatchedTypes: "Cannot compare different DTypes {} and {}",
             lhs.dtype(),
             rhs.dtype()
         );
@@ -237,7 +237,7 @@ fn build_values_comparator(
             build_values_comparator(lhs.entries(), rhs.entries(), ctx)?
         }
         DType::Union(..) | DType::Variant(_) => {
-            vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
+            vortex_bail!(InvalidArgument: "compare is not supported for dtype {}", lhs.dtype())
         }
     })
 }

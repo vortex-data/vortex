@@ -26,20 +26,18 @@ pub(crate) fn multiply_constant(
 
     let product = match scalar.dtype() {
         DType::Bool(_) => {
-            let val = scalar
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("Expected non-null bool scalar for sum"))?;
+            let val = scalar.as_bool().value().ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected non-null bool scalar for sum"),
+            )?;
             if !val {
                 return Ok(None);
             }
             Scalar::primitive(len as u64, Nullability::Nullable)
         }
         DType::Primitive(..) => {
-            let pvalue = scalar
-                .as_primitive()
-                .pvalue()
-                .ok_or_else(|| vortex_err!("Expected non-null primitive scalar for sum"))?;
+            let pvalue = scalar.as_primitive().pvalue().ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected non-null primitive scalar for sum"),
+            )?;
             match return_dtype {
                 DType::Primitive(PType::U64, _) => {
                     let val = pvalue.cast::<u64>()?;
@@ -60,28 +58,27 @@ pub(crate) fn multiply_constant(
                     Scalar::primitive(val * len as f64, Nullability::Nullable)
                 }
                 _ => vortex_bail!(
-                    "Unexpected return dtype for primitive sum: {}",
+                    AssertionFailed: "Unexpected return dtype for primitive sum: {}",
                     return_dtype
                 ),
             }
         }
         DType::Decimal(..) => {
-            let val = scalar
-                .as_decimal()
-                .decimal_value()
-                .ok_or_else(|| vortex_err!("Expected non-null decimal scalar for sum"))?;
+            let val = scalar.as_decimal().decimal_value().ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected non-null decimal scalar for sum"),
+            )?;
             let len_decimal = DecimalValue::from(len as i128);
             match val.checked_mul(&len_decimal) {
                 Some(product) => {
-                    let ret_decimal = *return_dtype
-                        .as_decimal_opt()
-                        .ok_or_else(|| vortex_err!("Expected decimal return dtype"))?;
+                    let ret_decimal = *return_dtype.as_decimal_opt().ok_or_else(
+                        || vortex_err!(MismatchedTypes: "Expected decimal return dtype"),
+                    )?;
                     Scalar::decimal(product, ret_decimal, Nullability::Nullable)
                 }
                 None => Scalar::null(return_dtype.as_nullable()),
             }
         }
-        _ => vortex_bail!("Unsupported constant type for sum: {}", scalar.dtype()),
+        _ => vortex_bail!(InvalidArgument: "Unsupported constant type for sum: {}", scalar.dtype()),
     };
 
     Ok(Some(product))

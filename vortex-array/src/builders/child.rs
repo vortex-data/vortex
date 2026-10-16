@@ -77,7 +77,7 @@ impl ChildBuilder {
         vortex_ensure_eq!(
             array.dtype(),
             &self.dtype,
-            "Cannot append an array to a child builder of a different dtype",
+            MismatchedTypes: "Cannot append an array to a child builder of a different dtype",
         );
 
         if array.is_empty() {

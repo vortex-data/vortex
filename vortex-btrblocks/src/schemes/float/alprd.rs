@@ -70,7 +70,7 @@ impl Scheme for ALPRDScheme {
         let encoder = match primitive_array.ptype() {
             PType::F32 => RDEncoder::new(primitive_array.as_slice::<f32>()),
             PType::F64 => RDEncoder::new(primitive_array.as_slice::<f64>()),
-            ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
+            ptype => vortex_panic!(NotImplemented: "cannot ALPRD compress ptype {ptype}"),
         };
 
         let alp_rd = encoder.encode(primitive_array);

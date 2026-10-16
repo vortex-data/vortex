@@ -69,7 +69,7 @@ impl BloomPartial {
             }
             other => {
                 return Err(vortex_err!(
-                    "Unsupported scalar type for bloom filter: {other}"
+                    InvalidArgument: "Unsupported scalar type for bloom filter: {other}"
                 ));
             }
         })

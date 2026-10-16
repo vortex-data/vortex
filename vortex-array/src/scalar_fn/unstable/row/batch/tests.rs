@@ -181,7 +181,7 @@ unsafe impl InputElement for FilterOnlyI64 {
         let values = <i64 as InputElement>::decode(array, ctx)?;
         vortex_ensure!(
             !values.as_slice().contains(&i64::MIN),
-            "test input contains an invalid payload",
+            AssertionFailed: "test input contains an invalid payload",
         );
 
         Ok(values)
@@ -189,7 +189,7 @@ unsafe impl InputElement for FilterOnlyI64 {
 
     fn decode_constant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
         let value = <i64 as InputElement>::decode_constant(array, ctx)?;
-        vortex_ensure!(value != i64::MIN, "test input contains an invalid payload",);
+        vortex_ensure!(value != i64::MIN, AssertionFailed: "test input contains an invalid payload",);
 
         Ok(value)
     }
@@ -381,7 +381,7 @@ impl RowFn for DeferredAdd {
             |&(), (lhs, rhs)| lhs.overflowing_add(rhs),
             |overflowed| {
                 if overflowed {
-                    vortex_bail!(InvalidArgument: "deferred addition overflowed");
+                    vortex_bail!(Overflow: "deferred addition overflowed");
                 }
 
                 Ok(())
@@ -456,7 +456,7 @@ impl RowFn for DenseRetryIncrement {
             |(value,)| value.overflowing_add(1),
             |overflowed| {
                 if overflowed {
-                    vortex_bail!(InvalidArgument: "deferred increment overflowed");
+                    vortex_bail!(Overflow: "deferred increment overflowed");
                 }
 
                 Ok(())
@@ -718,7 +718,9 @@ fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
         Err(error) => error,
         Ok(output) => match output.execute::<PrimitiveArray>(&mut ctx) {
             Err(error) => error,
-            Ok(_) => vortex_bail!("an invalid row kernel output passed boundary validation"),
+            Ok(_) => {
+                vortex_bail!(InvalidArgument: "an invalid row kernel output passed boundary validation")
+            }
         },
     };
     let error = error.to_string();
@@ -1020,7 +1022,7 @@ fn test_deferred_bool_output_reports_valid_row_failure() -> VortexResult<()> {
 
     let error = match execute_rows(&DeferredGreaterThan::<true>, &EmptyOptions, &args, &mut ctx) {
         Err(error) => error.to_string(),
-        Ok(_) => vortex_bail!("a valid-row deferred failure was not reported"),
+        Ok(_) => vortex_bail!(AssertionFailed: "a valid-row deferred failure was not reported"),
     };
 
     assert!(

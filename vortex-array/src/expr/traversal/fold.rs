@@ -132,10 +132,10 @@ mod tests {
                 if *operator == Operator::Add {
                     Ok(FoldUp::Continue(children[0] + children[1]))
                 } else {
-                    vortex_bail!("not a valid operator")
+                    vortex_bail!(InvalidArgument: "not a valid operator")
                 }
             } else {
-                vortex_bail!("not a valid type")
+                vortex_bail!(InvalidArgument: "not a valid type")
             }
         }
     }
