@@ -12,6 +12,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::mpsc;
 use std::time::SystemTime;
 
 use cudarc::driver::CudaFunction;
@@ -62,6 +63,24 @@ const MAPPED_COPY_THREADS: u32 = 256;
 
 /// Serialize page-table fills across all mapped files, releasing the lock after each chunk.
 static MAPPED_FILL: Mutex<()> = Mutex::new(());
+
+/// Releases a closed reader's mapping once its copy stream has drained.
+type MappedRelease = Box<dyn FnOnce() + Send>;
+
+/// Releases of mapped files, each run once its copy stream has drained, off the scan's threads.
+static MAPPED_RELEASE_QUEUE: LazyLock<Option<mpsc::Sender<MappedRelease>>> = LazyLock::new(|| {
+    let (sender, receiver) = mpsc::channel::<MappedRelease>();
+    std::thread::Builder::new()
+        .name("vortex-mapped-release".to_string())
+        .spawn(move || {
+            // Runs until the process exits: the sender is a process-wide static.
+            for job in receiver {
+                job();
+            }
+        })
+        .ok()
+        .map(|_| sender)
+});
 
 /// Options controlling how [`PooledFileReadAt`] opens and reads a local file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -229,6 +248,19 @@ impl FileMapping {
 /// cold-cache measurement, or to return the address space. Mappings that open readers still use
 /// stay mapped until those readers close.
 pub fn release_file_mappings() {
+    // Closed readers hand their mappings to the release queue; wait until it has dropped them.
+    if let Some(queue) = MAPPED_RELEASE_QUEUE.as_ref() {
+        let (sender, receiver) = mpsc::sync_channel::<()>(1);
+        if queue
+            .send(Box::new(move || {
+                let _ = sender.send(());
+            }))
+            .is_ok()
+        {
+            // An error means the release thread is gone, leaving nothing to wait for.
+            let _ = receiver.recv();
+        }
+    }
     let released: Vec<_> = FILE_MAPPINGS
         .lock()
         .drain(..)
@@ -390,10 +422,24 @@ impl Drop for MappedFile {
         let Some(file) = self.file.take() else {
             return;
         };
-        // Queued copies may still read the mapping, which the last release unmaps.
-        if self.stream.synchronize().is_err() {
-            // Without proof the copies finished, never unmap memory the device may read.
-            let _leaked = ManuallyDrop::new(file);
+        // Queued copies may still read the mapping, which the last release unmaps. The reader
+        // drops when the scan has requested its last segment, typically on the thread that
+        // decodes the scan's batches; waiting there for the copy stream to drain stalled every
+        // decode and selection launch behind the scan's remaining copies.
+        let stream = self.stream.clone();
+        let release: MappedRelease = Box::new(move || {
+            if stream.synchronize().is_err() {
+                // Without proof the copies finished, never unmap memory the device may read.
+                let _leaked = ManuallyDrop::new(file);
+            }
+        });
+        match MAPPED_RELEASE_QUEUE.as_ref() {
+            Some(queue) => {
+                if let Err(unsent) = queue.send(release) {
+                    (unsent.0)();
+                }
+            }
+            None => release(),
         }
     }
 }

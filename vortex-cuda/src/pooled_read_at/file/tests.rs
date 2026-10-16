@@ -458,6 +458,38 @@ async fn released_mappings_are_remapped() -> VortexResult<()> {
     Ok(())
 }
 
+/// Closing a reader releases its mapping in the background once its copies drain; releasing
+/// cached mappings afterwards must still unmap it before returning, as cold-cache eviction needs.
+#[crate::test]
+async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, _file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    let mapping = Arc::downgrade(
+        mapped
+            .file
+            .as_ref()
+            .vortex_expect("open file has a mapping"),
+    );
+    mapped
+        .file
+        .as_ref()
+        .vortex_expect("open file has a mapping")
+        .mapping()
+        .advise(Advice::PopulateRead)?;
+    // Leave copies queued on the copy stream when the reader closes.
+    let buffer = reader
+        .read_at(0, MAPPED_FILE_BYTES, Alignment::of::<u8>())
+        .await?;
+    drop(reader);
+    release_file_mappings();
+    assert!(mapping.upgrade().is_none());
+    assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
+    Ok(())
+}
+
 #[crate::test]
 async fn mapped_read_past_end_fails() -> VortexResult<()> {
     let (_runtime, reader, _file) = mapped_reader()?;
