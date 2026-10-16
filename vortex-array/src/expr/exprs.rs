@@ -45,6 +45,8 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
+use crate::scalar_fn::fns::list_transform::ListLambdaOptions;
+use crate::scalar_fn::fns::list_transform::ListTransform;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -1260,6 +1262,17 @@ pub fn bound_list_length(input: BoundExpression) -> BoundExpression {
 /// ```
 pub fn list_sum(input: Expression) -> Expression {
     ListSum.new_expr(NumericalAggregateOpts::default(), [input])
+}
+
+/// Creates an expression that transforms every element of a list with `lambda`.
+///
+/// `lambda` takes the element and, optionally, its `u64` index.
+pub fn list_transform(list: Expression, lambda: Lambda) -> VortexResult<Expression> {
+    Expression::try_new_higher_order(
+        ListTransform.bind(ListLambdaOptions::default()),
+        [list],
+        [lambda],
+    )
 }
 
 /// Creates a bound expression that sums the elements of each list.

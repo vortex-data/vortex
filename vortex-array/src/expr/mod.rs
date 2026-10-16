@@ -93,6 +93,7 @@ pub use exprs::list_contains_opts;
 pub use exprs::list_length;
 pub use exprs::list_sum;
 pub use exprs::list_sum_opts;
+pub use exprs::list_transform;
 pub use exprs::lit;
 pub use exprs::lt;
 pub use exprs::lt_eq;
