@@ -16,6 +16,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
+use crate::expr::Lambda;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
@@ -31,7 +32,8 @@ const NO_CHILDREN: &[Expression] = &[];
 /// Most nodes are a scalar function applied to child expressions. [`Expression::Root`] is the scope
 /// itself: a language primitive rather than a registered function, because its dtype comes from the
 /// scope rather than from children and it is not executable. [`Expression::Variable`] is likewise
-/// resolved by the surrounding scope when the expression is bound.
+/// resolved by the surrounding scope when the expression is bound. [`Expression::HigherOrder`] is a
+/// scalar function that also takes [`Lambda`]s.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expression {
     /// A scalar function applied to child expressions.
@@ -45,6 +47,19 @@ pub enum Expression {
     Root,
     /// A named value resolved from the surrounding scope when the expression is bound.
     Variable(Variable),
+    /// A scalar function applied to child expressions and then to lambdas.
+    ///
+    /// Binding asks the function for each lambda's parameter dtypes (see
+    /// [`ScalarFnVTable::lambda_params`]) and produces an ordinary scalar node whose options hold
+    /// the bound lambdas.
+    HigherOrder {
+        /// The scalar fn for this node.
+        scalar_fn: ScalarFnRef,
+        /// The value arguments.
+        children: Arc<Vec<Expression>>,
+        /// The lambda arguments, which follow the value arguments.
+        lambdas: Arc<Vec<Lambda>>,
+    },
 }
 
 impl Expression {
@@ -68,6 +83,26 @@ impl Expression {
         })
     }
 
+    /// Create a node applying a higher-order scalar function to child expressions and lambdas.
+    pub fn try_new_higher_order(
+        scalar_fn: ScalarFnRef,
+        children: impl IntoIterator<Item = Expression>,
+        lambdas: impl IntoIterator<Item = Lambda>,
+    ) -> VortexResult<Self> {
+        let children = Vec::from_iter(children);
+        vortex_ensure!(
+            scalar_fn.signature().arity().matches(children.len()),
+            "Expression arity mismatch: expected {} children but got {}",
+            scalar_fn.signature().arity(),
+            children.len()
+        );
+        Ok(Self::HigherOrder {
+            scalar_fn,
+            children: children.into(),
+            lambdas: Arc::new(lambdas.into_iter().collect()),
+        })
+    }
+
     /// Whether this expression is the scope root.
     pub fn is_root(&self) -> bool {
         matches!(self, Self::Root)
@@ -77,15 +112,25 @@ impl Expression {
     pub fn as_variable(&self) -> Option<&Variable> {
         match self {
             Self::Variable(variable) => Some(variable),
-            Self::Root | Self::Scalar { .. } => None,
+            Self::Root | Self::Scalar { .. } | Self::HigherOrder { .. } => None,
+        }
+    }
+
+    /// The lambdas of a higher-order node, and none for any other node.
+    pub fn lambdas(&self) -> &[Lambda] {
+        match self {
+            Self::HigherOrder { lambdas, .. } => lambdas.as_slice(),
+            Self::Root | Self::Variable(_) | Self::Scalar { .. } => &[],
         }
     }
 
     /// Returns the scalar fn for this expression, or `None` if it is not a scalar node.
+    ///
+    /// A higher-order node is not a scalar node, because its lambdas are not among its children.
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root | Self::Variable(_) => None,
+            Self::Root | Self::Variable(_) | Self::HigherOrder { .. } => None,
         }
     }
 
@@ -112,7 +157,9 @@ impl Expression {
     /// Returns the children of this expression.
     pub fn children(&self) -> &[Expression] {
         match self {
-            Self::Scalar { children, .. } => children.as_slice(),
+            Self::Scalar { children, .. } | Self::HigherOrder { children, .. } => {
+                children.as_slice()
+            }
             Self::Root | Self::Variable(_) => NO_CHILDREN,
         }
     }
@@ -137,16 +184,25 @@ impl Expression {
                 );
                 Ok(self)
             }
-            Self::Scalar { scalar_fn, .. } => {
+            Self::Scalar { scalar_fn, .. } | Self::HigherOrder { scalar_fn, .. } => {
                 vortex_ensure!(
                     scalar_fn.signature().arity().matches(children.len()),
                     "Expression arity mismatch: expected {} children but got {}",
                     scalar_fn.signature().arity(),
                     children.len()
                 );
-                Ok(Self::Scalar {
-                    scalar_fn: scalar_fn.clone(),
-                    children: children.into(),
+                let scalar_fn = scalar_fn.clone();
+                let children = children.into();
+                Ok(match &self {
+                    Self::HigherOrder { lambdas, .. } => Self::HigherOrder {
+                        scalar_fn,
+                        children,
+                        lambdas: Arc::clone(lambdas),
+                    },
+                    _ => Self::Scalar {
+                        scalar_fn,
+                        children,
+                    },
                 })
             }
         }
@@ -155,10 +211,12 @@ impl Expression {
     /// Computes the return dtype of this expression given the root dtype.
     ///
     /// Returns an error for variables because a root dtype alone cannot resolve lexical bindings;
-    /// use [`Expression::bind_scope`] when the expression may contain variables.
+    /// use [`Expression::bind_scope`] when the expression may contain variables. A higher-order
+    /// node is typed by binding it.
     pub fn return_dtype(&self, root_dtype: &DType) -> VortexResult<DType> {
         match self {
             Self::Root => Ok(root_dtype.clone()),
+            Self::HigherOrder { .. } => Ok(self.bind(root_dtype)?.dtype().clone()),
             Self::Variable(variable) => {
                 vortex_bail!("cannot determine dtype of unbound variable '{variable}'")
             }
@@ -183,7 +241,9 @@ impl Expression {
         match self {
             Self::Root => write!(f, "$"),
             Self::Variable(variable) => write!(f, "${variable}"),
-            Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
+            Self::Scalar { scalar_fn, .. } | Self::HigherOrder { scalar_fn, .. } => {
+                scalar_fn.fmt_sql(self, f)
+            }
         }
     }
 

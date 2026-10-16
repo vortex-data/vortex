@@ -17,6 +17,7 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::scope::Scope;
 use crate::expr::scope::VariableRef;
@@ -73,6 +74,14 @@ pub struct BoundVariable {
 }
 
 impl BoundVariable {
+    pub(crate) fn new(dtype: DType, variable: Variable, variable_ref: VariableRef) -> Self {
+        Self {
+            dtype,
+            variable,
+            variable_ref,
+        }
+    }
+
     /// The dtype of the value bound to this variable.
     pub fn dtype(&self) -> &DType {
         &self.dtype
@@ -377,6 +386,11 @@ impl Expression {
                     variable_ref,
                 }))
             }
+            Expression::HigherOrder {
+                scalar_fn,
+                children,
+                lambdas,
+            } => bind_higher_order(scalar_fn, children, lambdas, scope),
             Expression::Scalar {
                 scalar_fn,
                 children,
@@ -389,6 +403,36 @@ impl Expression {
             }
         }
     }
+}
+
+/// Bind a higher-order node into an ordinary scalar node.
+///
+/// The function's options take the bound lambdas, and its children are the bound value arguments
+/// followed by every lambda's captures.
+fn bind_higher_order(
+    scalar_fn: &ScalarFnRef,
+    children: &[Expression],
+    lambdas: &[Lambda],
+    scope: &Scope,
+) -> VortexResult<BoundExpression> {
+    let mut children: Vec<_> = children
+        .iter()
+        .map(|child| child.bind_scope(scope))
+        .try_collect()?;
+    let arg_dtypes = children
+        .iter()
+        .map(|child| child.dtype().clone())
+        .collect_vec();
+
+    let mut bound_lambdas = Vec::with_capacity(lambdas.len());
+    for (index, lambda) in lambdas.iter().enumerate() {
+        let param_dtypes = scalar_fn.lambda_params(index, lambda.params().len(), &arg_dtypes)?;
+        let (bound_lambda, captures) = lambda.bind(scope, param_dtypes)?;
+        bound_lambdas.push(bound_lambda);
+        children.extend(captures);
+    }
+
+    BoundExpression::try_new(scalar_fn.with_lambdas(bound_lambdas)?, children)
 }
 
 /// Iterative drop to avoid stack overflows on deep trees.

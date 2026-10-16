@@ -24,6 +24,7 @@ use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::BoundLambda;
 use crate::expr::Expression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
@@ -276,6 +277,37 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn is_infallible(&self, options: &Self::Options) -> bool {
         _ = options;
         false
+    }
+
+    /// The parameter dtypes of the `lambda_index`th lambda, given the dtypes of the value
+    /// arguments, for a function applied to lambdas in an
+    /// [`Expression::HigherOrder`](crate::expr::Expression::HigherOrder) node.
+    ///
+    /// `param_count` is the number of parameters the lambda declares, so a function can offer an
+    /// optional parameter. The default rejects lambdas.
+    fn lambda_params(
+        &self,
+        options: &Self::Options,
+        lambda_index: usize,
+        param_count: usize,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<Vec<DType>> {
+        _ = (options, lambda_index, param_count, arg_dtypes);
+        vortex_bail!("{} does not take lambda arguments", self.id())
+    }
+
+    /// These options holding the bound lambdas, in argument order.
+    ///
+    /// Binding a higher-order node stores its lambdas here. The bound node's children are the value
+    /// arguments followed by every lambda's captures. The default rejects lambdas.
+    fn with_lambdas(
+        &self,
+        options: &Self::Options,
+        lambdas: Vec<BoundLambda>,
+    ) -> VortexResult<Self::Options> {
+        _ = options;
+        drop(lambdas);
+        vortex_bail!("{} does not take lambda arguments", self.id())
     }
 }
 

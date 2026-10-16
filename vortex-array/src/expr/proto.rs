@@ -4,6 +4,7 @@
 use itertools::Itertools;
 use prost::Message;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -88,6 +89,12 @@ impl ExprSerializeProtoExt for Expression {
                 metadata: Some(vec![]),
             }),
             Expression::Variable(variable) => Ok(variable.serialize_proto()),
+            Expression::HigherOrder { scalar_fn, .. } => {
+                vortex_bail!(
+                    "higher-order expression '{}' is not serializable",
+                    scalar_fn.id()
+                )
+            }
             Expression::Scalar {
                 scalar_fn,
                 children,

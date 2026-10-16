@@ -20,7 +20,7 @@ pub struct VariableRef {
 }
 
 impl VariableRef {
-    fn new(frame: usize, slot: usize) -> Self {
+    pub(crate) fn new(frame: usize, slot: usize) -> Self {
         Self { frame, slot }
     }
 

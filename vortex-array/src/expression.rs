@@ -56,6 +56,12 @@ impl ArrayRef {
             vortex_bail!("cannot apply unbound variable '{variable}'");
         }
 
+        // A higher-order node needs the dtypes of its arguments to bind its lambdas.
+        if !expr.lambdas().is_empty() {
+            let bound = expr.bind(self.dtype())?;
+            return self.apply_bound(&bound);
+        }
+
         // Manually convert literals to ConstantArray.
         if let Some(scalar) = expr.as_opt::<Literal>() {
             return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
@@ -71,7 +77,7 @@ impl ArrayRef {
 
         // And wrap the scalar function up in an array.
         let scalar_fn = expr.as_scalar().vortex_expect(
-            "root, variable and literal were handled above, so this is a scalar node",
+            "root, variable, higher-order and literal were handled above, so this is a scalar node",
         );
         let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
 

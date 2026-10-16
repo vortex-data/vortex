@@ -5,11 +5,13 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use itertools::Itertools;
 use vortex_utils::tree::TreeDisplayAdapter;
 use vortex_utils::tree::write_branch_tree;
 
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::scalar_fn::ChildName;
 
 pub enum DisplayFormat {
@@ -29,13 +31,28 @@ pub trait ExprDisplay: Display {
     fn display_children_count(&self) -> usize;
 }
 
+/// An unbound node displays its children followed by its lambdas.
 impl ExprDisplay for Expression {
     fn display_child(&self, index: usize) -> &dyn ExprDisplay {
-        Expression::child(self, index)
+        let children = self.children();
+        match children.get(index) {
+            Some(child) => child,
+            None => &self.lambdas()[index - children.len()],
+        }
     }
 
     fn display_children_count(&self) -> usize {
-        self.children().len()
+        self.children().len() + self.lambdas().len()
+    }
+}
+
+impl ExprDisplay for Lambda {
+    fn display_child(&self, _index: usize) -> &dyn ExprDisplay {
+        unreachable!("a lambda has no display children")
+    }
+
+    fn display_children_count(&self) -> usize {
+        0
     }
 }
 
@@ -67,7 +84,9 @@ impl DisplayTreeNode for Expression {
 
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
-            Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
+            Expression::Scalar { scalar_fn, .. } | Expression::HigherOrder { scalar_fn, .. } => {
+                scalar_fn.signature().child_name(index)
+            }
             Expression::Root => unreachable!("the scope root has no children"),
             Expression::Variable(_) => unreachable!("a variable has no children"),
         }
@@ -76,6 +95,9 @@ impl DisplayTreeNode for Expression {
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            Expression::HigherOrder {
+                scalar_fn, lambdas, ..
+            } => write!(f, "{scalar_fn} {}", lambdas.iter().join(", ")),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
             Expression::Variable(var) => write!(f, "vortex.var({var})"),
         }

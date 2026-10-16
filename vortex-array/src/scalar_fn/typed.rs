@@ -24,6 +24,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::BoundLambda;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
@@ -93,6 +94,15 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn child_name(&self, child_idx: usize) -> ChildName;
     fn is_strict(&self) -> bool;
     fn is_infallible(&self) -> bool;
+
+    // Lambda arguments — options in self, see `ScalarFnVTable::lambda_params`
+    fn lambda_params(
+        &self,
+        lambda_index: usize,
+        param_count: usize,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<Vec<DType>>;
+    fn with_lambdas(&self, lambdas: Vec<BoundLambda>) -> VortexResult<ScalarFnRef>;
 
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
@@ -197,6 +207,26 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
 
     fn is_infallible(&self) -> bool {
         V::is_infallible(&self.vtable, &self.options)
+    }
+
+    fn lambda_params(
+        &self,
+        lambda_index: usize,
+        param_count: usize,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<Vec<DType>> {
+        V::lambda_params(
+            &self.vtable,
+            &self.options,
+            lambda_index,
+            param_count,
+            arg_dtypes,
+        )
+    }
+
+    fn with_lambdas(&self, lambdas: Vec<BoundLambda>) -> VortexResult<ScalarFnRef> {
+        let options = V::with_lambdas(&self.vtable, &self.options, lambdas)?;
+        Ok(TypedScalarFnInstance::new(self.vtable.clone(), options).erased())
     }
 
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result {

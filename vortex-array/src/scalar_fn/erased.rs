@@ -20,6 +20,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::BoundLambda;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ExecutionArgs;
@@ -161,6 +162,23 @@ impl ScalarFnRef {
         node: &ArrayReduceNode<'a>,
     ) -> VortexResult<Option<ArrayReduceNode<'a>>> {
         self.0.reduce_array(node)
+    }
+
+    /// The parameter dtypes of a lambda argument.
+    /// See [`ScalarFnVTable::lambda_params`].
+    pub fn lambda_params(
+        &self,
+        lambda_index: usize,
+        param_count: usize,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<Vec<DType>> {
+        self.0.lambda_params(lambda_index, param_count, arg_dtypes)
+    }
+
+    /// This scalar function with its options holding the given bound lambdas.
+    /// See [`ScalarFnVTable::with_lambdas`].
+    pub fn with_lambdas(&self, lambdas: Vec<BoundLambda>) -> VortexResult<ScalarFnRef> {
+        self.0.with_lambdas(lambdas)
     }
 
     // ------------------------------------------------------------------
