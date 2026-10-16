@@ -3,14 +3,17 @@
 
 #include "config.cuh"
 
+// Each block fills a contiguous run of `blockDim.x * ELEMENTS_PER_THREAD` elements with its
+// threads striding by `blockDim.x`, so consecutive lanes store consecutive elements and every warp
+// store is coalesced. Giving each thread its own contiguous run instead spreads one warp store over
+// 32 cache lines.
 template <typename ValueT>
 __device__ void sequence(ValueT *const output, ValueT base, ValueT multiplier, uint64_t len) {
-    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t elements_per_block = static_cast<uint64_t>(blockDim.x) * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
+    const uint64_t block_stop = ::min(block_start + elements_per_block, len);
 
-    const uint64_t startElem = start_elem(worker, len);
-    const uint64_t stopElem = stop_elem(worker, len);
-
-    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         output[idx] = static_cast<ValueT>(idx) * multiplier + base;
     }
 }

@@ -5,18 +5,15 @@
 #include "types.cuh"
 #include <cuda_fp16.h>
 
-// Fill an output buffer with a constant value.
+// Fill an output buffer with a constant value. Threads stride by `blockDim.x` within their block's
+// contiguous run so that warp stores are coalesced.
 template <typename T>
 __device__ void constant_fill(T *__restrict output, T value, uint64_t array_len) {
-    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = start_elem(worker, array_len);
-    const uint64_t stopElem = stop_elem(worker, array_len);
+    const uint64_t elements_per_block = static_cast<uint64_t>(blockDim.x) * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
+    const uint64_t block_stop = ::min(block_start + elements_per_block, array_len);
 
-    if (startElem >= array_len) {
-        return;
-    }
-
-    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         output[idx] = value;
     }
 }
