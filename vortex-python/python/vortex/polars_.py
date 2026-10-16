@@ -419,7 +419,7 @@ def _cast_to_vortex(cast_expr: dict[str, Any]) -> ve.Expr:
 
     if isinstance(target, dict) and "Datetime" in target:
         unit, tz = target["Datetime"]
-        # Polars encodes a naive datetime literal as a UTC datetime cast to a naive one. Fold
+        # Polars 1 encodes a naive datetime literal as a UTC datetime cast to a naive one. Fold
         # the cast so the timezone relabel happens here rather than as a Vortex timestamp cast.
         scalar = cast_expr["expr"].get("Literal", {}).get("Scalar", {})
         if "Datetime" in scalar and scalar["Datetime"][1] == unit:

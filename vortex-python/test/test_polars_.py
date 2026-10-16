@@ -660,7 +660,8 @@ def test_polars_is_in_across_integer_widths(tmp_path):
 
 
 def test_polars_naive_datetime_literal(tmp_path):
-    # A naive datetime literal is serialized as a UTC literal cast to a naive datetime.
+    # Polars 2 serializes a naive datetime literal directly, while Polars 1 serializes it as a
+    # UTC literal cast to a naive datetime.
     frame = pl.DataFrame({"id": [0, 1, 2], "ts": [datetime(2020, 1, 1), datetime(2020, 1, 2), None]})
     assert _assert_pushdown(tmp_path, frame, pl.col("ts") > datetime(2020, 1, 1))["id"].to_list() == [1]
 
