@@ -19,6 +19,7 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
@@ -186,12 +187,20 @@ impl Array<Null> {
 impl OperationsVTable<Null> for Null {
     type ProbeState = ();
 
-    fn scalar_at(
-        _array: ArrayView<'_, Null>,
+    fn probe_scalar(
+        _state: &mut ProbeState<'_, Null>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Null>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

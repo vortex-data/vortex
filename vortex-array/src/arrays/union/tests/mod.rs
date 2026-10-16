@@ -23,6 +23,7 @@ use crate::arrays::Union;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -76,6 +77,13 @@ fn nullable_union_array() -> VortexResult<UnionArray> {
             PrimitiveArray::from_option_iter([Some(0i64), Some(0), None, Some(40)]).into_array(),
         ],
     )
+}
+
+#[test]
+fn scalar_probe_nullable_union() -> VortexResult<()> {
+    let array = nullable_union_array()?.into_array();
+    test_scalar_probe_consistency(&array, &mut array_session().create_execution_ctx());
+    Ok(())
 }
 
 #[test]

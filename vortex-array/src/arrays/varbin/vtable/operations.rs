@@ -1,24 +1,56 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::VarBin;
-use crate::arrays::varbin::VarBinArrayExt;
+use crate::arrays::varbin::VarBinSlots;
 use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<VarBin> for VarBin {
     type ProbeState = ();
 
+    fn probe_scalar(
+        state: &mut ProbeState<'_, VarBin>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
+        let start = offset_at(state, index, ctx)?;
+        let end = offset_at(state, index + 1, ctx)?;
+        Ok(varbin_scalar(array.bytes().slice(start..end), array.dtype()))
+    }
+
     fn scalar_at(
         array: ArrayView<'_, VarBin>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
+}
+
+fn offset_at(
+    state: &mut ProbeState<'_, VarBin>,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<usize> {
+    let offset = state
+        .slot(VarBinSlots::OFFSETS)?
+        .ok_or_else(|| vortex_err!("VarBin offsets slot is missing"))?
+        .execute_scalar(index, ctx)?;
+    Ok((&offset)
+        .try_into()
+        .vortex_expect("Failed to convert offset to usize"))
 }

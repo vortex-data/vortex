@@ -18,6 +18,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::BoolArray;
@@ -308,15 +309,27 @@ impl ValidityVTable<ByteBool> for ByteBool {
 impl OperationsVTable<ByteBool> for ByteBool {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, ByteBool>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, ByteBool>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
         Ok(Scalar::bool(
             array.buffer.as_host()[index] == 1,
             array.dtype().nullability(),
         ))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, ByteBool>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

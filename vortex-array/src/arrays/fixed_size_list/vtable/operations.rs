@@ -2,34 +2,54 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::FixedSizeList;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListSlots;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<FixedSizeList> for FixedSizeList {
     type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, FixedSizeList>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
+        let DType::FixedSizeList(element_dtype, list_size, nullability) = array.dtype() else {
+            unreachable!("FixedSizeList arrays have a fixed-size list dtype")
+        };
+        let start = *list_size as usize * index;
+        let end = start + *list_size as usize;
+        let mut elements = state
+            .slot(FixedSizeListSlots::ELEMENTS)?
+            .ok_or_else(|| vortex_err!("FixedSizeList elements slot is missing"))?;
+        let children_elements = (start..end)
+            .map(|i| elements.execute_scalar(i, ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(Scalar::fixed_size_list(
+            element_dtype.clone(),
+            children_elements,
+            *nullability,
+        ))
+    }
 
     fn scalar_at(
         array: ArrayView<'_, FixedSizeList>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        // By the preconditions we know that the list scalar is not null.
-        let list = array.fixed_size_list_elements_at(index)?;
-        let children_elements: Vec<Scalar> = (0..list.len())
-            .map(|i| list.execute_scalar(i, ctx))
-            .collect::<VortexResult<_>>()?;
-
-        debug_assert_eq!(children_elements.len(), array.list_size() as usize);
-
-        Ok(Scalar::fixed_size_list(
-            list.dtype().clone(),
-            children_elements,
-            array.dtype().nullability(),
-        ))
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }

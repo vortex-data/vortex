@@ -95,6 +95,7 @@ mod tests {
     use crate::arrays::variant::VariantArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::compute::conformance::consistency::test_scalar_probe_consistency;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -283,6 +284,15 @@ mod tests {
             }
         }
 
+        test_scalar_probe_consistency(&variant.into_array(), &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_probe_without_shredded_storage() -> VortexResult<()> {
+        let variant = VariantArray::try_new(core_storage(5), None)?.into_array();
+        test_scalar_probe_consistency(&variant, &mut array_session().create_execution_ctx());
         Ok(())
     }
 

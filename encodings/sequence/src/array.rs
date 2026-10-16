@@ -20,6 +20,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::ProbeState;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -434,15 +435,24 @@ impl VTable for Sequence {
 impl OperationsVTable<Sequence> for Sequence {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Sequence>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Sequence>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
+        let array = state.array();
         Scalar::try_new(
             array.dtype().clone(),
             Some(ScalarValue::Primitive(array.index_value(index))),
         )
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Sequence>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
