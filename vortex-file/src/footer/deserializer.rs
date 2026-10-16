@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use vortex_array::dtype::DType;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::flatbuffers::ReadFlatBuffer;
@@ -299,7 +299,10 @@ impl FooterDeserializer {
     ) -> VortexResult<FileStatistics> {
         let sliced_buffer = checked_segment_slice(initial_read, initial_offset, segment)?;
 
-        let fb = root::<crate::flatbuffers::footer::FileStatistics>(sliced_buffer)?;
+        // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+        // is unsound for untrusted input and must not be merged.
+        let fb =
+            unsafe { root_unchecked::<crate::flatbuffers::footer::FileStatistics>(sliced_buffer) };
         FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 
