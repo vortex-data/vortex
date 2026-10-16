@@ -19,21 +19,19 @@ use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
+use crate::builtins::dict::string_candidate::CachedStringDictionary;
+use crate::builtins::dict::string_candidate::string_dictionary_estimate;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
-use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
 
 /// Dictionary encoding for low-cardinality string values.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -50,12 +48,6 @@ impl Scheme for StringDictScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Dict.id()]
-    }
-
-    fn stats_options(&self) -> GenerateStatsOptions {
-        GenerateStatsOptions {
-            count_distinct_values: true,
-        }
     }
 
     /// Children: values=0, codes=1.
@@ -77,27 +69,11 @@ impl Scheme for StringDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.varbinview_stats(exec_ctx);
-
-        if stats.value_count() == 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-
-        let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
-
-        // If > 50% of the values are distinct, skip dictionary scheme.
-        if estimated_distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-
-        // Let sampling determine the expected ratio.
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        string_dictionary_estimate()
     }
 
     fn compress(
@@ -107,29 +83,52 @@ impl Scheme for StringDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dict_encode(data.array(), exec_ctx)?;
-
-        // Values = child 0.
-        let compressed_values =
-            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
-
-        // Codes = child 1.
-        let narrowed_codes = dict
-            .codes()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
-        let compressed_codes =
-            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
-
-        // SAFETY: compressing codes or values does not alter the invariants.
-        unsafe {
-            Ok(
-                DictArray::new_unchecked(compressed_codes, compressed_values)
-                    .set_all_values_referenced(dict.has_all_values_referenced())
-                    .into_array(),
-            )
+        if let Some(candidate) = data.get::<CachedStringDictionary>() {
+            return Ok(candidate.array().clone());
         }
+
+        let dict = dict_encode(data.array(), exec_ctx)?;
+        compress_dictionary(compressor, &dict, compress_ctx, exec_ctx)
+    }
+}
+
+/// Compresses the value and code children of a dictionary candidate.
+pub(super) fn compress_dictionary(
+    compressor: &CascadingCompressor,
+    dict: &DictArray,
+    compress_ctx: CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    // Values = child 0.
+    let compressed_values = compressor.compress_child(
+        dict.values(),
+        &compress_ctx,
+        StringDictScheme.id(),
+        0,
+        exec_ctx,
+    )?;
+
+    // Codes = child 1.
+    let narrowed_codes = dict
+        .codes()
+        .clone()
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow(exec_ctx)?
+        .into_array();
+    let compressed_codes = compressor.compress_child(
+        &narrowed_codes,
+        &compress_ctx,
+        StringDictScheme.id(),
+        1,
+        exec_ctx,
+    )?;
+
+    // SAFETY: compressing codes or values does not alter the invariants.
+    unsafe {
+        Ok(
+            DictArray::new_unchecked(compressed_codes, compressed_values)
+                .set_all_values_referenced(dict.has_all_values_referenced())
+                .into_array(),
+        )
     }
 }
