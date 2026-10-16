@@ -20,6 +20,7 @@ use compress_bench::vortex::VortexCompressor;
 use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use mimalloc::MiMalloc;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
@@ -120,8 +121,12 @@ struct Args {
     log_format: LogFormat,
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
 
     setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;

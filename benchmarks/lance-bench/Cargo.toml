@@ -24,6 +24,7 @@ async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 glob = { workspace = true }
+mimalloc = { workspace = true }
 parquet = { version = "58" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

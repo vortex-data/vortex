@@ -25,6 +25,7 @@ futures = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
 lance-bench = { path = "../lance-bench", optional = true }
+mimalloc = { workspace = true }
 parquet = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

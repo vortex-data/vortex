@@ -18,6 +18,7 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 indicatif = { workspace = true }
 lance-bench = { path = "../lance-bench", optional = true }
+mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 tabled = { workspace = true }
