@@ -36,6 +36,8 @@ use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
+use vortex_array::scalar_fn::fns::list_project::Project;
+use vortex_array::scalar_fn::fns::list_project::project_paths_bound;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::select::FieldSelection;
@@ -447,6 +449,43 @@ fn expand_struct_root(
                         packed.children()[idx].clone()
                     })
                     .collect();
+                return Ok(Transformed {
+                    value: with_validity(pack(
+                        names.into_iter().zip(children),
+                        Nullability::NonNullable,
+                    )),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                });
+            }
+
+            if let Some(paths) = scalar_fn.as_opt::<Project>() {
+                let mut names = Vec::new();
+                let mut children = Vec::new();
+                for name in fields.names().iter() {
+                    let matching: Vec<_> = paths
+                        .0
+                        .iter()
+                        .filter(|path| path.first() == Some(name))
+                        .collect();
+                    if matching.is_empty() {
+                        continue;
+                    }
+                    names.push(name.clone());
+                    let descendants: Vec<_> = matching
+                        .iter()
+                        .filter_map(|path| path.get(1..))
+                        .filter(|path| !path.is_empty())
+                        .map(|path| path.to_vec())
+                        .collect();
+                    let idx = fields.find(name).vortex_expect("project path field exists");
+                    let child = packed.children()[idx].clone();
+                    if matching.iter().any(|path| path.len() == 1) || descendants.is_empty() {
+                        children.push(child);
+                    } else {
+                        children.push(project_paths_bound(&descendants, child)?);
+                    }
+                }
                 return Ok(Transformed {
                     value: with_validity(pack(
                         names.into_iter().zip(children),

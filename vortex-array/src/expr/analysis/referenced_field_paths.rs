@@ -13,6 +13,7 @@ use crate::expr::traversal::FoldUp;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeFolderContext;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::list_project::Project;
 use crate::scalar_fn::fns::select::Select;
 
 /// Returns the rooted field paths referenced by an expression.
@@ -76,6 +77,24 @@ impl NodeFolderContext for ReferencedFieldPaths {
             return Ok(FoldDownContext::Continue(appended));
         }
 
+        if let Some(paths) = node
+            .as_scalar()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Project>())
+        {
+            if !node.children()[0].is_root() {
+                return Ok(FoldDownContext::Continue(vec![FieldPath::root()]));
+            }
+            let narrowed = paths
+                .0
+                .iter()
+                .map(|projected| projection_source_path(node.children()[0].dtype(), projected))
+                .collect::<VortexResult<Vec<_>>>()?
+                .into_iter()
+                .map(|path| FieldPath::from_iter(path.into_iter().rev()))
+                .collect();
+            return Ok(FoldDownContext::Continue(narrowed));
+        }
+
         // Keep requested paths whose head is included, expanding a whole-scope request into one
         // path per included field.
         if let Some(selection) = node
@@ -120,6 +139,35 @@ impl NodeFolderContext for ReferencedFieldPaths {
         _children: Vec<()>,
     ) -> VortexResult<FoldUp<()>> {
         Ok(FoldUp::Continue(()))
+    }
+}
+
+/// Expand a projection path through list element boundaries into a source field path.
+fn projection_source_path(
+    dtype: &crate::dtype::DType,
+    path: &[crate::dtype::FieldName],
+) -> VortexResult<Vec<Field>> {
+    if path.is_empty() {
+        return Ok(Vec::new());
+    }
+    match dtype {
+        crate::dtype::DType::List(element, _) => {
+            let mut source = vec![Field::ElementType];
+            source.extend(projection_source_path(element, path)?);
+            Ok(source)
+        }
+        crate::dtype::DType::Struct(fields, _) => {
+            let name = &path[0];
+            let field_dtype = fields.field(name).ok_or_else(|| {
+                vortex_err!("project path field {name} does not exist in {dtype}")
+            })?;
+            let mut source = vec![Field::Name(name.clone())];
+            if path.len() > 1 {
+                source.extend(projection_source_path(&field_dtype, &path[1..])?);
+            }
+            Ok(source)
+        }
+        other => vortex_error::vortex_bail!("project path continues past non-struct dtype {other}"),
     }
 }
 
