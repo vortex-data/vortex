@@ -141,3 +141,8 @@ message ReplaceTimeZoneOpts {
   optional string time_zone = 1;
   bool null_on_non_existent = 2;
 }
+
+// Options for `vortex.var`, a reference to a name bound in an enclosing scope.
+message VariableOpts {
+  string name = 1;
+}

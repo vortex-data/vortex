@@ -4,6 +4,7 @@
 use smallvec::SmallVec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -23,6 +24,9 @@ impl ArrayRef {
             ..
         } = expr
         else {
+            if let Some(variable) = expr.as_variable() {
+                vortex_bail!("cannot apply variable '{variable}' without a provided value");
+            }
             return Ok(self);
         };
 
@@ -48,6 +52,10 @@ impl ArrayRef {
             return Ok(self);
         }
 
+        if let Some(variable) = expr.as_variable() {
+            vortex_bail!("cannot apply unbound variable '{variable}'");
+        }
+
         // Manually convert literals to ConstantArray.
         if let Some(scalar) = expr.as_opt::<Literal>() {
             return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
@@ -62,12 +70,36 @@ impl ArrayRef {
             .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
 
         // And wrap the scalar function up in an array.
-        let scalar_fn = expr
-            .as_scalar()
-            .vortex_expect("root and literal were handled above, so this is a scalar node");
+        let scalar_fn = expr.as_scalar().vortex_expect(
+            "root, variable and literal were handled above, so this is a scalar node",
+        );
         let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
 
         // Optimize the resulting array's root.
         array.optimize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::expr::Scope;
+    use crate::expr::Variable;
+    use crate::expr::var;
+
+    #[test]
+    fn variable_application_requires_a_runtime_binding() -> VortexResult<()> {
+        let root = buffer![1_i32, 2, 3].into_array();
+        let expression = var("value");
+        assert!(root.clone().apply(&expression).is_err());
+
+        let scope = Scope::new(root.dtype().clone())
+            .with_bindings([(Variable::new("value"), root.dtype().clone())])?;
+        let bound = expression.bind_scope(&scope)?;
+        assert!(root.apply_bound(&bound).is_err());
+        Ok(())
     }
 }

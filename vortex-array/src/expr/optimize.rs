@@ -22,7 +22,7 @@ impl BoundExpression {
     fn simplify_node(&self) -> VortexResult<Option<BoundExpression>> {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self),
-            BoundExpression::Root { .. } => Ok(None),
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => Ok(None),
         }
     }
 
@@ -33,7 +33,7 @@ impl BoundExpression {
     ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
         match self {
             BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
-            BoundExpression::Root { .. } => Ok(None),
+            BoundExpression::Root { .. } | BoundExpression::Variable(_) => Ok(None),
         }
     }
 
