@@ -345,7 +345,13 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
             array_stream = select_rows(array_stream, comparisons, session.clone(), concurrency);
         }
         let ctx = scan_export_ctx(session)?;
-        let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
+        // Export as many batches ahead as the scan decodes concurrently.
+        let device_stream = ArrowDeviceArrayStream::with_export_lookahead(
+            array_stream,
+            ctx,
+            ffi_runtime(),
+            concurrency,
+        )?;
 
         // SAFETY: The output is non-null and the caller guarantees writable storage.
         unsafe { ptr::write(out_stream, device_stream) };

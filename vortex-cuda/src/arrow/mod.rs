@@ -55,6 +55,7 @@ use vortex::dtype::DecimalType;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
@@ -332,9 +333,39 @@ impl ArrowDeviceStreamSchema {
 }
 
 type ArrayStreamIterator = Box<dyn Iterator<Item = VortexResult<ArrayRef>>>;
+type ExportedArrayIterator = Box<dyn Iterator<Item = VortexResult<ExportedArray>>>;
+
+/// Where `get_next` takes its arrays from.
+enum ArraySource {
+    /// Arrays exported one at a time on the stream's own context when requested.
+    Lazy(ArrayStreamIterator),
+    /// Arrays already being exported ahead of the consumer, in stream order.
+    Exported(ExportedArrayIterator),
+}
+
+/// An exported array not yet handed to the consumer; dropping it releases the array.
+struct ExportedArray(ArrowDeviceArray);
+
+// SAFETY: The array's buffers and private data are owned allocations that are not bound to the
+// exporting thread; the release callback may run on any thread.
+unsafe impl Send for ExportedArray {}
+
+impl ExportedArray {
+    fn into_inner(self) -> ArrowDeviceArray {
+        let array = std::mem::ManuallyDrop::new(self);
+        // SAFETY: `array` is never dropped, so ownership moves out exactly once.
+        unsafe { ptr::read(&raw const array.0) }
+    }
+}
+
+impl Drop for ExportedArray {
+    fn drop(&mut self) {
+        release_device_array(&mut self.0);
+    }
+}
 
 struct DeviceArrayStreamPrivateData {
-    array_iter: ArrayStreamIterator,
+    arrays: ArraySource,
     ctx: CudaExecutionCtx,
     /// Runtime used by Arrow stream callbacks to pull from `array_iter` and block on per-array
     /// CUDA exports. It must match the runtime that owns the underlying Vortex scan tasks so those
@@ -368,7 +399,12 @@ impl DeviceArrayStreamPrivateData {
     fn get_or_init_schema(&mut self) -> VortexResult<&ArrowDeviceStreamSchema> {
         if self.schema.is_none() {
             let first = match self.ctx.cuda_session().dictionary_export() {
-                DictionaryExport::Preserve => self.array_iter.next(),
+                DictionaryExport::Preserve => match &mut self.arrays {
+                    ArraySource::Lazy(arrays) => arrays.next(),
+                    ArraySource::Exported(_) => {
+                        vortex_bail!("exported arrays require a dtype-derived schema")
+                    }
+                },
                 DictionaryExport::Decode => None,
             };
             match first {
@@ -393,8 +429,21 @@ impl DeviceArrayStreamPrivateData {
             return Ok(array);
         }
 
-        match self.array_iter.next() {
-            Some(array) => self.export_stream_array(array?),
+        let array = match &mut self.arrays {
+            ArraySource::Lazy(arrays) => match arrays.next() {
+                Some(array) => return self.export_stream_array(array?),
+                None => None,
+            },
+            ArraySource::Exported(arrays) => arrays.next(),
+        };
+        match array {
+            Some(array) => {
+                // Release the array if the schema or device checks reject it.
+                let array = array?;
+                self.get_or_init_schema()?;
+                self.check_device(&array.0)?;
+                Ok(array.into_inner())
+            }
             None => Ok(ArrowDeviceArray {
                 device_id: self.device_id,
                 device_type: ARROW_DEVICE_CUDA,
@@ -520,9 +569,64 @@ impl ArrowDeviceArrayStream {
     ) -> Self {
         let dtype = array_stream.dtype().clone();
         let array_iter = Box::new(runtime.block_on_stream(array_stream));
+        Self::from_source(ArraySource::Lazy(array_iter), dtype, ctx, runtime)
+    }
+
+    /// Like [`Self::new`], exporting up to `lookahead` arrays concurrently ahead of `get_next`.
+    ///
+    /// Each array is exported on its own pooled stream as soon as the scan yields it, so
+    /// latency-bound exports, such as strings with several small kernels and readbacks, overlap
+    /// each other and the scan's remaining transfers instead of running one per `get_next`.
+    /// Exports only progress while a callback drives `runtime`. At most `lookahead` exported
+    /// arrays are held before the consumer takes them. Requires [`DictionaryExport::Decode`],
+    /// whose schema comes from the dtype; otherwise, or with `lookahead <= 1`, this is
+    /// [`Self::new`].
+    pub fn with_export_lookahead(
+        array_stream: SendableArrayStream,
+        ctx: CudaExecutionCtx,
+        runtime: &CurrentThreadRuntime,
+        lookahead: usize,
+    ) -> VortexResult<Self> {
+        if lookahead <= 1 || ctx.cuda_session().dictionary_export() != DictionaryExport::Decode {
+            return Ok(Self::new(array_stream, ctx, runtime));
+        }
+        use futures::StreamExt;
+
+        let dtype = array_stream.dtype().clone();
+        let stream_dtype = dtype.clone();
+        let template = ctx.fork()?;
+        let exports = array_stream
+            .map(move |array| {
+                let dtype = stream_dtype.clone();
+                let export_ctx = template.fork();
+                async move {
+                    let array = array?;
+                    vortex_ensure_eq!(array.dtype(), &dtype, "stream array dtype changed");
+                    let mut export_ctx = export_ctx?;
+                    Ok(ExportedArray(
+                        array.export_device_array(&mut export_ctx).await?,
+                    ))
+                }
+            })
+            .buffered(lookahead);
+        let exports = Box::new(runtime.block_on_stream(exports));
+        Ok(Self::from_source(
+            ArraySource::Exported(exports),
+            dtype,
+            ctx,
+            runtime,
+        ))
+    }
+
+    fn from_source(
+        arrays: ArraySource,
+        dtype: DType,
+        ctx: CudaExecutionCtx,
+        runtime: &CurrentThreadRuntime,
+    ) -> Self {
         let private_data = Box::new(DeviceArrayStreamPrivateData {
             device_id: ctx.stream().context().ordinal() as i64,
-            array_iter,
+            arrays,
             ctx,
             runtime: runtime.clone(),
             dtype,
@@ -913,6 +1017,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::stream::ArrayStreamAdapter;
     use vortex::array::stream::ArrayStreamExt;
+    use vortex::buffer::Buffer;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
@@ -925,6 +1030,7 @@ mod tests {
 
     use crate::CudaBufferExt;
     use crate::CudaSession;
+    use crate::DictionaryExport;
     use crate::arrow::ARROW_DEVICE_CUDA;
     use crate::arrow::ArrowArray;
     use crate::arrow::ArrowDeviceArray;
@@ -1010,6 +1116,54 @@ mod tests {
                 .release
                 .ok_or_else(|| vortex_err!("stream missing release callback"))?;
             release(&raw mut device_stream);
+            release(&raw mut device_stream);
+        }
+        assert!(device_stream.release.is_none());
+        Ok(())
+    }
+
+    /// Arrays exported ahead of `get_next` must still come out in stream order with their own
+    /// contents, and releasing the stream must release exports the consumer never took.
+    #[cuda_test]
+    fn test_export_device_array_stream_lookahead_order_and_release() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with::<CudaSession>();
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        // Batch `i` holds `i + 1` copies of `i`, so length and values identify the batch.
+        let arrays: Vec<VortexResult<ArrayRef>> = (0u32..6)
+            .map(
+                |batch| Ok(PrimitiveArray::from_iter(vec![batch; batch as usize + 1]).into_array()),
+            )
+            .collect();
+        let stream = ArrayStreamAdapter::new(dtype, stream::iter(arrays)).boxed();
+        let ctx = CudaSession::create_execution_ctx(&session)?
+            .with_dictionary_export(DictionaryExport::Decode);
+        let mut device_stream =
+            ArrowDeviceArrayStream::with_export_lookahead(stream, ctx, &runtime, 3)?;
+        let get_next = device_stream
+            .get_next
+            .ok_or_else(|| vortex_err!("stream missing get_next callback"))?;
+
+        for batch in 0u32..4 {
+            let mut array = ArrowDeviceArray::empty();
+            let status = unsafe { get_next(&raw mut device_stream, &raw mut array) };
+            assert_eq!(status, 0);
+            assert_eq!(array.device_type, ARROW_DEVICE_CUDA);
+            assert_eq!(array.array.length, i64::from(batch) + 1);
+            let values = private_data_buffer_bytes(&array.array, 1)?;
+            let values = Buffer::<u32>::from_byte_buffer(values);
+            assert_eq!(
+                values.as_slice(),
+                vec![batch; batch as usize + 1].as_slice()
+            );
+            release_device_array(&mut array);
+        }
+
+        // Batches 4 and 5 may already be exported; releasing the stream releases them.
+        unsafe {
+            let release = device_stream
+                .release
+                .ok_or_else(|| vortex_err!("stream missing release callback"))?;
             release(&raw mut device_stream);
         }
         assert!(device_stream.release.is_none());
