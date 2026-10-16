@@ -117,7 +117,7 @@ impl Operator for PackSource {
         } else {
             Validity::NonNullable
         };
-        let array = assemble(&self.fields, arrays, validity).into_array();
+        let array = assemble(&self.fields, arrays, len, validity).into_array();
         Ok(Step::Final(array))
     }
 }
@@ -138,8 +138,9 @@ impl Operator for WrapStage {
         let Input::Batch(batch) = input else {
             return Ok(Step::End);
         };
+        let len = batch.len();
         Ok(Step::Final(
-            assemble(&self.fields, vec![batch], Validity::NonNullable).into_array(),
+            assemble(&self.fields, vec![batch], len, Validity::NonNullable).into_array(),
         ))
     }
 }
@@ -149,8 +150,12 @@ impl Operator for WrapStage {
 /// The type is not derived or validated per batch: a `Pack` plan checks when it is built that
 /// each field's plan produces the field's dtype over the struct's rows, and a pack source takes
 /// the same rows from every field.
-fn assemble(fields: &StructFields, arrays: Vec<ArrayRef>, validity: Validity) -> StructArray {
-    let len = arrays.first().map_or(0, |array| array.len());
+fn assemble(
+    fields: &StructFields,
+    arrays: Vec<ArrayRef>,
+    len: usize,
+    validity: Validity,
+) -> StructArray {
     debug_assert!(
         arrays.iter().all(|array| array.len() == len)
             && fields

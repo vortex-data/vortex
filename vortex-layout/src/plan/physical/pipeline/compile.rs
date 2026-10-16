@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -296,6 +297,30 @@ impl Shares {
         })
     }
 
+    /// Counts a single split's readers without lowering chunks its mask excludes.
+    pub(crate) fn add_selected(
+        &mut self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<()> {
+        if mask.all_false() {
+            return Ok(());
+        }
+        if mask.all_true() {
+            return self.add(plan, rows);
+        }
+        let at = Reach::Selected {
+            offset: 0,
+            rows: rows.clone(),
+            mask: mask.clone(),
+        };
+        let reaches = &mut self.reaches;
+        plan.reach(rows, &at, &mut |segment, rows| {
+            reaches.push((segment, rows))
+        })
+    }
+
     /// Keeps only the segments more than one reader reads. The rest are read by the one
     /// pipeline that needs them.
     pub(crate) fn retain_shared(&mut self) {
@@ -350,13 +375,24 @@ pub enum Reach {
     Offset(u64),
     /// Every row is read for these scanned rows, as a dictionary's values are for its codes.
     Fixed(Range<u64>),
+    /// A linear mapping restricted to selected rows in the scan's root domain.
+    Selected {
+        /// Root row index of this plan's row zero.
+        offset: u64,
+        /// The root row range the mask covers.
+        rows: Range<u64>,
+        /// Selected positions relative to `rows.start`.
+        mask: Mask,
+    },
 }
 
 impl Reach {
     /// The scanned rows `rows` are read for.
     pub fn root(&self, rows: &Range<u64>) -> Range<u64> {
         match self {
-            Reach::Offset(offset) => rows.start + offset..rows.end + offset,
+            Reach::Offset(offset) | Reach::Selected { offset, .. } => {
+                rows.start + offset..rows.end + offset
+            }
             Reach::Fixed(root) => root.clone(),
         }
     }
@@ -366,12 +402,41 @@ impl Reach {
         match self {
             Reach::Offset(offset) => Reach::Offset(offset + by),
             Reach::Fixed(root) => Reach::Fixed(root.clone()),
+            Reach::Selected { offset, rows, mask } => Reach::Selected {
+                offset: offset + by,
+                rows: rows.clone(),
+                mask: mask.clone(),
+            },
         }
     }
 
     /// The mapping of a child read whole for `rows` of this plan, as dictionary values are.
     pub fn fixed(&self, rows: &Range<u64>) -> Self {
         Reach::Fixed(self.root(rows))
+    }
+
+    /// Whether the selection needs any row of this child, before lowering it.
+    pub(crate) fn selects(&self, local: &Range<u64>) -> bool {
+        let Reach::Selected { offset, rows, mask } = self else {
+            return true;
+        };
+        let start = (local.start + offset).max(rows.start);
+        let end = (local.end + offset).min(rows.end);
+        if start >= end {
+            return false;
+        }
+        let start = usize::try_from(start - rows.start).vortex_expect("offset fits selection mask");
+        let end = usize::try_from(end - rows.start).vortex_expect("offset fits selection mask");
+        match mask {
+            Mask::AllTrue(_) => true,
+            Mask::AllFalse(_) => false,
+            Mask::Values(values) => match values.cached_indices() {
+                Some(indices) => indices
+                    .get(indices.partition_point(|&index| index < start))
+                    .is_some_and(|&index| index < end),
+                None => values.bit_buffer().count_range(start, end) > 0,
+            },
+        }
     }
 }
 

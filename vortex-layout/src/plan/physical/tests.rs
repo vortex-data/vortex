@@ -4,7 +4,10 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -43,6 +46,7 @@ use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::LayoutBuildContext;
+use crate::LayoutChildren;
 use crate::LayoutEncoding;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
@@ -147,6 +151,60 @@ fn chunked_plan_exposes_chunks() -> VortexResult<()> {
     assert_eq!(plan.child_count(), 2);
     assert_eq!(child_of(&plan, 0)?.row_count(), 2);
     assert_eq!(child_of(&plan, 1)?.row_count(), 1);
+    Ok(())
+}
+
+#[derive(Clone)]
+struct CountedChunkRows {
+    rows: Arc<[u64]>,
+    calls: Arc<AtomicUsize>,
+}
+
+impl LayoutChildren for CountedChunkRows {
+    fn to_arc(&self) -> Arc<dyn LayoutChildren> {
+        Arc::new(self.clone())
+    }
+
+    fn child(&self, _idx: usize, _dtype: &DType) -> VortexResult<LayoutRef> {
+        Err(vortex_err!("Lowering must leave chunk children lazy"))
+    }
+
+    fn child_row_count(&self, idx: usize) -> u64 {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.rows[idx]
+    }
+
+    fn nchildren(&self) -> usize {
+        self.rows.len()
+    }
+}
+
+#[rstest]
+#[case::normal(vec![3, 2], vec![0, 3])]
+#[case::empty_chunks(vec![0, 2, 0, 3, 0], vec![0, 0, 2, 2, 5])]
+#[case::empty(vec![], vec![])]
+#[case::zero_rows(vec![0], vec![0])]
+fn lowering_reuses_validated_chunk_boundaries(
+    #[case] rows: Vec<u64>,
+    #[case] offsets: Vec<u64>,
+) -> VortexResult<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let row_count = rows.iter().sum();
+    let layout = ChunkedLayout::new(
+        row_count,
+        DType::Null,
+        Arc::new(CountedChunkRows {
+            rows: rows.into(),
+            calls: Arc::clone(&calls),
+        }),
+    )
+    .into_layout();
+    calls.store(0, Ordering::Relaxed);
+    let plan = lower(&layout)?;
+    assert_eq!(plan.as_::<Concat>().row_offsets(), offsets);
+    assert_eq!(plan.row_count(), row_count);
+    assert_eq!(plan.child_count(), offsets.len());
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
     Ok(())
 }
 

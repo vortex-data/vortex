@@ -16,6 +16,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -36,6 +37,7 @@ use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use super::MAX_ROWS_PER_CHUNK;
 use super::PreparedScan;
@@ -45,9 +47,13 @@ use super::row_chunks;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::children::OwnedLayoutChildren;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::foreign::new_foreign_layout;
+use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
@@ -65,6 +71,7 @@ use crate::test::new_session;
 
 const CHUNK_ROWS: usize = 1000;
 const CHUNKS: usize = 4;
+static UNSUPPORTED_ID: CachedId = CachedId::new("test.unsupported");
 
 /// A table chunk of `CHUNK_ROWS` rows starting at row `start`: an integer, a nullable string and a
 /// list column.
@@ -314,19 +321,29 @@ fn fixed_row_chunks(#[case] rows: Range<u64>, #[case] expected: Vec<Range<u64>>)
 }
 
 #[rstest]
-#[case::empty(0, 0, 65_536)]
-#[case::single_chunk(1000, 100_000_000, 65_536)]
-#[case::no_bytes(100_000, 0, 65_536)]
-#[case::small_rows(1_000_000, 64_000_000, 65_536)]
-#[case::large_rows(1_000_000, 384_000_000, 16_384)]
-#[case::minimum(1_000_000, 2_000_000_000, 8192)]
-fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: usize) {
+#[case::empty(0, 0, None, 65_536)]
+#[case::single_chunk(1000, 100_000_000, None, 65_536)]
+#[case::no_bytes(100_000, 0, None, 65_536)]
+#[case::small_rows(1_000_000, 64_000_000, None, 65_536)]
+#[case::large_rows(1_000_000, 384_000_000, None, 16_384)]
+#[case::minimum(1_000_000, 2_000_000_000, None, 8192)]
+#[case::sparse_small_rows(3_339_715, 49_808_116, Some(834_928), 524_288)]
+#[case::sparse_medium_rows(1_000_000, 35_640_884, Some(250_000), 131_072)]
+#[case::sparse_more_workers(3_339_715, 49_808_116, Some(27_830), 65_536)]
+#[case::sparse_lists(1_000_000, 86_983_648, Some(250_000), 65_536)]
+#[case::sparse_wide_rows(1_000_000, 3_354_532_688, Some(250_000), 8192)]
+fn chunk_byte_budget(
+    #[case] rows: u64,
+    #[case] bytes: u32,
+    #[case] sparse_target: Option<u64>,
+    #[case] expected: usize,
+) {
     let locations = [SegmentLocation {
         offset: 0,
         length: bytes,
         alignment: Alignment::none(),
     }];
-    assert_eq!(rows_per_chunk(rows, &locations), expected);
+    assert_eq!(rows_per_chunk(rows, &locations, sparse_target), expected);
 }
 
 #[test]
@@ -347,6 +364,46 @@ impl SegmentSource for CountingSegments {
         self.reads.fetch_add(1, Ordering::Relaxed);
         self.inner.request(id)
     }
+}
+
+#[tokio::test]
+async fn tiny_selection_shares_a_stored_segment() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let input = PrimitiveArray::from_iter(0_i32..1_048_576).into_array();
+    let dtype = input.dtype().clone();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let layout = FlatLayoutStrategy::default()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(
+                dtype.clone(),
+                stream::iter([Ok((sequence.advance(), input))]),
+            )
+            .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let counted = Arc::new(CountingSegments {
+        inner: segments,
+        reads: AtomicUsize::new(0),
+    });
+    let segments: Arc<dyn SegmentSource> = Arc::<CountingSegments>::clone(&counted);
+    // These rows share one stored segment but fall across the old worker-sized task boundary,
+    // even on one core. Selection-aware sizing lets one projection share its read.
+    let scan = builder(&session, &segments, &layout)?.with_row_indices(
+        StrictSortedBuffer::try_new(Buffer::from(vec![10, 350_000]))?,
+    );
+    let actual = collect(dtype, scan.into_stream()?).await?;
+    assert_arrays_eq!(
+        actual,
+        Buffer::from(vec![10_i32, 350_000]).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    assert_eq!(counted.reads.load(Ordering::Relaxed), 1);
+    Ok(())
 }
 
 #[tokio::test]
@@ -416,19 +473,94 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     Ok(())
 }
 
-/// V2 rejects list layouts: their element ranges are only known once their offsets are read.
 #[tokio::test]
-async fn list_layouts_return_an_error() -> VortexResult<()> {
+async fn list_layouts_match_v1() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
     let (segments, layout) = write(&session, &strategy).await?;
-    let builder = builder(&session, &segments, &layout)?;
-    let error = builder
-        .into_stream()?
-        .try_next()
-        .await
-        .expect_err("V2 must reject an unsupported layout");
-    assert!(error.to_string().contains("V2 scans do not support"));
+    assert_same_as_v1(&session, || builder(&session, &segments, &layout)).await
+}
+
+#[rstest]
+#[case::empty(vec![])]
+#[case::null_only(vec![3, 6, 9])]
+#[case::contiguous(vec![1, 2])]
+#[case::contiguous_with_empty(vec![7, 8])]
+#[case::mixed(vec![0, 1, 2, 3, 8, 31, 63])]
+#[case::all((0..64).collect())]
+#[tokio::test]
+async fn selected_list_values_match_input(
+    #[case] rows: Vec<u64>,
+    #[values(false, true)] nested: bool,
+    #[values(false, true)] nullable: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let mut offsets = vec![0_u32];
+    let mut total = 0;
+    for row in 0..64 {
+        total += row % 4;
+        offsets.push(total);
+    }
+    let inner_strategy = ListLayoutStrategy::default()
+        .with_elements(chunked_flat())
+        .with_offsets(chunked_flat())
+        .with_validity(chunked_flat());
+    let (elements, element_strategy) = if nested {
+        let elements = ListArray::try_new(
+            Buffer::from_iter(0..2 * total).into_array(),
+            Buffer::from_iter((0..=total).map(|row| 2 * row)).into_array(),
+            Validity::Array(BoolArray::from_iter((0..total).map(|row| row % 3 != 0)).into_array()),
+        )?
+        .into_array();
+        (
+            elements,
+            Arc::new(inner_strategy) as Arc<dyn LayoutStrategy>,
+        )
+    } else {
+        (Buffer::from_iter(0..total).into_array(), chunked_flat())
+    };
+    let validity = if nullable {
+        Validity::Array(BoolArray::from_iter((0..64).map(|row| row % 3 != 0)).into_array())
+    } else {
+        Validity::NonNullable
+    };
+    let input =
+        ListArray::try_new(elements, Buffer::from(offsets).into_array(), validity)?.into_array();
+    let dtype = input.dtype().clone();
+    let expected = input.take(Buffer::from(rows.clone()).into_array())?;
+    let strategy = ListLayoutStrategy::default()
+        .with_elements(element_strategy)
+        .with_offsets(chunked_flat())
+        .with_validity(chunked_flat());
+    let segments = Arc::new(TestSegments::default());
+    let (mut id, eof) = SequenceId::root().split();
+    let layout = strategy
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype.clone(), stream::iter([Ok((id.advance(), input))]))
+                .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let counted = Arc::new(CountingSegments {
+        inner: segments,
+        reads: AtomicUsize::new(0),
+    });
+    let segments: Arc<dyn SegmentSource> = Arc::<CountingSegments>::clone(&counted);
+    let empty = rows.is_empty();
+    let null_only = nullable && !empty && rows.iter().all(|row| row % 3 == 0);
+    let scan = builder(&session, &segments, &layout)?
+        .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(rows))?);
+    let actual = collect(dtype, scan.into_stream()?).await?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    if empty {
+        assert_eq!(counted.reads.load(Ordering::Relaxed), 0);
+    } else if null_only {
+        // Only offsets and validity are needed, even when null lists store nonempty elements.
+        assert_eq!(counted.reads.load(Ordering::Relaxed), 2);
+    }
     Ok(())
 }
 
@@ -479,5 +611,74 @@ async fn work_chunks_ignore_layout_boundaries(
     let arrays: Vec<_> = scan.execute_stream()?.try_collect().await?;
     assert_eq!(arrays.len(), 1);
     assert_eq!(arrays[0].len(), CHUNKS * CHUNK_ROWS);
+    Ok(())
+}
+
+#[tokio::test]
+async fn unknown_layout_returns_an_error() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, known) = write(&session, chunked_flat().as_ref()).await?;
+    let layout = new_foreign_layout(
+        *UNSUPPORTED_ID,
+        known.dtype().clone(),
+        known.row_count(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let error = builder(&session, &segments, &layout)?
+        .into_stream()?
+        .try_next()
+        .await
+        .expect_err("V2 must reject an unsupported layout");
+    assert!(
+        error
+            .to_string()
+            .contains("No physical plan implementation for layout 'test.unsupported'")
+    );
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn unsupported_chunk_is_checked_when_reached(
+    #[values(false, true)] selected: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, known) = write(&session, chunked_flat().as_ref()).await?;
+    let rows = known.row_count();
+    let unknown = new_foreign_layout(
+        *UNSUPPORTED_ID,
+        known.dtype().clone(),
+        rows,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let layout = ChunkedLayout::new(
+        2 * rows,
+        known.dtype().clone(),
+        OwnedLayoutChildren::layout_children(vec![Arc::clone(&known), unknown]),
+    )
+    .into_layout();
+    let range = if selected { rows..2 * rows } else { 0..rows };
+    let result = collect(
+        known.dtype().clone(),
+        builder(&session, &segments, &layout)?
+            .with_row_range(range)
+            .into_stream()?,
+    )
+    .await;
+    if selected {
+        let error = result.expect_err("a reached unsupported chunk must fail");
+        assert!(error.to_string().contains("test.unsupported"));
+    } else {
+        let expected = collect(
+            known.dtype().clone(),
+            builder(&session, &segments, &known)?.into_stream()?,
+        )
+        .await?;
+        assert_arrays_eq!(result?, expected, &mut session.create_execution_ctx());
+    }
     Ok(())
 }

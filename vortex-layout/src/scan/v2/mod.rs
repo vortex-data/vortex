@@ -11,8 +11,10 @@
 //! Import this module's [`ScanBuilder`] to select V2 explicitly. It accepts a [`ScanFile`]
 //! directly and supports projection, row ranges, and selections. Unsupported layouts return an
 //! error; filters and limits are not part of this builder's API. Work is partitioned into fixed
-//! chunks of up to 65,536 rows, independently of the stored layout's chunk boundaries.
-//! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.
+//! chunks independently of the stored layout's chunk boundaries. Dense scans use up to 65,536
+//! rows per chunk, in 8,192-row multiples, targeting 8 MiB of serialized data. Sparse identity
+//! projections can use larger aligned chunks within that estimate, targeting four tasks per
+//! worker to reduce repeated segment reads.
 
 mod io;
 mod split;
@@ -35,8 +37,8 @@ use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_io::request::IoService;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::planning::planner::WorkScope;
@@ -46,12 +48,6 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
-use crate::layouts::chunked::Chunked;
-use crate::layouts::dict::Dict;
-use crate::layouts::flat::Flat;
-use crate::layouts::struct_::Struct;
-use crate::layouts::zoned::LegacyStats;
-use crate::layouts::zoned::Zoned;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
@@ -69,7 +65,11 @@ const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
 
 /// Limit estimated bytes per task without changing the writer-aligned row granularity.
-fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
+fn rows_per_chunk(
+    row_count: u64,
+    locations: &[SegmentLocation],
+    sparse_target: Option<u64>,
+) -> usize {
     if row_count <= MAX_ROWS_PER_CHUNK as u64 {
         return MAX_ROWS_PER_CHUNK;
     }
@@ -79,7 +79,15 @@ fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
         .sum();
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
     let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
-    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+    let max_blocks = sparse_target.map_or(8, |rows| {
+        // Grow sparse tasks only within the byte target, keeping power-of-two boundaries
+        // aligned with the original work chunks and enough tasks to occupy the workers.
+        let blocks = (rows / ROW_BLOCK_SIZE as u64).min(blocks).max(8);
+        1_u64 << blocks.ilog2()
+    });
+    usize::try_from(blocks.clamp(1, max_blocks))
+        .vortex_expect("the byte target bounds the block count to at most 1024")
+        * ROW_BLOCK_SIZE
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
@@ -109,8 +117,10 @@ pub struct ScanFile {
 
 /// Builds a projection scan on the planner-driven V2 executor.
 ///
-/// This builder reads the file's layout and segments directly. Unsupported layouts return an
-/// error when the stream is polled. Filters and row limits are not supported.
+/// This builder reads the file's layout and segments directly. Layouts are checked as their
+/// plans are lowered, so unsupported layouts outside the requested range can remain unread.
+/// Unsupported plans return an error when the stream is polled. Filters and row limits are
+/// not supported.
 pub struct ScanBuilder<A = ArrayRef> {
     session: VortexSession,
     file: ScanFile,
@@ -237,34 +247,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 }
 
-/// Whether every required layout lowers to plans with a pipeline implementation.
-///
-/// List layouts lower to a list assembly, which cannot compile before its offsets are read.
-fn supports_layout(layout: &LayoutRef, identity: bool) -> VortexResult<bool> {
-    if !(layout.is::<Flat>()
-        || layout.is::<Chunked>()
-        || layout.is::<Struct>()
-        || layout.is::<Dict>()
-        || layout.is::<Zoned>()
-        || layout.is::<LegacyStats>())
-    {
-        return Ok(false);
-    }
-    // An identity projection cannot use zone statistics. Leave their layouts uninitialized.
-    if identity && (layout.is::<Zoned>() || layout.is::<LegacyStats>()) {
-        return match layout.slot(0)? {
-            Some(data) => supports_layout(&data, identity),
-            None => Ok(false),
-        };
-    }
-    for child in layout.children()? {
-        if !supports_layout(&child, identity)? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
 /// A scan planned over its file, ready to run its splits.
 struct PreparedScan<A: 'static + Send> {
     session: VortexSession,
@@ -284,10 +266,6 @@ impl<A: 'static + Send> PreparedScan<A> {
     /// fixed-size row chunks.
     fn try_new(builder: ScanBuilder<A>) -> VortexResult<Self> {
         let file = builder.file;
-        vortex_ensure!(
-            supports_layout(&file.layout, builder.projection.is_root())?,
-            "V2 scans do not support this file's layout"
-        );
         let root = lower(&file.layout)?;
         let row_count = root.row_count();
         // An identity projection needs no rewrites. Keep the lowered children lazy, including
@@ -299,14 +277,23 @@ impl<A: 'static + Send> PreparedScan<A> {
             optimize(plan_row_idx_expression(builder.projection, root)?)?
         };
         let chunk_rows = if identity {
-            rows_per_chunk(row_count, &file.locations)
+            let rows = builder.row_range.clone().unwrap_or(0..row_count);
+            let selected = builder.selection.row_count_in_range(&rows);
+            let span = rows.end.saturating_sub(rows.start);
+            let sparse_target = (selected <= span / 16).then(|| {
+                // Tiny selections cannot occupy the full worker budget. Larger aligned tasks
+                // let nearby selected rows share their stored segments.
+                let tasks = (4 * get_available_parallelism().unwrap_or(1)) as u64;
+                span / tasks.min(selected).max(1)
+            });
+            rows_per_chunk(row_count, &file.locations, sparse_target)
         } else {
             MAX_ROWS_PER_CHUNK
         };
         let splits = row_chunks(builder.row_range.unwrap_or(0..row_count), chunk_rows);
         let io = Arc::new(SegmentScanIo::new(
             file.segments,
-            segment_ranges(&file.locations),
+            segment_ranges(Arc::clone(&file.locations)),
         ));
         Ok(Self {
             session: builder.session.clone(),
@@ -328,22 +315,22 @@ impl<A: 'static + Send> PreparedScan<A> {
 
     /// The splits with selected rows, each ready to be admitted to a planning run.
     fn split_plans(&self) -> Vec<SplitPlan> {
+        let selection = Arc::new(self.selection.clone());
         self.splits
             .iter()
             .filter_map(|rows| {
-                let row_mask = self.selection.row_mask(rows);
-                if row_mask.mask().all_false() {
+                if self.selection.row_count_in_range(rows) == 0 {
                     return None;
                 }
                 let scope = WorkScope {
                     file_ordinal: 0,
-                    rows: row_mask.row_range(),
+                    rows: rows.clone(),
                 };
                 Some(SplitPlan {
                     root: plan_projection(
                         self.plans.clone(),
                         scope.clone(),
-                        row_mask.mask().clone(),
+                        Arc::clone(&selection),
                     ),
                     scope,
                 })

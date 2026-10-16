@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
@@ -10,6 +11,8 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Plan;
@@ -18,6 +21,12 @@ use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanVTable;
+use crate::plan::physical::operators::ListSource;
+use crate::plan::physical::operators::UNBOUNDED;
+use crate::plan::physical::pipeline::Chain;
+use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::pipeline::Reach;
+use crate::segments::SegmentId;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -122,6 +131,68 @@ impl PlanVTable for ListPack {
             OFFSETS => Cow::Borrowed("offsets"),
             VALIDITY => Cow::Borrowed("validity"),
             _ => Cow::Owned(format!("child[{index}]")),
+        }
+    }
+
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        if mask.all_false() {
+            return Ok(None);
+        }
+        let boundaries = offset_mask(mask);
+        let offsets = compiler
+            .compile(&plan.offsets()?, rows.start..rows.end + 1, &boundaries)?
+            .ok_or_else(|| vortex_err!("Selected list offsets produced no rows"))?;
+        let mut chains = vec![offsets];
+        if let Some(validity) = plan.validity()? {
+            chains.push(
+                compiler
+                    .compile(&validity, rows, mask)?
+                    .ok_or_else(|| vortex_err!("Selected list validity produced no rows"))?,
+            );
+        }
+        let source = ListSource::new(plan.clone(), mask.clone(), compiler.values().clone());
+        Ok(Some(compiler.join_with(chains, |_| UNBOUNDED, source)))
+    }
+
+    fn reach(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        at: &Reach,
+        visit: &mut dyn FnMut(SegmentId, Range<u64>),
+    ) -> VortexResult<()> {
+        // Elements have a different row domain, known only after the selected offsets arrive.
+        // Their scan records its own segment readers when those ranges have been resolved.
+        let root_rows = at.root(&rows);
+        plan.offsets()?
+            .reach(rows.start..rows.end + 1, &at.fixed(&rows), &mut |id, _| {
+                visit(id, root_rows.clone())
+            })?;
+        if let Some(validity) = plan.validity()? {
+            validity.reach(rows, at, visit)?;
+        }
+        Ok(())
+    }
+}
+
+/// A selected list needs both its starting and ending offsets.
+fn offset_mask(mask: &Mask) -> Mask {
+    match mask.indices() {
+        AllOr::None => Mask::new_false(mask.len() + 1),
+        AllOr::All => Mask::new_true(mask.len() + 1),
+        AllOr::Some(indices) => {
+            let mut boundaries = Vec::with_capacity(indices.len() * 2);
+            for &index in indices {
+                if boundaries.last() != Some(&index) {
+                    boundaries.push(index);
+                }
+                boundaries.push(index + 1);
+            }
+            Mask::from_indices(mask.len() + 1, boundaries)
         }
     }
 }

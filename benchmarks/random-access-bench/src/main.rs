@@ -87,6 +87,9 @@ struct Args {
     /// Whether to reopen the file on each iteration, use a cached handle, or run both.
     #[arg(long, value_enum, default_value_t = OpenMode::Both)]
     open_mode: OpenMode,
+    /// Use the explicit V2 scan API for Vortex formats.
+    #[arg(long)]
+    scan_v2: bool,
     /// Read the data files from this remote directory (e.g. `s3://bucket/prefix/`) instead of
     /// local disk. The directory must mirror the layout of the local benchmark data directory,
     /// as produced by `--prepare-data`.
@@ -119,6 +122,7 @@ async fn main() -> Result<()> {
         patterns: args.patterns,
         time_limit: args.time_limit,
         open_mode: args.open_mode,
+        scan_v2: args.scan_v2,
         display_format: args.display_format,
         output_path: args.output_path,
         ingest_output: args.ingest_output,

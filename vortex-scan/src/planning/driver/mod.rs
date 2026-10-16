@@ -22,6 +22,8 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+use smallvec::SmallVec;
+use smallvec::smallvec;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -83,6 +85,9 @@ enum Output {
     Morsel(MorselOutput),
 }
 
+// Root, selection, projection, and continuation fit inline. Deeper compositions can spill.
+type Priority = SmallVec<[u64; 4]>;
+
 /// One live planner or morsel. Boxed in the run queue and the parked map, so scheduling moves a
 /// pointer.
 struct Work {
@@ -91,7 +96,7 @@ struct Work {
     scope: WorkScope,
     item: Item,
     /// Stable child-ordinal path, beginning with the root's admission ordinal.
-    path: Vec<u64>,
+    path: Priority,
     /// The parent continuation sorts after all previously emitted child subtrees.
     next_child: u64,
     /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
@@ -99,7 +104,7 @@ struct Work {
 }
 
 impl Work {
-    fn priority(&self) -> Vec<u64> {
+    fn priority(&self) -> Priority {
         let mut priority = self.path.clone();
         priority.push(self.next_child);
         priority
@@ -107,7 +112,7 @@ impl Work {
 
     // Child k takes the continuation's old key as its path. Its subtree then sorts before
     // the parent's new continuation at k + 1, even if descendants are discovered after IO.
-    fn child_path(&mut self) -> Vec<u64> {
+    fn child_path(&mut self) -> Priority {
         let path = self.priority();
         self.next_child += 1;
         path
@@ -146,7 +151,7 @@ impl Work {
 /// Keeps scheduling order separate from lookup for deliveries to runnable work.
 #[derive(Default)]
 struct ReadyQueue {
-    priorities: BTreeMap<Vec<u64>, IoOwnerId>,
+    priorities: BTreeMap<Priority, IoOwnerId>,
     work: HashMap<IoOwnerId, Box<Work>>,
 }
 
@@ -233,7 +238,7 @@ impl Run {
         let id = RootId(self.next_root);
         self.next_root += 1;
         self.roots.insert(id, Root { io, live: 0 });
-        self.spawn(id, scope, Item::Planner(root), vec![id.0]);
+        self.spawn(id, scope, Item::Planner(root), smallvec![id.0]);
         id
     }
 
@@ -375,7 +380,7 @@ impl Run {
         Ok(())
     }
 
-    fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item, path: Vec<u64>) {
+    fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item, path: Priority) {
         let id = IoOwnerId(self.next_owner);
         self.next_owner += 1;
         if let Some(root) = self.roots.get_mut(&root) {

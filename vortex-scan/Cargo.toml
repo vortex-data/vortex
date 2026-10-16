@@ -26,6 +26,7 @@ vortex-utils = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 roaring = { workspace = true }
+smallvec = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

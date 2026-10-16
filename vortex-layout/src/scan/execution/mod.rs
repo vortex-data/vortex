@@ -15,9 +15,12 @@ use std::sync::Arc;
 
 use vortex_buffer::Alignment;
 use vortex_io::request::IoTarget;
-use vortex_mask::Mask;
+use vortex_scan::planning::next::next_fn;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
+use vortex_scan::planning::selection::SelectedRows;
+use vortex_scan::planning::selection::SelectionPlanner;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use self::projection::ProjectionPlanner;
@@ -62,15 +65,15 @@ pub(super) struct ScanPlans {
     pub(super) values: ValueCache,
 }
 
-/// The rows of a split selected for projection.
-struct SelectedRows {
-    /// The split the rows belong to.
+/// Selects the rows of a fixed work chunk before handing them to its projection planner.
+pub(super) fn plan_projection(
+    plans: ScanPlans,
     scope: WorkScope,
-    /// Which rows of `scope.rows` are selected.
-    mask: Mask,
-}
-
-/// The work for one split: project the rows of `scope` selected by `mask`.
-pub(super) fn plan_projection(plans: ScanPlans, scope: WorkScope, mask: Mask) -> Box<dyn Planner> {
-    Box::new(ProjectionPlanner::new(plans, SelectedRows { scope, mask }))
+    selection: Arc<Selection>,
+) -> Box<dyn Planner> {
+    Box::new(SelectionPlanner::new(
+        scope,
+        selection,
+        next_fn(move |selected| Ok(ProjectionPlanner::new(plans.clone(), selected))),
+    ))
 }

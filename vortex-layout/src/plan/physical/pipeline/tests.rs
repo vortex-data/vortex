@@ -6,6 +6,7 @@
 
 use std::collections::VecDeque;
 use std::ops::Range;
+use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_array::ArrayContext;
@@ -14,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -25,6 +27,7 @@ use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
@@ -32,7 +35,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use super::port::SourceEnd;
 use super::synthetic::row_dtype;
@@ -42,9 +47,11 @@ use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::foreign::new_foreign_layout;
 use crate::layouts::struct_::StructLayout;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Filter;
+use crate::plan::physical::ListPackPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
@@ -288,6 +295,55 @@ fn delivery(order: Delivery) -> impl FnMut(&[ReadRequest]) -> usize {
     }
 }
 
+#[rstest]
+fn grouped_list_ranges_preserve_order_and_shared_reads(
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+    #[values(false, true)] shared: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let elements = Buffer::from_iter(0_i64..20).into_array();
+    let offsets = Buffer::from_iter((0_u64..=10).map(|row| row * 2)).into_array();
+    let input =
+        ListArray::try_new(elements.clone(), offsets.clone(), Validity::NonNullable)?.into_array();
+    let layout = if shared {
+        store.flat(&elements)?
+    } else {
+        store.chunked(&elements, &[5, 5, 5, 5])?
+    };
+    let plan = ListPackPlan::try_new(
+        false.into(),
+        10,
+        lower(&layout)?,
+        lower(&store.flat(&offsets)?)?,
+        None,
+    )?
+    .into_plan();
+    let rows = [0_u64, 1, 7, 8];
+    let mask = Mask::from_iter((0..10).map(|row| rows.contains(&row)));
+    let result = run(&store, &plan, 0..10, mask, delivery(order))?;
+    let actual = ChunkedArray::try_new(result.arrays, input.dtype().clone())?.into_array();
+    let expected = input.take(Buffer::from_iter(rows).into_array())?;
+    assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+    if get_available_parallelism().unwrap_or(1) > 1 {
+        if shared {
+            let reads = result
+                .events
+                .iter()
+                .filter(|event| **event == Event::Delivered(0));
+            assert_eq!(reads.count(), 1);
+        } else {
+            assert!(
+                result.events.iter().any(|event| {
+                    matches!(event, Event::Io(ids) if ids.contains(&0) && ids.contains(&2))
+                }),
+                "{:?}",
+                result.events
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Delivers segments in the given order.
 fn scripted(order: &[u32]) -> impl FnMut(&[ReadRequest]) -> usize + '_ {
     let mut next = order.iter();
@@ -427,6 +483,135 @@ fn splits_of_one_scan_read_each_segment_once(
             &split.rows,
             &split.mask,
             run.splits.get(index).cloned().unwrap_or_default(),
+        )?;
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case::gaps(vec![0..2, 8..10, 18..20])]
+#[case::overlapping(vec![0..8, 4..12, 10..20])]
+#[case::unordered(vec![15..20, 0..4, 7..12])]
+#[case::empty(vec![0..0, 4..8, 20..20])]
+fn split_ranges_preserve_shared_reads(
+    #[case] ranges: Vec<Range<u64>>,
+    #[values(1, 3)] active: usize,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, expected) = fixture(&mut store)?;
+    let splits: Vec<_> = ranges.into_iter().map(Split::all).collect();
+    let scan = Scan::try_new(SESSION.clone(), plan, splits.clone())?.with_max_active(active);
+    let run = drive(&store, scan, delivery(order))?;
+    assert_eq!(run.leftover, (0, 0));
+    let reads = segments_read(&run.events);
+    let mut unique = reads.clone();
+    unique.dedup();
+    assert_eq!(reads, unique, "each shared segment is read once");
+    for (index, split) in splits.iter().enumerate() {
+        assert_view(
+            &expected,
+            &split.rows,
+            &split.mask,
+            run.splits.get(index).cloned().unwrap_or_default(),
+        )?;
+    }
+    Ok(())
+}
+
+#[rstest]
+fn chunk_in_gap_between_splits_stays_lazy(#[values(1, 2)] active: usize) -> VortexResult<()> {
+    static UNKNOWN_ID: CachedId = CachedId::new("test.unread-gap");
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let known = store.flat(&values)?;
+    let unknown = new_foreign_layout(
+        *UNKNOWN_ID,
+        values.dtype().clone(),
+        ROWS,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let layout = ChunkedLayout::new(
+        3 * ROWS,
+        values.dtype().clone(),
+        OwnedLayoutChildren::layout_children(vec![Arc::clone(&known), unknown, known]),
+    )
+    .into_layout();
+    let scan = Scan::try_new(
+        SESSION.clone(),
+        lower(&layout)?,
+        vec![Split::all(0..2), Split::all(2 * ROWS..2 * ROWS + 2)],
+    )?
+    .with_max_active(active);
+    let run = drive(&store, scan, delivery(Delivery::Lifo))?;
+    assert_eq!(segments_read(&run.events), vec![0]);
+    assert_eq!(run.leftover, (0, 0));
+    assert_eq!(run.splits.len(), 2);
+    for pieces in run.splits {
+        assert_view(&values, &(0..2), &Mask::new_true(2), pieces)?;
+    }
+    Ok(())
+}
+
+#[rstest]
+fn chunk_excluded_by_mask_stays_lazy(
+    #[values(false, true)] nested: bool,
+    #[values(false, true)] empty: bool,
+    #[values(false, true)] cached_indices: bool,
+) -> VortexResult<()> {
+    static UNKNOWN_ID: CachedId = CachedId::new("test.masked-gap");
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let known = store.flat(&values)?;
+    let unknown = new_foreign_layout(
+        *UNKNOWN_ID,
+        values.dtype().clone(),
+        ROWS,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let mut layout = ChunkedLayout::new(
+        3 * ROWS,
+        values.dtype().clone(),
+        OwnedLayoutChildren::layout_children(vec![Arc::clone(&known), unknown, Arc::clone(&known)]),
+    )
+    .into_layout();
+    let offset = if nested { ROWS } else { 0 };
+    if nested {
+        layout = ChunkedLayout::new(
+            4 * ROWS,
+            values.dtype().clone(),
+            OwnedLayoutChildren::layout_children(vec![known, layout]),
+        )
+        .into_layout();
+    }
+    let rows = offset + 5..offset + 3 * ROWS - 5;
+    let len = usize::try_from(rows.end - rows.start)?;
+    let mut mask = if empty {
+        Mask::new_false(len)
+    } else {
+        Mask::from_indices(len, [0, len - 1])
+    };
+    if !cached_indices {
+        mask = Mask::from_buffer(mask.to_bit_buffer());
+    }
+    let scan = Scan::try_new(SESSION.clone(), lower(&layout)?, vec![Split { rows, mask }])?;
+    let run = drive(&store, scan, delivery(Delivery::Lifo))?;
+    assert_eq!(run.leftover, (0, 0));
+    if empty {
+        assert!(segments_read(&run.events).is_empty());
+        assert!(run.splits.iter().all(Vec::is_empty));
+    } else {
+        assert_eq!(segments_read(&run.events), vec![0]);
+        let expected = PrimitiveArray::from_iter([5, ROWS as i32 - 6]).into_array();
+        assert_view(
+            &expected,
+            &(0..2),
+            &Mask::new_true(2),
+            run.splits[0].clone(),
         )?;
     }
     Ok(())
@@ -819,4 +1004,30 @@ fn pack_readiness_tracks_changes_and_consumption(
         );
     }
     Ok(())
+}
+
+#[rstest]
+fn nullable_struct_without_fields_keeps_its_rows(
+    #[values(Sel::All, Sel::EveryOther)] selection: Sel,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let validity = BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array();
+    let expected = StructArray::try_new_with_dtype(
+        Vec::new(),
+        StructFields::empty(),
+        ROWS as usize,
+        Validity::Array(validity.clone()),
+    )?
+    .into_array();
+    let layout = StructLayout::new(ROWS, expected.dtype().clone(), vec![store.flat(&validity)?])
+        .into_layout();
+    let mask = selection.mask(ROWS as usize);
+    let run = run(
+        &store,
+        &lower(&layout)?,
+        0..ROWS,
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }

@@ -671,15 +671,40 @@ impl Scan {
             0,
             splits.iter().map(|split| split.rows.clone()).collect(),
         );
-        // Only the rows some split reads can share a segment between readers.
-        let start = splits
-            .iter()
-            .map(|split| split.rows.start)
-            .min()
-            .unwrap_or(0);
-        let end = splits.iter().map(|split| split.rows.end).max().unwrap_or(0);
         match &root {
-            Root::Plan(plan) => core.shares.add(plan, start..end)?,
+            Root::Plan(plan) => {
+                if let [split] = splits.as_slice() {
+                    core.shares
+                        .add_selected(plan, split.rows.clone(), &split.mask)?;
+                } else if splits
+                    .windows(2)
+                    .all(|pair| pair[0].rows.end <= pair[1].rows.start)
+                {
+                    // List selections can leave large gaps between element ranges. Keep those
+                    // chunks lazy, merging adjacent ranges so dense scans still visit once.
+                    let mut rows = 0..0;
+                    for split in &splits {
+                        if split.rows.start > rows.end {
+                            if !rows.is_empty() {
+                                core.shares.add(plan, rows.clone())?;
+                            }
+                            rows.start = split.rows.start;
+                        }
+                        rows.end = split.rows.end;
+                    }
+                    if !rows.is_empty() {
+                        core.shares.add(plan, rows)?;
+                    }
+                } else {
+                    let start = splits
+                        .iter()
+                        .map(|split| split.rows.start)
+                        .min()
+                        .unwrap_or(0);
+                    let end = splits.iter().map(|split| split.rows.end).max().unwrap_or(0);
+                    core.shares.add(plan, start..end)?;
+                }
+            }
         }
         core.shares.retain_shared();
         core.dirty_flags = vec![false; 1];

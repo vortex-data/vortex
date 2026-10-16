@@ -189,6 +189,9 @@ impl PlanVTable for Concat {
         visit: &mut dyn FnMut(SegmentId, Range<u64>),
     ) -> VortexResult<()> {
         for (index, start, local) in overlapping(plan, &rows) {
+            if !at.selects(&local) {
+                continue;
+            }
             plan.child_required(index)?.reach(
                 local.start - start..local.end - start,
                 &at.shift(start),

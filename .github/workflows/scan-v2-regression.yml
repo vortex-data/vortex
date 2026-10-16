@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Scan V2 Regression Comparison
+run-name: Scan V2 regression comparison on ${{ github.ref_name }}
+
+on:
+  push:
+    branches: ["ji/scan-v2-pr10540"]
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-v2-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    if: github.repository == 'vortex-data/vortex'
+    timeout-minutes: 180
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=scan-v2-regression
+    env:
+      # Previous random-access branch, before rebasing onto PR #10540.
+      BASELINE_COMMIT: "ad83fcbfc05d1885c08b7ae5cc57302e412638f3"
+      CARGO_BUILD_JOBS: "8"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+      RUST_LOG: warn
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - uses: ./.github/actions/system-info
+
+      - name: Build current scan and data preparation binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p scan-v2-binaries scan-v2-results
+          env -u VORTEX_SELECTION_METRICS cargo build --locked --profile release_debug \
+            -p vortex --example selection_scan --example rewrite_list_layout
+          cp target/release_debug/examples/selection_scan scan-v2-binaries/current
+          cp target/release_debug/examples/rewrite_list_layout scan-v2-binaries/rewrite
+          env -u VORTEX_SELECTION_METRICS cargo build --locked --profile release_debug \
+            -p random-access-bench
+          cp target/release_debug/random-access-bench scan-v2-binaries/standard
+
+      - name: Build previous V2 from the pinned checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/scan-v2-baseline" "$BASELINE_COMMIT"
+          (
+            cd "$RUNNER_TEMP/scan-v2-baseline"
+            env -u VORTEX_SELECTION_METRICS cargo build --locked --profile release_debug \
+              -p vortex --example selection_scan
+          )
+          cp target/release_debug/examples/selection_scan scan-v2-binaries/baseline
+          sha256sum scan-v2-binaries/* > scan-v2-results/binaries.sha256
+
+      - name: Prepare shared datasets and verify ListLayout rewrites
+        shell: bash
+        env:
+          VORTEX_SCAN_V2: "0"
+        run: |
+          set -euo pipefail
+          scan-v2-binaries/standard --prepare-data --formats vortex
+          mkdir -p scan-v2-data
+          source_file=vortex-bench/data/random_access/nested_lists/nested_lists.vortex
+          scan-v2-binaries/rewrite "$source_file" scan-v2-data/flat-control.vortex flat \
+            > scan-v2-results/layout-flat.json
+          scan-v2-binaries/rewrite "$source_file" scan-v2-data/elements-default.vortex list-elements 1048576 \
+            > scan-v2-results/layout-1MiB.json
+          scan-v2-binaries/rewrite "$source_file" scan-v2-data/elements-64k.vortex list-elements 65536 \
+            > scan-v2-results/layout-64KiB.json
+
+      - name: Isolate benchmark CPUs
+        run: sudo bash scripts/setup-benchmark.sh
+
+      - name: Compare Arrow and standard suites and repeat borderline regressions
+        shell: bash
+        env:
+          CANDIDATE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/bench-taskset.sh python3 scripts/scan-v2-regression.py \
+            --baseline scan-v2-binaries/baseline \
+            --candidate scan-v2-binaries/current \
+            --standard-benchmark scan-v2-binaries/standard \
+            --baseline-commit "$BASELINE_COMMIT" \
+            --candidate-commit "$CANDIDATE_COMMIT" \
+            | tee scan-v2-results/run.log
+
+      - name: Upload results, raw samples, and layout metadata
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: scan-v2-regression-${{ github.sha }}
+          path: scan-v2-results/
+          if-no-files-found: warn
