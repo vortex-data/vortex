@@ -28,7 +28,12 @@ use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
 
 /// Default maximum number of streams in the pool.
-const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
+///
+/// Every execution context takes the next stream round-robin, and a scan creates several per
+/// batch: field decodes, selection, export. With four streams, one batch's selection kernels
+/// queued behind the next batch's decode, which waits for that batch's file copies, so no batch
+/// finished before the last copy. More streams make such sharing rare.
+const DEFAULT_STREAM_POOL_CAPACITY: usize = 16;
 
 // Separate H2D lanes keep ready decoders out of transfer queues. Readers retain one lane
 // for their allocation and all chunk writes, avoiding cross-stream writes to one allocation.
