@@ -49,6 +49,8 @@ use crate::arrays::bool::BoolDataParts;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrays::map::MapArrayExt;
@@ -278,32 +280,93 @@ impl Canonical {
     }
 }
 
+/// How much work [`Canonical::compact_with`] may do to drop memory the array's rows do not reach.
+///
+/// Slicing and taking share buffers instead of copying them, so a canonical array can hold bytes
+/// that none of its rows reference: bits outside a bool array's range, list elements no list
+/// uses, and string or binary data no view points at. Each level bounds the work and says what
+/// it guarantees. Every level is shallow: it compacts the array's own data, not its validity or
+/// its children, so a list's elements or a struct's fields keep whatever they hold.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Compaction {
+    /// Never copies data. Drops what slicing alone can: the bytes past a bool array's bits, the
+    /// list elements before the first and after the last referenced one, and view data outside
+    /// the range each buffer's views use. Costs one pass over the rows, and can leave dead
+    /// bytes in the middle of a list's elements or a view buffer.
+    ZeroCopy,
+    /// Does what [`Compaction::ZeroCopy`] does, and also copies where that frees more than it
+    /// copies: a view buffer less than half used, or list elements less than a tenth used, is
+    /// rewritten to hold only what its rows reference.
+    #[default]
+    Bounded,
+    /// Copies whatever it takes for the array's own data to be no larger than what its rows
+    /// reference, as the exact uncompressed size counts it: a bool array's bits take no more
+    /// bytes than its values need, a list's elements are exactly the ones its lists use, and view
+    /// buffers hold no more than the bytes their views point at.
+    Exact,
+}
+
 impl Canonical {
-    /// Performs a (potentially expensive) compaction operation on the array before it is complete.
+    /// Compacts the array with [`Compaction::Bounded`].
     ///
     /// This is mostly relevant for the variable-length types such as Utf8, Binary or List where
     /// they can accumulate wasted space after slicing and taking operations.
-    ///
-    /// This operation can be very expensive and can result in things like allocations, full-scans
-    /// and copy operations.
     pub fn compact(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        match self {
-            Canonical::Bool(array) => Ok(Canonical::Bool(array.trim_bits()?)),
-            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers(ctx)?)),
-            Canonical::List(array) => Ok(Canonical::List(
-                array.rebuild(ListViewRebuildMode::TrimElements, ctx)?,
-            )),
-            Canonical::Map(array) => Ok(Canonical::Map(MapArray::new(
-                array.map_dtype().clone(),
-                array
-                    .entries()
-                    .as_::<ListView>()
-                    .into_owned()
-                    .rebuild(ListViewRebuildMode::TrimElements, ctx)?,
-            ))),
-            _ => Ok(self.clone()),
-        }
+        self.compact_with(Compaction::default(), ctx)
     }
+
+    /// Drops memory the array's rows do not reach, doing at most the work `compaction` allows.
+    pub fn compact_with(
+        &self,
+        compaction: Compaction,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        Ok(match self {
+            Canonical::Bool(array) => Canonical::Bool(match compaction {
+                Compaction::ZeroCopy | Compaction::Bounded => array.trim_bits()?,
+                Compaction::Exact => array.trim_bits_exact()?,
+            }),
+            Canonical::VarBinView(array) => {
+                Canonical::VarBinView(array.compact_buffers_with(compaction, ctx)?)
+            }
+            Canonical::List(array) => Canonical::List(compact_list_view(array, compaction, ctx)?),
+            Canonical::Map(array) => Canonical::Map(MapArray::new(
+                array.map_dtype().clone(),
+                compact_list_view(
+                    &array.entries().as_::<ListView>().into_owned(),
+                    compaction,
+                    ctx,
+                )?,
+            )),
+            _ => self.clone(),
+        })
+    }
+}
+
+/// Compacts a list view array's elements as `compaction` allows.
+///
+/// A zero-copy-to-list array has no overlapping views and no interior gaps, so trimming its ends
+/// leaves nothing unreferenced. Any other array needs a full rebuild, copying the referenced
+/// elements, to drop interior gaps.
+fn compact_list_view(
+    array: &ListViewArray,
+    compaction: Compaction,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ListViewArray> {
+    let rebuild = match compaction {
+        Compaction::ZeroCopy => false,
+        Compaction::Bounded => {
+            !array.is_zero_copy_to_list()
+                && array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD
+        }
+        Compaction::Exact => !array.is_zero_copy_to_list(),
+    };
+    let mode = if rebuild {
+        ListViewRebuildMode::MakeExact
+    } else {
+        ListViewRebuildMode::TrimElements
+    };
+    array.rebuild(mode, ctx)
 }
 
 // Unwrap canonical type back down to specialized type.
@@ -1471,6 +1534,127 @@ mod tests {
         assert!(value.is::<Primitive>());
         assert!(!value.is::<Constant>());
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod compaction_tests {
+    use rstest::rstest;
+    use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
+
+    use crate::Canonical;
+    use crate::Compaction;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::listview::ListViewArraySlotsExt;
+    use crate::assert_arrays_eq;
+    use crate::buffer::BufferHandle;
+    use crate::validity::Validity;
+
+    const LEVELS: [Compaction; 3] = [Compaction::ZeroCopy, Compaction::Bounded, Compaction::Exact];
+
+    fn data_len(array: &VarBinViewArray) -> usize {
+        array
+            .data_buffers()
+            .iter()
+            .map(|buffer| buffer.as_host().len())
+            .sum()
+    }
+
+    /// Rows of a view array whose six 20-byte values, too long to inline, share one data buffer.
+    #[rstest]
+    // Rows 1 and 3 use bytes 20..40 and 60..80: the used span 20..80 keeps a gap.
+    #[case::gap_inside_span(&[1, 3], [60, 60, 40])]
+    // Rows 1 and 5 use 40 of the 100 bytes in the span 20..120, under half.
+    #[case::sparse_span(&[1, 5], [100, 40, 40])]
+    // Six rows sharing bytes 20..40 count 120 used bytes, the whole buffer's length, yet every
+    // level must still slice away the unused rest.
+    #[case::shared_value(&[1, 1, 1, 1, 1, 1], [20, 20, 20])]
+    fn view_buffers(#[case] rows: &[u32], #[case] expected: [usize; 3]) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let all = VarBinViewArray::from_iter_str(
+            (b'a'..=b'f').map(|c| char::from(c).to_string().repeat(20)),
+        );
+        assert_eq!((all.data_buffers().len(), data_len(&all)), (1, 120));
+        let taken = all
+            .take(PrimitiveArray::from_iter(rows.iter().copied()).into_array())?
+            .execute::<VarBinViewArray>(&mut ctx)?;
+
+        for (compaction, expected) in LEVELS.into_iter().zip(expected) {
+            let compacted = Canonical::VarBinView(taken.clone())
+                .compact_with(compaction, &mut ctx)?
+                .into_varbinview();
+            assert_eq!(data_len(&compacted), expected, "{compaction:?}");
+            assert_arrays_eq!(compacted, taken, &mut ctx);
+        }
+
+        // Zero-copy compaction slices the shared buffer rather than copying from it.
+        let sliced = Canonical::VarBinView(taken.clone())
+            .compact_with(Compaction::ZeroCopy, &mut ctx)?
+            .into_varbinview();
+        assert_eq!(
+            sliced.data_buffers()[0].as_host().as_ptr(),
+            taken.data_buffers()[0].as_host().as_ptr().wrapping_add(20)
+        );
+        Ok(())
+    }
+
+    /// Two lists of two elements each, starting at `offsets` in `0..n_elements`.
+    #[rstest]
+    // Lists 0..2 and 6..8 leave a gap inside the used span 0..8.
+    #[case::gap_inside_span(10, &[0, 6], [8, 8, 4])]
+    // Lists 0..2 and 98..100 use 4 of 100 elements, under a tenth.
+    #[case::sparse(100, &[0, 98], [100, 4, 4])]
+    fn list_elements(
+        #[case] n_elements: i32,
+        #[case] offsets: &[u32],
+        #[case] expected: [usize; 3],
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let lists = ListViewArray::new(
+            PrimitiveArray::from_iter(0..n_elements).into_array(),
+            PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
+            PrimitiveArray::from_iter(offsets.iter().map(|_| 2u32)).into_array(),
+            Validity::NonNullable,
+        );
+
+        for (compaction, expected) in LEVELS.into_iter().zip(expected) {
+            let compacted = Canonical::List(lists.clone())
+                .compact_with(compaction, &mut ctx)?
+                .into_listview();
+            assert_eq!(compacted.elements().len(), expected, "{compaction:?}");
+            assert_arrays_eq!(compacted, lists, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// Two bits at offset 7 span two bytes; only exact compaction realigns them into one.
+    #[test]
+    fn bool_bits() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let bytes: ByteBuffer = (0..4u8).collect();
+        let bools = BoolArray::try_new_from_handle(
+            BufferHandle::new_host(bytes),
+            7,
+            2,
+            Validity::NonNullable,
+        )?;
+
+        for (compaction, expected) in LEVELS.into_iter().zip([2, 2, 1]) {
+            let compacted = Canonical::Bool(bools.clone())
+                .compact_with(compaction, &mut ctx)?
+                .into_bool();
+            assert_arrays_eq!(compacted, bools, &mut ctx);
+            let (_, _, bits) = compacted.into_bit_buffer().into_inner();
+            assert_eq!(bits.len(), expected, "{compaction:?}");
+        }
         Ok(())
     }
 }

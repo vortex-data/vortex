@@ -10,10 +10,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Compaction;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
 use crate::builders::VarBinViewBuilder;
+use crate::builders::keeps_all_buffers;
 
 const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
 const MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION: u64 = 128;
@@ -34,6 +36,35 @@ impl VarBinViewArray {
         }
 
         self.compact_with_threshold(DEFAULT_COMPACTION_THRESHOLD, ctx)
+    }
+
+    /// Returns a copy of the array with each data buffer kept, sliced, or rewritten as
+    /// `compaction` allows; see [`Compaction`] for what each level guarantees.
+    ///
+    /// Unlike [`compact_buffers`](Self::compact_buffers), which skips arrays its heuristic deems
+    /// not worth the work, this always measures every buffer: one pass over the views. It
+    /// rebuilds the views only when some buffer is sliced, dropped, or rewritten.
+    pub fn compact_buffers_with(
+        &self,
+        compaction: Compaction,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<VarBinViewArray> {
+        if self.data_buffers().is_empty() {
+            return Ok(self.clone());
+        }
+        let buffer_utilizations = self.buffer_utilizations(ctx)?;
+        if keeps_all_buffers(&buffer_utilizations, compaction) {
+            return Ok(self.clone());
+        }
+
+        let mut builder = VarBinViewBuilder::with_compaction_in(
+            self.dtype().clone(),
+            self.len(),
+            0.0,
+            ctx.allocator().clone(),
+        );
+        builder.append_varbinview_array_compacted(self, &buffer_utilizations, compaction, ctx)?;
+        Ok(builder.finish_into_varbinview())
     }
 
     fn should_compact(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
@@ -184,6 +215,10 @@ impl BufferUtilization {
             0 => 0.0,
             span => self.used as f64 / span as f64,
         }
+    }
+
+    pub fn buffer_len(&self) -> u32 {
+        self.len
     }
 
     pub fn range(&self) -> Range<u32> {

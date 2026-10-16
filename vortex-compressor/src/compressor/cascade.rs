@@ -6,6 +6,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
+use vortex_array::Compaction;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
@@ -18,6 +19,7 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::UnionArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -47,7 +49,9 @@ use crate::trace;
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
     ///
-    /// First canonicalizes and compacts the array, then applies optimal compression schemes.
+    /// First canonicalizes and trims the array, then applies optimal compression schemes.
+    ///
+    /// The output never carries bytes the input's rows do not reference.
     ///
     /// # Errors
     ///
@@ -62,8 +66,11 @@ impl CascadingCompressor {
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        // Zero-copy compaction drops what slicing can. A scheme that changes the encoding drops a
+        // view array's remaining dead bytes for free, and `without_dead_bytes` compacts one that
+        // keeps its encoding, so the copy is paid at most once.
+        let trimmed = canonical.compact_with(Compaction::ZeroCopy, exec_ctx)?;
+        let compressed = self.compress_canonical(trimmed, CompressorContext::new(), exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
@@ -93,12 +100,12 @@ impl CascadingCompressor {
         }
 
         let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
+        let trimmed = canonical.compact_with(Compaction::ZeroCopy, exec_ctx)?;
 
         let child_ctx = parent_ctx
             .clone()
             .descend_with_scheme(parent_id, child_index);
-        self.compress_canonical(compact, child_ctx, exec_ctx)
+        self.compress_canonical(trimmed, child_ctx, exec_ctx)
     }
 
     /// Compresses a canonical array by dispatching to type-specific logic.
@@ -170,7 +177,14 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::VarBinView(varbinview) => {
-                self.choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
+                let compressed = self.choose_and_compress(
+                    Canonical::VarBinView(varbinview),
+                    compress_ctx,
+                    exec_ctx,
+                )?;
+                // A scheme that changed the encoding dropped any dead bytes for free. Only an
+                // array that stayed a view array can still hold bytes no row references.
+                without_dead_bytes(compressed, exec_ctx)
             }
             Canonical::Extension(ext_array) => {
                 // Try scheme-based compression first.
@@ -340,4 +354,19 @@ pub(super) fn exact_uncompressed_size(
     }
     let size = uncompressed_size_in_bytes(array, UncompressedSizeOpts::exact(), exec_ctx)?;
     u64::try_from(size).map_err(|e| vortex_err!("uncompressed size does not fit in u64: {e}"))
+}
+
+/// Returns the compressed string or binary `array` holding only the bytes its rows reference.
+///
+/// Only a view array can hold more than its uncompressed size: its views may point into buffers
+/// shared with other arrays, such as a decompressed Parquet page, or left behind by slicing and
+/// taking. Exact compaction keeps fully used buffers, slices used runs, and rewrites the rest.
+fn without_dead_bytes(array: ArrayRef, exec_ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let Some(views) = array.as_opt::<VarBinView>() else {
+        return Ok(array);
+    };
+    Ok(views
+        .into_owned()
+        .compact_buffers_with(Compaction::Exact, exec_ctx)?
+        .into_array())
 }

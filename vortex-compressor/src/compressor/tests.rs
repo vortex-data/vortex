@@ -884,6 +884,22 @@ fn views_into_shared_page(rows: u32) -> ArrayRef {
 }
 
 #[test]
+fn uncompressed_output_drops_dead_bytes() -> VortexResult<()> {
+    let mut exec_ctx = SESSION.create_execution_ctx();
+    let array = views_into_shared_page(2000);
+    let exact = uncompressed_size_in_bytes(&array, UncompressedSizeOpts::exact(), &mut exec_ctx)?;
+    assert!(array.nbytes() > exact as u64);
+
+    // No scheme can change the encoding, so the array must come back compacted.
+    let compressed = CascadingCompressor::new(vec![]).compress(&array, &mut exec_ctx)?;
+
+    assert!(compressed.is::<VarBinView>());
+    assert_eq!(compressed.nbytes(), exact as u64);
+    assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+#[test]
 fn scheme_must_beat_referenced_bytes_not_held_bytes() -> VortexResult<()> {
     let mut exec_ctx = SESSION.create_execution_ctx();
     let array = views_into_shared_page(2000);

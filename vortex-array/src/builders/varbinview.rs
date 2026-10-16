@@ -23,6 +23,7 @@ use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
+use crate::Compaction;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
@@ -758,19 +759,42 @@ impl VarBinViewBuilder {
         array: &VarBinViewArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let buffers = BuffersWithOffsets::from_array(array, self.compaction_threshold, ctx);
+        self.append_varbinview_array_with(array, buffers, ctx)
+    }
+
+    /// Appends `array`, keeping, slicing, or rewriting each of its data buffers as `compaction`
+    /// allows, whatever the builder's own compaction threshold.
+    ///
+    /// `buffer_utilizations` must be the array's, as
+    /// [`buffer_utilizations`](VarBinViewArray::buffer_utilizations) measures them.
+    pub(crate) fn append_varbinview_array_compacted(
+        &mut self,
+        array: &VarBinViewArray,
+        buffer_utilizations: &[BufferUtilization],
+        compaction: Compaction,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let buffers =
+            BuffersWithOffsets::from_utilizations(array, buffer_utilizations, |utilization| {
+                view_buffer_strategy(utilization, compaction)
+            });
+        self.append_varbinview_array_with(array, buffers, ctx)
+    }
+
+    fn append_varbinview_array_with(
+        &mut self,
+        array: &VarBinViewArray,
+        buffers: BuffersWithOffsets,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         self.flush_in_progress();
 
         let mask = array.varbinview_validity().execute_mask(array.len(), ctx)?;
 
         self.nulls.append_validity_mask(&mask);
 
-        let view_adjustment =
-            self.completed
-                .extend_from_compaction(BuffersWithOffsets::from_array(
-                    array,
-                    self.compaction_threshold,
-                    ctx,
-                ));
+        let view_adjustment = self.completed.extend_from_compaction(buffers);
 
         match view_adjustment {
             ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
@@ -1184,10 +1208,22 @@ impl BuffersWithOffsets {
         let buffer_utilizations = array
             .buffer_utilizations(ctx)
             .vortex_expect("buffer_utilizations in BuffersWithOffsets::from_array");
+        Self::from_utilizations(array, &buffer_utilizations, |utilization| {
+            compaction_strategy(utilization, compaction_threshold)
+        })
+    }
+
+    /// Keeps, slices, or rewrites each data buffer as `strategy` decides from its measured
+    /// utilization.
+    fn from_utilizations(
+        array: &VarBinViewArray,
+        buffer_utilizations: &[BufferUtilization],
+        strategy: impl Fn(&BufferUtilization) -> CompactionStrategy,
+    ) -> Self {
         let mut has_rewrite = false;
         let mut has_nonzero_offset = false;
         for utilization in buffer_utilizations.iter() {
-            match compaction_strategy(utilization, compaction_threshold) {
+            match strategy(utilization) {
                 CompactionStrategy::KeepFull => continue,
                 CompactionStrategy::Slice { .. } => has_nonzero_offset = true,
                 CompactionStrategy::Rewrite => has_rewrite = true,
@@ -1197,15 +1233,13 @@ impl BuffersWithOffsets {
         let buffers_with_offsets_iter = buffer_utilizations
             .iter()
             .zip(array.data_buffers().iter())
-            .map(|(utilization, buffer)| {
-                match compaction_strategy(utilization, compaction_threshold) {
-                    CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
-                    CompactionStrategy::Slice { start, end } => (
-                        Some(buffer.as_host().slice(start as usize..end as usize)),
-                        start,
-                    ),
-                    CompactionStrategy::Rewrite => (None, 0),
-                }
+            .map(|(utilization, buffer)| match strategy(utilization) {
+                CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
+                CompactionStrategy::Slice { start, end } => (
+                    Some(buffer.as_host().slice(start as usize..end as usize)),
+                    start,
+                ),
+                CompactionStrategy::Rewrite => (None, 0),
             });
 
         match (has_rewrite, has_nonzero_offset) {
@@ -1261,6 +1295,60 @@ enum CompactionStrategy {
     },
     /// Rewrite data into new compacted buffer
     Rewrite,
+}
+
+/// Utilization below which [`Compaction::Bounded`] rewrites a buffer: copying the bytes of a
+/// buffer less than half used frees more than it copies.
+const BOUNDED_COMPACTION_THRESHOLD: f64 = 0.5;
+
+/// Whether `compaction` keeps every data buffer whole, so compacting with it changes nothing.
+pub(crate) fn keeps_all_buffers(
+    buffer_utilizations: &[BufferUtilization],
+    compaction: Compaction,
+) -> bool {
+    buffer_utilizations.iter().all(|utilization| {
+        view_buffer_strategy(utilization, compaction) == CompactionStrategy::KeepFull
+    })
+}
+
+/// What `compaction` does with one data buffer of a view array.
+fn view_buffer_strategy(
+    buffer_utilization: &BufferUtilization,
+    compaction: Compaction,
+) -> CompactionStrategy {
+    match compaction {
+        Compaction::ZeroCopy => slice_strategy(buffer_utilization),
+        Compaction::Bounded => {
+            sliced_unless_rewritten(buffer_utilization, BOUNDED_COMPACTION_THRESHOLD)
+        }
+        Compaction::Exact => sliced_unless_rewritten(buffer_utilization, 1.0),
+    }
+}
+
+/// Rewrites a buffer whose utilization is below `threshold` and otherwise slices it as
+/// [`Compaction::ZeroCopy`] would, so a copying level never keeps bytes the zero-copy one drops.
+fn sliced_unless_rewritten(
+    buffer_utilization: &BufferUtilization,
+    threshold: f64,
+) -> CompactionStrategy {
+    match compaction_strategy(buffer_utilization, threshold) {
+        CompactionStrategy::KeepFull => slice_strategy(buffer_utilization),
+        strategy => strategy,
+    }
+}
+
+/// Keeps or slices every buffer a view uses and drops the rest. A buffer no view uses is marked
+/// for rewrite, which copies nothing because no view reads from it.
+fn slice_strategy(buffer_utilization: &BufferUtilization) -> CompactionStrategy {
+    if buffer_utilization.overall_utilization() == 0.0 {
+        return CompactionStrategy::Rewrite;
+    }
+    let Range { start, end } = buffer_utilization.range();
+    if start == 0 && end == buffer_utilization.buffer_len() {
+        CompactionStrategy::KeepFull
+    } else {
+        CompactionStrategy::Slice { start, end }
+    }
 }
 
 fn compaction_strategy(
