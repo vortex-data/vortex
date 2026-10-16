@@ -256,8 +256,8 @@ logical_plan [
                 ],
                 "extra_info": {
                     "Order By": [
-                        "memory.main.orders.o_totalprice",
-                        "memory.main.orders.o_orderdate"
+                        "o_totalprice",
+                        "o_orderdate"
                     ]
                 }
             }
@@ -287,23 +287,11 @@ logical_opt [
                                                 "name": "COMPARISON_JOIN",
                                                 "children": [
                                                     {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Filters": "",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "600572"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Expressions": [
-                                                                "l_orderkey",
-                                                                "l_quantity"
-                                                            ],
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "600572"
                                                         }
                                                     },
@@ -314,25 +302,11 @@ logical_opt [
                                                                 "name": "COMPARISON_JOIN",
                                                                 "children": [
                                                                     {
-                                                                        "name": "PROJECTION",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": "",
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "150000"
-                                                                                }
-                                                                            }
-                                                                        ],
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
                                                                         "extra_info": {
-                                                                            "Expressions": [
-                                                                                "o_orderkey",
-                                                                                "o_custkey",
-                                                                                "o_totalprice",
-                                                                                "o_orderdate"
-                                                                            ],
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan",
                                                                             "Estimated Cardinality": "150000"
                                                                         }
                                                                     },
@@ -360,6 +334,7 @@ logical_opt [
                                                                                                                         "extra_info": {
                                                                                                                             "Filters": "",
                                                                                                                             "Function": "Vortex Scan",
+                                                                                                                            "SELECT projections": "l_orderkey: cast($.l_orderkey as i32)",
                                                                                                                             "Estimated Cardinality": "600572"
                                                                                                                         }
                                                                                                                     }
@@ -375,7 +350,7 @@ logical_opt [
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Expressions": [
-                                                                                                                "__internal_compress_integral_uinteger(#0, 1)",
+                                                                                                                "#0",
                                                                                                                 "#1"
                                                                                                             ],
                                                                                                             "Estimated Cardinality": "600572"
@@ -385,28 +360,28 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Groups": "l_orderkey",
                                                                                                     "Expressions": "sum(l_quantity)",
-                                                                                                    "Estimated Cardinality": "379633"
+                                                                                                    "Estimated Cardinality": "379482"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Expressions": [
-                                                                                                "__internal_decompress_integral_bigint(#0, 1)",
+                                                                                                "CAST(#0 AS BIGINT)",
                                                                                                 "#1"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "379633"
+                                                                                            "Estimated Cardinality": "379482"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Expressions": "(sum(l_quantity) > 300.00)",
-                                                                                    "Estimated Cardinality": "75926"
+                                                                                    "Estimated Cardinality": "75896"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Expressions": "l_orderkey",
-                                                                            "Estimated Cardinality": "75926"
+                                                                            "Estimated Cardinality": "75896"
                                                                         }
                                                                     }
                                                                 ],
@@ -417,23 +392,11 @@ logical_opt [
                                                                 }
                                                             },
                                                             {
-                                                                "name": "PROJECTION",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "($.c_custkey <= 14999i64)",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "15000"
-                                                                        }
-                                                                    }
-                                                                ],
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
                                                                 "extra_info": {
-                                                                    "Expressions": [
-                                                                        "c_custkey",
-                                                                        "c_name"
-                                                                    ],
+                                                                    "Filters": "($.c_custkey <= 14999i64)",
+                                                                    "Function": "Vortex Scan",
                                                                     "Estimated Cardinality": "15000"
                                                                 }
                                                             }
@@ -448,20 +411,20 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(l_orderkey = o_orderkey)",
-                                                    "Estimated Cardinality": "120114"
+                                                    "Estimated Cardinality": "30028"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Expressions": [
                                                 "#0",
-                                                "__internal_compress_integral_uinteger(#1, 1)",
+                                                "CAST(#1 AS INTEGER)",
                                                 "#2",
                                                 "#3",
-                                                "__internal_compress_integral_usmallint(#4, 1)",
+                                                "CAST(#4 AS SMALLINT)",
                                                 "#5"
                                             ],
-                                            "Estimated Cardinality": "120114"
+                                            "Estimated Cardinality": "30028"
                                         }
                                     }
                                 ],
@@ -474,20 +437,20 @@ logical_opt [
                                         "o_totalprice"
                                     ],
                                     "Expressions": "sum(l_quantity)",
-                                    "Estimated Cardinality": "120114"
+                                    "Estimated Cardinality": "30028"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
                                 "#0",
-                                "__internal_decompress_integral_bigint(#1, 1)",
-                                "__internal_decompress_integral_bigint(#2, 1)",
+                                "CAST(#1 AS BIGINT)",
+                                "CAST(#2 AS BIGINT)",
                                 "#3",
                                 "#4",
                                 "#5"
                             ],
-                            "Estimated Cardinality": "120114"
+                            "Estimated Cardinality": "30028"
                         }
                     }
                 ],
@@ -500,7 +463,7 @@ logical_opt [
                         "o_totalprice",
                         "sum(l_quantity)"
                     ],
-                    "Estimated Cardinality": "120114"
+                    "Estimated Cardinality": "30028"
                 }
             }
         ],
@@ -577,25 +540,14 @@ physical_plan [
                                                                                                         "name": "PROJECTION",
                                                                                                         "children": [
                                                                                                             {
-                                                                                                                "name": "PROJECTION",
-                                                                                                                "children": [
-                                                                                                                    {
-                                                                                                                        "name": "READ_VORTEX",
-                                                                                                                        "children": [],
-                                                                                                                        "extra_info": {
-                                                                                                                            "Function": "Vortex Scan",
-                                                                                                                            "Projections": [
-                                                                                                                                "l_orderkey",
-                                                                                                                                "l_quantity"
-                                                                                                                            ],
-                                                                                                                            "Estimated Cardinality": "600572"
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                ],
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
                                                                                                                 "extra_info": {
+                                                                                                                    "Function": "Vortex Scan",
+                                                                                                                    "SELECT projections": "l_orderkey: cast($.l_orderkey as i32)",
                                                                                                                     "Projections": [
-                                                                                                                        "__internal_compress_integral_uinteger(#0, 1)",
-                                                                                                                        "#1"
+                                                                                                                        "l_orderkey",
+                                                                                                                        "l_quantity"
                                                                                                                     ],
                                                                                                                     "Estimated Cardinality": "600572"
                                                                                                                 }
@@ -613,28 +565,28 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Groups": "#0",
                                                                                                     "Aggregates": "sum(#1)",
-                                                                                                    "Estimated Cardinality": "379633"
+                                                                                                    "Estimated Cardinality": "379482"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Projections": [
-                                                                                                "__internal_decompress_integral_bigint(#0, 1)",
+                                                                                                "CAST(#0 AS BIGINT)",
                                                                                                 "#1"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "379633"
+                                                                                            "Estimated Cardinality": "379482"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Expression": "(sum(l_quantity) > 300.00)",
-                                                                                    "Estimated Cardinality": "75926"
+                                                                                    "Estimated Cardinality": "75896"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Projections": "#0",
-                                                                            "Estimated Cardinality": "75926"
+                                                                            "Estimated Cardinality": "75896"
                                                                         }
                                                                     }
                                                                 ],
@@ -668,20 +620,20 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "l_orderkey = o_orderkey",
-                                                    "Estimated Cardinality": "120114"
+                                                    "Estimated Cardinality": "30028"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Projections": [
                                                 "#0",
-                                                "__internal_compress_integral_uinteger(#1, 1)",
+                                                "CAST(#1 AS INTEGER)",
                                                 "#2",
                                                 "#3",
-                                                "__internal_compress_integral_usmallint(#4, 1)",
+                                                "CAST(#4 AS SMALLINT)",
                                                 "#5"
                                             ],
-                                            "Estimated Cardinality": "120114"
+                                            "Estimated Cardinality": "30028"
                                         }
                                     }
                                 ],
@@ -694,7 +646,7 @@ physical_plan [
                                         "o_totalprice",
                                         "l_quantity"
                                     ],
-                                    "Estimated Cardinality": "120114"
+                                    "Estimated Cardinality": "30028"
                                 }
                             }
                         ],
@@ -707,29 +659,30 @@ physical_plan [
                                 "#4"
                             ],
                             "Aggregates": "sum(#5)",
-                            "Estimated Cardinality": "120114"
+                            "Estimated Cardinality": "30028"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
                         "#0",
-                        "__internal_decompress_integral_bigint(#1, 1)",
-                        "__internal_decompress_integral_bigint(#2, 1)",
+                        "CAST(#1 AS BIGINT)",
+                        "CAST(#2 AS BIGINT)",
                         "#3",
                         "#4",
                         "#5"
                     ],
-                    "Estimated Cardinality": "120114"
+                    "Estimated Cardinality": "30028"
                 }
             }
         ],
         "extra_info": {
             "Top": "100",
             "Order By": [
-                "memory.main.orders.o_totalprice DESC",
-                "memory.main.orders.o_orderdate ASC"
-            ]
+                "o_totalprice DESC",
+                "o_orderdate ASC"
+            ],
+            "Estimated Cardinality": "100"
         }
     }
 ]

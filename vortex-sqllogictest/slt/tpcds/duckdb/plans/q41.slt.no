@@ -194,8 +194,7 @@ logical_plan [
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Join Type": "SINGLE",
-                                                    "Conditions": ""
+                                                    "Expressions": ""
                                                 }
                                             }
                                         ],
@@ -220,7 +219,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "i1.i_product_name"
+                    "Order By": "i_product_name"
                 }
             }
         ],
@@ -240,128 +239,260 @@ logical_opt [
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "FILTER",
+                                "name": "CTE",
                                 "children": [
                                     {
-                                        "name": "DELIM_JOIN",
+                                        "name": "PROJECTION",
                                         "children": [
                                             {
                                                 "name": "PROJECTION",
                                                 "children": [
                                                     {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "(738i64 <= $.i_manufact_id <= 778i64)",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "360"
+                                                                }
+                                                            }
+                                                        ],
                                                         "extra_info": {
-                                                            "Filters": "(738i64 <= $.i_manufact_id <= 778i64)",
-                                                            "Function": "Vortex Scan",
+                                                            "Expressions": [
+                                                                "i_manufact",
+                                                                "i_product_name"
+                                                            ],
                                                             "Estimated Cardinality": "360"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Expressions": [
-                                                        "i_manufact",
-                                                        "i_product_name"
+                                                        "#0",
+                                                        "#1"
                                                     ],
                                                     "Estimated Cardinality": "360"
-                                                }
-                                            },
-                                            {
-                                                "name": "PROJECTION",
-                                                "children": [
-                                                    {
-                                                        "name": "COMPARISON_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "DELIM_GET",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Expressions": "",
-                                                                    "Estimated Cardinality": "227"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "AGGREGATE",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "PROJECTION",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "FILTER",
-                                                                                "children": [
-                                                                                    {
-                                                                                        "name": "READ_VORTEX",
-                                                                                        "children": [],
-                                                                                        "extra_info": {
-                                                                                            "Filters": "(((((($.i_category = \"Women\") and (($.i_color = \"powder\") or ($.i_color = \"khaki\"))) and ((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"brown\") or ($.i_color = \"honeydew\"))) and ((($.i_units = \"Bunch\") or ($.i_units = \"Ton\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"floral\") or ($.i_color = \"deep\"))) and ((($.i_units = \"N/A\") or ($.i_units = \"Dozen\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"light\") or ($.i_color = \"cornflower\"))) and ((($.i_units = \"Box\") or ($.i_units = \"Pound\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))) or ((((($.i_category = \"Women\") and (($.i_color = \"midnight\") or ($.i_color = \"snow\"))) and ((($.i_units = \"Pallet\") or ($.i_units = \"Gross\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"cyan\") or ($.i_color = \"papaya\"))) and ((($.i_units = \"Cup\") or ($.i_units = \"Dram\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"orange\") or ($.i_color = \"frosted\"))) and ((($.i_units = \"Each\") or ($.i_units = \"Tbl\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"forest\") or ($.i_color = \"ghost\"))) and ((($.i_units = \"Lb\") or ($.i_units = \"Bundle\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))))",
-                                                                                            "Function": "Vortex Scan",
-                                                                                            "Estimated Cardinality": "360"
-                                                                                        }
-                                                                                    }
-                                                                                ],
-                                                                                "extra_info": {
-                                                                                    "Expressions": "(i_manufact IS NOT NULL)",
-                                                                                    "Estimated Cardinality": "72"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Expressions": "i_manufact",
-                                                                            "Estimated Cardinality": "72"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Groups": "i_manufact",
-                                                                    "Expressions": "count_star()",
-                                                                    "Estimated Cardinality": "36"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "LEFT",
-                                                            "Conditions": "(i_manufact IS NOT DISTINCT FROM #0)",
-                                                            "Estimated Cardinality": "227"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expressions": [
-                                                        "CASE  WHEN ((item_cnt IS NULL)) THEN (0) ELSE item_cnt END",
-                                                        "i_manufact"
-                                                    ],
-                                                    "Estimated Cardinality": "227"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Join Type": "SINGLE",
-                                            "Conditions": "(i_manufact IS NOT DISTINCT FROM i_manufact)"
+                                            "Expressions": [
+                                                "#0",
+                                                "#1"
+                                            ],
+                                            "Estimated Cardinality": "360"
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "CTE",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "AGGREGATE",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CTE_SCAN",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "CTE Index": "33",
+                                                                            "Estimated Cardinality": "360"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Groups": "#[1.14]",
+                                                                    "Expressions": "",
+                                                                    "Estimated Cardinality": "180"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "#0",
+                                                            "Estimated Cardinality": "180"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "FILTER",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "COMPARISON_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "CTE_SCAN",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "CTE Index": "33",
+                                                                                    "Estimated Cardinality": "360"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "COMPARISON_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "CTE_SCAN",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "CTE Index": "31",
+                                                                                                            "Estimated Cardinality": "180"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "AGGREGATE",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Filters": [
+                                                                                                                                "(((((($.i_category = \"Women\") and (($.i_color = \"powder\") or ($.i_color = \"khaki\"))) and ((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"brown\") or ($.i_color = \"honeydew\"))) and ((($.i_units = \"Bunch\") or ($.i_units = \"Ton\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"floral\") or ($.i_color = \"deep\"))) and ((($.i_units = \"N/A\") or ($.i_units = \"Dozen\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"light\") or ($.i_color = \"cornflower\"))) and ((($.i_units = \"Box\") or ($.i_units = \"Pound\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))) or ((((($.i_category = \"Women\") and (($.i_color = \"midnight\") or ($.i_color = \"snow\"))) and ((($.i_units = \"Pallet\") or ($.i_units = \"Gross\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"cyan\") or ($.i_color = \"papaya\"))) and ((($.i_units = \"Cup\") or ($.i_units = \"Dram\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"orange\") or ($.i_color = \"frosted\"))) and ((($.i_units = \"Each\") or ($.i_units = \"Tbl\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"forest\") or ($.i_color = \"ghost\"))) and ((($.i_units = \"Lb\") or ($.i_units = \"Bundle\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))))",
+                                                                                                                                "(($.i_category = \"Women\") or ($.i_category = \"Men\"))",
+                                                                                                                                "(((($.i_size = \"medium\") or ($.i_size = \"extra large\")) or (($.i_size = \"N/A\") or ($.i_size = \"small\"))) or ($.i_size = \"petite\"))",
+                                                                                                                                "((((((((($.i_color = \"powder\") or ($.i_color = \"khaki\")) or (($.i_color = \"brown\") or ($.i_color = \"honeydew\"))) or (($.i_color = \"floral\") or ($.i_color = \"deep\"))) or (($.i_color = \"light\") or ($.i_color = \"cornflower\"))) or (($.i_color = \"midnight\") or ($.i_color = \"snow\"))) or (($.i_color = \"cyan\") or ($.i_color = \"papaya\"))) or (($.i_color = \"orange\") or ($.i_color = \"frosted\"))) or (($.i_color = \"forest\") or ($.i_color = \"ghost\")))",
+                                                                                                                                "((((((((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) or (($.i_units = \"Bunch\") or ($.i_units = \"Ton\"))) or (($.i_units = \"N/A\") or ($.i_units = \"Dozen\"))) or (($.i_units = \"Box\") or ($.i_units = \"Pound\"))) or (($.i_units = \"Pallet\") or ($.i_units = \"Gross\"))) or (($.i_units = \"Cup\") or ($.i_units = \"Dram\"))) or (($.i_units = \"Each\") or ($.i_units = \"Tbl\"))) or (($.i_units = \"Lb\") or ($.i_units = \"Bundle\")))"
+                                                                                                                            ],
+                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                            "Estimated Cardinality": "360"
+                                                                                                                        }
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "name": "CTE_SCAN",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "CTE Index": "31",
+                                                                                                                            "Estimated Cardinality": "180"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Join Type": "INNER",
+                                                                                                                    "Conditions": "(i_manufact = i_manufact)",
+                                                                                                                    "Estimated Cardinality": "180"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Groups": "i_manufact",
+                                                                                                            "Expressions": "count_star()",
+                                                                                                            "Estimated Cardinality": "90"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "LEFT",
+                                                                                                    "Conditions": "(i_manufact IS NOT DISTINCT FROM #0)",
+                                                                                                    "Estimated Cardinality": "180"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "AGGREGATE",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "EMPTY_RESULT",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": "",
+                                                                                                            "Estimated Cardinality": "0"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Groups": "",
+                                                                                                    "Expressions": "count_star()",
+                                                                                                    "Estimated Cardinality": "1"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "LEFT",
+                                                                                            "Conditions": "",
+                                                                                            "Estimated Cardinality": "180"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "CASE  WHEN ((#2 IS NULL)) THEN (#3) ELSE item_cnt END",
+                                                                                        "i_manufact"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "180"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "SINGLE",
+                                                                            "Conditions": "(i_manufact IS NOT DISTINCT FROM i_manufact)",
+                                                                            "Estimated Cardinality": "360"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "(SUBQUERY > 0)",
+                                                                    "Estimated Cardinality": "72"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "#0",
+                                                            "Estimated Cardinality": "72"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "CTE Name": "__duckdb_delim_dedup_31",
+                                                    "Table Index": "31",
+                                                    "Estimated Cardinality": "72"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "#0",
+                                            "Estimated Cardinality": "72"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expressions": "(SUBQUERY > 0)",
-                                    "Estimated Cardinality": "360"
+                                    "CTE Name": "__duckdb_delim_33",
+                                    "Table Index": "33",
+                                    "Estimated Cardinality": "72"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": "i_product_name",
-                            "Estimated Cardinality": "360"
+                            "Estimated Cardinality": "72"
                         }
                     }
                 ],
                 "extra_info": {
                     "Expressions": "",
-                    "Estimated Cardinality": "360",
+                    "Estimated Cardinality": "72",
                     "Distinct Targets": "i_product_name"
                 }
             }
         ],
         "extra_info": {
             "Expressions": "",
-            "Estimated Cardinality": "100"
+            "Estimated Cardinality": "72"
         }
     }
 ]
@@ -376,158 +507,224 @@ physical_plan [
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "PROJECTION",
+                                "name": "CTE",
                                 "children": [
                                     {
-                                        "name": "FILTER",
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": "(738i64 <= $.i_manufact_id <= 778i64)",
+                                            "Projections": [
+                                                "i_manufact",
+                                                "i_product_name"
+                                            ],
+                                            "Estimated Cardinality": "360"
+                                        }
+                                    },
+                                    {
+                                        "name": "CTE",
                                         "children": [
                                             {
-                                                "name": "LEFT_DELIM_JOIN",
+                                                "name": "HASH_GROUP_BY",
                                                 "children": [
                                                     {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Function": "Vortex Scan",
-                                                            "Filters": "(738i64 <= $.i_manufact_id <= 778i64)",
-                                                            "Projections": [
-                                                                "i_manufact",
-                                                                "i_product_name"
-                                                            ],
-                                                            "Estimated Cardinality": "360"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "HASH_JOIN",
+                                                        "name": "PROJECTION",
                                                         "children": [
                                                             {
-                                                                "name": "COLUMN_DATA_SCAN",
+                                                                "name": "CTE_SCAN",
                                                                 "children": [],
                                                                 "extra_info": {
-                                                                    "Estimated Cardinality": "0"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "PROJECTION",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "HASH_JOIN",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "DELIM_SCAN",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Delim Index": "1",
-                                                                                    "Estimated Cardinality": "227"
-                                                                                }
-                                                                            },
-                                                                            {
-                                                                                "name": "HASH_GROUP_BY",
-                                                                                "children": [
-                                                                                    {
-                                                                                        "name": "PROJECTION",
-                                                                                        "children": [
-                                                                                            {
-                                                                                                "name": "FILTER",
-                                                                                                "children": [
-                                                                                                    {
-                                                                                                        "name": "READ_VORTEX",
-                                                                                                        "children": [],
-                                                                                                        "extra_info": {
-                                                                                                            "Function": "Vortex Scan",
-                                                                                                            "Filters": "(((((($.i_category = \"Women\") and (($.i_color = \"powder\") or ($.i_color = \"khaki\"))) and ((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"brown\") or ($.i_color = \"honeydew\"))) and ((($.i_units = \"Bunch\") or ($.i_units = \"Ton\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"floral\") or ($.i_color = \"deep\"))) and ((($.i_units = \"N/A\") or ($.i_units = \"Dozen\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"light\") or ($.i_color = \"cornflower\"))) and ((($.i_units = \"Box\") or ($.i_units = \"Pound\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))) or ((((($.i_category = \"Women\") and (($.i_color = \"midnight\") or ($.i_color = \"snow\"))) and ((($.i_units = \"Pallet\") or ($.i_units = \"Gross\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"cyan\") or ($.i_color = \"papaya\"))) and ((($.i_units = \"Cup\") or ($.i_units = \"Dram\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"orange\") or ($.i_color = \"frosted\"))) and ((($.i_units = \"Each\") or ($.i_units = \"Tbl\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"forest\") or ($.i_color = \"ghost\"))) and ((($.i_units = \"Lb\") or ($.i_units = \"Bundle\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))))",
-                                                                                                            "Projections": "i_manufact",
-                                                                                                            "Estimated Cardinality": "360"
-                                                                                                        }
-                                                                                                    }
-                                                                                                ],
-                                                                                                "extra_info": {
-                                                                                                    "Expression": "(i_manufact IS NOT NULL)",
-                                                                                                    "Estimated Cardinality": "72"
-                                                                                                }
-                                                                                            }
-                                                                                        ],
-                                                                                        "extra_info": {
-                                                                                            "Projections": "i_manufact",
-                                                                                            "Estimated Cardinality": "72"
-                                                                                        }
-                                                                                    }
-                                                                                ],
-                                                                                "extra_info": {
-                                                                                    "Groups": "#0",
-                                                                                    "Aggregates": "count_star()",
-                                                                                    "Estimated Cardinality": "36"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Join Type": "LEFT",
-                                                                            "Conditions": "i_manufact IS NOT DISTINCT FROM #0",
-                                                                            "Estimated Cardinality": "227"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Projections": [
-                                                                        "CASE  WHEN ((item_cnt IS NULL)) THEN (0) ELSE item_cnt END",
-                                                                        "i_manufact"
-                                                                    ],
-                                                                    "Estimated Cardinality": "227"
+                                                                    "CTE Index": "33",
+                                                                    "Estimated Cardinality": "360"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
-                                                            "Join Type": "SINGLE",
-                                                            "Conditions": "i_manufact IS NOT DISTINCT FROM i_manufact",
-                                                            "Estimated Cardinality": "0"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "HASH_GROUP_BY",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Groups": "#0",
-                                                            "Aggregates": "",
-                                                            "Estimated Cardinality": "227"
+                                                            "Projections": "#[1.14]",
+                                                            "Estimated Cardinality": "360"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Join Type": "SINGLE",
-                                                    "Conditions": "i_manufact IS NOT DISTINCT FROM i_manufact",
-                                                    "Estimated Cardinality": "0",
-                                                    "Delim Index": "1"
+                                                    "Groups": "#0",
+                                                    "Aggregates": "",
+                                                    "Estimated Cardinality": "180"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "FILTER",
+                                                        "children": [
+                                                            {
+                                                                "name": "HASH_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CTE_SCAN",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "CTE Index": "33",
+                                                                            "Estimated Cardinality": "360"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "CROSS_PRODUCT",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "HASH_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "CTE_SCAN",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "CTE Index": "31",
+                                                                                                    "Estimated Cardinality": "180"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "HASH_GROUP_BY",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "HASH_JOIN",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Function": "Vortex Scan",
+                                                                                                                            "Filters": [
+                                                                                                                                "(((((($.i_category = \"Women\") and (($.i_color = \"powder\") or ($.i_color = \"khaki\"))) and ((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"brown\") or ($.i_color = \"honeydew\"))) and ((($.i_units = \"Bunch\") or ($.i_units = \"Ton\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"floral\") or ($.i_color = \"deep\"))) and ((($.i_units = \"N/A\") or ($.i_units = \"Dozen\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"light\") or ($.i_color = \"cornflower\"))) and ((($.i_units = \"Box\") or ($.i_units = \"Pound\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))) or ((((($.i_category = \"Women\") and (($.i_color = \"midnight\") or ($.i_color = \"snow\"))) and ((($.i_units = \"Pallet\") or ($.i_units = \"Gross\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))) or ((($.i_category = \"Women\") and (($.i_color = \"cyan\") or ($.i_color = \"papaya\"))) and ((($.i_units = \"Cup\") or ($.i_units = \"Dram\")) and (($.i_size = \"N/A\") or ($.i_size = \"small\"))))) or (((($.i_category = \"Men\") and (($.i_color = \"orange\") or ($.i_color = \"frosted\"))) and ((($.i_units = \"Each\") or ($.i_units = \"Tbl\")) and ($.i_size = \"petite\"))) or ((($.i_category = \"Men\") and (($.i_color = \"forest\") or ($.i_color = \"ghost\"))) and ((($.i_units = \"Lb\") or ($.i_units = \"Bundle\")) and (($.i_size = \"medium\") or ($.i_size = \"extra large\")))))))",
+                                                                                                                                "(($.i_category = \"Women\") or ($.i_category = \"Men\"))",
+                                                                                                                                "(((($.i_size = \"medium\") or ($.i_size = \"extra large\")) or (($.i_size = \"N/A\") or ($.i_size = \"small\"))) or ($.i_size = \"petite\"))",
+                                                                                                                                "((((((((($.i_color = \"powder\") or ($.i_color = \"khaki\")) or (($.i_color = \"brown\") or ($.i_color = \"honeydew\"))) or (($.i_color = \"floral\") or ($.i_color = \"deep\"))) or (($.i_color = \"light\") or ($.i_color = \"cornflower\"))) or (($.i_color = \"midnight\") or ($.i_color = \"snow\"))) or (($.i_color = \"cyan\") or ($.i_color = \"papaya\"))) or (($.i_color = \"orange\") or ($.i_color = \"frosted\"))) or (($.i_color = \"forest\") or ($.i_color = \"ghost\")))",
+                                                                                                                                "((((((((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) or (($.i_units = \"Bunch\") or ($.i_units = \"Ton\"))) or (($.i_units = \"N/A\") or ($.i_units = \"Dozen\"))) or (($.i_units = \"Box\") or ($.i_units = \"Pound\"))) or (($.i_units = \"Pallet\") or ($.i_units = \"Gross\"))) or (($.i_units = \"Cup\") or ($.i_units = \"Dram\"))) or (($.i_units = \"Each\") or ($.i_units = \"Tbl\"))) or (($.i_units = \"Lb\") or ($.i_units = \"Bundle\")))"
+                                                                                                                            ],
+                                                                                                                            "Projections": "i_manufact",
+                                                                                                                            "Estimated Cardinality": "360"
+                                                                                                                        }
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "name": "CTE_SCAN",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "CTE Index": "31",
+                                                                                                                            "Estimated Cardinality": "180"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Join Type": "INNER",
+                                                                                                                    "Conditions": "i_manufact = i_manufact",
+                                                                                                                    "Estimated Cardinality": "180"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Projections": "i_manufact",
+                                                                                                            "Estimated Cardinality": "180"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Groups": "#0",
+                                                                                                    "Aggregates": "count_star()",
+                                                                                                    "Estimated Cardinality": "90"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "LEFT",
+                                                                                            "Conditions": "i_manufact IS NOT DISTINCT FROM #0",
+                                                                                            "Estimated Cardinality": "180"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "UNGROUPED_AGGREGATE",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "EMPTY_RESULT",
+                                                                                                "children": [],
+                                                                                                "extra_info": {}
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Aggregates": "count_star()",
+                                                                                            "Estimated Cardinality": "1"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {}
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Projections": [
+                                                                                "CASE  WHEN ((#2 IS NULL)) THEN (#3) ELSE item_cnt END",
+                                                                                "i_manufact"
+                                                                            ],
+                                                                            "Estimated Cardinality": "180"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Join Type": "SINGLE",
+                                                                    "Conditions": "i_manufact IS NOT DISTINCT FROM i_manufact",
+                                                                    "Estimated Cardinality": "360"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expression": "(SUBQUERY > 0)",
+                                                            "Estimated Cardinality": "72"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": "#0",
+                                                    "Estimated Cardinality": "72"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Expression": "(SUBQUERY > 0)",
-                                            "Estimated Cardinality": "360"
+                                            "CTE Name": "__duckdb_delim_dedup_31",
+                                            "Table Index": "31",
+                                            "Execution Mode": "PIPELINE_DEPENDENT",
+                                            "Estimated Cardinality": "72"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Projections": "#0",
-                                    "Estimated Cardinality": "360"
+                                    "CTE Name": "__duckdb_delim_33",
+                                    "Table Index": "33",
+                                    "Execution Mode": "PIPELINE_DEPENDENT",
+                                    "Estimated Cardinality": "72"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Projections": "i_product_name",
-                            "Estimated Cardinality": "360"
+                            "Estimated Cardinality": "72"
                         }
                     }
                 ],
                 "extra_info": {
                     "Groups": "#0",
                     "Aggregates": "",
-                    "Estimated Cardinality": "360"
+                    "Estimated Cardinality": "72"
                 }
             }
         ],
         "extra_info": {
             "Top": "100",
-            "Order By": "i1.i_product_name ASC"
+            "Order By": "i_product_name ASC",
+            "Estimated Cardinality": "72"
         }
     }
 ]

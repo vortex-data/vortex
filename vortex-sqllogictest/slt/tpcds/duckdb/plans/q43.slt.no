@@ -261,15 +261,15 @@ logical_plan [
                 ],
                 "extra_info": {
                     "Order By": [
-                        "memory.main.store.s_store_name",
-                        "memory.main.store.s_store_id",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Sunday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Monday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Tuesday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Wednesday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Thursday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Friday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)",
-                        "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Saturday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END)"
+                        "s_store_name",
+                        "s_store_id",
+                        "sun_sales",
+                        "mon_sales",
+                        "tue_sales",
+                        "wed_sales",
+                        "thu_sales",
+                        "fri_sales",
+                        "sat_sales"
                     ]
                 }
             }
@@ -296,61 +296,14 @@ logical_opt [
                                         "name": "COMPARISON_JOIN",
                                         "children": [
                                             {
-                                                "name": "PROJECTION",
-                                                "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": "",
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "288464"
-                                                        }
-                                                    }
-                                                ],
+                                                "name": "READ_VORTEX",
+                                                "children": [],
                                                 "extra_info": {
-                                                    "Expressions": [
-                                                        "ss_sold_date_sk",
-                                                        "ss_store_sk",
-                                                        "ss_sales_price"
-                                                    ],
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan",
                                                     "Estimated Cardinality": "288464"
                                                 }
                                             },
-                                            {
-                                                "name": "PROJECTION",
-                                                "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": [
-                                                                "($.d_year = 2000i64)",
-                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
-                                                            ],
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "2921"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expressions": [
-                                                        "d_date_sk",
-                                                        "d_day_name"
-                                                    ],
-                                                    "Estimated Cardinality": "2921"
-                                                }
-                                            }
-                                        ],
-                                        "extra_info": {
-                                            "Join Type": "INNER",
-                                            "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                            "Estimated Cardinality": "57677"
-                                        }
-                                    },
-                                    {
-                                        "name": "PROJECTION",
-                                        "children": [
                                             {
                                                 "name": "READ_VORTEX",
                                                 "children": [],
@@ -362,19 +315,28 @@ logical_opt [
                                             }
                                         ],
                                         "extra_info": {
-                                            "Expressions": [
-                                                "s_store_sk",
-                                                "s_store_id",
-                                                "s_store_name"
+                                            "Join Type": "INNER",
+                                            "Conditions": "(ss_store_sk = s_store_sk)",
+                                            "Estimated Cardinality": "288464"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": [
+                                                "($.d_year = 2000i64)",
+                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
                                             ],
-                                            "Estimated Cardinality": "1"
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "14609"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": "(ss_store_sk = s_store_sk)",
-                                    "Estimated Cardinality": "57677"
+                                    "Conditions": "(ss_sold_date_sk = d_date_sk)",
+                                    "Estimated Cardinality": "288464"
                                 }
                             }
                         ],
@@ -384,15 +346,15 @@ logical_opt [
                                 "s_store_id"
                             ],
                             "Expressions": [
-                                "sum(CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL END)",
-                                "sum(CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL END)",
-                                "sum(CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL END)",
-                                "sum(CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL END)",
-                                "sum(CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL END)",
-                                "sum(CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL END)",
-                                "sum(CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL END)"
+                                "sum(CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                "sum(CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                "sum(CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                "sum(CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                "sum(CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                "sum(CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                "sum(CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)"
                             ],
-                            "Estimated Cardinality": "57668"
+                            "Estimated Cardinality": "1"
                         }
                     }
                 ],
@@ -408,13 +370,13 @@ logical_opt [
                         "fri_sales",
                         "sat_sales"
                     ],
-                    "Estimated Cardinality": "57668"
+                    "Estimated Cardinality": "1"
                 }
             }
         ],
         "extra_info": {
             "Expressions": "",
-            "Estimated Cardinality": "100"
+            "Estimated Cardinality": "1"
         }
     }
 ]
@@ -452,19 +414,20 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
-                                                    "Filters": "d_year=2000",
+                                                    "Filters": "($.s_gmt_offset = decimal128(-500, precision=5, scale=2))",
                                                     "Projections": [
-                                                        "d_date_sk",
-                                                        "d_day_name"
+                                                        "s_store_sk",
+                                                        "s_store_id",
+                                                        "s_store_name"
                                                     ],
-                                                    "Estimated Cardinality": "2921"
+                                                    "Estimated Cardinality": "1"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "ss_sold_date_sk = d_date_sk",
-                                            "Estimated Cardinality": "57677"
+                                            "Conditions": "ss_store_sk = s_store_sk",
+                                            "Estimated Cardinality": "288464"
                                         }
                                     },
                                     {
@@ -472,20 +435,22 @@ physical_plan [
                                         "children": [],
                                         "extra_info": {
                                             "Function": "Vortex Scan",
-                                            "Filters": "s_gmt_offset=-5.00",
-                                            "Projections": [
-                                                "s_store_sk",
-                                                "s_store_id",
-                                                "s_store_name"
+                                            "Filters": [
+                                                "($.d_year = 2000i64)",
+                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
                                             ],
-                                            "Estimated Cardinality": "1"
+                                            "Projections": [
+                                                "d_date_sk",
+                                                "d_day_name"
+                                            ],
+                                            "Estimated Cardinality": "14609"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": "ss_store_sk = s_store_sk",
-                                    "Estimated Cardinality": "57677"
+                                    "Conditions": "ss_sold_date_sk = d_date_sk",
+                                    "Estimated Cardinality": "288464"
                                 }
                             }
                         ],
@@ -493,15 +458,15 @@ physical_plan [
                             "Projections": [
                                 "s_store_name",
                                 "s_store_id",
-                                "CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL END",
-                                "CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL END",
-                                "CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL END",
-                                "CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL END",
-                                "CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL END",
-                                "CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL END",
-                                "CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL END"
+                                "CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                "CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                "CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                "CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                "CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                "CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                "CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END"
                             ],
-                            "Estimated Cardinality": "57677"
+                            "Estimated Cardinality": "288464"
                         }
                     }
                 ],
@@ -519,23 +484,17 @@ physical_plan [
                         "sum(#7)",
                         "sum(#8)"
                     ],
-                    "Estimated Cardinality": "57668"
+                    "Estimated Cardinality": "1"
                 }
             }
         ],
         "extra_info": {
             "Top": "100",
             "Order By": [
-                "memory.main.store.s_store_name ASC",
-                "memory.main.store.s_store_id ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Sunday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Monday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Tuesday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Wednesday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Thursday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Friday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC",
-                "sum(CASE  WHEN ((memory.main.date_dim.d_day_name = 'Saturday')) THEN (memory.main.store_sales.ss_sales_price) ELSE NULL END) ASC"
-            ]
+                "s_store_name ASC",
+                "s_store_id ASC"
+            ],
+            "Estimated Cardinality": "1"
         }
     }
 ]

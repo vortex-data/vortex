@@ -137,6 +137,10 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
                 DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, nullability).erased())
             }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS => DType::Extension(
+                Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some("UTC".into()), nullability)
+                    .erased(),
+            ),
             DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
                 let child_type = logical_type.array_child_type();
                 DType::FixedSizeList(

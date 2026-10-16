@@ -571,9 +571,9 @@ logical_plan [
                         ],
                         "extra_info": {
                             "Order By": [
-                                "y.s_store_name1",
-                                "y.s_store_id1",
-                                "y.d_week_seq1"
+                                "s_store_name1",
+                                "s_store_id1",
+                                "d_week_seq1"
                             ]
                         }
                     }
@@ -609,46 +609,20 @@ logical_opt [
                                                 "name": "COMPARISON_JOIN",
                                                 "children": [
                                                     {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Filters": "",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "288464"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Expressions": [
-                                                                "ss_sold_date_sk",
-                                                                "ss_store_sk",
-                                                                "ss_sales_price"
-                                                            ],
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "288464"
                                                         }
                                                     },
                                                     {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Filters": "(2450816i64 <= $.d_date_sk <= 2452642i64)",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "73049"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Expressions": [
-                                                                "d_date_sk",
-                                                                "d_week_seq",
-                                                                "d_day_name"
-                                                            ],
+                                                            "Filters": "(2450816i64 <= $.d_date_sk <= 2452642i64)",
+                                                            "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "73049"
                                                         }
                                                     }
@@ -662,9 +636,9 @@ logical_opt [
                                         ],
                                         "extra_info": {
                                             "Expressions": [
-                                                "__internal_compress_integral_utinyint(#0, 1)",
+                                                "CAST(#0 AS TINYINT)",
                                                 "#1",
-                                                "__internal_compress_integral_usmallint(#2, 1)",
+                                                "CAST(#2 AS SMALLINT)",
                                                 "#3"
                                             ],
                                             "Estimated Cardinality": "288464"
@@ -677,22 +651,22 @@ logical_opt [
                                         "ss_store_sk"
                                     ],
                                     "Expressions": [
-                                        "sum(CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL END)",
-                                        "sum(CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL END)",
-                                        "sum(CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL END)",
-                                        "sum(CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL END)",
-                                        "sum(CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL END)",
-                                        "sum(CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL END)",
-                                        "sum(CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL END)"
+                                        "sum(CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END)"
                                     ],
-                                    "Estimated Cardinality": "288463"
+                                    "Estimated Cardinality": "9914"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_decompress_integral_bigint(#0, 1)",
-                                "__internal_decompress_integral_bigint(#1, 1)",
+                                "CAST(#0 AS BIGINT)",
+                                "CAST(#1 AS BIGINT)",
                                 "#2",
                                 "#3",
                                 "#4",
@@ -701,7 +675,7 @@ logical_opt [
                                 "#7",
                                 "#8"
                             ],
-                            "Estimated Cardinality": "288463"
+                            "Estimated Cardinality": "9914"
                         }
                     }
                 ],
@@ -717,20 +691,20 @@ logical_opt [
                         "fri_sales",
                         "sat_sales"
                     ],
-                    "Estimated Cardinality": "288463"
+                    "Estimated Cardinality": "9914"
                 }
             },
             {
-                "name": "TOP_N",
+                "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "TOP_N",
                         "children": [
                             {
-                                "name": "COMPARISON_JOIN",
+                                "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
+                                        "name": "COMPARISON_JOIN",
                                         "children": [
                                             {
                                                 "name": "COMPARISON_JOIN",
@@ -739,16 +713,43 @@ logical_opt [
                                                         "name": "COMPARISON_JOIN",
                                                         "children": [
                                                             {
-                                                                "name": "CTE_SCAN",
-                                                                "children": [],
+                                                                "name": "COMPARISON_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CTE_SCAN",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "CTE Index": "0",
+                                                                            "Estimated Cardinality": "9914"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "CTE_SCAN",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "CTE Index": "0",
+                                                                            "Estimated Cardinality": "9914"
+                                                                        }
+                                                                    }
+                                                                ],
                                                                 "extra_info": {
-                                                                    "CTE Index": "0",
-                                                                    "Estimated Cardinality": "288463"
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": "(d_week_seq1 = (d_week_seq2 - 52))",
+                                                                    "Estimated Cardinality": "9418"
                                                                 }
                                                             },
                                                             {
-                                                                "name": "PROJECTION",
+                                                                "name": "COMPARISON_JOIN",
                                                                 "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "1"
+                                                                        }
+                                                                    },
                                                                     {
                                                                         "name": "READ_VORTEX",
                                                                         "children": [],
@@ -760,36 +761,27 @@ logical_opt [
                                                                     }
                                                                 ],
                                                                 "extra_info": {
-                                                                    "Expressions": [
-                                                                        "s_store_sk",
-                                                                        "s_store_id",
-                                                                        "s_store_name"
-                                                                    ],
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": "(s_store_id1 = s_store_id2)",
                                                                     "Estimated Cardinality": "1"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
-                                                            "Conditions": "(ss_store_sk = s_store_sk)",
-                                                            "Estimated Cardinality": "288463"
+                                                            "Conditions": [
+                                                                "(ss_store_sk = s_store_sk)",
+                                                                "(ss_store_sk = s_store_sk)"
+                                                            ],
+                                                            "Estimated Cardinality": "9418"
                                                         }
                                                     },
                                                     {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Filters": "(1212i64 <= $.d_month_seq <= 1223i64)",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "14609"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Expressions": "d_week_seq",
+                                                            "Filters": "(1224i64 <= $.d_month_seq <= 1235i64)",
+                                                            "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "14609"
                                                         }
                                                     }
@@ -797,142 +789,62 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(d_week_seq = d_week_seq)",
-                                                    "Estimated Cardinality": "288463"
+                                                    "Estimated Cardinality": "13184"
                                                 }
-                                            }
-                                        ],
-                                        "extra_info": {
-                                            "Expressions": [
-                                                "s_store_name1",
-                                                "d_week_seq1",
-                                                "s_store_id1",
-                                                "sun_sales1",
-                                                "mon_sales1",
-                                                "tue_sales1",
-                                                "wed_sales1",
-                                                "thu_sales1",
-                                                "fri_sales1",
-                                                "sat_sales1"
-                                            ],
-                                            "Estimated Cardinality": "288463"
-                                        }
-                                    },
-                                    {
-                                        "name": "PROJECTION",
-                                        "children": [
+                                            },
                                             {
-                                                "name": "COMPARISON_JOIN",
-                                                "children": [
-                                                    {
-                                                        "name": "COMPARISON_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "CTE_SCAN",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "CTE Index": "0",
-                                                                    "Estimated Cardinality": "288463"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "PROJECTION",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "1"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Expressions": [
-                                                                        "s_store_sk",
-                                                                        "s_store_id"
-                                                                    ],
-                                                                    "Estimated Cardinality": "1"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "(ss_store_sk = s_store_sk)",
-                                                            "Estimated Cardinality": "288463"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Filters": "(1224i64 <= $.d_month_seq <= 1235i64)",
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "14609"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Expressions": "d_week_seq",
-                                                            "Estimated Cardinality": "14609"
-                                                        }
-                                                    }
-                                                ],
+                                                "name": "READ_VORTEX",
+                                                "children": [],
                                                 "extra_info": {
-                                                    "Join Type": "INNER",
-                                                    "Conditions": "(d_week_seq = d_week_seq)",
-                                                    "Estimated Cardinality": "288463"
+                                                    "Filters": "(1212i64 <= $.d_month_seq <= 1223i64)",
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "14609"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Expressions": [
-                                                "d_week_seq2",
-                                                "s_store_id2",
-                                                "sun_sales2",
-                                                "mon_sales2",
-                                                "tue_sales2",
-                                                "wed_sales2",
-                                                "thu_sales2",
-                                                "fri_sales2",
-                                                "sat_sales2"
-                                            ],
-                                            "Estimated Cardinality": "288463"
+                                            "Join Type": "INNER",
+                                            "Conditions": "(d_week_seq = d_week_seq)",
+                                            "Estimated Cardinality": "18455"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Join Type": "INNER",
-                                    "Conditions": [
-                                        "(s_store_id1 = s_store_id2)",
-                                        "(d_week_seq1 = (d_week_seq2 - 52))"
+                                    "Expressions": [
+                                        "s_store_name1",
+                                        "s_store_id1",
+                                        "d_week_seq1",
+                                        "sun_sales_ratio",
+                                        "mon_sales_ratio",
+                                        "tue_sales_ratio",
+                                        "wed_sales_ratio",
+                                        "thu_sales_ratio",
+                                        "fri_sales_ratio",
+                                        "sat_sales_ratio"
                                     ],
-                                    "Estimated Cardinality": "288462"
+                                    "Estimated Cardinality": "18455"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Expressions": [
-                                "s_store_name1",
-                                "s_store_id1",
-                                "d_week_seq1",
-                                "sun_sales_ratio",
-                                "mon_sales_ratio",
-                                "tue_sales_ratio",
-                                "wed_sales_ratio",
-                                "thu_sales_ratio",
-                                "fri_sales_ratio",
-                                "sat_sales_ratio"
-                            ],
-                            "Estimated Cardinality": "288462"
+                            "Expressions": "",
+                            "Estimated Cardinality": "100"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Expressions": "",
+                    "Expressions": [
+                        "#0",
+                        "#1",
+                        "#2",
+                        "#3",
+                        "#4",
+                        "#5",
+                        "#6",
+                        "#7",
+                        "#8",
+                        "#9"
+                    ],
                     "Estimated Cardinality": "100"
                 }
             }
@@ -1000,9 +912,9 @@ physical_plan [
                                         ],
                                         "extra_info": {
                                             "Projections": [
-                                                "__internal_compress_integral_utinyint(#0, 1)",
+                                                "CAST(#0 AS TINYINT)",
                                                 "#1",
-                                                "__internal_compress_integral_usmallint(#2, 1)",
+                                                "CAST(#2 AS SMALLINT)",
                                                 "#3"
                                             ],
                                             "Estimated Cardinality": "288464"
@@ -1013,13 +925,13 @@ physical_plan [
                                     "Projections": [
                                         "d_week_seq",
                                         "ss_store_sk",
-                                        "CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL END",
-                                        "CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL END",
-                                        "CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL END",
-                                        "CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL END",
-                                        "CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL END",
-                                        "CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL END",
-                                        "CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL END"
+                                        "CASE  WHEN ((d_day_name = 'Sunday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                        "CASE  WHEN ((d_day_name = 'Monday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                        "CASE  WHEN ((d_day_name = 'Tuesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                        "CASE  WHEN ((d_day_name = 'Wednesday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                        "CASE  WHEN ((d_day_name = 'Thursday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                        "CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
+                                        "CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END"
                                     ],
                                     "Estimated Cardinality": "288464"
                                 }
@@ -1039,14 +951,14 @@ physical_plan [
                                 "sum(#7)",
                                 "sum(#8)"
                             ],
-                            "Estimated Cardinality": "288463"
+                            "Estimated Cardinality": "9914"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "__internal_decompress_integral_bigint(#0, 1)",
-                        "__internal_decompress_integral_bigint(#1, 1)",
+                        "CAST(#0 AS BIGINT)",
+                        "CAST(#1 AS BIGINT)",
                         "#2",
                         "#3",
                         "#4",
@@ -1055,7 +967,7 @@ physical_plan [
                         "#7",
                         "#8"
                     ],
-                    "Estimated Cardinality": "288463"
+                    "Estimated Cardinality": "9914"
                 }
             },
             {
@@ -1068,7 +980,7 @@ physical_plan [
                                 "name": "HASH_JOIN",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
+                                        "name": "HASH_JOIN",
                                         "children": [
                                             {
                                                 "name": "HASH_JOIN",
@@ -1081,9 +993,27 @@ physical_plan [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "CTE Index": "0",
-                                                                    "Estimated Cardinality": "288463"
+                                                                    "Estimated Cardinality": "9914"
                                                                 }
                                                             },
+                                                            {
+                                                                "name": "CTE_SCAN",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "CTE Index": "0",
+                                                                    "Estimated Cardinality": "9914"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "INNER",
+                                                            "Conditions": "d_week_seq1 = (d_week_seq2 - 52)",
+                                                            "Estimated Cardinality": "9418"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "HASH_JOIN",
+                                                        "children": [
                                                             {
                                                                 "name": "READ_VORTEX",
                                                                 "children": [],
@@ -1095,64 +1025,6 @@ physical_plan [
                                                                         "s_store_name"
                                                                     ],
                                                                     "Estimated Cardinality": "1"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "ss_store_sk = s_store_sk",
-                                                            "Estimated Cardinality": "288463"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Function": "Vortex Scan",
-                                                            "Filters": "(1212i64 <= $.d_month_seq <= 1223i64)",
-                                                            "Projections": "d_week_seq",
-                                                            "Estimated Cardinality": "14609"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Join Type": "INNER",
-                                                    "Conditions": "d_week_seq = d_week_seq",
-                                                    "Estimated Cardinality": "288463"
-                                                }
-                                            }
-                                        ],
-                                        "extra_info": {
-                                            "Projections": [
-                                                "s_store_name1",
-                                                "d_week_seq1",
-                                                "s_store_id1",
-                                                "sun_sales1",
-                                                "mon_sales1",
-                                                "tue_sales1",
-                                                "wed_sales1",
-                                                "thu_sales1",
-                                                "fri_sales1",
-                                                "sat_sales1"
-                                            ],
-                                            "Estimated Cardinality": "288463"
-                                        }
-                                    },
-                                    {
-                                        "name": "PROJECTION",
-                                        "children": [
-                                            {
-                                                "name": "HASH_JOIN",
-                                                "children": [
-                                                    {
-                                                        "name": "HASH_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "CTE_SCAN",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "CTE Index": "0",
-                                                                    "Estimated Cardinality": "288463"
                                                                 }
                                                             },
                                                             {
@@ -1170,51 +1042,52 @@ physical_plan [
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
-                                                            "Conditions": "ss_store_sk = s_store_sk",
-                                                            "Estimated Cardinality": "288463"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Function": "Vortex Scan",
-                                                            "Filters": "(1224i64 <= $.d_month_seq <= 1235i64)",
-                                                            "Projections": "d_week_seq",
-                                                            "Estimated Cardinality": "14609"
+                                                            "Conditions": "s_store_id1 = s_store_id2",
+                                                            "Estimated Cardinality": "1"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "d_week_seq = d_week_seq",
-                                                    "Estimated Cardinality": "288463"
+                                                    "Conditions": [
+                                                        "ss_store_sk = s_store_sk",
+                                                        "ss_store_sk = s_store_sk"
+                                                    ],
+                                                    "Estimated Cardinality": "9418"
+                                                }
+                                            },
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": "(1224i64 <= $.d_month_seq <= 1235i64)",
+                                                    "Projections": "d_week_seq",
+                                                    "Estimated Cardinality": "14609"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Projections": [
-                                                "d_week_seq2",
-                                                "s_store_id2",
-                                                "sun_sales2",
-                                                "mon_sales2",
-                                                "tue_sales2",
-                                                "wed_sales2",
-                                                "thu_sales2",
-                                                "fri_sales2",
-                                                "sat_sales2"
-                                            ],
-                                            "Estimated Cardinality": "288463"
+                                            "Join Type": "INNER",
+                                            "Conditions": "d_week_seq = d_week_seq",
+                                            "Estimated Cardinality": "13184"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": "(1212i64 <= $.d_month_seq <= 1223i64)",
+                                            "Projections": "d_week_seq",
+                                            "Estimated Cardinality": "14609"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": [
-                                        "s_store_id1 = s_store_id2",
-                                        "d_week_seq1 = (d_week_seq2 - 52)"
-                                    ],
-                                    "Estimated Cardinality": "288462"
+                                    "Conditions": "d_week_seq = d_week_seq",
+                                    "Estimated Cardinality": "18455"
                                 }
                             }
                         ],
@@ -1231,23 +1104,25 @@ physical_plan [
                                 "fri_sales_ratio",
                                 "sat_sales_ratio"
                             ],
-                            "Estimated Cardinality": "288462"
+                            "Estimated Cardinality": "18455"
                         }
                     }
                 ],
                 "extra_info": {
                     "Top": "100",
                     "Order By": [
-                        "y.s_store_name1 ASC",
-                        "y.s_store_id1 ASC",
-                        "y.d_week_seq1 ASC"
-                    ]
+                        "s_store_name1 ASC",
+                        "s_store_id1 ASC",
+                        "d_week_seq1 ASC"
+                    ],
+                    "Estimated Cardinality": "100"
                 }
             }
         ],
         "extra_info": {
             "CTE Name": "wss",
             "Table Index": "0",
+            "Execution Mode": "PIPELINE_DEPENDENT",
             "Estimated Cardinality": "100"
         }
     }
