@@ -626,7 +626,6 @@ mod tests {
             element_dtype,
             Nullability::NonNullable,
             0,
-            0,
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array.append_to_builder(&mut builder, &mut ctx)?;
