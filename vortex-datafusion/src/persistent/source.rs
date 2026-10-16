@@ -40,6 +40,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
+use crate::convert::dynamic::as_column_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::reader::DefaultVortexReaderFactory;
@@ -330,6 +331,27 @@ impl VortexSource {
         self.vortex_predicate.as_ref()
     }
 
+    /// Whether `expr` is a dynamic filter (TopK, hash join, ...) that the opener can track live.
+    ///
+    /// The scan applies a relaxed form of the filter that may keep extra rows. That is safe to
+    /// report as pushed down because the producing operator enforces its own semantics and
+    /// ignores the pushdown result for its dynamic filters.
+    fn is_supported_dynamic_filter(&self, expr: &Arc<dyn PhysicalExpr>) -> DFResult<bool> {
+        let Some(dynamic) = as_column_dynamic_filter(expr) else {
+            return Ok(false);
+        };
+        for child in dynamic.children() {
+            if self
+                .expression_converter
+                .try_convert(child, self.table_schema.table_schema())?
+                .is_none()
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     fn create_vortex_opener(
         &self,
         object_store: Arc<dyn ObjectStore>,
@@ -478,10 +500,11 @@ impl FileSource for VortexSource {
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
-                if self
-                    .expression_converter
-                    .try_convert(&expr, self.table_schema.table_schema())?
-                    .is_some()
+                if self.is_supported_dynamic_filter(&expr)?
+                    || self
+                        .expression_converter
+                        .try_convert(&expr, self.table_schema.table_schema())?
+                        .is_some()
                 {
                     Ok(PushedDownPredicate::supported(expr))
                 } else {

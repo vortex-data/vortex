@@ -140,6 +140,13 @@ pub struct DynamicComparisonExpr {
 }
 
 impl DynamicComparisonExpr {
+    /// Returns the current constant result when there is no right-hand bound.
+    ///
+    /// The bound is sampled on every call; callers must not cache this result across executions.
+    pub fn constant_value(&self) -> Option<bool> {
+        (self.rhs.value)().is_none().then_some(self.default)
+    }
+
     pub fn scalar(&self) -> Option<Scalar> {
         (self.rhs.value)().map(|v| {
             Scalar::try_new(self.rhs.dtype.clone(), Some(v))

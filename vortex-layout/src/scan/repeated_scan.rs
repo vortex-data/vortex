@@ -69,6 +69,8 @@ pub struct RepeatedScan<A> {
     limit: Option<ScanLimit>,
     /// The dtype of the projected arrays.
     dtype: DType,
+    /// Whether dynamic filter conjuncts that keep almost every row may stop being evaluated.
+    skip_unselective_dynamic: bool,
 }
 
 /// A function applied to each projected split array.
@@ -154,15 +156,24 @@ impl<A: 'static + Send> RepeatedScan<A> {
             map_fn,
             limit,
             dtype,
+            skip_unselective_dynamic: false,
         }
+    }
+
+    /// See [`ScanBuilder::with_skip_unselective_dynamic`](crate::scan::scan_builder::ScanBuilder::with_skip_unselective_dynamic).
+    pub(crate) fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
+        self.skip_unselective_dynamic = skip;
+        self
     }
 
     fn task_context(&self) -> Arc<TaskContext> {
         Arc::new(TaskContext {
-            filter: self
-                .filter
-                .clone()
-                .map(|filter| Arc::new(FilterExpr::new(filter))),
+            filter: self.filter.clone().map(|filter| {
+                Arc::new(
+                    FilterExpr::new(filter)
+                        .with_skip_unselective_dynamic(self.skip_unselective_dynamic),
+                )
+            }),
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
         })

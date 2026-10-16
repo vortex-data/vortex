@@ -60,6 +60,8 @@ pub struct ScanBuilder<A> {
     filter: Option<BoundExpression>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
+    /// Whether dynamic filter conjuncts that keep almost every row may stop being evaluated.
+    skip_unselective_dynamic: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -92,6 +94,7 @@ impl ScanBuilder<ArrayRef> {
             projection,
             filter: None,
             ordered: true,
+            skip_unselective_dynamic: false,
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::default(),
@@ -137,6 +140,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Add or clear a filter expression bound against the reader dtype.
+    /// Allows the scan to stop evaluating a filter conjunct containing dynamic expressions once it
+    /// keeps almost every row, until its dynamic values change.
+    ///
+    /// The scan may then return rows such a conjunct would reject. Only enable this when dynamic
+    /// expressions are optimization hints that the operator producing them applies again, as with
+    /// DataFusion's TopK and hash-join dynamic filters.
+    pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
+        self.skip_unselective_dynamic = skip;
+        self
+    }
+
     pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
         self
@@ -288,6 +302,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             projection: self.projection,
             filter: self.filter,
             ordered: self.ordered,
+            skip_unselective_dynamic: self.skip_unselective_dynamic,
             row_range: self.row_range,
             selection: self.selection,
             split_by: self.split_by,
@@ -360,7 +375,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
-        ))
+        )
+        .with_skip_unselective_dynamic(self.skip_unselective_dynamic))
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -495,6 +511,7 @@ mod test {
     use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::and;
     use vortex_array::expr::between;
+    use vortex_array::expr::bound;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -505,6 +522,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
@@ -988,6 +1006,57 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(values, [0, 1, 2, 3, 4, 5]);
+        Ok(())
+    }
+
+    /// A bound dynamic conjunct that keeps every row stops being evaluated once the scan may skip
+    /// it, and is evaluated on every split otherwise. Either way the scan returns the same rows.
+    #[rstest]
+    #[case::skipped(true, keep_all as fn(u64) -> bool, true)]
+    #[case::not_opted_in(false, keep_all as fn(u64) -> bool, false)]
+    #[case::selective(true, keep_odd as fn(u64) -> bool, false)]
+    fn unselective_dynamic_conjuncts_are_skipped(
+        #[case] skip: bool,
+        #[case] keep_row: fn(u64) -> bool,
+        #[case] skipped: bool,
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let evaluations = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(
+            TestLayoutReader::new(64)
+                .with_split_size(4)
+                .with_keep_row(keep_row)
+                .with_filter_evaluations(Arc::clone(&evaluations)),
+        );
+        let filter = bound::dynamic(
+            CompareOperator::Lt,
+            // Bound, so the conjunct is evaluated rather than proven to accept every row.
+            || Some(1000_i32.into()),
+            reader.dtype().clone(),
+            true,
+            root().bind(reader.dtype())?,
+        );
+
+        let values = collect_scan_values(
+            ScanBuilder::new(session, reader)
+                .with_filter(filter)
+                .with_skip_unselective_dynamic(skip)
+                .with_concurrency(1)
+                .into_iter(&runtime)?,
+        )?;
+        drain_runtime(&runtime);
+
+        let expected: Vec<i32> = (0..64i32)
+            .filter(|row| keep_row(u64::from(row.unsigned_abs())))
+            .collect();
+        assert_eq!(values, expected);
+        let evaluations = evaluations.load(Ordering::Relaxed);
+        if skipped {
+            assert!(evaluations < 16, "{evaluations} of 16 splits evaluated");
+        } else {
+            assert_eq!(evaluations, 16);
+        }
         Ok(())
     }
 

@@ -24,6 +24,7 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -60,6 +61,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
+use crate::convert::dynamic::dynamic_filter_to_vortex;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -297,7 +299,17 @@ impl FileOpener for VortexOpener {
                         file.path()
                     ));
                 }
+                let file_fields = vxf.dtype().as_struct_fields_opt();
                 for expr in split_conjunction(filter) {
+                    // Dynamic filters (TopK, hash join, ...) become Vortex comparisons that track
+                    // the DataFusion filter. Their producers enforce them, so any we can't
+                    // convert are dropped rather than evaluated as residuals.
+                    if expr.downcast_ref::<DynamicFilterPhysicalExpr>().is_some() {
+                        native_filters.extend(file_fields.and_then(|fields| {
+                            dynamic_filter_to_vortex(expr, fields, vxf.file_stats(), &session)
+                        }));
+                        continue;
+                    }
                     let converted = expr_converter
                         .try_convert(expr, &this_file_schema)
                         .map_err(|e| {
@@ -415,9 +427,12 @@ impl FileOpener for VortexOpener {
 
             // Set before the byte-range translation below, which computes natural splits for
             // the fields the scan's projection and filter reference.
+            // DataFusion's dynamic filters are enforced again by the operators that produce them,
+            // so the scan may stop evaluating one that keeps almost every row.
             scan_builder = scan_builder
                 .with_projection(scan_projection)
-                .with_some_filter(native_filter);
+                .with_some_filter(native_filter)
+                .with_skip_unselective_dynamic(true);
 
             if let Some(file_range) = &file.range {
                 let byte_range = Range {

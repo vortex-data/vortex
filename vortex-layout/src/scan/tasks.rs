@@ -91,11 +91,18 @@ fn build_filter_mask(
     MaskFuture::new(row_mask.len(), async move {
         let mut mask = row_mask;
         let mut dynamic_versions = vec![None; filter.conjuncts().len()];
+        let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
 
         // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
         for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
             if mask.all_false() {
                 return Ok(mask);
+            }
+
+            if filter.is_unbounded(idx) {
+                remaining.set(idx, false);
+                filter.report_selectivity(idx, 1.0);
+                continue;
             }
 
             // Store the latest version of the dynamic expression prior to pruning.
@@ -109,7 +116,6 @@ fn build_filter_mask(
         }
 
         // Now we loop through the conjuncts in the preferred order and evaluate them.
-        let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
         while let Some(idx) = filter.next_conjunct(&remaining) {
             remaining.set(idx, false);
             if mask.all_false() {
@@ -134,15 +140,22 @@ fn build_filter_mask(
             if mask.all_false() {
                 return Ok(mask);
             }
+            // A dynamic conjunct that keeps almost every row is skipped until its values change.
+            if let Some(version) = current_version
+                && filter.skips_dynamic_conjunct(idx, version)
+            {
+                continue;
+            }
 
             let input_true_count = mask.true_count();
             let conjunct_mask = reader
                 .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
                 .await?;
-            filter.report_selectivity(
-                idx,
-                conditional_selectivity(input_true_count, conjunct_mask.true_count()),
-            );
+            let selectivity = conditional_selectivity(input_true_count, conjunct_mask.true_count());
+            filter.report_selectivity(idx, selectivity);
+            if let Some(version) = current_version {
+                filter.report_dynamic_selectivity(idx, version, selectivity);
+            }
 
             // Filter evaluations return a mask already intersected with the input mask.
             mask = conjunct_mask;
@@ -172,7 +185,62 @@ pub(crate) struct TaskContext {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+    use rstest::rstest;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::dynamic;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::or;
+    use vortex_array::expr::root;
+    use vortex_array::scalar_fn::fns::operators::CompareOperator;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+
+    use super::build_filter_mask;
     use super::conditional_selectivity;
+    use crate::LayoutReaderRef;
+    use crate::scan::filter::FilterExpr;
+    use crate::scan::test::TestLayoutReader;
+
+    #[rstest]
+    #[tokio::test]
+    async fn unbounded_filter_skips_reads_until_updated(
+        #[values(false, true)] keep_nulls: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+        let bound = Arc::new(Mutex::new(None::<i32>));
+        let value = Arc::clone(&bound);
+        let expression = dynamic(
+            CompareOperator::Gt,
+            move || value.lock().map(Into::into),
+            dtype.clone(),
+            true,
+            root(),
+        );
+        let expression = if keep_nulls {
+            or(is_null(root()), expression)
+        } else {
+            expression
+        };
+        let filter = Arc::new(FilterExpr::new(expression.bind(&dtype)?));
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(8).with_fail_first_filter());
+        let mask = Mask::from_iter([true, false, true, false, true, true, false, true]);
+
+        let actual = build_filter_mask(&reader, &filter, &(0..8), mask.clone()).await?;
+        assert_eq!(actual, mask);
+
+        *bound.lock() = Some(3);
+        assert!(
+            build_filter_mask(&reader, &filter, &(0..8), mask)
+                .await
+                .is_err()
+        );
+        Ok(())
+    }
 
     #[test]
     fn selectivity_is_relative_to_the_input_mask() {
