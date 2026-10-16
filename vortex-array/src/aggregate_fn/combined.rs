@@ -216,6 +216,7 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     // `try_accumulate` consult the kernel registry per-child (e.g. a `(Dict, Sum)` kernel fires
     // for the inner `Sum` child of `Combined<Mean>`).
     type Partial = ChildAccumulators<T>;
+    const SKIPS_NULLS: bool = T::Left::SKIPS_NULLS && T::Right::SKIPS_NULLS;
 
     fn id(&self) -> AggregateFnId {
         self.0.id()

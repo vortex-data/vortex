@@ -315,6 +315,7 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
 impl AggregateFnVTable for MinMax {
     type Options = NumericalAggregateOpts;
     type Partial = MinMaxPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.min_max");

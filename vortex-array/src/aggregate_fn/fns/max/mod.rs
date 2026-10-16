@@ -73,6 +73,7 @@ impl MaxPartial {
 impl AggregateFnVTable for Max {
     type Options = NumericalAggregateOpts;
     type Partial = MaxPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.max");

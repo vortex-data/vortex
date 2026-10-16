@@ -99,6 +99,7 @@ pub struct NanCount;
 impl AggregateFnVTable for NanCount {
     type Options = EmptyOptions;
     type Partial = u64;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.nan_count");

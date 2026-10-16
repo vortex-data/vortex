@@ -176,6 +176,27 @@ fn nullable(bencher: Bencher, name: &str) {
         });
 }
 
+/// Filter the logical field to its valid rows, as a row function's valid-only policy would, then
+/// accumulate it.
+#[divan::bench(args = AGGREGATES)]
+fn nullable_valid_only(bencher: Bencher, name: &str) {
+    let aggregate_fn = aggregate(name);
+    let batch = masked_field();
+    let valid = &field_validity() & &demand();
+    bencher
+        .with_inputs(|| {
+            (
+                aggregate_fn.accumulator(batch.dtype()).unwrap(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(mut acc, mut ctx)| {
+            acc.accumulate(&batch.filter(valid.clone()).unwrap(), &mut ctx)
+                .unwrap();
+            acc.flush().unwrap()
+        });
+}
+
 /// Filter the field down to its demanded rows, then accumulate it.
 #[divan::bench(args = AGGREGATES)]
 fn filtered(bencher: Bencher, name: &str) {

@@ -124,6 +124,18 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// The partial accumulator state for a single group.
     type Partial: 'static + Send;
 
+    /// Whether null input rows contribute nothing to the partial state.
+    ///
+    /// Like a row function's validity, this is handled by the accumulator, not the kernel: when a
+    /// [demanded](crate::aggregate_fn::DynAccumulator::accumulate_demanded) batch is partially
+    /// selected, the accumulator conjoins the demand with the batch's validity and filters both away
+    /// at once, so the kernel sees only valid rows and can take its dense path. An aggregate that
+    /// observes nulls, such as the null count, keeps `false` and receives the demanded rows with
+    /// their validity.
+    ///
+    /// A conservative `false` is always sound.
+    const SKIPS_NULLS: bool = false;
+
     /// Returns the ID of the aggregate function vtable.
     fn id(&self) -> AggregateFnId;
 

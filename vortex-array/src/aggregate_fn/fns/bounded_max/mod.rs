@@ -123,6 +123,7 @@ pub fn make_bounded_max_partial_dtype(element_dtype: &DType) -> DType {
 impl AggregateFnVTable for BoundedMax {
     type Options = BoundedMaxOptions;
     type Partial = BoundedMaxPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.bounded_max");

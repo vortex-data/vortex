@@ -272,6 +272,7 @@ pub struct BloomFilter;
 impl AggregateFnVTable for BloomFilter {
     type Options = BloomOptions;
     type Partial = BloomPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.bloom_filter.sbbf");

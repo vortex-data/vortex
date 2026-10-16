@@ -39,6 +39,7 @@ pub struct LastPartial {
 impl AggregateFnVTable for Last {
     type Options = EmptyOptions;
     type Partial = LastPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.last");

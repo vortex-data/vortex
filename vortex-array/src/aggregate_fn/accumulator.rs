@@ -17,6 +17,7 @@ use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::demand::valid_demand;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
@@ -134,12 +135,20 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             return Ok(());
         }
 
-        // 3. Iteratively check the registry against each intermediate encoding, executing one
+        // 3. An aggregate that skips nulls only needs the valid rows. Like a row function's
+        //    valid-only policy, a partially valid batch is filtered to its valid rows once, here,
+        //    after the direct paths above had their chance on the original batch, so the steps
+        //    below see an all-valid batch and the kernels take their dense paths. A batch that has
+        //    definitely no nulls never resolves its validity.
+        let Some(mut batch) = self.valid_rows(batch, ctx)? else {
+            return Ok(());
+        };
+
+        // 4. Iteratively check the registry against each intermediate encoding, executing one
         //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
         //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
         //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
         //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
-        let mut batch = batch.clone();
         for _ in 0..max_iterations() {
             if batch.is::<AnyColumnar>() {
                 break;
@@ -162,7 +171,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             batch = batch.execute(ctx)?;
         }
 
-        // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
+        // 5. Otherwise, execute the batch until it is columnar and accumulate it into the state.
         let columnar = batch.execute::<Columnar>(ctx)?;
 
         self.ensure_partial()?;
@@ -173,6 +182,28 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 }
 
 impl<V: AggregateFnVTable> Accumulator<V> {
+    /// The rows of `batch` the aggregate needs: its valid rows if the aggregate
+    /// [skips nulls](AggregateFnVTable::SKIPS_NULLS), otherwise all of them. Returns `None` if no
+    /// row is needed.
+    fn valid_rows(
+        &self,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !V::SKIPS_NULLS {
+            return Ok(Some(batch.clone()));
+        }
+        let validity = batch.validity()?;
+        if validity.definitely_no_nulls() {
+            return Ok(Some(batch.clone()));
+        }
+        Ok(match validity.execute_mask(batch.len(), ctx)? {
+            Mask::AllTrue(_) => Some(batch.clone()),
+            Mask::AllFalse(_) => None,
+            valid @ Mask::Values(_) => Some(batch.filter(valid)?),
+        })
+    }
+
     /// Accumulate every row of `batch`, consuming or caching its result as a legacy statistic.
     fn accumulate_all(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         // Legacy stats bridge: an aggregate still cached under a legacy `Stat` slot consumes that
@@ -237,8 +268,9 @@ pub trait DynAccumulator: 'static + Send {
     /// they hold, e.g. the unmasked field values under the null rows of a parent struct, so the
     /// result equals accumulating `batch.filter(demand)`.
     ///
-    /// The batch is lazily filtered to its demanded rows, so the vtable and its kernels only ever
-    /// see demanded rows, and filters that encodings push down keep their kernels reachable, e.g.
+    /// The batch is lazily filtered to its demanded rows, together with its null rows for an
+    /// aggregate that [skips nulls](AggregateFnVTable::SKIPS_NULLS), so the vtable and its kernels
+    /// only ever see demanded rows, and filters that encodings push down keep their kernels reachable, e.g.
     /// a dictionary filters only its codes. An aggregate that only reads validity, such as the
     /// null count, only filters the validity.
     fn accumulate_demanded(
@@ -335,8 +367,18 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             Mask::Values(_) => {}
         }
 
+        // An aggregate that skips nulls only needs the valid demanded rows, so its kernel sees an
+        // all-valid batch. Every other aggregate sees the demanded rows with their validity.
+        let rows = if V::SKIPS_NULLS {
+            valid_demand(&batch.validity()?, demand, ctx)?
+        } else {
+            demand.clone()
+        };
+        if rows.all_false() {
+            return Ok(());
+        }
         // The filtered batch is a temporary array, so no statistics are read from or cached on it.
-        self.accumulate_batch(&batch.filter(demand.clone())?, ctx)
+        self.accumulate_batch(&batch.filter(rows)?, ctx)
     }
 
     fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()> {

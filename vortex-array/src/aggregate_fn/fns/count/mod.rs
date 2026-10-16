@@ -35,6 +35,7 @@ pub struct Count;
 impl AggregateFnVTable for Count {
     type Options = NumericalAggregateOpts;
     type Partial = u64;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.count");

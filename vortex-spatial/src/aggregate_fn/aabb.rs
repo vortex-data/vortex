@@ -123,6 +123,7 @@ fn rect_to_storage(rect: SpatialRect<f64>) -> Scalar {
 impl AggregateFnVTable for GeometryAabb {
     type Options = EmptyOptions;
     type Partial = AabbPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.st.aabb");

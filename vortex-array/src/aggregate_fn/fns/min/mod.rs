@@ -73,6 +73,7 @@ impl MinPartial {
 impl AggregateFnVTable for Min {
     type Options = NumericalAggregateOpts;
     type Partial = MinPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.min");

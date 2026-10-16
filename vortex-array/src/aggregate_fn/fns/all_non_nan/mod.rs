@@ -34,6 +34,7 @@ pub struct AllNonNan;
 impl AggregateFnVTable for AllNonNan {
     type Options = EmptyOptions;
     type Partial = bool;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.all_non_nan");

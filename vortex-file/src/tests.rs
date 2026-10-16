@@ -1448,28 +1448,23 @@ async fn file_take() -> VortexResult<()> {
     Ok(())
 }
 
+/// A nullable top-level struct round-trips, including the field values under its null rows,
+/// which its file statistics leave out.
 #[tokio::test]
-#[should_panic(
-    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
-)]
-async fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
         ["age"].into(),
         vec![ages.into_array()],
         5,
-        Validity::AllValid,
-    )
-    .unwrap()
+        Validity::from_iter([true, false, true, true, false]),
+    )?
     .into_array();
 
-    let mut writer = vec![];
-    SESSION
-        .write_options()
-        .write(&mut writer, array.to_array_stream())
-        .await
-        .unwrap();
+    let result = round_trip(&array, Ok).await?;
+    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
+    Ok(())
 }
 
 async fn round_trip(

@@ -77,6 +77,7 @@ impl BoundedMinPartial {
 impl AggregateFnVTable for BoundedMin {
     type Options = BoundedMinOptions;
     type Partial = BoundedMinPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.bounded_min");

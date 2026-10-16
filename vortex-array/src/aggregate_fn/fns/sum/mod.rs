@@ -88,6 +88,7 @@ pub(crate) fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
 impl AggregateFnVTable for Sum {
     type Options = NumericalAggregateOpts;
     type Partial = SumPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.sum");

@@ -39,6 +39,7 @@ pub struct FirstPartial {
 impl AggregateFnVTable for First {
     type Options = EmptyOptions;
     type Partial = FirstPartial;
+    const SKIPS_NULLS: bool = true;
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.first");
