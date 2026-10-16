@@ -48,6 +48,8 @@ mod primitive;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use nested::row_comparator;
+
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
 /// Implementations can compare an encoded array against another array (typically a constant)

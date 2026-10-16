@@ -13,6 +13,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::ExtensionAggregate;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
@@ -48,6 +49,9 @@ use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::dtype::DType;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::Timestamp;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -115,6 +119,11 @@ impl Default for AggregateFnSession {
         this.register(Sum);
         this.register(SumV2);
         this.register(UncompressedSizeInBytes);
+
+        // Register min/max over the storage of extension types that order like their storage.
+        this.register(ExtensionAggregate::new(MinMax, Date));
+        this.register(ExtensionAggregate::new(MinMax, Time));
+        this.register(ExtensionAggregate::new(MinMax, Timestamp));
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);

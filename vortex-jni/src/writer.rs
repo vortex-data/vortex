@@ -40,6 +40,8 @@ use vortex::array::scalar::ScalarValue;
 use vortex::array::stats::StatsSet;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
+use vortex::dtype::extension::ExtVTable;
+use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -213,8 +215,13 @@ fn scalar_to_java<'local>(
     if scalar.is_null() {
         return Ok(JObject::null());
     }
-    if scalar.dtype().is_extension() {
-        return scalar_to_java(env, scalar.as_extension().to_storage_scalar());
+    match scalar.dtype() {
+        DType::Extension(ext_dtype) if ext_dtype.is::<Uuid>() => return uuid_to_java(env, &scalar),
+        DType::Extension(_) => {
+            return scalar_to_java(env, scalar.as_extension().to_storage_scalar());
+        }
+        DType::FixedSizeList(..) => return fixed_size_list_to_java(env, &scalar),
+        _ => {}
     }
 
     let Some(value) = scalar.value() else {
@@ -277,6 +284,56 @@ fn scalar_to_java<'local>(
             )))
         }
     }
+}
+
+/// A non-null UUID statistic as a `java.util.UUID`, the Java type Arrow reads `arrow.uuid` as.
+fn uuid_to_java<'local>(
+    env: &mut Env<'local>,
+    scalar: &Scalar,
+) -> Result<JObject<'local>, JNIError> {
+    let ext = scalar.as_extension();
+    let value = ext
+        .value()
+        .ok_or_else(|| vortex_err!("UUID write statistic must not be null"))?;
+    let uuid_dtype = ext.ext_dtype().clone().downcast::<Uuid>();
+    let (most_significant, least_significant) =
+        Uuid::unpack_native(&uuid_dtype, value)?.as_u64_pair();
+    Ok(env.new_object(
+        jni::jni_str!("java/util/UUID"),
+        jni::jni_sig!("(JJ)V"),
+        &[
+            JValue::Long(most_significant.cast_signed()),
+            JValue::Long(least_significant.cast_signed()),
+        ],
+    )?)
+}
+
+/// A non-null fixed-size list statistic as a `java.util.List` of its elements, the Java type Arrow
+/// reads fixed-size lists as.
+fn fixed_size_list_to_java<'local>(
+    env: &mut Env<'local>,
+    scalar: &Scalar,
+) -> Result<JObject<'local>, JNIError> {
+    let elements = scalar
+        .as_list()
+        .elements()
+        .ok_or_else(|| vortex_err!("fixed-size list write statistic must not be null"))?;
+    let list = env.new_object(
+        jni::jni_str!("java/util/ArrayList"),
+        jni::jni_sig!("()V"),
+        &[],
+    )?;
+    for element in elements {
+        let element = scalar_to_java(env, element)?;
+        env.call_method(
+            &list,
+            jni::jni_str!("add"),
+            jni::jni_sig!("(Ljava/lang/Object;)Z"),
+            &[JValue::Object(&element)],
+        )?;
+        env.delete_local_ref(element);
+    }
+    Ok(list)
 }
 
 fn write_summary_to_java<'local>(

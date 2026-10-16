@@ -20,6 +20,7 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
+use crate::aggregate_fn::GroupedArray;
 use crate::dtype::DType;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -248,6 +249,19 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         Ok(false)
+    }
+
+    /// Accumulate a batch of groups directly, returning one partial state per group, or `None` to
+    /// fall through to grouped kernel dispatch and per-group accumulation.
+    ///
+    /// This is useful for aggregates that delegate to another aggregate's grouped accumulation.
+    fn try_accumulate_grouped(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _groups: &GroupedArray,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
     }
 
     /// Accumulate a new canonical array into the partial state.

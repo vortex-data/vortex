@@ -6,8 +6,6 @@ use std::fmt::Formatter;
 use std::num::NonZeroUsize;
 use std::sync::LazyLock;
 
-use vortex_buffer::BufferString;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -35,7 +33,7 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::partial_ord::partial_max;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarTruncation;
+use crate::scalar::can_bound_extrema;
 use crate::scalar::upper_bound;
 
 /// Field name for the bounded maximum upper-bound value in the partial state.
@@ -49,7 +47,8 @@ static NAMES: LazyLock<FieldNames> =
 /// Options for [`BoundedMax`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BoundedMaxOptions {
-    /// Maximum byte length for UTF8/Binary bounds.
+    /// Maximum byte length of a bound. UTF-8 and binary values are truncated to fit, and
+    /// fixed-size lists wider than this are not supported.
     pub max_bytes: NonZeroUsize,
 }
 
@@ -59,7 +58,9 @@ impl Display for BoundedMaxOptions {
     }
 }
 
-/// Compute a byte-bounded upper bound for the maximum non-null value of a UTF8/Binary array.
+/// Compute a byte-bounded upper bound for the maximum non-null value of an array.
+///
+/// See [`upper_bound`] for how values are bounded.
 #[derive(Clone, Debug)]
 pub struct BoundedMax;
 
@@ -292,8 +293,8 @@ impl AggregateFnVTable for BoundedMax {
         let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
             return Ok(());
         };
-        match truncate_max(result.max, args.options.max_bytes.get())? {
-            Some(bound) => partial.merge_bound(bound),
+        match upper_bound(result.max, args.options.max_bytes.get()) {
+            Some((bound, _)) => partial.merge_bound(bound),
             None => partial.unknown(),
         }
         Ok(())
@@ -316,29 +317,11 @@ impl AggregateFnVTable for BoundedMax {
     }
 }
 
-fn supported_dtype<'a>(_options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
-    MinMax
+fn supported_dtype<'a>(options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
+    let has_extrema = MinMax
         .return_dtype(&NumericalAggregateOpts::default(), input_dtype)
-        .map(|_| input_dtype)
-}
-
-fn truncate_max(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
-    let nullability = value.dtype().nullability();
-    match value.dtype() {
-        DType::Utf8(_) => {
-            Ok(
-                upper_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        DType::Binary(_) => {
-            Ok(
-                upper_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        _ => Ok(Some(value)),
-    }
+        .is_some();
+    (has_extrema && can_bound_extrema(input_dtype, options.max_bytes.get())).then_some(input_dtype)
 }
 
 #[cfg(test)]
@@ -365,9 +348,12 @@ mod tests {
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
     use crate::array_session;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -377,6 +363,43 @@ mod tests {
 
     fn fresh_session() -> VortexSession {
         array_session()
+    }
+
+    /// A fixed-size list cannot be truncated, so it is its own bound when it fits `max_bytes`, and
+    /// not supported when it does not.
+    #[test]
+    fn bounded_max_keeps_fixed_size_lists_within_max_bytes() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = FixedSizeListArray::try_new(
+            buffer![1u8, 2, 3, 4].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )?
+        .into_array();
+        let options = |bytes| BoundedMaxOptions {
+            max_bytes: max_bytes(bytes),
+        };
+        assert!(
+            BoundedMax
+                .return_dtype(&options(1), array.dtype())
+                .is_none()
+        );
+
+        let mut acc = Accumulator::try_new(BoundedMax, options(2), array.dtype().clone())?;
+        acc.accumulate(&array, &mut ctx)?;
+
+        let element_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let expected = Scalar::fixed_size_list(
+            element_dtype,
+            [3u8, 4]
+                .into_iter()
+                .map(|byte| Scalar::primitive(byte, Nullability::NonNullable))
+                .collect(),
+            Nullability::Nullable,
+        );
+        assert_eq!(acc.finish()?, expected);
+        Ok(())
     }
 
     #[test]

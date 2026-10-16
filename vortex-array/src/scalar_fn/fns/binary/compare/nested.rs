@@ -109,6 +109,20 @@ fn collect_ordering_bits(
     BitBuffer::collect_bool_in(len, |i| predicate(comparator(i, i)), allocator.clone())
 }
 
+/// Build a comparator over the rows of one array, ordering them exactly as comparing the array
+/// against itself does. See the [module docs](self) for the ordering.
+pub(crate) fn row_comparator(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<RowComparator> {
+    let array = array
+        .clone()
+        .execute::<RecursiveCanonical>(ctx)?
+        .0
+        .into_array();
+    build_comparator(&array, &array, ctx)
+}
+
 /// The validity mask of a recursively canonical array.
 fn validity_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
     array.validity()?.execute_mask(array.len(), ctx)

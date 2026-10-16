@@ -43,6 +43,7 @@ pub type GroupedAccumulatorRef = Box<dyn DynGroupedAccumulator>;
 /// Each outer list value is one group, and the inner element array is shared by all groups.
 /// Aggregate implementations can inspect the concrete grouped representation directly, or ask for
 /// derived ranges when their algorithm is expressed in terms of `(offset, size)` pairs.
+#[derive(Clone)]
 pub enum GroupedArray {
     /// Groups represented as a list-view array with per-group offsets and sizes.
     ListView(ListViewArray),
@@ -105,7 +106,7 @@ impl GroupedArray {
         Ok(self.group_validity(ctx)?.all_true())
     }
 
-    unsafe fn with_elements_unchecked(&self, elements: ArrayRef) -> VortexResult<Self> {
+    pub(crate) unsafe fn with_elements_unchecked(&self, elements: ArrayRef) -> VortexResult<Self> {
         Ok(match self {
             Self::ListView(groups) => unsafe {
                 ListViewArray::new_unchecked(
@@ -283,11 +284,18 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
 }
 
 impl<V: AggregateFnVTable> GroupedAccumulator<V> {
-    fn accumulate_grouped_array(
+    pub(crate) fn accumulate_grouped_array(
         &mut self,
         groups: GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        if let Some(states) =
+            self.vtable
+                .try_accumulate_grouped(self.dtypes.args(&self.options), &groups, ctx)?
+        {
+            return self.push_result(states);
+        }
+
         let mut elements = groups.elements().clone();
         let session = ctx.session().clone();
 

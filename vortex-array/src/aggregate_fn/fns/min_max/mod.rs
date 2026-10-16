@@ -4,6 +4,7 @@
 mod bool;
 mod decimal;
 mod extension;
+mod fixed_size_list;
 mod primitive;
 mod varbinview;
 
@@ -18,6 +19,8 @@ use vortex_session::registry::CachedId;
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
 use self::extension::accumulate_extension;
+use self::extension::accumulate_grouped_extension;
+use self::fixed_size_list::accumulate_fixed_size_list;
 use self::primitive::accumulate_primitive;
 use self::varbinview::accumulate_varbinview;
 use crate::ArrayRef;
@@ -30,6 +33,7 @@ use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::GroupedArray;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -297,19 +301,27 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
 
 /// Returns whether [`min_max`] can currently compute extrema for this logical dtype.
 ///
-/// This is intentionally narrower than [`minmax_supported_dtype`]. List and fixed-size-list
-/// extrema have a defined output dtype for aggregate expression lowering, but the accumulator does
-/// not yet implement lexicographic list comparison.
+/// This is intentionally narrower than [`minmax_supported_dtype`]. List extrema have a defined
+/// output dtype for aggregate expression lowering, but the accumulator does not yet compute them.
+/// Fixed-size lists are computed only over fixed-width scalar elements. Extension types are
+/// computed over their storage, and only those with an [`ExtensionAggregate`] of [`MinMax`]
+/// registered in the session, which [`MinMax`] checks as it accumulates them.
+///
+/// [`ExtensionAggregate`]: crate::aggregate_fn::ExtensionAggregate
 fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
-    matches!(
-        input_dtype,
+    match input_dtype {
         DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(..)
-            | DType::Binary(..)
-            | DType::Extension(..)
-    )
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(..)
+        | DType::Binary(..) => true,
+        DType::FixedSizeList(element_dtype, ..) => matches!(
+            element_dtype.as_ref(),
+            DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..)
+        ),
+        DType::Extension(ext_dtype) => minmax_compute_supported_dtype(ext_dtype.storage_dtype()),
+        _ => false,
+    }
 }
 
 impl AggregateFnVTable for MinMax {
@@ -432,6 +444,15 @@ impl AggregateFnVTable for MinMax {
         }
     }
 
+    fn try_accumulate_grouped(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        accumulate_grouped_extension(args, groups, ctx)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -439,6 +460,16 @@ impl AggregateFnVTable for MinMax {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // Dtypes that `min_max` does not compute, such as lists of strings, have no extrema in
+        // any encoding.
+        let dtype = batch.dtype();
+        if !minmax_compute_supported_dtype(dtype) {
+            return Ok(());
+        }
+        if let DType::Extension(ext_dtype) = dtype {
+            return accumulate_extension(args, partial, ext_dtype, batch, ctx);
+        }
+
         match batch {
             Columnar::Constant(c) => {
                 if c.is_empty() {
@@ -472,18 +503,9 @@ impl AggregateFnVTable for MinMax {
                 Canonical::Bool(b) => accumulate_bool(args, partial, b, ctx),
                 Canonical::VarBinView(v) => accumulate_varbinview(args, partial, v, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(args, partial, d, ctx),
-                Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
-                Canonical::Null(_) => Ok(()),
-                Canonical::Union(_) => {
-                    vortex_bail!("TODO(connor)[Union]: implement min_max for Union arrays")
-                }
-                Canonical::Struct(_)
-                | Canonical::List(_)
-                | Canonical::Map(_)
-                | Canonical::FixedSizeList(_)
-                | Canonical::Variant(_) => {
-                    vortex_bail!("Unsupported canonical type for min_max: {}", batch.dtype())
-                }
+                Canonical::FixedSizeList(l) => accumulate_fixed_size_list(args, partial, l, ctx),
+                // Unsupported dtypes and extensions returned above.
+                _ => vortex_bail!("Unsupported canonical type for min_max: {}", batch.dtype()),
             },
         }
     }
@@ -532,6 +554,7 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
@@ -541,8 +564,12 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ForeignExtDType;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
@@ -978,7 +1005,7 @@ mod tests {
     }
 
     #[test]
-    fn list_and_fixed_size_list_min_max_returns_none() -> VortexResult<()> {
+    fn list_min_max_returns_none() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
         let list_array = ListArray::try_new(
@@ -991,10 +1018,21 @@ mod tests {
             min_max(&list_array, &mut ctx, NumericalAggregateOpts::default())?,
             None
         );
+        Ok(())
+    }
+
+    /// Fixed-size lists of variable-width elements are not computed, keeping extrema bounded.
+    #[test]
+    fn fixed_size_list_of_strings_min_max_returns_none() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
 
         let fixed_size_list_array = FixedSizeListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array(),
-            2,
+            VarBinArray::from_iter(
+                [Some("b"), Some("a")],
+                DType::Utf8(Nullability::NonNullable),
+            )
+            .into_array(),
+            1,
             Validity::NonNullable,
             2,
         )?
@@ -1007,7 +1045,49 @@ mod tests {
             )?,
             None
         );
+        Ok(())
+    }
 
+    /// Extension extrema are computed on storage only for types whose storage order is their own.
+    /// Other types get none, from `min_max` or the aggregate, in any encoding.
+    #[test]
+    fn extension_extrema_require_storage_order() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let storage = buffer![3i64, 1, 2].into_array();
+
+        let timestamp_dtype = Timestamp::new(TimeUnit::Seconds, Nullability::NonNullable).erased();
+        let timestamps = ExtensionArray::new(timestamp_dtype.clone(), storage.clone()).into_array();
+        assert_eq!(
+            min_max(&timestamps, &mut ctx, NumericalAggregateOpts::default())?,
+            Some(MinMaxResult {
+                min: Scalar::extension_ref(timestamp_dtype.clone(), Scalar::from(1i64)),
+                max: Scalar::extension_ref(timestamp_dtype, Scalar::from(3i64)),
+            })
+        );
+
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
+        let unordered_id = ExtId::new("test.unordered");
+        let unordered_dtype =
+            ForeignExtDType::from_parts(unordered_id, Vec::new(), storage.dtype().clone())?;
+        let unordered = ExtensionArray::new(unordered_dtype, storage).into_array();
+        let constant = ConstantArray::new(unordered.execute_scalar(0, &mut ctx)?, 3).into_array();
+        for array in [unordered, constant] {
+            assert_eq!(
+                min_max(&array, &mut ctx, NumericalAggregateOpts::default())?,
+                None
+            );
+            let mut acc = Accumulator::try_new(
+                MinMax,
+                NumericalAggregateOpts::default(),
+                array.dtype().clone(),
+            )?;
+            acc.accumulate(&array, &mut ctx)?;
+            assert!(
+                acc.finish()?.is_null(),
+                "extrema for {}",
+                array.encoding_id()
+            );
+        }
         Ok(())
     }
 

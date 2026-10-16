@@ -32,6 +32,9 @@ pub use typed::*;
 mod erased;
 pub use erased::*;
 
+mod extension;
+pub use extension::*;
+
 mod options;
 pub use options::*;
 

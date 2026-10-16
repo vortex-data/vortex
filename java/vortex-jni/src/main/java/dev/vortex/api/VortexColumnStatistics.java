@@ -68,8 +68,9 @@ public final class VortexColumnStatistics {
      * Lower bound represented using the corresponding Arrow scalar's Java type.
      *
      * <p>Integers use {@link Integer}, {@link Long}, or {@link java.math.BigInteger}; floating-point values use
-     * {@link Float} or {@link Double}; decimal values use {@link java.math.BigDecimal}; strings use {@link String}; and
-     * binary values use {@code byte[]}.
+     * {@link Float} or {@link Double}; decimal values use {@link java.math.BigDecimal}; strings use {@link String};
+     * binary values use {@code byte[]}; UUIDs use {@link java.util.UUID}; and fixed-size lists use a
+     * {@link java.util.List} of their elements' types.
      */
     public Optional<Object> lowerBound() {
         return Optional.ofNullable(lowerBound);

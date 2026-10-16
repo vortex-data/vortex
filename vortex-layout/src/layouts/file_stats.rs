@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -24,13 +23,11 @@ use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarTruncation;
+use vortex_array::scalar::can_bound_extrema;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
-use vortex_buffer::BufferString;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -80,8 +77,11 @@ impl StatsAccumulator {
             };
         }
 
+        // A min or max that cannot be bounded is never stored, so it is not computed either.
+        let bounds_extrema = can_bound_extrema(dtype, max_variable_length_statistics_size);
         let builders = stats
             .iter()
+            .filter(|&&stat| bounds_extrema || !matches!(stat, Stat::Min | Stat::Max))
             .filter_map(|&stat| {
                 stat.dtype(dtype).map(|stat_dtype| {
                     stats_builder_with_capacity(
@@ -232,48 +232,24 @@ fn stats_builder_with_capacity(
         vortex_buffer::BufferAllocatorRef::static_ref(),
     );
     match stat {
-        Stat::Max => match dtype {
-            DType::Utf8(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<BufferString>::new(
-                values_builder,
-                BoolBuilder::with_capacity_in(
-                    Nullability::NonNullable,
-                    capacity,
-                    vortex_buffer::BufferAllocatorRef::static_ref(),
-                ),
-                max_length,
-            )),
-            DType::Binary(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<ByteBuffer>::new(
-                values_builder,
-                BoolBuilder::with_capacity_in(
-                    Nullability::NonNullable,
-                    capacity,
-                    vortex_buffer::BufferAllocatorRef::static_ref(),
-                ),
-                max_length,
-            )),
-            _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
-        },
-        Stat::Min => match dtype {
-            DType::Utf8(_) => Box::new(TruncatedMinBinaryStatsBuilder::<BufferString>::new(
-                values_builder,
-                BoolBuilder::with_capacity_in(
-                    Nullability::NonNullable,
-                    capacity,
-                    vortex_buffer::BufferAllocatorRef::static_ref(),
-                ),
-                max_length,
-            )),
-            DType::Binary(_) => Box::new(TruncatedMinBinaryStatsBuilder::<ByteBuffer>::new(
-                values_builder,
-                BoolBuilder::with_capacity_in(
-                    Nullability::NonNullable,
-                    capacity,
-                    vortex_buffer::BufferAllocatorRef::static_ref(),
-                ),
-                max_length,
-            )),
-            _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
-        },
+        Stat::Max if is_varlen_dtype(dtype) => Box::new(TruncatedMaxStatsBuilder::new(
+            values_builder,
+            BoolBuilder::with_capacity_in(
+                Nullability::NonNullable,
+                capacity,
+                vortex_buffer::BufferAllocatorRef::static_ref(),
+            ),
+            max_length,
+        )),
+        Stat::Min if is_varlen_dtype(dtype) => Box::new(TruncatedMinStatsBuilder::new(
+            values_builder,
+            BoolBuilder::with_capacity_in(
+                Nullability::NonNullable,
+                capacity,
+                vortex_buffer::BufferAllocatorRef::static_ref(),
+            ),
+            max_length,
+        )),
         _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
     }
 }
@@ -332,14 +308,13 @@ impl StatsArrayBuilder for StatNameArrayBuilder {
     }
 }
 
-struct TruncatedMaxBinaryStatsBuilder<T: ScalarTruncation> {
+struct TruncatedMaxStatsBuilder {
     values: Box<dyn ArrayBuilder>,
     is_truncated: BoolBuilder,
     max_value_length: usize,
-    _marker: PhantomData<T>,
 }
 
-impl<T: ScalarTruncation> TruncatedMaxBinaryStatsBuilder<T> {
+impl TruncatedMaxStatsBuilder {
     fn new(
         values: Box<dyn ArrayBuilder>,
         is_truncated: BoolBuilder,
@@ -349,19 +324,17 @@ impl<T: ScalarTruncation> TruncatedMaxBinaryStatsBuilder<T> {
             values,
             is_truncated,
             max_value_length,
-            _marker: PhantomData,
         }
     }
 }
 
-struct TruncatedMinBinaryStatsBuilder<T: ScalarTruncation> {
+struct TruncatedMinStatsBuilder {
     values: Box<dyn ArrayBuilder>,
     is_truncated: BoolBuilder,
     max_value_length: usize,
-    _marker: PhantomData<T>,
 }
 
-impl<T: ScalarTruncation> TruncatedMinBinaryStatsBuilder<T> {
+impl TruncatedMinStatsBuilder {
     fn new(
         values: Box<dyn ArrayBuilder>,
         is_truncated: BoolBuilder,
@@ -371,21 +344,17 @@ impl<T: ScalarTruncation> TruncatedMinBinaryStatsBuilder<T> {
             values,
             is_truncated,
             max_value_length,
-            _marker: PhantomData,
         }
     }
 }
 
-impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T> {
+impl StatsArrayBuilder for TruncatedMaxStatsBuilder {
     fn stat(&self) -> Stat {
         Stat::Max
     }
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        let nullability = value.dtype().nullability();
-        if let Some((upper_bound, truncated)) =
-            upper_bound(T::from_scalar(value)?, self.max_value_length, nullability)
-        {
+        if let Some((upper_bound, truncated)) = upper_bound(value, self.max_value_length) {
             self.values.append_scalar(&upper_bound)?;
             self.is_truncated.append_value(truncated);
         } else {
@@ -410,16 +379,13 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
     }
 }
 
-impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T> {
+impl StatsArrayBuilder for TruncatedMinStatsBuilder {
     fn stat(&self) -> Stat {
         Stat::Min
     }
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        let nullability = value.dtype().nullability();
-        if let Some((lower_bound, truncated)) =
-            lower_bound(T::from_scalar(value)?, self.max_value_length, nullability)
-        {
+        if let Some((lower_bound, truncated)) = lower_bound(value, self.max_value_length) {
             self.values.append_scalar(&lower_bound)?;
             self.is_truncated.append_value(truncated);
         } else {
@@ -538,9 +504,11 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::expr::stats::StatsProvider;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
 
@@ -626,6 +594,36 @@ mod tests {
 
         assert!(matches!(stats.get(Stat::Min), Precision::Inexact(_)));
         assert!(matches!(stats.get(Stat::Max), Precision::Inexact(_)));
+    }
+
+    /// A fixed-size list cannot be truncated, so its min and max are kept whole when they fit the
+    /// budget and not computed at all otherwise.
+    #[rstest]
+    #[case::fits(12, true)]
+    #[case::too_wide(13, false)]
+    fn bounds_fixed_size_list_extrema(#[case] list_size: u32, #[case] kept: bool) {
+        let mut ctx = array_session().create_execution_ctx();
+        let elements = PrimitiveArray::from_iter(
+            (0..2 * list_size).map(|i| u8::try_from(i).vortex_expect("small test values")),
+        );
+        let array =
+            FixedSizeListArray::try_new(elements.into_array(), list_size, Validity::NonNullable, 2)
+                .vortex_expect("valid fixed-size list")
+                .into_array();
+        let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min], 12);
+        acc.push_chunk(&array, &mut ctx)
+            .vortex_expect("push_chunk should succeed for test array");
+
+        let stats = acc
+            .as_stats_set(&[Stat::Max, Stat::Min], &mut ctx)
+            .vortex_expect("as_stats_set should succeed for test array");
+        assert_eq!(stats.get(Stat::Min).is_exact(), kept);
+        assert_eq!(stats.get(Stat::Max).is_exact(), kept);
+        assert_eq!(
+            array.statistics().get(Stat::Max).into_inner().is_some(),
+            kept,
+            "an unbounded max is not computed"
+        );
     }
 
     #[test]
