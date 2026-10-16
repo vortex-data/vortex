@@ -3,6 +3,7 @@
 
 #![expect(clippy::missing_safety_doc)]
 
+use std::env;
 use std::ffi::c_char;
 use std::ffi::c_void;
 use std::sync::LazyLock;
@@ -51,13 +52,17 @@ mod e2e_test;
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 /// Process-wide registry, so repeated scans against the same bucket share one client.
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
-// DuckDB scans read and decode on every DuckDB thread at the same time. Fresh large buffers
-// page-fault on first write, and on machines with many cores these faults wait behind DuckDB's
-// own memory-map changes. Reusing freed blocks avoids the faults.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::default()
-        .with_handle(RUNTIME.handle())
-        .with_allocator(BufferAllocatorRef::new(PooledBufferAllocator::default()));
+    let mut session = VortexSession::default().with_handle(RUNTIME.handle());
+
+    // DuckDB scans read and decode on every DuckDB thread at the same time. Fresh large buffers
+    // page-fault on first write, and on machines with many cores these faults wait behind DuckDB's
+    // own memory-map changes. Reusing freed blocks avoids the faults.
+    if env::var("VORTEX_DUCKDB_POOLED_ALLOCATOR").is_ok_and(|v| v == "1") {
+        session =
+            session.with_allocator(BufferAllocatorRef::new(PooledBufferAllocator::default()));
+    }
+
     session
         .enable_edition(CORE_2026_08_3)
         .map_err(|error| vortex_err!("{error}"))
