@@ -7,8 +7,9 @@ use std::fmt;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
-use vortex_io::request::IoBatch;
-use vortex_io::request::IoConsumer;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::IoRequest;
+use vortex_io::segments::SourceResult;
 
 pub use crate::planning::planner::State;
 
@@ -24,7 +25,7 @@ pub enum MorselOutput {
     /// A CPU-only checkpoint; the driver requeues the morsel.
     Continue,
     /// Requests the morsel publishes: fetches it needs, and optional hints.
-    NeedsIO(IoBatch),
+    NeedsIO(Vec<IoRequest>),
     /// One non-empty array of selected rows, in input-row order.
     Batch(ArrayRef),
 }
@@ -34,12 +35,17 @@ pub enum MorselOutput {
 /// `state()` is called before every `compute()`, and `compute()` only when `state()` is
 /// `NeedsCompute`. Batches preserve selected input-row order within and across calls. A morsel
 /// moves between threads with the run that owns it.
-pub trait Morsel: IoConsumer + Send {
+pub trait Morsel: Send {
     /// Reports what the morsel needs next without doing work.
     fn state(&self) -> State;
 
     /// Advances CPU work. Only called when [`state`](Self::state) is `NeedsCompute`.
     fn compute(&mut self) -> VortexResult<MorselOutput>;
+
+    /// The result of a read it fetched, once per fetch: a segment's bytes or a source's size. It
+    /// never has two fetches of one key outstanding. A failed fetch is never delivered: whatever
+    /// drives it fails the scan with the read's error instead.
+    fn deliver(&mut self, key: IoKey, result: SourceResult);
 }
 
 impl fmt::Debug for MorselOutput {

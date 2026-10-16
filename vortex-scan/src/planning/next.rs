@@ -28,19 +28,14 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_error::vortex_bail;
-    use vortex_io::request::IoConsumer;
-    use vortex_io::request::IoRequestId;
-    use vortex_io::request::IoResult;
+    use vortex_io::segments::IoKey;
+    use vortex_io::segments::SourceResult;
 
     use super::*;
     use crate::planning::planner::PlannerOutput;
     use crate::planning::planner::State;
 
     struct Finished;
-
-    impl IoConsumer for Finished {
-        fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
-    }
 
     impl Planner for Finished {
         fn state(&self) -> State {
@@ -50,6 +45,8 @@ mod tests {
         fn compute(&mut self) -> VortexResult<PlannerOutput> {
             Ok(PlannerOutput::Done)
         }
+
+        fn deliver(&mut self, _key: IoKey, _result: SourceResult) {}
     }
 
     #[test]

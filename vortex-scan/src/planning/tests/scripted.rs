@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scripted planners, morsels, and a recording IO source for driver tests.
+//! Scripted planners, morsels, and a recording IO session for driver tests.
 //!
 //! A scripted object follows its script exactly and panics when the driver calls it against the
 //! protocol, so a driver bug becomes a test failure that names the script position.
@@ -10,7 +10,11 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Waker;
 
+use futures::FutureExt;
+use futures::channel::oneshot;
+use futures::future;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -20,18 +24,18 @@ use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::request::Completion;
-use vortex_io::request::IoBatch;
-use vortex_io::request::IoConsumer;
-use vortex_io::request::IoIntent;
-use vortex_io::request::IoOwnerId;
-use vortex_io::request::IoRequest;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
-use vortex_io::request::IoSource;
-use vortex_io::request::IoTarget;
+use vortex_io::segments::IoHandle;
+use vortex_io::segments::IoIntent;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::IoOwnerId;
+use vortex_io::segments::IoRequest;
+use vortex_io::segments::SegmentIoSession;
+use vortex_io::segments::SegmentSourceId;
+use vortex_io::segments::SourceRequest;
+use vortex_io::segments::SourceResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::planning::morsel::Morsel;
@@ -60,13 +64,13 @@ pub enum PlannerStep {
     Done,
     Continue,
     /// Publishes the batch and goes straight on to the next step.
-    NeedsIO(IoBatch),
+    NeedsIO(Vec<IoRequest>),
     Planner(WorkScope, Vec<PlannerStep>),
     Morsel(WorkScope, Vec<MorselStep>),
     /// Publishes the batch, then waits until every request in it is delivered.
-    Io(IoBatch),
-    /// Waits for requests an earlier `NeedsIO` step published.
-    Await(Vec<IoRequestId>),
+    Io(Vec<IoRequest>),
+    /// Waits for fetches an earlier `NeedsIO` step published.
+    Await(Vec<IoKey>),
     /// Reports `Waiting` without having published anything.
     Wait,
 }
@@ -75,25 +79,25 @@ pub enum PlannerStep {
 pub enum MorselStep {
     Compute(MorselOutput),
     /// Publishes the batch, then waits until every request in it is delivered.
-    Io(IoBatch),
+    Io(Vec<IoRequest>),
 }
 
-/// The ids a waiting step still expects.
-struct Pending(Vec<IoRequestId>);
+/// The keys a waiting step still expects.
+struct Pending(Vec<IoKey>);
 
 impl Pending {
-    fn of(batch: &IoBatch) -> Self {
-        Self(batch.iter().map(|request| request.request).collect())
+    fn of(batch: &[IoRequest]) -> Self {
+        Self(batch.iter().map(|request| request.key).collect())
     }
 
-    /// Removes a delivered id and returns whether the step has everything it waited for.
-    fn deliver(&mut self, name: &str, position: usize, request: IoRequestId) -> bool {
+    /// Removes a delivered key and returns whether the step has everything it waited for.
+    fn deliver(&mut self, name: &str, position: usize, key: IoKey) -> bool {
         let index = self
             .0
             .iter()
-            .position(|pending| *pending == request)
+            .position(|pending| *pending == key)
             .unwrap_or_else(|| {
-                panic!("{name}: delivery of unknown request {request:?} at step {position}")
+                panic!("{name}: delivery of unknown segment {key:?} at step {position}")
             });
         self.0.remove(index);
         self.0.is_empty()
@@ -126,19 +130,15 @@ impl ScriptedPlanner {
     }
 }
 
-impl IoConsumer for ScriptedPlanner {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        self.log.push(format!(
-            "deliver {} {} {}",
-            self.name,
-            request.0,
-            result.kind()
-        ));
+impl ScriptedPlanner {
+    fn take_delivery(&mut self, key: IoKey) {
+        self.log
+            .push(format!("deliver {} {}", self.name, describe(key)));
         let position = self.position;
-        if let Some(PlannerStep::Await(ids)) = self.script.get(position)
+        if let Some(PlannerStep::Await(keys)) = self.script.get(position)
             && self.pending.is_none()
         {
-            self.pending = Some(Pending(ids.clone()));
+            self.pending = Some(Pending(keys.clone()));
         }
         let Some(pending) = self.pending.as_mut() else {
             panic!(
@@ -146,7 +146,7 @@ impl IoConsumer for ScriptedPlanner {
                 self.name
             );
         };
-        if pending.deliver(self.name, position, request) {
+        if pending.deliver(self.name, position, key) {
             self.pending = None;
             self.position += 1;
         }
@@ -154,6 +154,10 @@ impl IoConsumer for ScriptedPlanner {
 }
 
 impl Planner for ScriptedPlanner {
+    fn deliver(&mut self, key: IoKey, _result: SourceResult) {
+        self.take_delivery(key);
+    }
+
     fn state(&self) -> State {
         match self.script.get(self.position) {
             None => State::Done,
@@ -221,14 +225,10 @@ impl ScriptedMorsel {
     }
 }
 
-impl IoConsumer for ScriptedMorsel {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        self.log.push(format!(
-            "deliver {} {} {}",
-            self.name,
-            request.0,
-            result.kind()
-        ));
+impl Morsel for ScriptedMorsel {
+    fn deliver(&mut self, key: IoKey, _result: SourceResult) {
+        self.log
+            .push(format!("deliver {} {}", self.name, describe(key)));
         let position = self.position;
         let Some(pending) = self.pending.as_mut() else {
             panic!(
@@ -236,14 +236,12 @@ impl IoConsumer for ScriptedMorsel {
                 self.name
             );
         };
-        if pending.deliver(self.name, position, request) {
+        if pending.deliver(self.name, position, key) {
             self.pending = None;
             self.position += 1;
         }
     }
-}
 
-impl Morsel for ScriptedMorsel {
     fn state(&self) -> State {
         match self.script.get(self.position) {
             None => State::Done,
@@ -276,13 +274,27 @@ impl Morsel for ScriptedMorsel {
     }
 }
 
-enum Canned {
-    Bytes(ByteBuffer),
-    Size(u64),
-    Fail(String),
+/// How the log names what `key` reads: a segment's id, or `size`.
+fn describe(key: IoKey) -> String {
+    match key.request {
+        SourceRequest::Segment(segment) => segment.to_string(),
+        SourceRequest::Size => "size".to_string(),
+    }
 }
 
-/// Which submitted request `wait` completes first.
+/// The key of `segment` in the one source the driver tests read.
+pub fn key(segment: u32) -> IoKey {
+    IoKey::segment(SegmentSourceId(0), segment)
+}
+
+/// A fetch of `segment`.
+pub fn fetch(segment: u32) -> IoRequest {
+    IoRequest::new(key(segment), IoIntent::Fetch)
+}
+
+type FetchResult = Result<SourceResult, Arc<VortexError>>;
+
+/// Which unfinished fetch the session finishes next.
 #[derive(Clone, Copy, Default)]
 pub enum Order {
     /// Oldest submission first.
@@ -292,111 +304,135 @@ pub enum Order {
     Lifo,
 }
 
-/// An [`IoSource`] answering from canned buffers. Every submission is resolved at once and
-/// held until `wait`, which hands completions back in the configured [`Order`]. It records the
-/// targets in submission order, and how often it was cleared.
-#[derive(Default)]
-pub struct RecordingIoSource {
-    canned: Mutex<HashMap<IoTarget, Canned>>,
-    performed: Mutex<Vec<IoTarget>>,
-    ready: Mutex<Vec<Completion>>,
-    order: Order,
-    submissions: Mutex<Vec<(IoOwnerId, IoRequest)>>,
-    clears: Mutex<usize>,
+/// A fetch the session has not finished yet.
+struct Unfinished {
+    owner: IoOwnerId,
+    send: oneshot::Sender<FetchResult>,
+    result: FetchResult,
 }
 
-impl RecordingIoSource {
-    pub fn lifo() -> Self {
-        Self {
-            order: Order::Lifo,
+/// A [`SegmentIoSession`] answering fetches from canned buffers.
+///
+/// Fetches finish one per [`poll_ready`](SegmentIoSession::poll_ready), in the configured
+/// [`Order`]. A gated session finishes one only after each [`arrive`](Self::arrive), so a test
+/// decides when IO lands. Announcements and prefetches never finish. It records every submission
+/// and every fetch performed.
+#[derive(Default)]
+pub struct RecordingSession {
+    canned: Mutex<HashMap<IoKey, Result<ByteBuffer, String>>>,
+    submissions: Mutex<Vec<(IoOwnerId, IoRequest)>>,
+    performed: Mutex<Vec<IoKey>>,
+    unfinished: Mutex<Vec<Unfinished>>,
+    order: Order,
+    gated: bool,
+    arrivals: Mutex<usize>,
+    waker: Mutex<Option<Waker>>,
+}
+
+impl RecordingSession {
+    /// Answers segments 0 and 1 with four bytes each.
+    pub fn new(order: Order, gated: bool) -> Self {
+        let session = Self {
+            order,
+            gated,
             ..Default::default()
+        };
+        session.canned_bytes(0, ByteBuffer::from(vec![0u8, 1, 2, 3]));
+        session.canned_bytes(1, ByteBuffer::from(vec![4u8, 5, 6, 7]));
+        session
+    }
+
+    /// Answers `segment` with `bytes`.
+    pub fn canned_bytes(&self, segment: u32, bytes: ByteBuffer) {
+        self.canned.lock().insert(key(segment), Ok(bytes));
+    }
+
+    /// Fails reads of `segment` with `message`.
+    pub fn fail(&self, segment: u32, message: &str) {
+        self.canned
+            .lock()
+            .insert(key(segment), Err(message.to_string()));
+    }
+
+    /// Lets a gated session finish one more fetch.
+    pub fn arrive(&self) {
+        *self.arrivals.lock() += 1;
+        if let Some(waker) = self.waker.lock().take() {
+            waker.wake();
         }
-    }
-
-    /// Answers a range at `offset` with `bytes`.
-    pub fn canned_bytes(&self, offset: u64, bytes: ByteBuffer) {
-        self.canned
-            .lock()
-            .insert(IoTarget::range(offset, bytes.len()), Canned::Bytes(bytes));
-    }
-
-    /// Answers `target` with a size regardless of what it asked for, to test the driver's check.
-    pub fn answer_with_size(&self, target: IoTarget, size: u64) {
-        self.canned.lock().insert(target, Canned::Size(size));
-    }
-
-    pub fn fail(&self, target: IoTarget, message: &str) {
-        self.canned
-            .lock()
-            .insert(target, Canned::Fail(message.to_string()));
     }
 
     pub fn submissions(&self) -> Vec<(IoOwnerId, IoRequest)> {
         self.submissions.lock().clone()
     }
 
-    pub fn performed(&self) -> Vec<IoTarget> {
+    pub fn performed(&self) -> Vec<IoKey> {
         self.performed.lock().clone()
-    }
-
-    /// How many times the source was cleared.
-    pub fn clears(&self) -> usize {
-        *self.clears.lock()
     }
 }
 
-impl IoSource for RecordingIoSource {
-    fn submit(&self, work: IoOwnerId, batch: Vec<IoRequest>) -> VortexResult<()> {
-        for request in batch {
-            self.submissions.lock().push((work, request));
-            if request.intent != IoIntent::Fetch {
-                continue;
-            }
-            self.performed.lock().push(request.target);
-            let result = match self.canned.lock().get(&request.target) {
-                Some(Canned::Bytes(bytes)) => {
-                    Ok(IoResult::Bytes(BufferHandle::new_host(bytes.clone())))
+impl SegmentIoSession for RecordingSession {
+    fn submit(&self, owner: IoOwnerId, batch: &[IoRequest]) -> VortexResult<Vec<IoHandle>> {
+        Ok(batch
+            .iter()
+            .map(|request| {
+                self.submissions.lock().push((owner, *request));
+                if request.intent != IoIntent::Fetch {
+                    return IoHandle::new(future::pending().boxed().shared(), Arc::new(()));
                 }
-                Some(Canned::Size(size)) => Ok(IoResult::Size(*size)),
-                Some(Canned::Fail(message)) => Err(vortex_err!("{message}")),
-                None => Err(vortex_err!("no canned answer for {:?}", request.target)),
-            };
-            self.ready.lock().push(Completion {
-                owner: work,
-                request: request.request,
-                result,
-            });
+                self.performed.lock().push(request.key);
+                let result = match self.canned.lock().get(&request.key) {
+                    Some(Ok(bytes)) => {
+                        Ok(SourceResult::Bytes(BufferHandle::new_host(bytes.clone())))
+                    }
+                    Some(Err(message)) => Err(Arc::new(vortex_err!("{message}"))),
+                    None => Err(Arc::new(vortex_err!(
+                        "no canned answer for {:?}",
+                        request.key
+                    ))),
+                };
+                let (send, receive) = oneshot::channel();
+                self.unfinished.lock().push(Unfinished {
+                    owner,
+                    send,
+                    result,
+                });
+                let bytes = receive
+                    .map(|result| {
+                        result.unwrap_or_else(|_| Err(Arc::new(vortex_err!("session dropped"))))
+                    })
+                    .boxed()
+                    .shared();
+                IoHandle::new(bytes, Arc::new(()))
+            })
+            .collect())
+    }
+
+    fn poll_ready(
+        &self,
+        cx: &mut Context<'_>,
+        ready: &mut Vec<IoOwnerId>,
+    ) -> Poll<VortexResult<()>> {
+        let mut unfinished = self.unfinished.lock();
+        if unfinished.is_empty() {
+            return Poll::Ready(Err(vortex_err!("RecordingSession: no fetch in flight")));
         }
-        Ok(())
-    }
-
-    fn poll(&self) -> VortexResult<Option<Completion>> {
-        Ok(None)
-    }
-
-    fn poll_completion(&self, _cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
-        Poll::Ready(self.wait())
-    }
-
-    fn release(&self, work: IoOwnerId) {
-        self.ready
-            .lock()
-            .retain(|completion| completion.owner != work);
-    }
-
-    fn clear(&self) {
-        *self.clears.lock() += 1;
-        self.ready.lock().clear();
-    }
-
-    fn wait(&self) -> VortexResult<Completion> {
-        let mut ready = self.ready.lock();
-        let completion = match self.order {
-            Order::Fifo if !ready.is_empty() => Some(ready.remove(0)),
-            Order::Fifo => None,
-            Order::Lifo => ready.pop(),
+        if self.gated {
+            let mut arrivals = self.arrivals.lock();
+            if *arrivals == 0 {
+                *self.waker.lock() = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+            *arrivals -= 1;
+        }
+        let next = match self.order {
+            Order::Fifo => unfinished.remove(0),
+            Order::Lifo => unfinished.pop().expect("checked non-empty"),
         };
-        completion.ok_or_else(|| vortex_err!("RecordingIoSource: wait with nothing outstanding"))
+        // A dropped receiver means its reader was cancelled, which is the reader's concern.
+        drop(next.send.send(next.result));
+        ready.push(next.owner);
+        Poll::Ready(Ok(()))
     }
 }
 

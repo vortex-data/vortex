@@ -112,6 +112,7 @@ mod open;
 mod pruning;
 mod read;
 /// Segment sources, caches, and sinks used by file readers and writers.
+pub mod segment_io;
 pub mod segments;
 mod strategy;
 #[cfg(test)]
