@@ -9,7 +9,6 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -38,7 +37,10 @@ use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
+use crate::scan::metrics::ScanCounters;
+use crate::scan::metrics::ScanMetrics;
 use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::repeated_scan::ScanTasks;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
@@ -75,6 +77,7 @@ pub struct ScanBuilder<A> {
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read after filtering.
     limit: Option<ScanLimit>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -101,6 +104,7 @@ impl ScanBuilder<ArrayRef> {
             concurrency: 4,
             map_fn: Arc::new(Ok),
             metrics_registry: None,
+            metrics: None,
             limit: None,
             row_offset: 0,
         }
@@ -236,12 +240,28 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Add or clear the metrics registry used by scan execution.
     pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
         self.metrics_registry = metrics;
+        self.metrics = None;
         self
     }
 
-    /// Set the metrics registry used by scan execution.
-    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
-        self.metrics_registry = Some(metrics);
+    /// Registers aggregate counters for this prepared scan in `metrics`.
+    ///
+    /// Each execution uses fresh counters and adds its counts after all of its tasks stop.
+    /// [`ScanCounters`] defines cancellation behavior.
+    /// For multiple prepared scans, reuse [`ScanMetrics`] through [`Self::with_scan_metrics`].
+    pub fn with_metrics_registry(self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.with_some_metrics_registry(Some(metrics))
+    }
+
+    /// Uses shared aggregate counters without new registry entries.
+    pub fn with_scan_metrics(self, metrics: ScanMetrics) -> Self {
+        self.with_some_scan_metrics(Some(metrics))
+    }
+
+    /// Sets or clears shared aggregate counters.
+    pub fn with_some_scan_metrics(mut self, metrics: Option<ScanMetrics>) -> Self {
+        self.metrics = metrics;
+        self.metrics_registry = None;
         self
     }
 
@@ -294,6 +314,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             natural_splits: self.natural_splits,
             concurrency: self.concurrency,
             metrics_registry: self.metrics_registry,
+            metrics: self.metrics,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -358,6 +379,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             splits,
             self.concurrency,
             self.map_fn,
+            self.metrics
+                .or_else(|| self.metrics_registry.as_deref().map(ScanMetrics::new)),
             self.limit,
             dtype,
         ))
@@ -367,8 +390,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ///
     /// Scans with row limits must use [`Self::into_stream`] or [`Self::into_iter`] so the scan
     /// can coordinate the limit across splits.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<ScanTasks<A>> {
         self.prepare()?.execute(None)
+    }
+
+    /// Returns split tasks and fresh counters for an execution without a row limit.
+    pub fn build_with_counters(self) -> VortexResult<(ScanTasks<A>, Arc<ScanCounters>)> {
+        self.prepare()?.execute_with_counters(None)
     }
 
     /// Returns a [`Stream`] with tasks spawned onto the session's runtime handle.
@@ -378,7 +406,21 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn into_stream(
         self,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        Ok(LazyScanStream::new(self))
+        Ok(LazyScanStream::new(self, None))
+    }
+
+    /// Returns a lazy stream and fresh counters for one execution.
+    pub fn into_stream_with_counters(
+        self,
+    ) -> VortexResult<(
+        impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>,
+        Arc<ScanCounters>,
+    )> {
+        let counters = Arc::new(ScanCounters::default());
+        Ok((
+            LazyScanStream::new(self, Some(Arc::clone(&counters))),
+            counters,
+        ))
     }
 
     /// Returns an [`Iterator`] using the session's runtime.
@@ -400,12 +442,14 @@ enum LazyScanState<A: 'static + Send> {
 
 struct LazyScanStream<A: 'static + Send> {
     state: LazyScanState<A>,
+    counters: Option<Arc<ScanCounters>>,
 }
 
 impl<A: 'static + Send> LazyScanStream<A> {
-    fn new(builder: ScanBuilder<A>) -> Self {
+    fn new(builder: ScanBuilder<A>, counters: Option<Arc<ScanCounters>>) -> Self {
         Self {
             state: LazyScanState::Builder(Some(Box::new(builder))),
+            counters,
         }
     }
 }
@@ -426,7 +470,9 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     // task: poll_next must only wait for and poll an already-constructed stream.
                     // This also keeps construction errors on the Preparing -> Error path rather
                     // than running construction on the caller's executor.
-                    let task = handle.spawn_cpu(move || builder.prepare()?.execute_stream(None));
+                    let counters = self.counters.take();
+                    let task = handle
+                        .spawn_cpu(move || builder.prepare()?.execute_stream_inner(None, counters));
                     self.state = LazyScanState::Preparing(task);
                 }
                 LazyScanState::Preparing(task) => match ready!(Pin::new(task).poll(cx)) {

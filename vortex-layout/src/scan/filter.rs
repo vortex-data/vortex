@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
@@ -12,8 +15,11 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+
+use crate::LayoutReader;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -27,11 +33,34 @@ pub struct FilterExpr {
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
-    dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
+    dynamic_conjuncts: Vec<Option<DynamicConjunct>>,
     /// The preferred ordering of conjuncts.
     ordering: RwLock<Vec<usize>>,
     /// The quantile to use from the selectivity histogram of each conjunct.
     selectivity_quantile: f64,
+}
+
+struct DynamicConjunct {
+    updates: DynamicExprUpdates,
+    /// Latest whole-file result in this execution.
+    // The low bit stores the result. The other bits store the predicate version.
+    // MAX represents an empty cache. Each entry retains only the latest result.
+    file_pruning: AtomicU64,
+    refresh: Mutex<()>,
+}
+
+impl DynamicConjunct {
+    fn new(updates: DynamicExprUpdates) -> Self {
+        Self {
+            updates,
+            file_pruning: AtomicU64::new(u64::MAX),
+            refresh: Mutex::new(()),
+        }
+    }
+}
+
+fn cached_file_pruning(state: u64, version: u64) -> Option<bool> {
+    (state != u64::MAX && state >> 1 == version).then_some(state & 1 != 0)
 }
 
 fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
@@ -58,7 +87,10 @@ impl FilterExpr {
         let conjuncts = bound_conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
-        let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
+        let dynamic_conjuncts = conjuncts
+            .iter()
+            .map(|conjunct| DynamicExprUpdates::new(conjunct).map(DynamicConjunct::new))
+            .collect_vec();
 
         Self {
             conjuncts,
@@ -82,7 +114,53 @@ impl FilterExpr {
     /// The dynamic updates for the given conjunct, if any.
     #[inline]
     pub fn dynamic_updates(&self, conjunct_idx: usize) -> Option<&DynamicExprUpdates> {
-        self.dynamic_conjuncts[conjunct_idx].as_ref()
+        self.dynamic_conjuncts[conjunct_idx]
+            .as_ref()
+            .map(|dynamic| &dynamic.updates)
+    }
+
+    /// Returns whether whole-file statistics reject any conjunct at its current version.
+    pub(super) fn can_prune_file_any(&self, reader: &dyn LayoutReader) -> VortexResult<bool> {
+        for idx in 0..self.conjuncts.len() {
+            let version = self.dynamic_updates(idx).map(DynamicExprUpdates::version);
+            if self.can_prune_file(idx, version, reader)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Returns a whole-file result, with a cache for the current dynamic predicate version.
+    pub fn can_prune_file(
+        &self,
+        idx: usize,
+        version: Option<u64>,
+        reader: &dyn LayoutReader,
+    ) -> VortexResult<bool> {
+        let (Some(version), Some(dynamic)) = (version, &self.dynamic_conjuncts[idx]) else {
+            return reader.can_prune_file(&self.conjuncts[idx]);
+        };
+        let cache = &dynamic.file_pruning;
+        if let Some(pruned) = cached_file_pruning(cache.load(Ordering::Relaxed), version) {
+            return Ok(pruned);
+        }
+
+        // Only one task evaluates file statistics for a new version.
+        let _guard = dynamic.refresh.lock();
+        let version = dynamic.updates.version();
+        if let Some(pruned) = cached_file_pruning(cache.load(Ordering::Relaxed), version) {
+            return Ok(pruned);
+        }
+        let pruned = reader.can_prune_file(&self.conjuncts[idx])?;
+        if dynamic.updates.version() != version {
+            // An update during evaluation invalidates the result.
+            // Predicate evaluation remains authoritative.
+            return Ok(false);
+        }
+        if version < u64::MAX / 2 {
+            cache.store((version << 1) | u64::from(pruned), Ordering::Relaxed);
+        }
+        Ok(pruned)
     }
 
     /// Returns the next preferred conjunct to evaluate.
