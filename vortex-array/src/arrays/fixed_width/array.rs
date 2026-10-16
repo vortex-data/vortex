@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -22,10 +23,11 @@ pub(crate) trait FixedWidthArray: VTable {
     /// Returns the number of bytes each record occupies.
     fn byte_width(array: ArrayView<'_, Self>) -> usize;
 
-    /// Returns the records of `array` as a single host-resident byte buffer.
+    /// Returns the storage of `array` as a host-resident buffer of `T`, preserving its alignment.
     ///
     /// The returned buffer must contain exactly `array.len() * byte_width` bytes.
-    fn values(array: ArrayView<'_, Self>) -> ByteBuffer;
+    /// Its byte length and alignment must be compatible with `T`.
+    fn values<T: Copy>(array: ArrayView<'_, Self>) -> Buffer<T>;
 
     /// Rebuilds an array of this encoding from a records buffer, preserving the logical type of
     /// `array`.

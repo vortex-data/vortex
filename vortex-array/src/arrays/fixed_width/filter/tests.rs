@@ -4,18 +4,22 @@
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::filter_records;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::array::Array;
 use crate::array_session;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::fixed_width::FixedWidthArray;
+use crate::arrays::fixed_width::with_values;
 use crate::compute::conformance::filter::LARGE_SIZE;
 use crate::compute::conformance::filter::MEDIUM_SIZE;
 use crate::compute::conformance::filter::test_filter_conformance;
@@ -24,23 +28,39 @@ use crate::dtype::i256;
 use crate::memory::test_allocator::counting_allocator;
 use crate::validity::Validity;
 
-#[test]
-fn filter_fallback_width_records() {
+#[rstest]
+#[case::u8(PrimitiveArray::from_iter([10u8, 20, 30, 40]))]
+#[case::u16(PrimitiveArray::from_iter([10u16, 20, 30, 40]))]
+#[case::u32(PrimitiveArray::from_iter([10u32, 20, 30, 40]))]
+#[case::u64(PrimitiveArray::from_iter([10u64, 20, 30, 40]))]
+#[case::u128(DecimalArray::new(
+    buffer![10i128, -20, -30, -40],
+    DecimalDType::new(19, 0),
+    Validity::NonNullable,
+))]
+#[case::i256(DecimalArray::new(
+    Buffer::from_iter([10, -20, -30, -40].map(|value| i256::from_parts(1, value))),
+    DecimalDType::new(76, 0),
+    Validity::NonNullable,
+))]
+fn filter_typed_records<V: FixedWidthArray>(#[case] array: Array<V>) -> VortexResult<()> {
     let Mask::Values(mask) = Mask::from_iter([true, false, true, false]) else {
         panic!("a mixed mask must have mask values");
     };
-    let expected = [0u8, 1, 2, 6, 7, 8];
-
-    // A uniquely owned buffer takes the in-place `copy_within` path.
-    let owned = Buffer::from_iter(0u8..12);
-    let filtered = filter_records(owned, 3, &mask, BufferAllocatorRef::static_ref());
-    assert_eq!(filtered.as_slice(), &expected);
-
-    // Retaining a second reference forces the copying path instead.
-    let shared = Buffer::from_iter(0u8..12);
-    let _retained = shared.clone();
-    let filtered = filter_records(shared, 3, &mask, BufferAllocatorRef::static_ref());
-    assert_eq!(filtered.as_slice(), &expected);
+    let byte_width = V::byte_width(array.as_view());
+    let values = V::values::<u8>(array.as_view()).aligned(Alignment::new(64));
+    let expected = values[..byte_width]
+        .iter()
+        .chain(&values[2 * byte_width..3 * byte_width])
+        .copied()
+        .collect::<Vec<_>>();
+    let array = with_values(array.as_view(), values, array.len(), Validity::NonNullable)?;
+    let alignment = V::values::<u8>(array.as_view()).alignment();
+    let filtered = super::filter(&array, &mask, BufferAllocatorRef::static_ref()).into_array();
+    let buffers = filtered.buffers();
+    assert_eq!(buffers[0].as_slice(), expected);
+    assert_eq!(buffers[0].alignment(), alignment);
+    Ok(())
 }
 
 #[test]
@@ -49,11 +69,14 @@ fn filter_records_use_execution_allocator() {
         panic!("a mixed mask must have mask values");
     };
     let (allocator, allocations) = counting_allocator();
-    for byte_width in [3, 4] {
-        let values = Buffer::from_iter(0..4 * byte_width as u8);
-        let _retained = values.clone();
-        drop(filter_records(values, byte_width, &mask, &allocator));
-    }
+    let array = PrimitiveArray::from_iter([0u32, 1, 2, 3]);
+    drop(super::filter(&array, &mask, &allocator));
+    let array = DecimalArray::new(
+        Buffer::from_iter([0, 1, 2, 3].map(i256::from_i128)),
+        DecimalDType::new(76, 0),
+        Validity::NonNullable,
+    );
+    drop(super::filter(&array, &mask, &allocator));
     assert_eq!(allocations.load(Ordering::Relaxed), 2);
 }
 
