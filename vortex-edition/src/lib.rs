@@ -57,11 +57,14 @@ use vortex_session::registry::Id;
 /// available to the default writer). For `core`, the date components record when the edition
 /// freezes; that date is prospective while the edition is still a draft. Dates order editions
 /// chronologically *within* a family; there is no ordering across families.
+///
+/// An [undated](EditionId::undated) edition, e.g. `unstable`, is the only edition of its family
+/// and never freezes, so its members change in place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EditionId {
     /// The edition family, e.g. `core`.
     pub family: &'static str,
-    /// Year in the edition date. For `core`, this is the freeze year.
+    /// Year in the edition date. For `core`, this is the freeze year. `0` for an undated edition.
     pub year: u16,
     /// Month in the edition date. For `core`, this is the freeze month.
     pub month: u8,
@@ -82,6 +85,17 @@ impl EditionId {
         }
     }
 
+    /// Create an undated edition identifier, displayed as the bare family name. An undated
+    /// edition must be the only edition of its family and must stay a draft.
+    pub const fn undated(family: &'static str) -> Self {
+        Self::new(family, 0, 0, 0)
+    }
+
+    /// Returns true if this identifier has no date. See [`EditionId::undated`].
+    pub fn is_undated(&self) -> bool {
+        self.year == 0
+    }
+
     /// Returns true if `self` is the same edition as `other` or an earlier edition of the
     /// same family. Editions of different families are never ordered.
     pub fn is_at_or_before(&self, other: &EditionId) -> bool {
@@ -97,6 +111,17 @@ impl EditionId {
         if self.family.is_empty() || !self.family.chars().all(|c| c.is_ascii_lowercase()) {
             vortex_bail!("edition {self} must have a non-empty lowercase family, e.g. `core`");
         }
+
+        if self.is_undated() {
+            if self.month != 0 || self.version != 0 {
+                vortex_bail!(
+                    "undated edition {} must have no month or version",
+                    self.family
+                );
+            }
+            return Ok(());
+        }
+
         if !(1000..=9999).contains(&self.year) {
             vortex_bail!("edition {self} must have a four-digit year");
         }
@@ -109,6 +134,10 @@ impl EditionId {
 
 impl Display for EditionId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_undated() {
+            return write!(f, "{}", self.family);
+        }
+
         write!(
             f,
             "{}{}.{:02}.{}",

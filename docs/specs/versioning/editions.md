@@ -67,6 +67,16 @@ or revision requires a new draft edition. Vortex-maintained draft formats are ex
 compatible unless a defect blocks promotion into `core`, while independent plugin projects state
 their own policy.
 
+### `unstable`
+
+- `array`: `fastlanes.bitpacked.v2`, `fastlanes.delta`, `fastlanes.for.v2`,
+  `vortex.decimal_byte_parts.v2`, `vortex.patched`, `vortex.union`
+- `layout`: `vortex.list`
+- `aggregate`: `vortex.bloom_filter.sbbf`, `vortex.sum_v2`
+
+This edition is undated and never freezes. Its members change in place. The list layout is
+distinct from the `vortex.list` array encoding already in core.
+
 ### `preview2026.08.0`
 
 This edition currently adds no components.
@@ -113,17 +123,23 @@ For example, `core2026.08.0` declares `min`, `max`, `bounded_min`, `bounded_max`
 statistics, however, do store sums, in a fixed legacy field governed by the enclosing format's
 contract.
 
+Aggregate serialization support alone does not make an aggregate an edition member. Editions
+declare aggregate IDs intended for persisted zone maps. The `all_*` aggregates are in-memory pruning
+predicates and do not need entries. Legacy file statistics also do not need entries.
+
 ## Format testing and promotion
 
-A format intended for `core` starts in a dedicated edition family. Its first edition is a draft,
-with no recorded `min_library_version` and no frozen compatibility guarantee. Even at this draft
-stage, the format is expected to be complete. If testing reveals a defect whose correction changes
-what readers must understand, the correction needs a new wire ID and a later edition.
+A format intended for `core` starts in the shared `unstable` edition. This edition is undated, has
+no recorded `min_library_version`, and never freezes, so it gives no compatibility guarantee. Even
+at this stage, the format is expected to be complete. If testing reveals a defect whose correction
+changes what readers must understand, the correction needs a new wire ID. Replace the defective ID
+with its successor in the `unstable` declaration, for example `vortex.foo` with `vortex.foo_v2`.
 
 After initial testing, the format can enter a new `preview` edition for broader opt-in use, then a
 later `core` edition for default use. Promotion changes which editions permit the format while
-preserving its contract and wire ID. The current `preview` edition is empty, so its first component
-must go into a new edition.
+preserving its contract and wire ID. The `unstable` and `preview` editions are registered but must
+be enabled explicitly. The current `preview` edition is empty, so its first component must go into a
+new edition.
 
 ## Freezing an edition
 
@@ -142,10 +158,12 @@ writers from choosing it, but readers must retain support because existing files
 
 Default declarations live in `vortex-edition/src/declarations/`. Optional modules keep declarations
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
-family.
+family. The undated `unstable` edition never freezes, so it has no record; only its `family.toml`
+is exported.
 
-1. For a new component, declare its own family and draft edition. For a revision, add a later
-   edition to the family that owns the earlier ID.
+1. For a new core-maintained component, add it to the `unstable` edition. Optional modules use
+   their own families. For a revision in `unstable`, replace the earlier ID with its successor.
+   For a revision in another family, add a later edition to the family that owns the earlier ID.
 2. To promote a tested format, add it to new `preview` and `core` editions without changing its ID
    or contract.
 3. When an edition freezes, record the first release of its origin that supports every permitted

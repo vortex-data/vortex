@@ -43,6 +43,8 @@ pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
+pub use vortex_edition::declarations::unstable;
+pub use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;

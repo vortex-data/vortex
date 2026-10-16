@@ -221,8 +221,9 @@ impl EditionSession {
 
     /// Validate all registered declarations. Errors on editions in undeclared families,
     /// inclusions referencing undeclared editions, editions out of chronological order within
-    /// a family (unversioned drafts must be newest), malformed version strings, and members
-    /// requiring a release newer than their edition declares.
+    /// a family (unversioned drafts must be newest), undated editions that freeze or share
+    /// their family, malformed version strings, and members requiring a release newer than
+    /// their edition declares.
     pub fn validate(&self) -> VortexResult<()> {
         let editions = self.editions();
 
@@ -259,6 +260,25 @@ impl EditionSession {
                     "frozen edition {} follows draft {}; drafts must be newest in a family",
                     next.id,
                     prev.id,
+                );
+            }
+        }
+
+        // An undated edition changes in place, so it cannot freeze or share its family.
+        for edition in editions.iter().filter(|edition| edition.id.is_undated()) {
+            if !edition.is_draft() {
+                vortex_bail!("undated edition {} cannot freeze", edition.id);
+            }
+
+            if let Some(other) = editions
+                .iter()
+                .find(|other| other.id.family == edition.id.family && other.id != edition.id)
+            {
+                vortex_bail!(
+                    "undated edition {} must be the only edition of its family, but {} \
+                     also belongs to it",
+                    edition.id,
+                    other.id,
                 );
             }
         }

@@ -34,20 +34,23 @@ pub use gpu::FuzzCompressGpu;
 pub use gpu::run_compress_gpu;
 pub use row::FuzzRowEncode;
 pub use row::run_row_encode;
+use vortex::editions::DEFAULT_PREVIEW_EDITION;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
+use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;
 
-fn enable_latest_core_edition(session: &vortex_session::VortexSession) {
-    use vortex::editions::CORE_2026_08_3;
-    use vortex::editions::EditionSessionExt;
-    use vortex_error::VortexExpect;
-    use vortex_error::vortex_err;
-
-    session
-        .enable_edition(CORE_2026_08_3)
-        .map_err(|error| vortex_err!("{error}"))
-        .vortex_expect("latest core edition is registered");
+/// Enable the `preview` and `unstable` editions in addition to the default editions, so the
+/// fuzzer also exercises the components that await stabilization.
+fn enable_fuzz_editions(session: &VortexSession) {
+    for edition in [DEFAULT_PREVIEW_EDITION, UNSTABLE] {
+        session
+            .enable_edition(edition)
+            .vortex_expect("fuzz edition is registered");
+    }
 }
 
 // Runtime initialization - platform-specific
@@ -73,7 +76,7 @@ mod native_runtime {
             session = session.with::<vortex_cuda::CudaSession>();
             vortex_cuda::initialize_cuda(&session.cuda_session());
         }
-        super::enable_latest_core_edition(&session);
+        super::enable_fuzz_editions(&session);
         session
     });
 }
@@ -96,7 +99,7 @@ mod wasm_runtime {
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::default().with_handle(WasmRuntime::handle());
-        super::enable_latest_core_edition(&session);
+        super::enable_fuzz_editions(&session);
         session
     });
 }
@@ -115,28 +118,10 @@ mod wasi_runtime {
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::default();
-        super::enable_latest_core_edition(&session);
+        super::enable_fuzz_editions(&session);
         session
     });
 }
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
 pub use wasi_runtime::SESSION;
-
-#[cfg(test)]
-mod tests {
-    use vortex::editions::CORE_2026_08_3;
-    use vortex::editions::EditionSessionExt;
-
-    use super::SESSION;
-
-    #[test]
-    fn fuzz_session_uses_latest_core_edition() {
-        assert!(
-            SESSION
-                .enabled_editions()
-                .editions()
-                .contains(&CORE_2026_08_3)
-        );
-    }
-}

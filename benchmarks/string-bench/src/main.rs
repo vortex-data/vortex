@@ -34,6 +34,7 @@ use vortex_bench::LogFormat;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
+use vortex_bench::enable_benchmark_editions;
 use vortex_bench::measurements::CustomUnitMeasurement;
 use vortex_bench::setup_logging_and_tracing_with_format;
 
@@ -282,6 +283,8 @@ fn run_vortex_column(
 ) -> Result<Vec<SerializedResult>> {
     let runtime = CurrentThreadRuntime::new();
     let session = VortexSession::default().with_handle(runtime.handle());
+    enable_benchmark_editions(&session);
+
     let mut results = Vec::with_capacity(encoders.len());
     for &encoder in encoders {
         let result = runtime.block_on(bench_serialized_with_session(

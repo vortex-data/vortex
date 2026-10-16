@@ -104,7 +104,8 @@ impl WriteStrategyBuilder {
     /// **Note**: this is an unstable and experimental layout that is expected to change.
     /// Using it may lead to unreadable files in the future.
     ///
-    /// Writing fails unless the session's enabled editions include the `vortex.list` layout.
+    /// Writing fails unless the session's enabled editions include the `vortex.list` layout, for
+    /// example the `unstable` edition.
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     pub fn with_list_layout(mut self) -> Self {

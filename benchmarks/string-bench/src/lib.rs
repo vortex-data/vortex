@@ -70,8 +70,11 @@ pub use serialized::*;
 
 /// Session with the available string encodings and their canonicalize kernels
 /// registered for benchmarking.
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    vortex_bench::enable_benchmark_editions(&session);
+    session
+});
 
 /// A named string column, canonicalized to a `VarBinViewArray`-backed array,
 /// ready for either benchmark path.
