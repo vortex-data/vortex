@@ -59,6 +59,7 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
@@ -2158,6 +2159,34 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_footer_contains_is_sorted() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
+        .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_file_statistics(vec![Stat::IsSorted, Stat::IsStrictSorted])
+        .writer(&mut buf, array.dtype().clone());
+
+    writer.push(array).await?;
+
+    let summary = writer.finish().await?;
+    let stats_set = summary
+        .footer()
+        .statistics()
+        .vortex_expect("statistics were written")
+        .stats_sets()
+        .first()
+        .expect("valid set");
+
+    assert_eq!(stats_set.get(Stat::IsSorted), Precision::exact(true));
+    assert_eq!(stats_set.get(Stat::IsStrictSorted), Precision::exact(true));
 
     Ok(())
 }
