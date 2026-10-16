@@ -462,7 +462,6 @@ async fn released_mappings_are_remapped() -> VortexResult<()> {
 /// cached mappings afterwards must still unmap it before returning, as cold-cache eviction needs.
 #[crate::test]
 async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()> {
-    let _cache = MAPPING_CACHE.lock();
     let (_runtime, reader, _file) = mapped_reader()?;
     let Some(mapped) = reader.mapped.as_ref() else {
         return Ok(());
@@ -483,8 +482,12 @@ async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()>
     let buffer = reader
         .read_at(0, MAPPED_FILE_BYTES, Alignment::of::<u8>())
         .await?;
+    // Only the release must not race other tests' use of the global cache; the guard is not
+    // held across an await.
+    let cache = MAPPING_CACHE.lock();
     drop(reader);
     release_file_mappings();
+    drop(cache);
     assert!(mapping.upgrade().is_none());
     assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
     Ok(())
