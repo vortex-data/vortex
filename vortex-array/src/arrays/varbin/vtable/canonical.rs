@@ -5,10 +5,8 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
-use crate::array::ArrayView;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBin;
+use crate::arrays::Primitive;
+use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::build_views_from_offsets;
@@ -20,12 +18,11 @@ use crate::match_each_integer_ptype;
 ///
 /// The value bytes are handed over as they are — only the offsets are consumed, to derive the view
 /// lengths — so this costs one view per row and no byte copy.
-pub(crate) fn varbin_to_canonical(
-    array: ArrayView<'_, VarBin>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<VarBinViewArray> {
-    let parts = array.into_owned().into_data_parts();
-    let offsets = parts.offsets.execute::<PrimitiveArray>(ctx)?;
+///
+/// The offsets child must already be a primitive array.
+pub(crate) fn varbin_to_canonical(array: VarBinArray) -> VortexResult<VarBinViewArray> {
+    let parts = array.into_data_parts();
+    let offsets = parts.offsets.downcast::<Primitive>();
     let (buffers, views) = match_each_integer_ptype!(offsets.ptype(), |P| {
         build_views_from_offsets(
             0,

@@ -634,6 +634,7 @@ impl VTable for OnPair {
             )
         };
         require_validity!(array, OnPairSlots::VALIDITY);
+
         canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
@@ -694,7 +695,7 @@ fn append_to_varbin<O: OffsetBuilderPType>(
 where
     usize: AsPrimitive<O>,
 {
-    let plan = OnPairDecodePlan::new(array, ctx)?;
+    let plan = OnPairDecodePlan::execute(array, ctx)?;
     let validity = array
         .array()
         .validity()?

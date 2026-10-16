@@ -8,7 +8,7 @@ use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use itertools::Itertools;
-use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
@@ -21,17 +21,16 @@ use crate::DeltaArray;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
 
-pub fn delta_decompress(
-    array: &DeltaArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    let bases = array.bases().clone().execute::<PrimitiveArray>(ctx)?;
-    let deltas = array.deltas().clone().execute::<PrimitiveArray>(ctx)?;
-
+/// Decompresses a delta array into a primitive array.
+///
+/// The `bases` and `deltas` children must already be primitive arrays.
+pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
     let start = array.offset();
     let end = start + array.len();
-
     let validity = array.validity()?;
+
+    let bases = array.bases().as_::<Primitive>();
+    let deltas = array.deltas().as_::<Primitive>();
 
     let original_ptype = deltas.ptype();
     // Signed inputs are processed through their unsigned counterpart; `wrapping_add` on the

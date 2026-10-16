@@ -369,9 +369,13 @@ impl<V: VTable> Array<V> {
         self
     }
 
-    /// Returns a clone of the inner encoding-specific data.
+    /// Returns the inner encoding-specific data. Moves it out when this handle owns the
+    /// allocation, and clones it otherwise.
     pub fn into_data(self) -> V::TypedArrayData {
-        self.downcast_inner().data.clone()
+        match self.try_into_parts() {
+            Ok(parts) => parts.data,
+            Err(array) => array.downcast_inner().data.clone(),
+        }
     }
 
     /// Returns the array slots.

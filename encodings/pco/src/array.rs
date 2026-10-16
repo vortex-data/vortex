@@ -38,6 +38,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
+use vortex_array::require_validity;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -259,6 +260,8 @@ impl VTable for Pco {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        require_validity!(array, PcoSlots::VALIDITY);
+
         let unsliced_validity = array.unsliced_validity();
         Ok(ExecutionResult::done(
             array

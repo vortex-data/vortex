@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
@@ -23,14 +24,16 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::FSST;
-use crate::FSSTArrayExt;
 use crate::FSSTArraySlotsExt;
 
-pub(super) fn canonicalize_fsst(
-    array: ArrayView<'_, FSST>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let (uncompressed_bytes, uncompressed_lens) = fsst_decode_bytes(array, ctx)?;
+/// Decodes an FSST array into a `VarBinViewArray`.
+///
+/// The codes offsets and uncompressed lengths must already be primitive arrays.
+pub(super) fn canonicalize_fsst(array: ArrayView<'_, FSST>) -> VortexResult<ArrayRef> {
+    let offsets = array.codes_offsets().as_::<Primitive>();
+    let lengths = array.uncompressed_lengths().clone().downcast::<Primitive>();
+    let plan = FsstDecodePlan::new(array.codes_bytes(), offsets, lengths)?;
+    let (uncompressed_bytes, uncompressed_lens) = decode_bytes(&array.decompressor(), plan)?;
     let (buffers, views) = match_each_integer_ptype!(uncompressed_lens.ptype(), |P| {
         build_views(
             0,
@@ -39,6 +42,7 @@ pub(super) fn canonicalize_fsst(
             uncompressed_lens.as_slice::<P>(),
         )
     });
+
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
@@ -46,7 +50,7 @@ pub(super) fn canonicalize_fsst(
             views,
             Arc::from(buffers),
             array.dtype().clone(),
-            array.codes().validity()?,
+            array.validity()?,
         )
         .into_array()
     })
@@ -72,15 +76,33 @@ pub(crate) struct FsstDecodePlan {
 }
 
 impl FsstDecodePlan {
-    pub(crate) fn new(
+    /// Builds the plan for an array whose children can still be encoded.
+    ///
+    /// Builder paths bypass `FSST::execute`, so they execute the codes offsets and uncompressed
+    /// lengths here.
+    pub(crate) fn execute(
         fsst_array: ArrayView<'_, FSST>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        // Builder paths can bypass `FSST::execute`, so their offsets may still be encoded.
         let offsets = fsst_array
             .codes_offsets()
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
+        let lengths = fsst_array
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+
+        Self::new(fsst_array.codes_bytes(), offsets.as_view(), lengths)
+    }
+
+    /// Builds the plan from the codes bytes and the primitive codes offsets and uncompressed
+    /// lengths.
+    fn new(
+        codes: &ByteBuffer,
+        offsets: ArrayView<'_, Primitive>,
+        lengths: PrimitiveArray,
+    ) -> VortexResult<Self> {
         let (first_offset, last_offset) = match_each_integer_ptype!(offsets.ptype(), |P| {
             let offsets = offsets.as_slice::<P>();
             (
@@ -91,7 +113,6 @@ impl FsstDecodePlan {
         let (first_offset, last_offset) = first_offset.zip(last_offset).ok_or_else(|| {
             vortex_err!("FSST codes offsets are missing, negative or overflow usize")
         })?;
-        let codes = fsst_array.codes_bytes();
         vortex_ensure!(
             first_offset <= last_offset,
             "FSST first codes offset {first_offset} exceeds last codes offset {last_offset}"
@@ -102,10 +123,6 @@ impl FsstDecodePlan {
             codes.len()
         );
         let codes = codes.slice(first_offset..last_offset);
-        let lengths = fsst_array
-            .uncompressed_lengths()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
 
         let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
             lengths
@@ -151,12 +168,16 @@ pub(crate) fn fsst_decode_bytes(
     fsst_array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
-    let plan = FsstDecodePlan::new(fsst_array, ctx)?;
+    let plan = FsstDecodePlan::execute(fsst_array, ctx)?;
+    decode_bytes(&fsst_array.decompressor(), plan)
+}
+
+fn decode_bytes(
+    decompressor: &Decompressor<'_>,
+    plan: FsstDecodePlan,
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(plan.total_size + FSST_DECODE_SLACK);
-    let len = plan.decode_into(
-        &fsst_array.decompressor(),
-        uncompressed_bytes.spare_capacity_mut(),
-    )?;
+    let len = plan.decode_into(decompressor, uncompressed_bytes.spare_capacity_mut())?;
     // SAFETY: `decode_into` initialized the first `len` bytes.
     unsafe { uncompressed_bytes.set_len(len) };
     Ok((uncompressed_bytes, plan.lengths))
