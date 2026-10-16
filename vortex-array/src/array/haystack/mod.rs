@@ -2,73 +2,95 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Lookups of needles among the elements of an array.
+//!
+//! An [`ArrayHaystack`] holds the non-null elements of a set as a lookup array: an array whose
+//! encoding is built to find needles, and which canonicalizes to the elements it holds. Vortex
+//! builds a sorted, a bitmap, a hashed or a row haystack from the elements. An encoding outside
+//! Vortex becomes a lookup array by implementing [`HaystackVTable`].
 
-use std::hash::BuildHasher;
+mod bytes;
+mod integer;
+mod rows;
+#[cfg(test)]
+mod tests;
 
-use num_traits::ToPrimitive;
-use num_traits::WrappingSub;
+pub use bytes::BytesHaystack;
+pub use bytes::BytesTables;
+pub use integer::BitmapHaystack;
+pub use integer::SortedHaystack;
+pub use rows::RowsHaystack;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitBufferMut;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
-use vortex_compute::lane_kernels::collect_bits;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::HashTable;
-use vortex_utils::aliases::hash_map::HashTableEntry;
-use vortex_utils::aliases::hash_map::RandomState;
 
 use crate::ArrayRef;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::RecursiveCanonical;
-use crate::arrays::DecimalArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::decimal::converted_buffer;
-use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::varbinview::BinaryView;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::array::ValidityVTable;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
-use crate::dtype::NativeDecimalType;
-use crate::dtype::NativePType;
-use crate::dtype::PType;
-use crate::dtype::i256;
-use crate::match_each_decimal_value_type;
-use crate::match_each_integer_ptype;
-use crate::scalar_fn::fns::binary::build_row_comparator;
 use crate::validity::Validity;
 
-/// A set whose span of values needs at most this many bits per element is looked up through a
-/// bitmap over the span, bounding the bitmap to a few words per element.
-const BITMAP_BITS_PER_ELEMENT: u128 = 64;
-/// A span this narrow is looked up through a bitmap whatever the size of the set.
-const BITMAP_MIN_BITS: u128 = 1 << 12;
+/// An encoding whose arrays can be the lookup array of an [`ArrayHaystack`].
+///
+/// Every row of a lookup array is an element of the set, so a lookup array holds no null rows. It
+/// may hold an element more than once.
+pub trait HaystackVTable: VTable {
+    /// One bit per needle, set when the needle is an element of `array`, and the validity of the
+    /// needles.
+    ///
+    /// The needles are canonical, with the dtype of `array` ignoring nullability. They reach the
+    /// haystack only once their own encoding has declined the lookup at every step of its
+    /// decoding, through a
+    /// [`ListContainsElementKernel`](crate::scalar_fn::fns::list_contains::ListContainsElementKernel).
+    /// The bit of a null needle has no effect.
+    fn contains(
+        array: ArrayView<'_, Self>,
+        needles: CanonicalView<'_>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<(BitBuffer, Validity)>;
+}
 
-/// Looks up needles among the elements of an array, for many batches of needles.
+/// The [`HaystackVTable::contains`] of the encoding of a lookup array, with the array erased.
+type ContainsFn =
+    fn(&ArrayRef, CanonicalView<'_>, &mut ExecutionCtx) -> VortexResult<(BitBuffer, Validity)>;
+
+/// Looks up needles among the elements of a lookup array, for many batches of needles.
 ///
 /// The haystack counterpart of [`RepeatedArrayProbe`](crate::RepeatedArrayProbe): where a probe
 /// reads the rows of an array by index, a haystack answers whether each row of a batch of
 /// needles is an element of the array. A haystack pays off only over repeated lookups, so it
 /// has no one-off form. It is built eagerly. A holder that must build it lazily, or share it
 /// between threads, keeps it in a shared cell.
-///
-/// Integers, and floats by their bit patterns, are looked up in an [`IntegerSet`] of their own
-/// type, and decimals in an [`IntegerSet`] of their unscaled values. UTF-8 and binary values are
-/// found through a hash table, and nested values through sorted row indices with the same
-/// comparator as equality. No haystack constructs per-element expressions or materializes
-/// scalars in its loop.
-pub(crate) struct ArrayHaystack {
-    state: Box<dyn HaystackState>,
+#[derive(Clone)]
+pub struct ArrayHaystack {
+    array: ArrayRef,
+    contains: ContainsFn,
 }
 
 impl ArrayHaystack {
+    /// A haystack over a lookup array of your own encoding.
+    pub fn new<V: HaystackVTable>(array: Array<V>) -> Self {
+        Self {
+            array: array.into_array(),
+            contains: contains_of::<V>,
+        }
+    }
+
     /// Builds the haystack of the elements of `array`.
     ///
-    /// A null element never equals a needle, so the haystack leaves null elements out.
-    pub(crate) fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    /// A null element never equals a needle, so the haystack leaves null elements out. Integers,
+    /// and floats by their bit patterns, go into a bitmap over their span when the span is dense,
+    /// and into a sorted array otherwise, as do decimals by their unscaled values. UTF-8 and
+    /// binary values go into hash tables, and nested values into sorted row indices with the same
+    /// comparator as equality.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the elements cannot be executed.
+    pub fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let valid = array.validity()?.execute_mask(array.len(), ctx)?;
         let members = if valid.all_true() {
             array.clone()
@@ -76,404 +98,105 @@ impl ArrayHaystack {
             array.filter(valid)?
         };
 
-        Ok(Self {
-            state: new_state(members, ctx)?,
-        })
+        match members.dtype() {
+            DType::Primitive(..) | DType::Decimal(..) => integer::try_new(members, ctx),
+            DType::Utf8(_) | DType::Binary(_) => Ok(Self::new(bytes::try_new(members, ctx)?)),
+            _ => Ok(Self::new(rows::try_new(members, ctx)?)),
+        }
     }
 
-    /// One membership bit per needle, and the validity of the needles, which have the dtype of
-    /// the elements.
-    pub(crate) fn contains(
-        &self,
-        needles: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(BitBuffer, Validity)> {
-        self.state.contains(needles, ctx)
+    /// The lookup array, which canonicalizes to the elements of the haystack.
+    pub fn array(&self) -> &ArrayRef {
+        &self.array
     }
-}
 
-/// The state that an [`ArrayHaystack`] keeps for the canonical encoding of its elements.
-trait HaystackState: Send + Sync {
-    /// One membership bit per needle, and the validity of the needles.
-    fn contains(
-        &self,
-        needles: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(BitBuffer, Validity)>;
-}
-
-/// Builds the state of the non-null `elements`.
-fn new_state(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Box<dyn HaystackState>> {
-    Ok(match elements.dtype() {
-        DType::Primitive(ptype, _) => {
-            let ptype = bit_pattern_ptype(*ptype);
-            let elements = elements
-                .execute::<PrimitiveArray>(ctx)?
-                .reinterpret_cast(ptype);
-            match_each_integer_ptype!(ptype, |T| {
-                let set = IntegerSet::<T>::new(elements.into_buffer(), ctx.allocator());
-                Box::new(PrimitiveSet(set)) as Box<dyn HaystackState>
-            })
-        }
-        DType::Decimal(decimal, _) => {
-            let values_type = DecimalType::smallest_decimal_value_type(decimal);
-            let elements = elements.execute::<DecimalArray>(ctx)?;
-            let all_valid = Mask::new_true(elements.len());
-            match_each_decimal_value_type!(values_type, |T| {
-                let values = converted_buffer::<T>(&elements, &all_valid)?;
-                Box::new(DecimalSet(IntegerSet::new(values, ctx.allocator())))
-                    as Box<dyn HaystackState>
-            })
-        }
-        DType::Utf8(_) | DType::Binary(_) => {
-            Box::new(BytesSet::new(elements.execute::<VarBinViewArray>(ctx)?))
-        }
-        _ => Box::new(RowSet::try_new(elements, ctx)?),
-    })
-}
-
-/// The distinct values of a set of integers of one type.
-enum IntegerSet<T> {
-    /// Values spanning a dense range: one bit per value of the span above `min`.
-    Bitmap { min: T, bitmap: BitBuffer },
-    /// Values sorted without duplicates.
-    Sorted(Buffer<T>),
-}
-
-impl<T: SetInteger> IntegerSet<T> {
-    /// A bitmap over the values' span when the span is dense, and a sorted slice otherwise.
+    /// One bit per needle, set when the needle is an element, and the validity of the needles.
     ///
-    /// A hash set and, for a handful of elements, a linear scan both lost to the binary search at
-    /// every set size measured by the `list_contains_set` benchmark, up to 16 384 elements.
-    fn new(values: Buffer<T>, allocator: &BufferAllocatorRef) -> Self {
-        match integer_bitmap(&values, allocator) {
-            Some((min, bitmap)) => Self::Bitmap { min, bitmap },
-            None => Self::Sorted(sorted_values(values)),
-        }
-    }
-
-    /// One bit per needle, set when the needle is an element.
-    fn contains(&self, needles: &[T], allocator: &BufferAllocatorRef) -> BitBuffer {
-        match self {
-            Self::Bitmap { min, bitmap } => collect_bits(
-                needles,
-                // A needle below the smallest element wraps past the bitmap, so one comparison
-                // checks both bounds.
-                |needle| {
-                    needle
-                        .offset_from(*min)
-                        .is_some_and(|offset| offset < bitmap.len() && bitmap.value(offset))
-                },
-                allocator,
-            ),
-            Self::Sorted(sorted) => collect_bits(
-                needles,
-                |needle| sorted.binary_search(&needle).is_ok(),
-                allocator,
-            ),
-        }
-    }
-}
-
-/// Primitive integers, or floats by their bit patterns.
-///
-/// A float is a member exactly when the compare kernel would call it equal to an element, which
-/// is when their bit patterns match — distinguishing `-0.0` from `0.0` and one NaN payload from
-/// another — so floats are looked up by their bits, as integers.
-struct PrimitiveSet<T>(IntegerSet<T>);
-
-impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
-    fn contains(
+    /// The needles are canonical, with the dtype of the lookup array ignoring nullability.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the needles do not have the dtype of the lookup array.
+    pub fn contains(
         &self,
-        needles: &ArrayRef,
+        needles: CanonicalView<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
-        let needles = needles
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?
-            .reinterpret_cast(T::PTYPE);
-        let bits = self.0.contains(needles.as_slice::<T>(), ctx.allocator());
-        Ok((bits, needles.validity()?))
+        (self.contains)(&self.array, needles, ctx)
     }
 }
 
-/// The unscaled values of decimals, as the narrowest type that holds every value of their
-/// precision.
-///
-/// A needle has the precision of the elements, so a valid needle converts to that type whatever
-/// its own storage width, and a needle stored at that type converts without a copy.
-struct DecimalSet<T>(IntegerSet<T>);
+fn contains_of<V: HaystackVTable>(
+    array: &ArrayRef,
+    needles: CanonicalView<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(BitBuffer, Validity)> {
+    V::contains(array.as_::<V>(), needles, ctx)
+}
 
-impl<T: NativeDecimalType + SetInteger> HaystackState for DecimalSet<T> {
-    fn contains(
-        &self,
-        needles: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(BitBuffer, Validity)> {
-        let needles = needles.clone().execute::<DecimalArray>(ctx)?;
-        let validity = needles.validity()?;
-        let valid = validity.execute_mask(needles.len(), ctx)?;
-        let values = converted_buffer::<T>(&needles, &valid)?;
-        Ok((self.0.contains(&values, ctx.allocator()), validity))
+/// The validity that the lookup arrays of Vortex share: every row is valid.
+#[derive(Clone, Debug)]
+pub struct HaystackValidity;
+
+impl<V: VTable> ValidityVTable<V> for HaystackValidity {
+    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
+        Ok(Validity::from(array.dtype().nullability()))
     }
 }
 
-/// UTF-8 or binary elements, found by their views where the view decides.
-///
-/// A value of at most 12 bytes is inlined whole in its view, zero-padded as the compare kernel
-/// requires, so a short needle is an element exactly when its whole view is the view of a short
-/// element: no data buffer is read and no bytes are hashed. A long needle is found through a
-/// table of the long elements, hashed by their bytes. The first 8 bytes of its view, the length
-/// and a 4-byte prefix, are compared before the bytes after the prefix.
-///
-/// A one-bit filter over the heads of the elements was measured in front of these lookups and
-/// removed: it helped short needles by about a tenth and cost long needles that share a prefix,
-/// whose heads collide, up to a quarter.
-struct BytesSet {
-    hasher: RandomState,
-    /// The distinct whole views of the elements of at most 12 bytes.
-    short: HashTable<u128>,
-    /// The elements, for the bytes of the long ones.
-    elements: VarBinViewArray,
-    /// The indices of the distinct long elements, hashed by their bytes.
-    long: HashTable<u32>,
+/// The child in `slot` of a lookup array of Vortex, which validation found present.
+fn slot(slots: &[Option<ArrayRef>], slot: usize) -> &ArrayRef {
+    slots[slot]
+        .as_ref()
+        .unwrap_or_else(|| vortex_error::vortex_panic!("Haystack slot {slot} must be present"))
 }
 
-impl BytesSet {
-    fn new(elements: VarBinViewArray) -> Self {
-        let hasher = RandomState::default();
-        let views = elements.views();
-        let buffers = data_buffers(&elements);
-
-        // Sized up front, so that no insert grows a table and hashes every element again.
-        let short_len = views.iter().filter(|view| view.is_inlined()).count();
-        let mut short = HashTable::with_capacity(short_len);
-        let mut long = HashTable::with_capacity(views.len() - short_len);
-
-        for (idx, view) in views.iter().enumerate() {
-            if view.is_inlined() {
-                let whole = view.as_u128();
-                if let HashTableEntry::Vacant(vacant) = short.entry(
-                    hasher.hash_one(whole),
-                    |&other| other == whole,
-                    |&other| hasher.hash_one(other),
-                ) {
-                    vacant.insert(whole);
-                }
-                continue;
-            }
-
-            let value = view.bytes(&buffers);
-            let bytes = |other: u32| views[other as usize].bytes(&buffers);
-            if let HashTableEntry::Vacant(vacant) = long.entry(
-                hasher.hash_one(value),
-                |&other| bytes(other) == value,
-                |&other| hasher.hash_one(bytes(other)),
-            ) {
-                vacant.insert(
-                    u32::try_from(idx).vortex_expect("a list holds fewer than 2^32 elements"),
-                );
-            }
+/// The buffer and serialization methods that every lookup array of Vortex shares: it keeps its
+/// data in children and in memory, and it is never serialized.
+macro_rules! haystack_vtable_common {
+    ($name:literal) => {
+        fn nbuffers(_array: $crate::array::ArrayView<'_, Self>) -> usize {
+            0
         }
 
-        Self {
-            hasher,
-            short,
-            elements,
-            long,
-        }
-    }
-
-    /// Whether `view`, which points into `buffers`, is the view of an element.
-    #[inline]
-    fn contains_view(
-        &self,
-        view: &BinaryView,
-        buffers: &[&[u8]],
-        element_views: &[BinaryView],
-        element_buffers: &[&[u8]],
-    ) -> bool {
-        if view.is_inlined() {
-            let whole = view.as_u128();
-            return self
-                .short
-                .find(self.hasher.hash_one(whole), |&other| other == whole)
-                .is_some();
+        fn buffer(
+            _array: $crate::array::ArrayView<'_, Self>,
+            _idx: usize,
+        ) -> $crate::buffer::BufferHandle {
+            ::vortex_error::vortex_panic!("A haystack has no buffers")
         }
 
-        // Once the heads are equal, the bytes can differ only after the 4-byte prefix.
-        let head = view_head(view);
-        let value = view.bytes(buffers);
-        self.long
-            .find(self.hasher.hash_one(value), |&idx| {
-                let element = &element_views[idx as usize];
-                view_head(element) == head && element.bytes(element_buffers)[4..] == value[4..]
-            })
-            .is_some()
-    }
-}
-
-impl HaystackState for BytesSet {
-    fn contains(
-        &self,
-        needles: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(BitBuffer, Validity)> {
-        let element_views = self.elements.views();
-        let element_buffers = data_buffers(&self.elements);
-        let array = needles.clone().execute::<VarBinViewArray>(ctx)?;
-        let buffers = data_buffers(&array);
-        let bits = collect_bits(
-            array.views(),
-            |view: BinaryView| self.contains_view(&view, &buffers, element_views, &element_buffers),
-            ctx.allocator(),
-        );
-        Ok((bits, array.validity()?))
-    }
-}
-
-/// The head of a view: the `u32` length of its value and the first 4 bytes of the value,
-/// zero-padded for a value shorter than 4 bytes.
-#[inline]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "the head is the low 8 bytes"
-)]
-fn view_head(view: &BinaryView) -> u64 {
-    view.as_u128() as u64
-}
-
-/// Recursively canonical elements, indexed in sorted order with duplicates removed.
-struct RowSet {
-    elements: ArrayRef,
-    indices: Vec<usize>,
-}
-
-impl RowSet {
-    fn try_new(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let elements = elements.execute::<RecursiveCanonical>(ctx)?.0.into_array();
-        let mut indices: Vec<usize> = (0..elements.len()).collect();
-        if !indices.is_empty() {
-            let compare = build_row_comparator(&elements, &elements, ctx)?;
-            if !indices.is_sorted_by(|&lhs, &rhs| compare(lhs, rhs).is_le()) {
-                indices.sort_unstable_by(|&lhs, &rhs| compare(lhs, rhs));
-            }
-            indices.dedup_by(|lhs, rhs| compare(*lhs, *rhs).is_eq());
+        fn buffer_name(_array: $crate::array::ArrayView<'_, Self>, _idx: usize) -> Option<String> {
+            None
         }
-        Ok(Self { elements, indices })
-    }
-}
 
-impl HaystackState for RowSet {
-    fn contains(
-        &self,
-        needles: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(BitBuffer, Validity)> {
-        if self.indices.is_empty() {
-            return Ok((
-                BitBuffer::full_in(false, needles.len(), ctx.allocator().clone()),
-                needles.validity()?,
-            ));
+        fn with_buffers(
+            &self,
+            array: $crate::array::ArrayView<'_, Self>,
+            buffers: &[$crate::buffer::BufferHandle],
+        ) -> ::vortex_error::VortexResult<$crate::array::ArrayParts<Self>> {
+            $crate::array::with_empty_buffers(self, array, buffers)
         }
-        let needles = needles
-            .clone()
-            .execute::<RecursiveCanonical>(ctx)?
-            .0
-            .into_array();
-        // The comparator materializes child buffers and validity once, including decimal
-        // widening and nested offsets. Each search then reads those buffers directly.
-        let compare = build_row_comparator(&self.elements, &needles, ctx)?;
-        let bits = BitBuffer::collect_bool_in(
-            needles.len(),
-            |row| {
-                self.indices
-                    .binary_search_by(|&element| compare(element, row))
-                    .is_ok()
-            },
-            ctx.allocator().clone(),
-        );
-        Ok((bits, needles.validity()?))
-    }
-}
 
-/// The host slices of an array's data buffers, indexed by a view's buffer index.
-fn data_buffers(array: &VarBinViewArray) -> Vec<&[u8]> {
-    (0..array.data_buffers().len())
-        .map(|idx| array.buffer(idx).as_slice())
-        .collect()
-}
+        fn serialize(
+            _array: $crate::array::ArrayView<'_, Self>,
+            _session: &::vortex_session::VortexSession,
+        ) -> ::vortex_error::VortexResult<Option<Vec<u8>>> {
+            ::vortex_error::vortex_bail!("{} is never serialized", $name)
+        }
 
-/// The integer type with a float's bit pattern, or the type itself for an integer.
-fn bit_pattern_ptype(ptype: PType) -> PType {
-    match ptype {
-        PType::F16 => PType::U16,
-        PType::F32 => PType::U32,
-        PType::F64 => PType::U64,
-        _ => ptype,
-    }
-}
-
-/// An unsigned modular distance, rejecting offsets too wide to address a bitmap.
-/// Keeping the subtraction at the physical width also handles signed ranges spanning zero.
-trait SetInteger: Copy + Ord + Send + Sync + 'static {
-    fn offset_from(self, min: Self) -> Option<usize>;
-}
-
-macro_rules! impl_set_integer {
-    ($($signed:ty => $unsigned:ty),* $(,)?) => {
-        $(impl SetInteger for $signed {
-            fn offset_from(self, min: Self) -> Option<usize> {
-                usize::try_from((self as $unsigned).wrapping_sub(min as $unsigned)).ok()
-            }
-        })*
+        fn deserialize(
+            &self,
+            _dtype: &$crate::dtype::DType,
+            _len: usize,
+            _metadata: &[u8],
+            _buffers: &[$crate::buffer::BufferHandle],
+            _children: &dyn $crate::serde::ArrayChildren,
+            _session: &::vortex_session::VortexSession,
+        ) -> ::vortex_error::VortexResult<$crate::array::ArrayParts<Self>> {
+            ::vortex_error::vortex_bail!("{} is never serialized", $name)
+        }
     };
 }
 
-impl_set_integer!(
-    u8 => u8, u16 => u16, u32 => u32, u64 => u64,
-    i8 => u8, i16 => u16, i32 => u32, i64 => u64, i128 => u128,
-);
-
-impl SetInteger for i256 {
-    fn offset_from(self, min: Self) -> Option<usize> {
-        self.wrapping_sub(&min).to_usize()
-    }
-}
-
-fn integer_bitmap<T: SetInteger>(
-    values: &[T],
-    allocator: &BufferAllocatorRef,
-) -> Option<(T, BitBuffer)> {
-    let min = *values.iter().min()?;
-    let max = *values.iter().max()?;
-    let span = max.offset_from(min)?;
-    if span == usize::MAX
-        || span as u128 >= (values.len() as u128 * BITMAP_BITS_PER_ELEMENT).max(BITMAP_MIN_BITS)
-    {
-        return None;
-    }
-    let mut bitmap = BitBufferMut::from_buffer(
-        BufferMut::zeroed_in((span + 1).div_ceil(8), allocator.clone()),
-        0,
-        span + 1,
-    );
-    for &value in values {
-        bitmap.set(
-            value
-                .offset_from(min)
-                .vortex_expect("value within bitmap span"),
-        );
-    }
-    Some((min, bitmap.freeze()))
-}
-
-fn sorted_values<T: Copy + Ord + Send + Sync + 'static>(values: Buffer<T>) -> Buffer<T> {
-    if values.is_sorted_by(|a, b| a < b) {
-        return values;
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_unstable();
-    sorted.dedup();
-    Buffer::from(sorted)
-}
+use haystack_vtable_common;

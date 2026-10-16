@@ -11,13 +11,18 @@ use std::sync::OnceLock;
 
 use vortex_buffer::BitBuffer;
 use vortex_error::SharedVortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use super::PreparedSet;
+use crate::AnyCanonical;
 use crate::ArrayHaystack;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -28,6 +33,7 @@ use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
@@ -35,8 +41,10 @@ use crate::validity::Validity;
 /// The options of a [`PreparedSet`]: the list that every row holds, and its set.
 ///
 /// The set is shared by every clone, so every batch a [`PreparedSet`] is applied to, and every
-/// slice or filter of the array it gives, looks up needles in the one set. The haystack needs
-/// an [`ExecutionCtx`] to materialize the elements, so it is built on the first lookup.
+/// slice or filter of the array it gives, looks up needles in the one set. The set looks up
+/// needles through an [`ArrayHaystack`]: one of your own, given to [`Self::try_with_haystack`],
+/// or else one that [`ArrayHaystack::try_new`] builds on the first lookup, since it needs an
+/// [`ExecutionCtx`] to materialize the elements.
 ///
 /// [`PreparedSet`]: crate::scalar_fn::fns::list_contains::PreparedSet
 #[derive(Clone)]
@@ -50,29 +58,8 @@ struct SharedSet {
     has_null_element: bool,
     /// Whether the list holds no element at all, counting null elements.
     is_empty: bool,
-    /// The elements, and the haystack of the non-null ones, built on the first lookup.
-    set: OnceLock<SharedVortexResult<ElementSet>>,
-}
-
-/// The elements of the list, and their haystack.
-struct ElementSet {
-    /// All elements of the list, null elements included, with the element dtype of the list.
-    elements: ArrayRef,
-    haystack: ArrayHaystack,
-}
-
-impl ElementSet {
-    fn try_new(list: &Scalar, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // The canonical form of a constant list holds its elements once, whatever its length.
-        let elements = ConstantArray::new(list.clone(), 1)
-            .into_array()
-            .execute::<ListViewArray>(ctx)?
-            .elements()
-            .clone();
-        let haystack = ArrayHaystack::try_new(&elements, ctx)?;
-
-        Ok(Self { elements, haystack })
-    }
+    /// The haystack of the non-null elements, given or built on the first lookup.
+    haystack: OnceLock<SharedVortexResult<ArrayHaystack>>,
 }
 
 impl PreparedSetData {
@@ -111,8 +98,31 @@ impl PreparedSetData {
             literal,
             has_null_element,
             is_empty,
-            set: OnceLock::new(),
+            haystack: OnceLock::new(),
         })))
+    }
+
+    /// Prepares the non-null list scalar `list` as a set that looks up needles through
+    /// `haystack`, a haystack of your own over the elements of the list.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `list` is not a list, or is null, or when the lookup array of `haystack` does
+    /// not have the element dtype of the list.
+    pub fn try_with_haystack(list: Scalar, haystack: ArrayHaystack) -> VortexResult<Self> {
+        let set = Self::try_new(list)?;
+        vortex_ensure!(
+            set.element_dtype()
+                .eq_ignore_nullability(haystack.array().dtype()),
+            "A haystack of {} cannot look up elements of {}",
+            haystack.array().dtype(),
+            set.element_dtype()
+        );
+
+        if set.0.haystack.set(Ok(haystack)).is_err() {
+            vortex_panic!("A new prepared set has no haystack yet");
+        }
+        Ok(set)
     }
 
     /// Whether `other` shares this set rather than preparing its own.
@@ -131,20 +141,27 @@ impl PreparedSetData {
         self.0.literal.as_::<Literal>()
     }
 
-    /// The elements of the list, one row each, null elements included.
+    /// The haystack that looks up needles among the elements, built on the first call unless
+    /// one was given, and shared after it.
+    ///
+    /// A kernel of a needle encoding can read the lookup array of the haystack, for example to
+    /// look up its own values in a lookup array of its own encoding.
     ///
     /// # Errors
     ///
-    /// Fails when the elements cannot be executed into the haystack.
-    pub fn elements(&self, ctx: &mut ExecutionCtx) -> VortexResult<&ArrayRef> {
-        Ok(&self.element_set(ctx)?.elements)
-    }
-
-    /// The elements and their haystack, built on the first call and shared after it.
-    fn element_set<'a>(&'a self, ctx: &mut ExecutionCtx) -> VortexResult<&'a ElementSet> {
+    /// Fails when the elements cannot be executed into a haystack.
+    pub fn haystack(&self, ctx: &mut ExecutionCtx) -> VortexResult<&ArrayHaystack> {
         self.0
-            .set
-            .get_or_init(|| ElementSet::try_new(self.list(), ctx).map_err(Arc::new))
+            .haystack
+            .get_or_init(|| {
+                // The canonical form of a constant list holds its elements once, whatever its
+                // length.
+                ConstantArray::new(self.list().clone(), 1)
+                    .into_array()
+                    .execute::<ListViewArray>(ctx)
+                    .and_then(|list| ArrayHaystack::try_new(list.elements(), ctx))
+                    .map_err(Arc::new)
+            })
             .as_ref()
             .map_err(|err| Arc::clone(err).into())
     }
@@ -170,7 +187,13 @@ impl PreparedSetData {
     /// semantics, which gives `false` for every needle. Under SQL null semantics, a list that holds
     /// a null element gives `null` for a needle that matches no element.
     ///
-    /// A constant needle is looked up once, and gives a constant result.
+    /// A constant needle is looked up once, and gives a constant result. Canonical needles are
+    /// looked up in the haystack. Any other needles are not decoded here: the result is a lazy
+    /// [`ListContains`] over them, so that their encoding chooses how to look them up, through a
+    /// [`ListContainsElementKernel`] at any step of its decoding. A kernel therefore passes the
+    /// parts of its array, such as the values of a dictionary, and never the array itself.
+    ///
+    /// [`ListContainsElementKernel`]: crate::scalar_fn::fns::list_contains::ListContainsElementKernel
     ///
     /// # Errors
     ///
@@ -187,8 +210,15 @@ impl PreparedSetData {
         }
 
         self.check_needle_dtype(needles.dtype())?;
-        let (bits, needle_validity) = self.element_set(ctx)?.haystack.contains(needles, ctx)?;
-        self.result_from_bits(bits, needle_validity, needles.dtype(), options)
+        match needles.as_opt::<AnyCanonical>() {
+            Some(canonical) => self.lookup(canonical, needles.dtype(), options, ctx),
+            None => Ok(ListContains::try_new_opts(
+                PreparedSet::new_array(self.clone(), needles.len()),
+                needles.clone(),
+                *options,
+            )?
+            .into_array()),
+        }
     }
 
     /// Whether the constant `needle` is an element of the list, under `options`.
@@ -206,10 +236,27 @@ impl PreparedSetData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         self.check_needle_dtype(needle.dtype())?;
-        let needles = ConstantArray::new(needle.clone(), 1).into_array();
-        let (bits, needle_validity) = self.element_set(ctx)?.haystack.contains(&needles, ctx)?;
-        self.result_from_bits(bits, needle_validity, needle.dtype(), options)?
+        let needles = ConstantArray::new(needle.clone(), 1)
+            .into_array()
+            .execute::<Canonical>(ctx)?
+            .into_array();
+        let needles = needles
+            .as_opt::<AnyCanonical>()
+            .vortex_expect("A canonical array matches AnyCanonical");
+        self.lookup(needles, needle.dtype(), options, ctx)?
             .execute_scalar(0, ctx)
+    }
+
+    /// Looks up canonical needles in the haystack.
+    fn lookup(
+        &self,
+        needles: CanonicalView<'_>,
+        needle_dtype: &DType,
+        options: &ListContainsOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let (bits, needle_validity) = self.haystack(ctx)?.contains(needles, ctx)?;
+        self.result_from_bits(bits, needle_validity, needle_dtype, options)
     }
 
     /// Makes the result of [`Self::contains`] from one membership bit per needle.
