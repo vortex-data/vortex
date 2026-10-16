@@ -131,6 +131,7 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn serialize_metadata(&self) -> VortexResult<Vec<u8>>;
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
     fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()>;
+    fn orders_by_storage(&self) -> bool;
     fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
     -> fmt::Result;
 }
@@ -185,6 +186,10 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
         self.validate_scalar_value(storage_value)
+    }
+
+    fn orders_by_storage(&self) -> bool {
+        self.vtable.orders_by_storage()
     }
 
     fn value_display(

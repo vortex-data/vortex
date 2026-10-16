@@ -20,22 +20,26 @@ import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FixedSizeBinaryVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ViewVarBinaryVector;
 import org.apache.arrow.vector.ViewVarCharVector;
+import org.apache.arrow.vector.complex.FixedSizeListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.complex.impl.UnionMapWriter;
@@ -52,6 +56,7 @@ import org.junit.jupiter.api.io.TempDir;
 public final class JNIWriterTest {
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
     private static final String PARQUET_VARIANT_EXTENSION_NAME = "arrow.parquet.variant";
+    private static final String UUID_EXTENSION_NAME = "arrow.uuid";
     private static final byte[] VARIANT_METADATA = new byte[] {0x01, 0x00};
     private static final byte[] VARIANT_INT8_42 = new byte[] {0x0c, 0x2a};
     private static final byte[] VARIANT_TRUE = new byte[] {0x04};
@@ -82,6 +87,29 @@ public final class JNIWriterTest {
                         Field.notNullable("metadata", new ArrowType.Binary()),
                         Field.nullable("value", new ArrowType.Binary())));
         return new Schema(List.of(variant));
+    }
+
+    private static Schema uuidAndPairSchema() {
+        Field uuid = new Field(
+                "id",
+                new FieldType(
+                        false,
+                        new ArrowType.FixedSizeBinary(16),
+                        null,
+                        Map.of(ARROW_EXTENSION_NAME, UUID_EXTENSION_NAME)),
+                null);
+        Field pair = new Field(
+                "pair",
+                FieldType.notNullable(new ArrowType.FixedSizeList(2)),
+                List.of(Field.notNullable("item", new ArrowType.Int(32, true))));
+        return new Schema(List.of(uuid, pair));
+    }
+
+    private static byte[] uuidBytes(UUID uuid) {
+        return ByteBuffer.allocate(16)
+                .putLong(uuid.getMostSignificantBits())
+                .putLong(uuid.getLeastSignificantBits())
+                .array();
     }
 
     private static Schema mapSchema() {
@@ -270,6 +298,57 @@ public final class JNIWriterTest {
                 assertEquals(40, ageOut.get(2));
             }
         }
+    }
+
+    @Test
+    public void testUuidAndFixedSizeListBounds() throws IOException {
+        Path outputPath = tempDir.resolve("uuid_pair.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+        UUID high = UUID.fromString("f0000000-0000-0000-0000-0000000000ff");
+        UUID low = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Schema schema = uuidAndPairSchema();
+
+        Session session = Session.create();
+        VortexWriteSummary summary;
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, schema, allocator)
+                        .build();
+                VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+            FixedSizeBinaryVector ids = (FixedSizeBinaryVector) root.getVector("id");
+            FixedSizeListVector pairs = (FixedSizeListVector) root.getVector("pair");
+            IntVector pairValues = (IntVector) pairs.getDataVector();
+
+            ids.allocateNew(2);
+            pairs.allocateNew();
+            pairValues.allocateNew(4);
+
+            ids.set(0, uuidBytes(high));
+            ids.set(1, uuidBytes(low));
+            pairs.setNotNull(0);
+            pairs.setNotNull(1);
+            pairValues.set(0, 3);
+            pairValues.set(1, 1);
+            pairValues.set(2, 2);
+            pairValues.set(3, 9);
+
+            root.setRowCount(2);
+
+            try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
+                    ArrowSchema arrowSchemaFfi = ArrowSchema.allocateNew(allocator)) {
+                Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
+                writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
+            }
+            summary = writer.finish();
+        }
+
+        // UUIDs order by their bytes; fixed-size lists order lexicographically.
+        assertEquals(low, summary.columnStatistics().get(0).lowerBound().orElseThrow());
+        assertEquals(high, summary.columnStatistics().get(0).upperBound().orElseThrow());
+        assertEquals(
+                List.of(2, 9), summary.columnStatistics().get(1).lowerBound().orElseThrow());
+        assertEquals(
+                List.of(3, 1), summary.columnStatistics().get(1).upperBound().orElseThrow());
     }
 
     @Test

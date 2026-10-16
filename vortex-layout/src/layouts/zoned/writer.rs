@@ -215,19 +215,20 @@ impl LayoutStrategy for ZonedStrategy {
 }
 
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
-    let (max, min) = match dtype {
-        DType::Utf8(_) | DType::Binary(_) => (
+    let (max, min) = if has_wide_extrema(dtype) {
+        (
             BoundedMax.bind(BoundedMaxOptions {
                 max_bytes: default_bounded_stat_max_bytes(),
             }),
             BoundedMin.bind(BoundedMinOptions {
                 max_bytes: default_bounded_stat_max_bytes(),
             }),
-        ),
-        _ => (
+        )
+    } else {
+        (
             Max.bind(NumericalAggregateOpts::skip_nans()),
             Min.bind(NumericalAggregateOpts::skip_nans()),
-        ),
+        )
     };
 
     // Sum is deliberately absent: zone maps exist to prune, and a zone sum prunes nothing.
@@ -245,6 +246,17 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     aggregate_fns.extend(session.aggregate_fns().zone_stat_defaults(dtype));
 
     aggregate_fns.into()
+}
+
+/// Whether the extrema of `dtype` can be arbitrarily wide, so zone maps bound them in bytes: strings
+/// and binary grow with their values, and fixed-size lists, including extension types stored as
+/// one, grow with their list size.
+fn has_wide_extrema(dtype: &DType) -> bool {
+    match dtype {
+        DType::Utf8(_) | DType::Binary(_) | DType::FixedSizeList(..) => true,
+        DType::Extension(ext_dtype) => ext_dtype.storage_dtype().is_fixed_size_list(),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -370,12 +382,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn default_aggregates_bound_variable_length_min_max() {
-        let aggregate_fns = default_zoned_aggregate_fns(
-            &DType::Utf8(Nullability::NonNullable),
-            &vortex_array::array_session(),
-        );
+    #[rstest]
+    #[case::utf8(DType::Utf8(Nullability::NonNullable))]
+    #[case::fixed_size_list(DType::FixedSizeList(
+        Arc::new(PType::U8.into()),
+        16,
+        Nullability::NonNullable,
+    ))]
+    fn default_aggregates_bound_wide_min_max(#[case] dtype: DType) {
+        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &vortex_array::array_session());
 
         assert_eq!(
             aggregate_fns[0].as_::<BoundedMax>().max_bytes,

@@ -75,6 +75,11 @@ impl ExtVTable for Uuid {
         Ok(())
     }
 
+    // UUID bytes are big-endian, so byte order is UUID order.
+    fn orders_by_storage(&self) -> bool {
+        true
+    }
+
     fn unpack_native<'a>(
         ext_dtype: &ExtDType<Self>,
         storage_value: &'a ScalarValue,

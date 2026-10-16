@@ -32,6 +32,8 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::lower_bound;
+use crate::scalar::upper_bound;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 /// Stats are created lazily on read or write.
@@ -320,6 +322,30 @@ impl StatsSetRef<'_> {
 
     pub fn clear(&self, stat: Stat) {
         self.array_stats.clear(stat);
+    }
+
+    /// Bounds the min and max to at most `max_bytes` per value with [`lower_bound`] and
+    /// [`upper_bound`], so that they stay small once stored.
+    ///
+    /// A truncated bound becomes inexact, and a min or max with no bound is cleared.
+    pub fn bound_min_max(&self, max_bytes: usize) {
+        self.bound_stat(Stat::Min, |value| lower_bound(value, max_bytes));
+        self.bound_stat(Stat::Max, |value| upper_bound(value, max_bytes));
+    }
+
+    fn bound_stat(&self, stat: Stat, bound: impl FnOnce(Scalar) -> Option<(Scalar, bool)>) {
+        let Some(value) = self.get(stat).into_inner() else {
+            return;
+        };
+        match bound(value) {
+            Some((bounded, true)) => {
+                if let Some(bounded) = bounded.into_value() {
+                    self.set(stat, Precision::Inexact(bounded));
+                }
+            }
+            Some((_, false)) => {}
+            None => self.clear(stat),
+        }
     }
 
     pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(

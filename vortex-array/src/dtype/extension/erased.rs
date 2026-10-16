@@ -89,6 +89,13 @@ impl ExtDTypeRef {
         self.0.serialize_metadata()
     }
 
+    /// Returns whether values of this type order the same way as their storage values.
+    ///
+    /// See [`ExtVTable::orders_by_storage`].
+    pub(crate) fn orders_by_storage(&self) -> bool {
+        self.0.orders_by_storage()
+    }
+
     /// Returns a `Display`-able view of just the metadata.
     pub fn display_metadata(&self) -> impl fmt::Display + '_ {
         MetadataDisplay(&*self.0)

@@ -15,6 +15,7 @@ use vortex::dtype::NativeDType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
@@ -288,6 +289,41 @@ impl Value {
                 crs_ptr,
             ))
         })
+    }
+
+    /// Creates a DuckDB UUID value from the UUID's 16 big-endian (RFC 4122) bytes read as one
+    /// unsigned integer.
+    ///
+    /// DuckDB itself flips the top bit to store the UUID as a signed `HUGEINT` that orders like
+    /// the bytes.
+    pub fn new_uuid(value: u128) -> Self {
+        let lower: u64 = value.as_();
+        let upper: u64 = (value >> 64).as_();
+        unsafe {
+            Self::own(cpp::duckdb_create_uuid(cpp::duckdb_uhugeint {
+                lower,
+                upper,
+            }))
+        }
+    }
+
+    /// Creates a DuckDB ARRAY value holding `elements`, each of type `element_type`.
+    pub fn new_array(element_type: &LogicalTypeRef, elements: &[Value]) -> VortexResult<Self> {
+        let mut element_ptrs = elements.iter().map(|e| e.as_ptr()).collect::<Vec<_>>();
+        let array = unsafe {
+            cpp::duckdb_create_array_value(
+                element_type.as_ptr(),
+                element_ptrs.as_mut_ptr(),
+                element_ptrs.len() as idx_t,
+            )
+        };
+        if array.is_null() {
+            vortex_bail!(
+                "DuckDB cannot create an ARRAY of {} {element_type:?} values",
+                elements.len()
+            );
+        }
+        Ok(unsafe { Self::own(array) })
     }
 }
 

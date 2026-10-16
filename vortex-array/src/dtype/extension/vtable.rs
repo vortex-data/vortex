@@ -48,6 +48,16 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// extension metadata.
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
+    /// Returns whether values of this type order the same way as their storage values.
+    ///
+    /// Min and max of an extension array are computed on its storage, so they are only computed
+    /// for types that return `true`, such as timestamps (ordered integers) and UUIDs (big-endian
+    /// bytes). Defaults to `false`: the storage order of a type such as an encoded geometry or an
+    /// embedding vector means nothing about its values.
+    fn orders_by_storage(&self) -> bool {
+        false
+    }
+
     // Methods related to the extension scalar values.
 
     /// Validate the given storage value is compatible with the extension type.

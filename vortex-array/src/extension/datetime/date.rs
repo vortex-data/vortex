@@ -110,6 +110,11 @@ impl ExtVTable for Date {
         Ok(())
     }
 
+    // Dates are integer offsets from the epoch, so storage order is date order.
+    fn orders_by_storage(&self) -> bool {
+        true
+    }
+
     fn unpack_native<'a>(
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,

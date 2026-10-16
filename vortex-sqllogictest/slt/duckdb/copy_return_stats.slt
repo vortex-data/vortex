@@ -18,3 +18,13 @@ COPY (SELECT {'a': 1, 'b': 2} AS st, [1, 2, 3] AS lst, 7 AS i)
 TO '${WORK_DIR}/copy_return_stats_nested.vortex' (FORMAT vortex, RETURN_STATS);
 ----
 <REGEX>:\$\{WORK_DIR\}/copy_return_stats_nested\.vortex 1 \d+ 0 \{'"i"'=\{column_size_bytes=\d+, max=7, min=7, null_count=0, num_values=1\}, '"lst"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}, '"st"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}\} NULL
+
+# UUID and fixed-size ARRAY columns report bounds in their own types: UUIDs order by their bytes,
+# arrays lexicographically.
+query TIII??
+COPY (SELECT * FROM (VALUES
+    (UUID 'f0000000-0000-0000-0000-0000000000ff', [3, 1]::INTEGER[2]),
+    (UUID '550e8400-e29b-41d4-a716-446655440000', [2, 9]::INTEGER[2])) t(u, arr))
+TO '${WORK_DIR}/copy_return_stats_uuid_array.vortex' (FORMAT vortex, RETURN_STATS);
+----
+<REGEX>:\$\{WORK_DIR\}/copy_return_stats_uuid_array\.vortex 2 \d+ 0 \{'"arr"'=\{column_size_bytes=\d+, max='\[3, 1\]', min='\[2, 9\]', null_count=0, num_values=2\}, '"u"'=\{column_size_bytes=\d+, max=f0000000-0000-0000-0000-0000000000ff, min=550e8400-e29b-41d4-a716-446655440000, null_count=0, num_values=2\}\} NULL

@@ -203,6 +203,11 @@ impl ExtVTable for Timestamp {
         Ok(())
     }
 
+    // Timestamps are i64 offsets from the epoch, so storage order is time order.
+    fn orders_by_storage(&self) -> bool {
+        true
+    }
+
     fn unpack_native<'a>(
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,

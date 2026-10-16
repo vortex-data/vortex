@@ -27,6 +27,7 @@ use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::PType;
 use vortex::dtype::PType::I32;
 use vortex::dtype::PType::I64;
+use vortex::dtype::extension::ExtVTable;
 use vortex::dtype::half::f16;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexError;
@@ -46,6 +47,7 @@ use vortex::scalar::BoolScalar;
 use vortex::scalar::DecimalScalar;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::ExtScalar;
+use vortex::scalar::ListScalar;
 use vortex::scalar::PrimitiveScalar;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
@@ -67,7 +69,7 @@ impl ToDuckDBScalar for Scalar {
     ///
     /// # Note
     ///
-    /// Struct and List scalars are not yet implemented and cause a panic.
+    /// Struct and variable-size List scalars are not yet supported and return an error.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.is_null() {
             let lt = LogicalType::try_from(self.dtype())?;
@@ -82,9 +84,7 @@ impl ToDuckDBScalar for Scalar {
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
             DType::List(..) => vortex_bail!("Vortex List scalars aren't supported"),
-            DType::FixedSizeList(..) => {
-                vortex_bail!("Vortex FixedSizeList scalars aren't supported")
-            }
+            DType::FixedSizeList(..) => self.as_list().try_to_duckdb_scalar(),
             DType::Map(..) => vortex_bail!("Vortex Map scalars aren't supported"),
             DType::Variant(_) => vortex_bail!("Vortex Variant scalars aren't supported"),
             DType::Struct(..) => vortex_bail!("Vortex Struct scalars aren't supported"),
@@ -177,10 +177,36 @@ impl ToDuckDBScalar for BinaryScalar<'_> {
     }
 }
 
-impl ToDuckDBScalar for ExtScalar<'_> {
-    /// Converts an extension scalar (temporal types or `WellKnownBinary` geometries) to a DuckDB
-    /// value.
+impl ToDuckDBScalar for ListScalar<'_> {
+    /// Converts a fixed-size list scalar to a DuckDB ARRAY value. Variable-size lists are not
+    /// supported.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        let DType::FixedSizeList(element_dtype, ..) = self.dtype() else {
+            vortex_bail!("Vortex List scalars aren't supported");
+        };
+        let Some(elements) = self.elements() else {
+            return Ok(Value::null(&*LogicalType::try_from(self.dtype())?));
+        };
+        let elements = elements
+            .iter()
+            .map(Scalar::try_to_duckdb_scalar)
+            .collect::<VortexResult<Vec<_>>>()?;
+        Value::new_array(&*LogicalType::try_from(element_dtype.as_ref())?, &elements)
+    }
+}
+
+impl ToDuckDBScalar for ExtScalar<'_> {
+    /// Converts an extension scalar (temporal types, `WellKnownBinary` geometries or UUIDs) to a
+    /// DuckDB value.
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        if self.ext_dtype().is::<Uuid>() {
+            let uuid_dtype = self.ext_dtype().clone().downcast::<Uuid>();
+            return Ok(match self.value() {
+                Some(value) => Value::new_uuid(Uuid::unpack_native(&uuid_dtype, value)?.as_u128()),
+                None => Value::null(&*ext_logical_type(self)?),
+            });
+        }
+
         if let Some(wkb) = self.ext_dtype().metadata_opt::<WellKnownBinary>() {
             let storage = self.to_storage_scalar();
             let binary = storage
@@ -429,6 +455,9 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::extension::ExtDType;
+    use vortex::encodings::uuid::Uuid;
+    use vortex::encodings::uuid::UuidMetadata;
+    use vortex::error::VortexResult;
     use vortex::extension::datetime::Date;
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::TimeUnit;
@@ -725,6 +754,66 @@ mod tests {
             value.logical_type().as_type_id(),
             DUCKDB_TYPE::DUCKDB_TYPE_BIGINT
         );
+    }
+
+    /// UUIDs reach DuckDB as written, on both sides of the top bit DuckDB flips internally.
+    #[rstest]
+    #[case::low(0x1, "00000000-0000-0000-0000-000000000001")]
+    #[case::rfc_example(
+        0x550e8400_e29b_41d4_a716_446655440000,
+        "550e8400-e29b-41d4-a716-446655440000"
+    )]
+    #[case::top_bit_set(
+        0xf0000000_0000_0000_0000_0000000000ff,
+        "f0000000-0000-0000-0000-0000000000ff"
+    )]
+    fn uuid_scalar_to_duckdb(#[case] uuid: u128, #[case] expected: &str) -> VortexResult<()> {
+        let bytes = uuid
+            .to_be_bytes()
+            .map(|byte| Scalar::primitive(byte, Nullability::NonNullable));
+        let storage = Scalar::fixed_size_list(
+            DType::Primitive(PType::U8, Nullability::NonNullable),
+            bytes.to_vec(),
+            Nullability::NonNullable,
+        );
+        let scalar = Scalar::extension::<Uuid>(UuidMetadata::default(), storage);
+
+        let value = scalar.try_to_duckdb_scalar()?;
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_UUID
+        );
+        assert_eq!(value.to_string(), expected);
+        assert_eq!(Scalar::try_from(value)?, scalar);
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_size_list_scalar_to_duckdb_array() -> VortexResult<()> {
+        let element_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let scalar = Scalar::fixed_size_list(
+            element_dtype.clone(),
+            vec![
+                Scalar::null(element_dtype),
+                Scalar::primitive(9i32, Nullability::Nullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let value = scalar.try_to_duckdb_scalar()?;
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
+        );
+        assert_eq!(value.to_string(), "[NULL, 9]");
+
+        let null = Scalar::null(scalar.dtype().as_nullable()).try_to_duckdb_scalar()?;
+        assert_eq!(
+            null.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
+        );
+        assert!(matches!(null.extract(), ExtractedValue::Null));
+        Ok(())
     }
 
     #[test]

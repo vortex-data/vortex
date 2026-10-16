@@ -330,21 +330,35 @@ pub fn copy_to_initialize_global(
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::ExtensionArray;
+    use vortex::array::arrays::FixedSizeListArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::stats::PRUNING_STATS;
+    use vortex::array::validity::Validity;
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
+    use vortex::dtype::extension::ExtDType;
+    use vortex::encodings::uuid::Uuid;
+    use vortex::encodings::uuid::UuidMetadata;
 
     use super::*;
 
     /// Writes a one-column file and returns its summary, with `file_statistics` controlling which
     /// statistics the footer carries (empty means none at all).
     fn write_summary(file_statistics: Vec<Stat>) -> WriteSummary {
+        let array = StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])
+            .unwrap()
+            .into_array();
+        write_array_summary(array, file_statistics)
+    }
+
+    /// Writes `array` as a file and returns its summary, with `file_statistics` controlling which
+    /// statistics the footer carries.
+    fn write_array_summary(array: ArrayRef, file_statistics: Vec<Stat>) -> WriteSummary {
         RUNTIME.block_on(async {
-            let array = StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])
-                .unwrap()
-                .into_array();
             let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()
@@ -360,6 +374,63 @@ mod tests {
         let summary = write_summary(PRUNING_STATS.to_vec());
         assert!(column_stats_from_summary(&summary, 0, &[]).is_ok());
         assert!(column_stats_from_summary(&summary, 1, &[]).is_err());
+    }
+
+    /// UUID and fixed-size list bounds become DuckDB UUID and ARRAY values.
+    #[test]
+    fn column_stats_convert_uuid_and_array_bounds() -> VortexResult<()> {
+        let uuids = [
+            0xf0000000_0000_0000_0000_0000000000ff_u128,
+            0x550e8400_e29b_41d4_a716_446655440000,
+        ];
+        let uuid_storage = FixedSizeListArray::try_new(
+            uuids
+                .iter()
+                .flat_map(|uuid| uuid.to_be_bytes())
+                .collect::<PrimitiveArray>()
+                .into_array(),
+            16,
+            Validity::NonNullable,
+            uuids.len(),
+        )?;
+        let uuid_dtype =
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), uuid_storage.dtype().clone())?
+                .erased();
+        let pairs = FixedSizeListArray::try_new(
+            buffer![3i32, 1, 2, 9].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )?;
+        let array = StructArray::from_fields(&[
+            (
+                "id",
+                ExtensionArray::new(uuid_dtype, uuid_storage.into_array()).into_array(),
+            ),
+            ("pair", pairs.into_array()),
+        ])?
+        .into_array();
+
+        let summary = write_array_summary(array, PRUNING_STATS.to_vec());
+        let bounds = |column| -> VortexResult<(Option<String>, Option<String>)> {
+            let stats = column_stats_from_summary(&summary, column, &[])?;
+            Ok((
+                stats.min.map(|min| min.to_string()),
+                stats.max.map(|max| max.to_string()),
+            ))
+        };
+        assert_eq!(
+            bounds(0)?,
+            (
+                Some("550e8400-e29b-41d4-a716-446655440000".to_owned()),
+                Some("f0000000-0000-0000-0000-0000000000ff".to_owned())
+            )
+        );
+        assert_eq!(
+            bounds(1)?,
+            (Some("[2, 9]".to_owned()), Some("[3, 1]".to_owned()))
+        );
+        Ok(())
     }
 
     #[test]
