@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -110,6 +111,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     explain: bool,
 
+    /// Execute explained queries and include actual operator cardinalities and timings.
+    #[arg(long, requires = "explain")]
+    explain_analyze: bool,
+
     /// Print the selected query indices, one per line, and exit
     /// Knowledge of query ids lies only in this binary so we need
     /// orchestrator to know whan queries to run one by one.
@@ -165,6 +170,7 @@ async fn main() -> anyhow::Result<()> {
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
+    let explain_analyze = args.explain_analyze;
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -197,8 +203,16 @@ async fn main() -> anyhow::Result<()> {
 
                 Box::pin(
                     async move {
+                        let query = if explain_analyze {
+                            Cow::Owned(format!(
+                                "EXPLAIN ANALYZE {}",
+                                query.strip_prefix("EXPLAIN ").unwrap_or(query)
+                            ))
+                        } else {
+                            Cow::Borrowed(query)
+                        };
                         let timer = Instant::now();
-                        let (batches, plan) = execute_query(session, query)
+                        let (batches, plan) = execute_query(session, &query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();

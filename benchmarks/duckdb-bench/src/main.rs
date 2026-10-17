@@ -3,6 +3,7 @@
 
 mod validation;
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -87,6 +88,10 @@ struct Args {
     /// Print EXPLAIN output for each query instead of running benchmarks.
     #[arg(long, default_value_t = false)]
     explain: bool,
+
+    /// Execute explained queries and include actual operator cardinalities and timings.
+    #[arg(long, requires = "explain")]
+    explain_analyze: bool,
 
     /// Print the selected query indices, one per line, and exit
     /// Knowledge of query ids lies only in this binary so we need
@@ -222,7 +227,15 @@ fn main() -> anyhow::Result<()> {
             if !args.reuse {
                 ctx.reopen()?;
             }
-            ctx.execute_query_result(query)
+            let query = if args.explain_analyze {
+                Cow::Owned(format!(
+                    "EXPLAIN ANALYZE {}",
+                    query.strip_prefix("EXPLAIN ").unwrap_or(query)
+                ))
+            } else {
+                Cow::Borrowed(query)
+            };
+            ctx.execute_query_result(&query)
         },
     )?;
 
