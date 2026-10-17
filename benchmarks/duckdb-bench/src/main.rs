@@ -124,10 +124,8 @@ fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    if std::env::var("VORTEX_MMAP").map_or(true, |value| value != "0") {
-        // SAFETY: benchmark data files are not modified while queries run.
-        unsafe { vortex_duckdb::enable_mmap_local_files() };
-    }
+    // SAFETY: benchmark data files are not modified while queries run.
+    unsafe { vortex_duckdb::enable_mmap_local_files() };
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 

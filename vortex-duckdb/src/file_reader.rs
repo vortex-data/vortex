@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -82,22 +81,18 @@ use crate::table_function::convert_result;
 // `reader_get_progress_in_file` is called during `reader_scan` calls from a
 // separate thread.
 
-/// Whether to read local files through memory maps of them, which saves copying every read out
-/// of the page cache. Set `VORTEX_MMAP=1` or call [`enable_mmap_local_files`] to enable it, which
-/// is only safe when no scanned file is truncated or modified during a scan: a truncated file
-/// crashes the process with `SIGBUS`.
-static MMAP_LOCAL_FILES: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("VORTEX_MMAP").is_ok_and(|value| value == "1"));
-static MMAP_LOCAL_FILES_ENABLED: AtomicBool = AtomicBool::new(false);
+/// Whether to read local files through memory maps of them, see [`enable_mmap_local_files`].
+static MMAP_LOCAL_FILES: AtomicBool = AtomicBool::new(false);
 
-/// Reads local files opened from now on through memory maps of them.
+/// Reads local files opened from now on through memory maps of them, which saves copying every
+/// read out of the page cache. Local files are read with copies unless this is called.
 ///
 /// # Safety
 ///
 /// No local file scanned by this process may be truncated or modified during a scan. Accessing
 /// the unmapped pages of a truncated file crashes the process with `SIGBUS`.
 pub unsafe fn enable_mmap_local_files() {
-    MMAP_LOCAL_FILES_ENABLED.store(true, Ordering::Relaxed);
+    MMAP_LOCAL_FILES.store(true, Ordering::Relaxed);
 }
 
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
@@ -105,9 +100,9 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // high-core machines because reads go into blocking pool
     if url.scheme() == "file" {
         let fs = StdFileSystem::new(RUNTIME.handle());
-        // SAFETY: setting VORTEX_MMAP or enabling mmap asserts that scanned files do not change
-        // during a scan.
-        let fs = if *MMAP_LOCAL_FILES || MMAP_LOCAL_FILES_ENABLED.load(Ordering::Relaxed) {
+        // SAFETY: `enable_mmap_local_files` requires that scanned files do not change during a
+        // scan.
+        let fs = if MMAP_LOCAL_FILES.load(Ordering::Relaxed) {
             unsafe { fs.with_mmap() }
         } else {
             fs

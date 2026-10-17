@@ -15,7 +15,7 @@ use vortex::array::memory::MemorySessionExt;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::io::std_file::FileReadAt;
+use vortex::io::std_file::MmapReadAt;
 use vortex::session::VortexSession;
 
 /// Factory to create [`VortexReadAt`] instances for a `PartitionedFile`.
@@ -97,7 +97,7 @@ impl MmapVortexReaderFactory {
     /// # Safety
     ///
     /// No file read through this factory may be truncated or modified while a buffer read from it
-    /// is alive, see [`FileReadAt::open_mmap`].
+    /// is alive, see [`MmapReadAt::open`].
     pub unsafe fn new(local: Arc<LocalFileSystem>) -> Self {
         Self { local }
     }
@@ -107,14 +107,14 @@ impl VortexReaderFactory for MmapVortexReaderFactory {
     fn create_reader(
         &self,
         file: &PartitionedFile,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> DFResult<Arc<dyn VortexReadAt>> {
         let path = self
             .local
             .path_to_filesystem(file.path())
             .map_err(|e| DataFusionError::ObjectStore(Box::new(e)))?;
         // SAFETY: `new` requires that the files do not change while they are mapped.
-        let reader = unsafe { FileReadAt::open_mmap(path, session.handle()) }
+        let reader = unsafe { MmapReadAt::open(path) }
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
         Ok(Arc::new(reader) as _)
     }
