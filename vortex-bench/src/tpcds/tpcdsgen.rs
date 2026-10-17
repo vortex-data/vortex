@@ -23,6 +23,7 @@ use parquet::arrow::ArrowWriter;
 use tpcdsgen::config::CompatMode;
 use tpcdsgen::config::Session;
 use tpcdsgen::config::SessionBuilder;
+use tpcdsgen::config::Table;
 use tpcdsgen_arrow::CallCenterArrow;
 use tpcdsgen_arrow::CatalogPageArrow;
 use tpcdsgen_arrow::CatalogReturnsArrow;
@@ -52,19 +53,21 @@ use tracing::info;
 use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Format;
-use crate::utils::file::idempotent;
+use crate::utils::file::temp_download_filepath;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::split;
 
 const BATCH_SIZE: usize = 8192 * 16;
 
 /// Matches the row group size of DuckDB's Parquet writer, which previously generated this data.
 const ROW_GROUP_SIZE: usize = 122_880;
 
-/// Generate every TPC-DS table as a single Parquet file per table under `base_dir/parquet`.
+/// Generate every TPC-DS table as Parquet under `base_dir/parquet`.
 ///
-/// The files use the column names and types of the TPC-DS specification (and of DuckDB's
-/// `dsdgen`). Each table is generated on its own blocking thread. Already generated tables are
-/// skipped.
+/// Large tables are split into files of about [`split::TARGET_FILE_COMPRESSED_BYTES`], named by
+/// [`split::part_file_name`]; every other table is a single `{table}_0001.parquet`. The files use
+/// the column names and types of the TPC-DS specification (and of DuckDB's `dsdgen`). Each table
+/// is generated on its own blocking thread. Already generated tables are skipped.
 pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf> {
     let output_dir = base_dir.join(Format::Parquet.name());
     fs::create_dir_all(&output_dir)?;
@@ -80,12 +83,21 @@ pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<P
     let parallelism = get_available_parallelism().unwrap_or(1);
     let mut tasks = stream::iter(TABLES.map(|table| {
         let session = session.clone();
-        let path = output_dir.join(format!("{table}.{}", Format::Parquet.ext()));
+        let output_dir = output_dir.clone();
         tokio::task::spawn_blocking(move || {
-            idempotent(&path, |tmp| {
-                info!(table, scale_factor, "Generating TPC-DS table");
-                write_parquet(tmp, table_batches(table, session))
-            })
+            let first_file =
+                output_dir.join(split::part_file_name(table, 1, Format::Parquet.ext()));
+            if first_file.exists() {
+                return Ok(());
+            }
+            let layout = FileLayout::new(table, &session);
+            info!(
+                table,
+                scale_factor,
+                files = layout.num_files,
+                "Generating TPC-DS table"
+            );
+            write_parquet_files(&output_dir, table, table_batches(table, session), layout)
         })
     }))
     .buffer_unordered(parallelism);
@@ -125,6 +137,72 @@ const TABLES: [&str; 24] = [
     "web_site",
 ];
 
+/// How a TPC-DS table's size scales, used to split it into files.
+struct TableSize {
+    /// The table whose `tpcdsgen` row count drives generation. Returns tables are generated
+    /// from their sales tickets.
+    source: Table,
+    /// Generated rows per source row, such as line items per ticket.
+    rows_per_source_row: f64,
+    /// Compressed bytes per row: the mean of the Parquet and default Vortex sizes.
+    compressed_bytes_per_row: f64,
+}
+
+/// Sizes of the tables that can outgrow one file, measured at scale factor 10. The other tables
+/// stay well below [`split::TARGET_FILE_COMPRESSED_BYTES`] even at scale factor 1000.
+fn table_size(table: &str) -> Option<TableSize> {
+    let (source, rows_per_source_row, compressed_bytes_per_row) = match table {
+        "store_sales" => (Table::StoreSales, 12.0004, 37.283),
+        "store_returns" => (Table::StoreSales, 1.1981, 43.643),
+        "catalog_sales" => (Table::CatalogSales, 9.0008, 54.241),
+        "catalog_returns" => (Table::CatalogSales, 0.8998, 56.303),
+        "web_sales" => (Table::WebSales, 11.9959, 52.890),
+        "web_returns" => (Table::WebSales, 1.1987, 55.432),
+        "inventory" => (Table::Inventory, 1.0, 2.762),
+        "customer" => (Table::Customer, 1.0, 41.164),
+        "customer_address" => (Table::CustomerAddress, 1.0, 15.311),
+        "item" => (Table::Item, 1.0, 74.525),
+        _ => return None,
+    };
+    Some(TableSize {
+        source,
+        rows_per_source_row,
+        compressed_bytes_per_row,
+    })
+}
+
+/// How the rows of one table are spread over its files.
+#[derive(Clone, Copy)]
+struct FileLayout {
+    num_files: usize,
+    /// Rows in every file but the last, which also takes any rows beyond the estimate.
+    rows_per_file: usize,
+}
+
+impl FileLayout {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "row counts are far below the f64 and usize limits"
+    )]
+    fn new(table: &str, session: &Session) -> Self {
+        let Some(size) = table_size(table) else {
+            return Self {
+                num_files: 1,
+                rows_per_file: usize::MAX,
+            };
+        };
+        let rows =
+            session.get_scaling().get_row_count(size.source) as f64 * size.rows_per_source_row;
+        let num_files = split::num_files(rows * size.compressed_bytes_per_row);
+        Self {
+            num_files,
+            rows_per_file: (rows / num_files as f64).ceil().max(1.0) as usize,
+        }
+    }
+}
+
 fn table_batches(table: &str, session: Session) -> Box<dyn RecordBatchIterator> {
     match table {
         "call_center" => Box::new(CallCenterArrow::new(session).with_batch_size(BATCH_SIZE)),
@@ -163,17 +241,29 @@ fn table_batches(table: &str, session: Session) -> Box<dyn RecordBatchIterator> 
     }
 }
 
-fn write_parquet(path: &Path, batches: Box<dyn RecordBatchIterator>) -> Result<()> {
+/// Write `batches` as the Parquet files of `table` in `output_dir`, split by `layout`.
+///
+/// Files are written to temporary paths and renamed into place last part first, so the first
+/// part only exists once the whole table does.
+fn write_parquet_files(
+    output_dir: &Path,
+    table: &str,
+    batches: Box<dyn RecordBatchIterator>,
+    layout: FileLayout,
+) -> Result<()> {
     let schema = spec_schema(batches.schema());
     let props = parquet_writer_properties()
         .set_max_row_group_row_count(Some(ROW_GROUP_SIZE))
         .build();
-    let mut writer = ArrowWriter::try_new(File::create(path)?, Arc::clone(&schema), Some(props))?;
     // Fail on values that do not fit the narrower spec types instead of silently nulling them.
     let options = CastOptions {
         safe: false,
         ..Default::default()
     };
+
+    let mut files = Vec::with_capacity(layout.num_files);
+    let mut writer: Option<ArrowWriter<File>> = None;
+    let mut rows_in_file = 0;
     for batch in batches {
         let columns = batch
             .columns()
@@ -181,9 +271,56 @@ fn write_parquet(path: &Path, batches: Box<dyn RecordBatchIterator>) -> Result<(
             .zip(schema.fields())
             .map(|(column, field)| cast_with_options(column, field.data_type(), &options))
             .collect::<Result<Vec<_>, _>>()?;
-        writer.write(&RecordBatch::try_new(Arc::clone(&schema), columns)?)?;
+        let mut batch = RecordBatch::try_new(Arc::clone(&schema), columns)?;
+        while batch.num_rows() > 0 {
+            let current = match writer.as_mut() {
+                Some(current) => current,
+                None => {
+                    let path = temp_download_filepath();
+                    let file = File::create(&path)?;
+                    files.push(path);
+                    rows_in_file = 0;
+                    writer.insert(ArrowWriter::try_new(
+                        file,
+                        Arc::clone(&schema),
+                        Some(props.clone()),
+                    )?)
+                }
+            };
+            let is_last_file = files.len() == layout.num_files;
+            let len = if is_last_file {
+                batch.num_rows()
+            } else {
+                batch.num_rows().min(layout.rows_per_file - rows_in_file)
+            };
+            current.write(&batch.slice(0, len))?;
+            rows_in_file += len;
+            batch = batch.slice(len, batch.num_rows() - len);
+            if !is_last_file
+                && rows_in_file == layout.rows_per_file
+                && let Some(full) = writer.take()
+            {
+                full.close()?;
+            }
+        }
     }
-    writer.close()?;
+    match writer {
+        Some(writer) => {
+            writer.close()?;
+        }
+        // An empty table still gets one file carrying its schema.
+        None if files.is_empty() => {
+            let path = temp_download_filepath();
+            ArrowWriter::try_new(File::create(&path)?, schema, Some(props))?.close()?;
+            files.push(path);
+        }
+        None => {}
+    }
+
+    for (idx, path) in files.iter().enumerate().rev() {
+        let name = split::part_file_name(table, idx + 1, Format::Parquet.ext());
+        fs::rename(path, output_dir.join(name))?;
+    }
     Ok(())
 }
 

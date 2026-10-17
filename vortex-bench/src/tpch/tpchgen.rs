@@ -33,6 +33,7 @@ use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::CompactionStrategy;
@@ -41,10 +42,22 @@ use crate::IdempotentPath;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::split;
 
 /// The parquet-rs default, kept explicit so the shared writer settings do not change the
 /// parallelism of existing TPC-H Parquet benchmarks.
 const ROW_GROUP_SIZE: usize = 1024 * 1024;
+
+// Compressed size of each TPC-H table at scale factor 1, used to split tables into files of about
+// `split::TARGET_FILE_COMPRESSED_BYTES`: the mean of the Parquet and default Vortex sizes, measured at
+// scale factor 10. Every table but nation and region scales linearly with the scale factor. At
+// this size, a `lineitem` file holds about 7.4M rows.
+const PART_BYTES_SF1: u64 = 4_773_797;
+const SUPPLIER_BYTES_SF1: u64 = 575_964;
+const CUSTOMER_BYTES_SF1: u64 = 8_755_891;
+const PARTSUPP_BYTES_SF1: u64 = 27_226_229;
+const ORDERS_BYTES_SF1: u64 = 45_329_810;
+const LINEITEM_BYTES_SF1: u64 = 169_204_254;
 
 /// Configuration for TPC-H data generation
 #[derive(Debug, Clone)]
@@ -94,37 +107,29 @@ impl TpchGenOptions {
 pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     fs::create_dir_all(&options.output_dir)?;
 
-    let tables = [
-        ("nation", TableGenerator::Nation),
-        ("region", TableGenerator::Region),
-        ("part", TableGenerator::Part),
-        ("supplier", TableGenerator::Supplier),
-        ("customer", TableGenerator::Customer),
-        ("partsupp", TableGenerator::PartSupp),
-        ("orders", TableGenerator::Orders),
-        ("lineitem", TableGenerator::LineItem),
-    ];
+    let scale_factor = options.scale_factor.parse::<f64>()?;
+    let mut all_futures = Vec::new();
+    for generator in TableGenerator::ALL {
+        let num_parts = generator.num_parts(scale_factor)?;
+        info!(
+            scale_factor = options.scale_factor,
+            format = %options.format,
+            table = generator.name(),
+            num_parts,
+            "Generating TPC-H table",
+        );
+        for part in 1..=num_parts {
+            all_futures.push(generate_table_file(
+                generator,
+                part,
+                num_parts,
+                options.clone(),
+            )?);
+        }
+    }
 
-    const MAX_CONCURRENT_FILES: usize = 32;
-
-    let all_futures = tables
-        .iter()
-        .map(|(table_name, generator)| {
-            info!(
-                scale_factor = options.scale_factor,
-                format = %options.format,
-                table = table_name,
-                "Generating TPC-H table",
-            );
-            let table_name = table_name.to_string();
-
-            generate_table_file(table_name, *generator, options.clone())
-        })
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .collect::<Vec<BoxFuture<'static, Result<()>>>>();
-
-    let limiter = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
+    let max_concurrent_files = get_available_parallelism().unwrap_or(1);
+    let limiter = Arc::new(Semaphore::new(max_concurrent_files));
     let (tx, rx) = mpsc::unbounded_channel();
 
     for f in all_futures {
@@ -161,10 +166,64 @@ enum TableGenerator {
     LineItem,
 }
 
+impl TableGenerator {
+    const ALL: [Self; 8] = [
+        Self::Nation,
+        Self::Region,
+        Self::Part,
+        Self::Supplier,
+        Self::Customer,
+        Self::PartSupp,
+        Self::Orders,
+        Self::LineItem,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Nation => "nation",
+            Self::Region => "region",
+            Self::Part => "part",
+            Self::Supplier => "supplier",
+            Self::Customer => "customer",
+            Self::PartSupp => "partsupp",
+            Self::Orders => "orders",
+            Self::LineItem => "lineitem",
+        }
+    }
+
+    /// Compressed size of the table at scale factor 1. Nation and region do not grow with the
+    /// scale factor and always fit in one file.
+    fn compressed_bytes_sf1(self) -> Option<u64> {
+        match self {
+            Self::Nation | Self::Region => None,
+            Self::Part => Some(PART_BYTES_SF1),
+            Self::Supplier => Some(SUPPLIER_BYTES_SF1),
+            Self::Customer => Some(CUSTOMER_BYTES_SF1),
+            Self::PartSupp => Some(PARTSUPP_BYTES_SF1),
+            Self::Orders => Some(ORDERS_BYTES_SF1),
+            Self::LineItem => Some(LINEITEM_BYTES_SF1),
+        }
+    }
+
+    /// Number of files to split the table into at `scale_factor`.
+    fn num_parts(self, scale_factor: f64) -> Result<i32> {
+        let Some(bytes_sf1) = self.compressed_bytes_sf1() else {
+            return Ok(1);
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "table sizes are far below the f64 limit"
+        )]
+        let bytes = bytes_sf1 as f64 * scale_factor;
+        Ok(i32::try_from(split::num_files(bytes))?)
+    }
+}
+
 /// Generate one file for a specific table in streaming fashion
 fn generate_table_file(
-    table_name: String,
     generator: TableGenerator,
+    part: i32,
+    num_parts: i32,
     options: TpchGenOptions,
 ) -> Result<BoxFuture<'static, Result<()>>> {
     let write_format = match options.format {
@@ -180,7 +239,12 @@ fn generate_table_file(
 
     fs::create_dir_all(&output_dir)?;
 
-    let output_file = output_dir.join(format!("{table_name}.{}", write_format.ext()));
+    let table_name = generator.name();
+    let output_file = output_dir.join(split::part_file_name(
+        table_name,
+        usize::try_from(part)?,
+        write_format.ext(),
+    ));
 
     let future = async move {
         let of = output_file.clone();
@@ -190,7 +254,7 @@ fn generate_table_file(
                 of.to_string_lossy()
             );
 
-            let iter = create_batch_iterator(generator, &options)?;
+            let iter = create_batch_iterator(generator, part, num_parts, &options)?;
 
             // Create generator and process batches in streaming fashion
             let schema = Arc::clone(iter.schema());
@@ -226,14 +290,14 @@ fn generate_table_file(
     Ok(future)
 }
 
-/// Create a batch iterator for one full table
+/// Create a batch iterator for one part (1-based) of a table split into `num_parts` parts.
 fn create_batch_iterator(
     generator: TableGenerator,
+    part: i32,
+    num_parts: i32,
     options: &TpchGenOptions,
 ) -> Result<Box<dyn RecordBatchIterator>> {
     let scale_factor = options.scale_factor.parse::<f64>()?;
-    let part = 1;
-    let num_parts = 1;
     let batch_size = options.batch_size;
 
     let iterator: Box<dyn RecordBatchIterator> = match generator {
