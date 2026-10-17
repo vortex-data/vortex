@@ -530,7 +530,9 @@ fn is_table_filter_like(expr: &Expression) -> bool {
         };
     }
     if expr.is::<Between>() {
-        return is_column(expr.child(0)) && is_constant(expr.child(1)) && is_constant(expr.child(2));
+        return is_column(expr.child(0))
+            && is_constant(expr.child(1))
+            && is_constant(expr.child(2));
     }
     (expr.is::<IsNull>() || expr.is::<IsNotNull>()) && is_column(expr.child(0))
 }
