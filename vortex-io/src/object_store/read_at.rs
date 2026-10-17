@@ -28,6 +28,7 @@ use crate::CoalesceConfig;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
 use crate::VortexReadAt;
+use crate::read_buffer_pool::read_allocator;
 use crate::runtime::Handle;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::std_file::read_exact_at;
@@ -102,7 +103,7 @@ async fn read_object_store_range(
         alignment,
     } = request;
     let range = offset..(offset + length as u64);
-    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+    let mut buffer = read_allocator(allocator).with_capacity_aligned::<u8>(length, alignment);
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
 
