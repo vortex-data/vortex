@@ -12,6 +12,7 @@ use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::bound_and_collect;
 use vortex::expr::col;
 use vortex::expr::get_item;
 use vortex::expr::lit;
@@ -27,6 +28,7 @@ use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
+use crate::duckdb::TableFilterRef;
 use crate::duckdb::TableFilterSetRef;
 use crate::table_function::ColumnAggregate;
 
@@ -188,7 +190,13 @@ impl Projection {
 }
 
 pub struct Filter {
+    /// The conjunction of `required` and `optional`.
     pub filter: Option<BoundExpression>,
+    /// Filters that rows must match.
+    pub required: Option<BoundExpression>,
+    /// Filters that may keep rows they do not match, such as the range of a hash join's build
+    /// keys that DuckDB pushes into the probe side scan.
+    pub optional: Option<BoundExpression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
     pub has_non_optional_filter: bool,
@@ -213,18 +221,24 @@ impl Filter {
         let mut has_non_optional_filter = false;
 
         let mut table_filter_exprs = Vec::new();
+        let mut optional_filter_exprs = Vec::new();
         if let Some(filter) = table_filter_set {
             for (idx, ex) in filter.into_iter().filter(|(idx, _)| {
                 let idx_u: usize = idx.as_();
                 !is_virtual_column(column_ids[idx_u])
             }) {
+                let optional = is_optional_filter(ex);
                 has_non_optional_filter |= !matches!(ex.as_class(), TableFilterClass::Optional(_));
 
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
                 let name = &column_fields.get(col_idx).vortex_expect("exists").name;
                 if let Some(expr) = try_from_table_filter(ex, &col(name.as_str()), dtype)? {
-                    push_filter_expr(&mut table_filter_exprs, &expr);
+                    if optional {
+                        push_filter_expr(&mut optional_filter_exprs, &expr);
+                    } else {
+                        push_filter_expr(&mut table_filter_exprs, &expr);
+                    }
                 }
             }
         }
@@ -244,17 +258,36 @@ impl Filter {
             }
         };
 
-        let filter = and_collect(table_filter_exprs)
-            .map(|expr| expr.bind(dtype)?.optimize_recursive())
-            .transpose()?;
+        let bind = |exprs: Vec<Expression>| {
+            and_collect(exprs)
+                .map(|expr| expr.bind(dtype)?.optimize_recursive())
+                .transpose()
+        };
+        let required = bind(table_filter_exprs)?;
+        let optional = bind(optional_filter_exprs)?;
+        let filter = bound_and_collect(required.iter().chain(&optional).cloned());
 
         let out = Self {
             filter,
+            required,
+            optional,
             row_selection,
             row_range,
             has_non_optional_filter,
         };
         Ok(out)
+    }
+}
+
+/// Whether every part of a column's table filter is optional, so that a scan may keep rows the
+/// filter does not match.
+fn is_optional_filter(filter: &TableFilterRef) -> bool {
+    match filter.as_class() {
+        TableFilterClass::Optional(_) => true,
+        TableFilterClass::ConjunctionAnd(conjunction) => {
+            conjunction.children().all(is_optional_filter)
+        }
+        _ => false,
     }
 }
 

@@ -14,6 +14,8 @@ use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
+use vortex::expr::BoundExpression;
+use vortex::expr::bound_and_collect;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
@@ -27,6 +29,8 @@ use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
@@ -159,6 +163,40 @@ impl OpenFileReader {
             .reader
     }
 
+    /// The parts of `filter` that the file statistics do not prove redundant.
+    ///
+    /// DuckDB pushes the range of a hash join's build keys into the probe side scan as optional
+    /// filters, which often span every value of a foreign key column. A conjunct the statistics
+    /// prove true for every row keeps every row, and an optional one need only hold for rows that
+    /// are not null, so such conjuncts are dropped instead of being evaluated row by row.
+    fn unsatisfied_filter(&self, filter: &Filter) -> VortexResult<Option<BoundExpression>> {
+        let Some(file_stats) = self
+            .reader()
+            .as_any()
+            .downcast_ref::<FileStatsLayoutReader>()
+        else {
+            return Ok(filter.filter.clone());
+        };
+        let mut unsatisfied = Vec::new();
+        for (part, optional) in [(&filter.required, false), (&filter.optional, true)] {
+            let mut conjuncts = Vec::new();
+            if let Some(part) = part {
+                collect_conjuncts(part, &mut conjuncts);
+            }
+            for conjunct in conjuncts {
+                let satisfied = if optional {
+                    file_stats.is_satisfied_by_non_null(&conjunct)?
+                } else {
+                    file_stats.is_satisfied(&conjunct)?
+                };
+                if !satisfied {
+                    unsatisfied.push(conjunct);
+                }
+            }
+        }
+        Ok(bound_and_collect(unsatisfied))
+    }
+
     fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
         let Some(filter) = &filter.filter else {
             return Ok(false);
@@ -171,6 +209,20 @@ impl OpenFileReader {
             Some(mask) => mask.map(|mask| mask.all_false()),
             None => Ok(false),
         }
+    }
+}
+
+/// Appends the operands of the AND expressions at the top of `expr` to `out`.
+fn collect_conjuncts(expr: &BoundExpression, out: &mut Vec<BoundExpression>) {
+    if expr
+        .as_opt::<Binary>()
+        .is_some_and(|operator| *operator == Operator::And)
+    {
+        for child in expr.children() {
+            collect_conjuncts(child, out);
+        }
+    } else {
+        out.push(expr.clone());
     }
 }
 
@@ -220,7 +272,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     let filter = &global.filter;
     let builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
+        .with_some_filter(file.unsatisfied_filter(filter)?)
         .with_selection(filter.row_selection.clone());
     let scan = builder.prepare()?;
     let mut splits = scan.execute(filter.row_range.clone())?;

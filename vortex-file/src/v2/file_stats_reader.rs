@@ -16,6 +16,10 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::ScalarValue;
+use vortex_array::stats::StatsSet;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -29,6 +33,7 @@ use vortex_utils::aliases::dash_map::Entry;
 
 use crate::FileStatistics;
 use crate::pruning::can_prune_file_stats;
+use crate::pruning::is_satisfied_by_file_stats;
 
 /// A [`LayoutReader`] decorator that prunes entire files based on file-level statistics.
 ///
@@ -86,6 +91,41 @@ impl FileStatsLayoutReader {
     /// Returns the file-level statistics used by this reader.
     pub fn file_stats(&self) -> &FileStatistics {
         &self.file_stats
+    }
+
+    /// Returns `true` if file-level statistics prove `expr` true for every row of the file, so
+    /// that a filter on it keeps every row and need not be evaluated.
+    pub fn is_satisfied(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        is_satisfied_by_file_stats(
+            expr,
+            self.child.row_count(),
+            &self.file_stats,
+            &self.struct_fields,
+            &self.session,
+        )
+    }
+
+    /// Returns `true` if file-level statistics prove `expr` true for every row whose columns are
+    /// not null, which suffices for a filter that may keep rows it does not match.
+    pub fn is_satisfied_by_non_null(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        let stats: Arc<[StatsSet]> = self
+            .file_stats
+            .stats_sets()
+            .iter()
+            .map(|stats| {
+                let mut stats = stats.clone();
+                stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(0u64)));
+                stats
+            })
+            .collect();
+        let file_stats = FileStatistics::new(stats, Arc::clone(self.file_stats.dtypes()));
+        is_satisfied_by_file_stats(
+            expr,
+            self.child.row_count(),
+            &file_stats,
+            &self.struct_fields,
+            &self.session,
+        )
     }
 }
 
@@ -231,6 +271,51 @@ mod tests {
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
         )
+    }
+
+    #[test]
+    fn satisfied_by_non_null_ignores_nulls() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = PrimitiveArray::from_option_iter([Some(1i32), None, Some(5)]);
+            let struct_array = StructArray::from_fields([("col", values.into_array())].as_slice())?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+
+            let mut stats = StatsSet::default();
+            stats.set(Stat::Min, Precision::exact(ScalarValue::from(1i32)));
+            stats.set(Stat::Max, Precision::exact(ScalarValue::from(5i32)));
+            stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
+            );
+            let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
+
+            // The null row does not match, but every other row does.
+            let expr = gt(get_item("col", root()), lit(0i32)).bind(reader.dtype())?;
+            assert!(!reader.is_satisfied(&expr)?);
+            assert!(reader.is_satisfied_by_non_null(&expr)?);
+
+            let expr = gt(get_item("col", root()), lit(1i32)).bind(reader.dtype())?;
+            assert!(!reader.is_satisfied_by_non_null(&expr)?);
+            Ok(())
+        })
     }
 
     #[test]
