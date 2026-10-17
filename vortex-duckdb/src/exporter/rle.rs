@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(
             chunk_str,
             r#"Chunk - [1 Columns]
-- FLAT INTEGER: 10 = [ 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
+- DICTIONARY INTEGER: 10 = [ 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
 "#
         );
         Ok(())
