@@ -19,6 +19,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPackedData;
 use vortex_mask::Mask;
@@ -73,6 +74,40 @@ fn fixture(selected_per_chunk: usize) -> (ArrayRef, Mask) {
 #[divan::bench(args = [8, 64, 80])]
 fn filter(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, mask) = fixture(selected_per_chunk);
+
+    bencher
+        .counter(ItemsCount::new(LEN))
+        .with_inputs(|| (mask.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(mask, ctx)| {
+            packed
+                .filter(mask.clone())
+                .unwrap()
+                .execute::<PrimitiveArray>(ctx)
+                .unwrap()
+        });
+}
+
+/// A bit width that leaves every `patch_every`th value as a patch, filtered with every other
+/// row so that the patches outnumber the selected rows.
+#[divan::bench(args = [4, 16, 64])]
+fn filter_patched(bencher: Bencher, patch_every: usize) {
+    let values: BufferMut<u32> = (0..LEN)
+        .map(|index| {
+            if index % patch_every == 0 {
+                1 << 20
+            } else {
+                (index % 1000) as u32
+            }
+        })
+        .collect();
+    let packed = BitPackedData::encode(
+        &PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array(),
+        10,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap()
+    .into_array();
+    let mask = Mask::from_buffer(BitBuffer::collect_bool(LEN, |index| (index / 3) % 2 == 0));
 
     bencher
         .counter(ItemsCount::new(LEN))
