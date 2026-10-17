@@ -5,8 +5,7 @@
 //!
 //! This measures the kernel directly rather than going through the lazy
 //! `ArrayRef::filter` (which only builds a `FilterArray` node and does not run
-//! the kernel). The hot work is a per-run popcount of the predicate mask, which
-//! now uses `BitBuffer::count_range` (SIMD) instead of a bit-by-bit walk.
+//! the kernel). The hot work is a rank of the predicate mask at every run end.
 
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::cast_precision_loss)]
@@ -14,14 +13,17 @@
 #![expect(clippy::expect_used)]
 
 use std::fmt;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
+use vortex_array::VortexSessionExecute;
 use vortex_buffer::BitBuffer;
 use vortex_runend::_benchmarking::filter_run_end_primitive;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -29,6 +31,12 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_runend::initialize(&session);
+    session
+});
 
 #[derive(Clone, Copy)]
 struct FilterBenchArgs {
@@ -81,6 +89,16 @@ const FILTER_ARGS: &[FilterBenchArgs] = &[
         run_length: 16,
         density: 0.9,
     },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 4,
+        density: 0.5,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 256,
+        density: 0.5,
+    },
 ];
 
 /// Build the run-end boundaries (cumulative run lengths) for `length` rows.
@@ -110,8 +128,14 @@ fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
     let mask = build_mask(args.length, args.density);
     let length = args.length as u64;
     bencher
-        .with_inputs(|| (run_ends.clone(), mask.clone()))
-        .bench_refs(|(run_ends, mask)| {
-            filter_run_end_primitive::<u32>(run_ends, 0, length, mask).expect("filter")
+        .with_inputs(|| {
+            (
+                run_ends.clone(),
+                mask.clone(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(run_ends, mask, ctx)| {
+            filter_run_end_primitive::<u32>(run_ends, 0, length, mask, ctx).expect("filter")
         });
 }
