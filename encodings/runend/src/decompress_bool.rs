@@ -24,7 +24,6 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::iter::trimmed_ends_iter;
 
 /// Threshold for number of runs below which we use sequential append instead of prefill.
 /// With few runs, the overhead of prefilling the entire buffer dominates.
@@ -60,13 +59,21 @@ pub fn runend_decode_bools(
     }
 
     Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-        runend_decode_typed_bool(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
-            &values_buf,
-            validity,
-            nullability,
-            length,
-        )
+        let ends = ends.as_slice::<E>();
+        match validity {
+            Mask::AllTrue(_) => {
+                decode_bool_non_nullable_slice(ends, offset, &values_buf, nullability, length)
+                    .into_array()
+            }
+            Mask::AllFalse(_) => {
+                ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), length)
+                    .into_array()
+            }
+            Mask::Values(mask) => {
+                decode_bool_nullable_slice(ends, offset, &values_buf, mask.bit_buffer(), length)
+                    .into_array()
+            }
+        }
     }))
 }
 
@@ -181,6 +188,67 @@ fn decode_bool_non_nullable(
     BoolArray::new(decoded.freeze(), nullability.into())
 }
 
+/// Decodes run-end encoded booleans when all values are valid, reading the run ends from their
+/// slice rather than through an iterator chain, whose per-run cost dominates short runs.
+fn decode_bool_non_nullable_slice<E: vortex_array::dtype::IntegerPType>(
+    ends: &[E],
+    offset: usize,
+    values: &BitBuffer,
+    nullability: Nullability,
+    length: usize,
+) -> BoolArray {
+    let num_runs = values.len();
+    let true_runs = values.true_count();
+    let prefill = true_runs > num_runs - true_runs;
+    let mut decoded = BitBufferMut::full(prefill, length);
+    let mut start = 0usize;
+    for (idx, end) in ends.iter().enumerate() {
+        let end = end.as_().saturating_sub(offset).min(length);
+        if values.value(idx) != prefill && end > start {
+            // SAFETY: start < end <= length == decoded.len()
+            unsafe { decoded.fill_range_unchecked(start, end, !prefill) };
+        }
+        start = end;
+    }
+    BoolArray::new(decoded.freeze(), nullability.into())
+}
+
+/// Decodes run-end encoded booleans when values may be null, reading the run ends from their
+/// slice like [`decode_bool_non_nullable_slice`].
+fn decode_bool_nullable_slice<E: vortex_array::dtype::IntegerPType>(
+    ends: &[E],
+    offset: usize,
+    values: &BitBuffer,
+    validity_mask: &BitBuffer,
+    length: usize,
+) -> BoolArray {
+    let num_runs = values.len();
+    let prefill_decoded = values.true_count() > num_runs - values.true_count();
+    let prefill_valid = validity_mask.true_count() > num_runs - validity_mask.true_count();
+
+    let mut decoded = BitBufferMut::full(prefill_decoded, length);
+    let mut decoded_validity = BitBufferMut::full(prefill_valid, length);
+    let mut start = 0usize;
+    for (idx, end) in ends.iter().enumerate() {
+        let end = end.as_().saturating_sub(offset).min(length);
+        if end > start {
+            let is_valid = validity_mask.value(idx);
+            if is_valid != prefill_valid {
+                // SAFETY: start < end <= length == decoded_validity.len()
+                unsafe { decoded_validity.fill_range_unchecked(start, end, is_valid) };
+            }
+            // The decoded bit is the value when valid and false when null.
+            let want_decoded = is_valid && values.value(idx);
+            if want_decoded != prefill_decoded {
+                // SAFETY: start < end <= length == decoded.len()
+                unsafe { decoded.fill_range_unchecked(start, end, want_decoded) };
+            }
+            start = end;
+        }
+    }
+    BoolArray::new(decoded.freeze(), Validity::from(decoded_validity.freeze()))
+}
+
 /// Decodes run-end encoded booleans when values may be null (nullable).
 fn decode_bool_nullable(
     run_ends: impl Iterator<Item = usize>,
@@ -250,6 +318,7 @@ fn decode_nullable_sequential(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -257,6 +326,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -421,6 +491,62 @@ mod tests {
                 .value(4000)
         );
         assert!(decoded.to_bit_buffer().value(4000));
+        Ok(())
+    }
+
+    /// Decoding must match expanding every run, for many short runs and for sliced arrays.
+    #[rstest]
+    fn decode_matches_expansion(
+        #[values(1, 3, 7, 64, 300)] max_run_len: usize,
+        #[values(0, 5, 70)] offset: usize,
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let num_runs = 400usize;
+        let run_lens: Vec<usize> = (0..num_runs)
+            .map(|i| 1 + (i * 7 + i / 3) % max_run_len)
+            .collect();
+        let ends: Vec<u32> = run_lens
+            .iter()
+            .scan(0u32, |end, &len| {
+                *end += u32::try_from(len).vortex_expect("run length fits in u32");
+                Some(*end)
+            })
+            .collect();
+        let run_values: Vec<bool> = (0..num_runs).map(|i| (i * 5 + i / 7) % 3 != 0).collect();
+        let run_valid: Vec<bool> = (0..num_runs).map(|i| !nullable || i % 4 != 1).collect();
+        let length = run_lens.iter().sum::<usize>() - offset - 3;
+
+        let expanded: Vec<Option<bool>> = run_lens
+            .iter()
+            .zip(run_values.iter().zip(&run_valid))
+            .flat_map(|(&len, (&value, &valid))| std::iter::repeat_n(valid.then_some(value), len))
+            .skip(offset)
+            .take(length)
+            .collect();
+
+        // Callers pass the runs from the one holding `offset`, as slicing a RunEnd array does.
+        let first = ends
+            .iter()
+            .position(|&end| usize::try_from(end).vortex_expect("end fits in usize") > offset)
+            .vortex_expect("a run ends after the offset");
+        let validity = if nullable {
+            Validity::from(BitBuffer::from(run_valid[first..].to_vec()))
+        } else {
+            Validity::NonNullable
+        };
+        let values = BoolArray::new(BitBuffer::from(run_values[first..].to_vec()), validity);
+        let ends = PrimitiveArray::from_iter(ends[first..].iter().copied());
+        let decoded = runend_decode_bools(ends, values, offset, length, &mut ctx)?;
+
+        let expected = if nullable {
+            BoolArray::from_iter(expanded)
+        } else {
+            BoolArray::from(BitBuffer::from_iter(
+                expanded.into_iter().map(Option::unwrap),
+            ))
+        };
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 }
