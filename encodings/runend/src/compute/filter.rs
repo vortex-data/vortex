@@ -236,10 +236,9 @@ mod tests {
             .take_while(|&end| end < last_end)
             .chain([last_end])
             .collect();
-        let bits = BitBuffer::collect_bool(length as usize + mask_offset, |i| {
-            (i * 7 + i / 13) % 5 < 2
-        })
-        .slice(mask_offset..mask_offset + length as usize);
+        let bits =
+            BitBuffer::collect_bool(length as usize + mask_offset, |i| (i * 7 + i / 13) % 5 < 2)
+                .slice(mask_offset..mask_offset + length as usize);
 
         let (ends, values_mask) = filter_run_end_primitive(&run_ends, offset, length, &bits)?;
         let (expected_ends, expected_mask) =
