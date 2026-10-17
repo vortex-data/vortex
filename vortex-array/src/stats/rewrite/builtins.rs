@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use vortex_array::stats::rewrite::falsify;
@@ -31,6 +32,7 @@ use crate::expr::bound::lt_eq;
 use crate::expr::bound::or;
 use crate::expr::bound::or_collect;
 use crate::expr::stats::Stat;
+use crate::scalar::Scalar;
 use crate::scalar::StringLike;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
@@ -517,6 +519,29 @@ impl StatsRewriteRule for ListContainsAllNonNanStatsRewrite {
     }
 }
 
+/// Lists with more elements falsify `needle IN list` with the bounds of the list rather than
+/// with a test per element, which keeps the pruning expression, and its evaluation per zone,
+/// small for the large lists of dynamic join filters.
+const MAX_LIST_ELEMENT_FALSIFICATIONS: usize = 16;
+
+/// The smallest and largest non-null elements, or `None` when there are none or two elements
+/// are unordered.
+fn non_null_bounds(elements: &[Scalar]) -> Option<(&Scalar, &Scalar)> {
+    let mut non_null = elements.iter().filter(|element| !element.is_null());
+    let first = non_null.next()?;
+    non_null.try_fold((first, first), |(low, high), element| {
+        let low = match element.partial_cmp(low)? {
+            Ordering::Less => element,
+            Ordering::Equal | Ordering::Greater => low,
+        };
+        let high = match element.partial_cmp(high)? {
+            Ordering::Greater => element,
+            Ordering::Equal | Ordering::Less => high,
+        };
+        Some((low, high))
+    })
+}
+
 fn list_contains_falsify<P: NonNanProof>(
     expr: &BoundExpression,
 ) -> VortexResult<Option<BoundExpression>> {
@@ -544,12 +569,21 @@ fn list_contains_falsify<P: NonNanProof>(
         return Ok(None);
     };
 
-    let value_predicate = and_collect(elements.iter().map(|value| {
-        or(
-            lt(value_max.clone(), lit(value.clone())),
-            gt(value_min.clone(), lit(value.clone())),
-        )
-    }));
+    let value_predicate = if elements.len() > MAX_LIST_ELEMENT_FALSIFICATIONS
+        && let Some((low, high)) = non_null_bounds(&elements)
+    {
+        Some(or(
+            lt(value_max, lit(low.clone())),
+            gt(value_min, lit(high.clone())),
+        ))
+    } else {
+        and_collect(elements.iter().map(|value| {
+            or(
+                lt(value_max.clone(), lit(value.clone())),
+                gt(value_min.clone(), lit(value.clone())),
+            )
+        }))
+    };
     value_predicate
         .map(|value_predicate| with_non_nan_guards::<P>([needle], value_predicate))
         .transpose()
@@ -1174,6 +1208,29 @@ mod tests {
                     lt(stat(col("a"), Stat::Max), lit(3i32)),
                     gt(stat(col("a"), Stat::Min), lit(3i32)),
                 ),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_large_list_contains_falsifier_to_bounds() -> VortexResult<()> {
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+            (0..20)
+                .rev()
+                .map(|value| Scalar::from(Some(value)))
+                .chain([Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))])
+                .collect(),
+            Nullability::NonNullable,
+        );
+        let expr = list_contains(lit(list), col("a"));
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(or(
+                lt(stat(col("a"), Stat::Max), lit(Scalar::from(Some(0i32)))),
+                gt(stat(col("a"), Stat::Min), lit(Scalar::from(Some(19i32)))),
             ))
         );
         Ok(())

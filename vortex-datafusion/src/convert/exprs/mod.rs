@@ -31,6 +31,7 @@ use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
+use vortex::expr::in_list as in_list_expr;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -41,9 +42,11 @@ use vortex::expr::or_collect;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -441,6 +444,33 @@ impl DefaultExpressionConverter {
         } else {
             Operator::Eq
         };
+        // A positive list of non-null literals becomes one set lookup. An OR of equalities would
+        // scan the needle once per element, which dynamic join filters make up to 150 times.
+        // Floats keep the comparisons, whose -0.0 and NaN semantics differ from set membership.
+        let is_float = matches!(&value_dtype, DType::Primitive(ptype, _) if ptype.is_float());
+        if !in_list.negated() && !is_float {
+            let elements = in_list
+                .list()
+                .iter()
+                .map(|element| self.convert_expr(element, schema, input_dtype))
+                .collect::<Conversion<Vec<_>>>()?;
+            let scalars = elements
+                .iter()
+                .map(|element| element.as_opt::<Literal>().cloned())
+                .collect::<Option<Vec<_>>>();
+            if let Some(scalars) = scalars
+                && let Some(first) = scalars.first()
+                && scalars.iter().all(|scalar| {
+                    !scalar.is_null()
+                        && scalar.dtype() == first.dtype()
+                        && value_dtype.eq_ignore_nullability(scalar.dtype())
+                })
+            {
+                let element_dtype = Arc::new(first.dtype().clone());
+                let list = Scalar::list(element_dtype, scalars, Nullability::NonNullable);
+                return Ok(in_list_expr(value, lit(list)));
+            }
+        }
         let mut comparisons = Vec::with_capacity(in_list.len());
         for element in in_list.list() {
             let element = self.convert_expr(element, schema, input_dtype)?;

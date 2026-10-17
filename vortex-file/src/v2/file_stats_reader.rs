@@ -25,6 +25,7 @@ use vortex_layout::SplitRange;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 use crate::FileStatistics;
 use crate::pruning::can_prune_file_stats;
@@ -119,16 +120,16 @@ impl LayoutReader for FileStatsLayoutReader {
         let key = ExactBoundExpr(expr.clone());
 
         // Check cache first with read-only lock.
-        if let Some(pruned) = self.prune_cache.get(&key) {
-            if *pruned {
-                return Ok(MaskFuture::ready(Mask::new_false(mask.len())));
-            }
-            return self.child.pruning_evaluation(row_range, expr, mask);
-        }
-
-        // Evaluate and cache.
-        let pruned = self.evaluate_file_stats(expr)?;
-        self.prune_cache.insert(key, pruned);
+        let cached = self.prune_cache.get(&key).map(|pruned| *pruned);
+        let pruned = match cached {
+            Some(pruned) => pruned,
+            // Evaluate under the entry lock, so that splits which start together evaluate the
+            // expression once rather than each falsifying it again.
+            None => match self.prune_cache.entry(key) {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => *entry.insert(self.evaluate_file_stats(expr)?),
+            },
+        };
 
         if pruned {
             Ok(MaskFuture::ready(Mask::new_false(mask.len())))

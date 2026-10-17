@@ -323,6 +323,31 @@ fn test_native_in_list_large(#[values(false, true)] negated: bool) -> anyhow::Re
     )
 }
 
+#[test]
+fn test_in_list_converts_to_set_lookup() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals([Some(1), Some(2), Some(3)]),
+        false,
+        &schema,
+    )?);
+    let element_dtype = Arc::new(DType::Primitive(
+        vortex::dtype::PType::I32,
+        Nullability::NonNullable,
+    ));
+    let list = Scalar::list(
+        element_dtype,
+        vec![1i32.into(), 2i32.into(), 3i32.into()],
+        Nullability::NonNullable,
+    );
+    assert_eq!(
+        convert(expr, &schema)?,
+        vortex::expr::in_list(get_item("a", root()), lit(list))
+    );
+    Ok(())
+}
+
 #[rstest]
 fn test_native_in_list_float(
     #[values(false, true)] negated: bool,
