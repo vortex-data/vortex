@@ -61,6 +61,7 @@ pub use exprs::and_collect;
 pub use exprs::between;
 pub use exprs::binary;
 pub use exprs::bound;
+pub use exprs::bound_and_collect;
 pub use exprs::byte_length;
 pub use exprs::case_when;
 pub use exprs::case_when_no_else;
