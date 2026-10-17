@@ -12052,6 +12052,7 @@ dependencies = [
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
+ "allocator-api2",
  "anyhow",
  "async-executor",
  "async-fs",
