@@ -21,16 +21,33 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFn> =
-    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
+pub(super) const RULES: ReduceRuleSet<ScalarFn> = ReduceRuleSet::new(&[
+    &ScalarFnLiteralToConstantRule,
+    &ScalarFnPackToStructRule,
+    &ScalarFnAbstractReduceRule,
+]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ScalarFilterPushdownRule),
     ParentRuleSet::lift(&ScalarFnSliceReduceRule),
 ]);
+
+/// Converts a ScalarFnArray with Literal into a ConstantArray directly.
+#[derive(Debug)]
+struct ScalarFnLiteralToConstantRule;
+impl ArrayReduceRule<ScalarFn> for ScalarFnLiteralToConstantRule {
+    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        let Some(scalar) = array.scalar_fn().as_opt::<Literal>() else {
+            return Ok(None);
+        };
+
+        Ok(Some(ConstantArray::new(scalar.clone(), array.len()).into_array()))
+    }
+}
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
@@ -145,6 +162,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::ScalarFilterPushdownRule;
+    use super::ScalarFnLiteralToConstantRule;
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
     use crate::array_session;
@@ -168,6 +186,7 @@ mod tests {
     use crate::expr::is_null;
     use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
+    use crate::optimizer::rules::ArrayReduceRule;
     use crate::scalar::Scalar;
     use crate::scalar_fn::TypedScalarFnInstance;
     use crate::scalar_fn::fns::binary::Binary;
@@ -248,6 +267,27 @@ mod tests {
         assert_arrays_eq!(
             result,
             ConstantArray::new(7i32, 2),
+            &mut array_session().create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_literal_to_constant() -> VortexResult<()> {
+        let array = ScalarFnArray::try_new_with_len(
+            TypedScalarFnInstance::new(Literal, Scalar::from(7i32)).erased(),
+            vec![],
+            3,
+        )?;
+
+        let result = ScalarFnLiteralToConstantRule
+            .reduce(array.as_view())?
+            .ok_or_else(|| vortex_err!("expected literal to reduce"))?;
+
+        assert!(result.is::<Constant>());
+        assert_arrays_eq!(
+            result,
+            ConstantArray::new(7i32, 3),
             &mut array_session().create_execution_ctx()
         );
         Ok(())
