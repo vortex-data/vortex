@@ -59,6 +59,7 @@ use crate::table_function::init_local;
 use crate::table_function::pushdown_complex_filter;
 use crate::table_function::pushdown_projection_aggregates;
 use crate::table_function::pushdown_projection_expression;
+use crate::table_function::signature;
 use crate::table_function::to_string;
 
 #[unsafe(no_mangle)]
@@ -69,6 +70,16 @@ unsafe extern "C-unwind" fn duckdb_table_function_to_string(
     let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
     let map = unsafe { DuckdbStringMap::borrow_mut(map) };
     to_string(bind, map);
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C-unwind" fn duckdb_table_function_signature(
+    bind: *const c_void,
+    map: cpp::duckdb_vx_string_map,
+) {
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    let map = unsafe { DuckdbStringMap::borrow_mut(map) };
+    map.push("signature", &signature(bind));
 }
 
 #[unsafe(no_mangle)]

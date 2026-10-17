@@ -666,6 +666,37 @@ pub fn cardinality(bind_data: &BindState, file_count: u64) -> Cardinality {
     Cardinality::Estimate(max(1, post_cardinality))
 }
 
+/// Describes everything the bind state adds to the output of a scan, the pushed-down filters,
+/// projections and aggregates, so that DuckDB can tell scans that return the same rows apart
+/// from scans that do not.
+pub fn signature(bind_data: &BindState) -> String {
+    let mut signature = String::new();
+    for filter in &bind_data.filters {
+        signature.push_str(&format!("filter {filter};"));
+    }
+    for column in &bind_data.columns {
+        let projection = column
+            .projection_expr
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        signature.push_str(&format!(
+            "column {} {} {projection};",
+            column.name, column.dtype
+        ));
+    }
+    for aggregate in &bind_data.aggregates {
+        match aggregate {
+            ColumnAggregate::Real {
+                projection_id,
+                aggregate,
+            } => signature.push_str(&format!("aggregate {projection_id} {aggregate:?};")),
+            ColumnAggregate::CountStar => signature.push_str("aggregate count_star;"),
+        }
+    }
+    signature
+}
+
 pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
     map.push("Function", "Vortex Scan");
     if !bind_data.filters.is_empty() {

@@ -126,6 +126,24 @@ InsertionOrderPreservingMap<string> to_string(TableFunctionToStringInput &input)
     return result;
 }
 
+void serialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data_p, const BoundTableFunction &) {
+    auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
+    vector<string> files;
+    for (auto &file : bind_data.file_list->GetAllFiles()) {
+        files.emplace_back(file.path);
+    }
+    serializer.WriteProperty(100, "files", files);
+    serializer.WriteProperty(101, "types", bind_data.types);
+    serializer.WriteProperty(102, "names", bind_data.names);
+    serializer.WriteProperty(103, "file_options", bind_data.file_options);
+    serializer.WriteProperty(104, "table_columns", bind_data.table_columns);
+
+    InsertionOrderPreservingMap<string> state;
+    duckdb_table_function_signature(get_ffi_bind(bind_data_p.get()),
+                                    reinterpret_cast<duckdb_vx_string_map>(&state));
+    serializer.WriteProperty(105, "vortex_state", state["signature"]);
+}
+
 bool is_vortex_scan(const BoundTableFunction &function) {
     return function.bind == MultiFileFunction<VortexReaderInterface>::MultiFileBind;
 }
@@ -225,11 +243,6 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;
-    // Pushed-down filters, projections and aggregates live in the FFI bind data, which has no
-    // serializer. DuckDB's common-subplan optimizer keys scans on their serialized form, so
-    // without this two scans of the same file with different pushed-down filters look identical
-    // and are merged into one shared CTE, returning the wrong rows for one of them.
-    fn.verify_serialization = false;
 
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
@@ -251,24 +264,14 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.statistics_extended = MultiFileFunction<VortexReaderInterface>::MultiFileScanStatsExtended;
     fn.get_multi_file_reader = get_multi_file_reader;
 
-    /**
-     * duckdb's serialization is broken. If you don't set serialize/deserialize
-     * callbacks, duckdb serializes only the internal state which doesn't work
-     * for Vortex if you have filters pushed down. Worse, duckdb uses this
-     * information for CommonSubplanOptimizer which then merges different
-     * Vortex scans (with different filters pushed down) into one scan in tpcds.
-     *
-     * However, this is a regression on q15 and such where we do have
-     * completely equal scans which can't be merged. This is a reasonable price
-     * for correctness.
-     *
-     * Very unexpectedly verify_serialization doesn't do any verification but
-     * disables serialization at all.
-     */
-    fn.verify_serialization = false;
-    fn.serialize = [](auto &, auto, auto &) {
-        throw NotImplementedException("Can't serialize Vortex state");
-    };
+    // DuckDB's common-subplan optimizer shares scans whose operators serialize equally, as in
+    // TPC-DS q70 where the same join over store_sales appears twice. Pushed-down filters,
+    // projections and aggregates live in the FFI bind data, which DuckDB cannot serialize, so the
+    // serializer adds their description: without it two scans of the same file with different
+    // pushed-down filters would look equal and be merged into one, returning the wrong rows for
+    // one of them. Scans are only deserialized when a plan is verified with the testing-only
+    // verify_serializer option, so that still throws.
+    fn.serialize = serialize;
     fn.deserialize = [](auto &, auto &) -> unique_ptr<FunctionData> {
         throw NotImplementedException("Can't deserialize Vortex state");
     };
