@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 mod source;
+pub mod trace;
 
 pub use source::ReadAtIoSource;
 
@@ -62,12 +63,15 @@ pub enum IoIntent {
     Prefetch,
     /// Coalescing interest only; never starts an independent read.
     Announce,
+    /// Optional withdrawal of a range that this registration scope no longer needs.
+    /// Required fetches and other scopes' interests must remain live. Services may decline it.
+    Forget,
 }
 
 /// One request: a consumer-chosen id and the target it names.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequest {
-    /// Required delivery, background prefetch, or coalescing-only interest.
+    /// Required delivery, an optional hint, or withdrawal of optional interest.
     pub intent: IoIntent,
     /// Identifies the request within the issuing object.
     pub request: IoRequestId,
@@ -122,8 +126,14 @@ pub struct Completion {
 
 /// IO registration and dispatch for one registration scope, such as the work descended from one
 /// root planner. Services may decline optional hints. Accepted optional work belongs to the
-/// source, not to the publishing stage, and lives until the source is cleared or dropped.
+/// source, not to the publishing stage, and lives until forgotten, cleared or dropped.
 pub trait IoSource: Send + Sync {
+    /// A process-unique session identity for optional scan/IO tracing.
+    /// Sources without correlated physical-read diagnostics may leave this unset.
+    fn trace_id(&self) -> Option<u64> {
+        None
+    }
+
     /// Registers a whole batch before any of its reads become eligible for dispatch.
     /// Registration does not perform IO and never blocks.
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()>;

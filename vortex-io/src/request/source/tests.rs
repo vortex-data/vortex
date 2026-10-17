@@ -25,6 +25,7 @@ fn request(intent: IoIntent) -> IoRequest {
 #[rstest]
 #[case(IoIntent::Announce)]
 #[case(IoIntent::Prefetch)]
+#[case(IoIntent::Forget)]
 fn optional_hints_can_be_declined(#[case] intent: IoIntent) -> VortexResult<()> {
     let source = ReadAtIoSource::new(Arc::new(PanickingReadAt), Arc::new(RUNTIME.clone()));
     source.submit(IoOwnerId(1), vec![request(intent)])?;
