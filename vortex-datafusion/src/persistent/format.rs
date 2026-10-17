@@ -72,6 +72,7 @@ use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
 use crate::convert::stats::constant_distinct_count;
 use crate::convert::stats::is_nan_free;
+use crate::persistent::reader::VortexReaderFactory;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -126,6 +127,7 @@ pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
     expression_converter: Option<Arc<dyn ExpressionConverter>>,
+    vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 }
 
 impl Debug for VortexFormat {
@@ -136,6 +138,7 @@ impl Debug for VortexFormat {
                 "has_expression_converter",
                 &self.expression_converter.is_some(),
             )
+            .field("vortex_reader_factory", &self.vortex_reader_factory)
             .finish()
     }
 }
@@ -451,6 +454,7 @@ impl VortexFormat {
             session,
             opts,
             expression_converter: None,
+            vortex_reader_factory: None,
         }
     }
 
@@ -466,6 +470,15 @@ impl VortexFormat {
         expression_converter: Arc<dyn ExpressionConverter>,
     ) -> Self {
         self.expression_converter = Some(expression_converter);
+        self
+    }
+
+    /// Sets the [`VortexReaderFactory`] used by every [`VortexSource`] created by this format.
+    pub fn with_vortex_reader_factory(
+        mut self,
+        vortex_reader_factory: Arc<dyn VortexReaderFactory>,
+    ) -> Self {
+        self.vortex_reader_factory = Some(vortex_reader_factory);
         self
     }
 }
@@ -760,6 +773,9 @@ impl FileFormat for VortexFormat {
             VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone());
         if let Some(expression_converter) = &self.expression_converter {
             source = source.with_expression_converter(Arc::clone(expression_converter));
+        }
+        if let Some(vortex_reader_factory) = &self.vortex_reader_factory {
+            source = source.with_vortex_reader_factory(Arc::clone(vortex_reader_factory));
         }
         Arc::new(source) as _
     }

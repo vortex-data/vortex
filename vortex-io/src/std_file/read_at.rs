@@ -19,6 +19,8 @@ use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
@@ -67,6 +69,8 @@ pub struct FileReadAt {
     file: Arc<File>,
     handle: Handle,
     allocator: BufferAllocatorRef,
+    /// A memory map of the file, which reads slice when present.
+    mmap: Option<ByteBuffer>,
 }
 
 impl FileReadAt {
@@ -89,7 +93,27 @@ impl FileReadAt {
             file,
             handle,
             allocator,
+            mmap: None,
         })
+    }
+
+    /// Open a file for reading through a memory map of it.
+    ///
+    /// Reads return slices of the map rather than copies, which saves copying every read out of
+    /// the page cache, allocating its buffer and waiting for a blocking thread to do so. Segments
+    /// that the file does not align as requested are still copied.
+    ///
+    /// # Safety
+    ///
+    /// The file must not be truncated or modified while any buffer read from it is alive. A
+    /// truncated file makes accesses to the unmapped pages fail with `SIGBUS`, and a modified
+    /// file changes the contents of buffers that were already read.
+    pub unsafe fn open_mmap(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
+        let mut reader = Self::open(path, handle)?;
+        // SAFETY: the caller guarantees that the file does not change while it is mapped.
+        let mmap = unsafe { memmap2::Mmap::map(reader.file.as_ref())? };
+        reader.mmap = Some(ByteBuffer::from(mmap));
+        Ok(reader)
     }
 }
 
@@ -121,6 +145,13 @@ impl VortexReadAt for FileReadAt {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        if let Some(mmap) = &self.mmap {
+            let start = usize::try_from(offset).vortex_expect("offset fits in usize");
+            let slice = mmap
+                .slice_unaligned(start..start + length)
+                .aligned(alignment);
+            return futures::future::ready(Ok(BufferHandle::new_host(slice))).boxed();
+        }
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         let allocator = read_allocator(self.allocator.clone());
@@ -136,5 +167,52 @@ impl VortexReadAt for FileReadAt {
                 .await
         }
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use tempfile::tempdir;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::runtime::BlockingRuntime;
+    use crate::runtime::current::CurrentThreadRuntime;
+
+    #[rstest]
+    #[case(0, 16, 1)]
+    #[case(3, 100, 1)]
+    #[case(8, 64, 8)]
+    // An offset that the map does not align as requested is copied into an aligned buffer.
+    #[case(3, 64, 8)]
+    fn mmap_reads_match_file_reads(
+        #[case] offset: u64,
+        #[case] length: usize,
+        #[case] alignment: usize,
+    ) -> VortexResult<()> {
+        let directory = tempdir()?;
+        let path = directory.path().join("read.vortex");
+        let contents: Vec<u8> = (0..=255).collect();
+        std::fs::write(&path, &contents)?;
+
+        let runtime = CurrentThreadRuntime::new();
+        let alignment = Alignment::new(alignment);
+        let read = |reader: FileReadAt| {
+            runtime.block_on(async {
+                let buffer = reader.read_at(offset, length, alignment).await?;
+                VortexResult::Ok(buffer.into_host_sync())
+            })
+        };
+
+        let copied = read(FileReadAt::open(&path, runtime.handle())?)?;
+        // SAFETY: the file is not modified while it is mapped.
+        let mapped = read(unsafe { FileReadAt::open_mmap(&path, runtime.handle()) }?)?;
+
+        let start = usize::try_from(offset).vortex_expect("offset fits in usize");
+        assert_eq!(mapped.as_slice(), &contents[start..start + length]);
+        assert_eq!(mapped.as_slice(), copied.as_slice());
+        assert!(mapped.is_aligned(alignment));
+        Ok(())
     }
 }

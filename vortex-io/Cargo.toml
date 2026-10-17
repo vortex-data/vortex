@@ -36,7 +36,8 @@ tokio = { workspace = true, features = [
 ] } # this is the maximum subset of fetaures that is safe for wasm32 targets
 tracing = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
+vortex-buffer = { workspace = true, features = ["memmap2"] }
+memmap2 = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }

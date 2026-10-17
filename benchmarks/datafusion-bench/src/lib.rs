@@ -26,6 +26,7 @@ use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_datafusion::reader::MmapVortexReaderFactory;
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -98,13 +99,25 @@ pub fn make_object_store(
     }
 }
 
-pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
+/// Creates the DataFusion format that reads `format` files under `data_url`.
+///
+/// Setting `VORTEX_MMAP=1` reads local Vortex files through memory maps of them, which requires
+/// that the files are not modified while the benchmark runs.
+pub fn format_to_df_format(format: Format, data_url: &Url) -> anyhow::Result<Arc<dyn FileFormat>> {
     Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
-        Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => Arc::new(
-            VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
-        ),
+        Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => {
+            let mut vortex_format =
+                VortexFormat::new_with_options(SESSION.clone(), vortex_table_options());
+            if data_url.scheme() == "file" && std::env::var("VORTEX_MMAP").is_ok_and(|v| v == "1") {
+                // SAFETY: benchmark data files are not modified while queries run.
+                let factory =
+                    unsafe { MmapVortexReaderFactory::new(Arc::new(LocalFileSystem::default())) };
+                vortex_format = vortex_format.with_vortex_reader_factory(Arc::new(factory));
+            }
+            Arc::new(vortex_format)
+        }
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance => {
             anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }
