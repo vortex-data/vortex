@@ -2924,6 +2924,30 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test_is_satisfied_by_file_stats() -> VortexResult<()> {
+    let st = StructArray::from_fields(&[
+        ("age", buffer![15i32, 18, 22, 25].into_array()),
+        ("price", buffer![120i32, 130, 140, 150].into_array()),
+    ])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    assert!(file.is_satisfied(&gt(col("age"), lit(10)))?);
+    assert!(file.is_satisfied(&and(gt(col("age"), lit(10)), lt(col("price"), lit(200))))?);
+
+    // Some rows fail these, so they must not be proven.
+    assert!(!file.is_satisfied(&gt(col("age"), lit(20)))?);
+    assert!(!file.is_satisfied(&lt(col("price"), lit(140)))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     use vortex_buffer::ByteBuffer;
 

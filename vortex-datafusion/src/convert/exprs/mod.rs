@@ -26,6 +26,7 @@ use vortex::VortexSessionDefault;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::error::VortexResult;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
@@ -444,7 +445,7 @@ impl DefaultExpressionConverter {
         } else {
             Operator::Eq
         };
-        // A positive list of non-null literals becomes one set lookup. An OR of equalities would
+        // A positive list of literals becomes one set lookup. An OR of equalities would
         // scan the needle once per element, which dynamic join filters make up to 150 times.
         // Floats keep the comparisons, whose -0.0 and NaN semantics differ from set membership.
         let is_float = matches!(&value_dtype, DType::Primitive(ptype, _) if ptype.is_float());
@@ -458,16 +459,24 @@ impl DefaultExpressionConverter {
                 .iter()
                 .map(|element| element.as_opt::<Literal>().cloned())
                 .collect::<Option<Vec<_>>>();
+            // Null elements make a nullable list, whose SQL semantics `in_list` preserves.
+            let element_dtype = if scalars.iter().flatten().any(Scalar::is_null) {
+                value_dtype.as_nullable()
+            } else {
+                value_dtype.as_nonnullable()
+            };
             if let Some(scalars) = scalars
-                && let Some(first) = scalars.first()
-                && scalars.iter().all(|scalar| {
-                    !scalar.is_null()
-                        && scalar.dtype() == first.dtype()
-                        && value_dtype.eq_ignore_nullability(scalar.dtype())
-                })
+                && !scalars.is_empty()
+                && scalars
+                    .iter()
+                    .all(|scalar| scalar.dtype().eq_ignore_nullability(&element_dtype))
             {
-                let element_dtype = Arc::new(first.dtype().clone());
-                let list = Scalar::list(element_dtype, scalars, Nullability::NonNullable);
+                let scalars = scalars
+                    .iter()
+                    .map(|scalar| scalar.cast(&element_dtype))
+                    .collect::<VortexResult<Vec<_>>>()
+                    .map_err(|_| Unconverted::Unsupported)?;
+                let list = Scalar::list(Arc::new(element_dtype), scalars, Nullability::NonNullable);
                 return Ok(in_list_expr(value, lit(list)));
             }
         }

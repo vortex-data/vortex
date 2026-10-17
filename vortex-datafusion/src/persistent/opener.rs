@@ -332,9 +332,12 @@ impl FileOpener for VortexOpener {
                     expr_adapter.rewrite(snapshot_physical_expr(dynamic_filter)?)?,
                 )?;
                 // Dynamic filters only discard rows that cannot contribute to the result, so
-                // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals.
+                // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals,
+                // and so are bounds the file statistics prove every row satisfies.
                 for expr in split_conjunction(&snapshot) {
-                    if let Some(expr) = expr_converter.try_convert(expr, &this_file_schema)? {
+                    if let Some(expr) = expr_converter.try_convert(expr, &this_file_schema)?
+                        && !vxf.is_satisfied(&expr).unwrap_or(false)
+                    {
                         native_filters.push(expr);
                     }
                 }
@@ -346,6 +349,9 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
                 })?;
+            if let Some(native_filter) = &native_filter {
+                tracing::debug!(path = %file.path(), %native_filter, "native scan filter");
+            }
 
             // Residual filters must see raw inputs before computed projections or aliases.
             let ProcessedProjection {
