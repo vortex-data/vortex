@@ -205,9 +205,19 @@ impl OpenFileReader {
             if let Some(part) = part {
                 collect_conjuncts(part, &mut conjuncts);
             }
-            for conjunct in conjuncts {
+            let bounds: Vec<Option<ColumnBound>> = conjuncts
+                .iter()
+                .map(|conjunct| {
+                    optional
+                        .then(|| ColumnBound::try_new(file_stats, conjunct))
+                        .flatten()
+                })
+                .collect();
+            for (conjunct, bound) in conjuncts.into_iter().zip(&bounds) {
                 let satisfied = if optional {
-                    (keeps_most_values(file_stats, &conjunct) && !self.prunes_zones(&conjunct)?)
+                    bound
+                        .as_ref()
+                        .is_some_and(|bound| keeps_most_values(bound, &bounds))
                         || file_stats.is_satisfied_by_non_null(&conjunct)?
                 } else {
                     file_stats.is_satisfied(&conjunct)?
@@ -218,18 +228,6 @@ impl OpenFileReader {
             }
         }
         Ok(bound_and_collect(unsatisfied))
-    }
-
-    /// Whether the zone maps of the file let `conjunct` skip a noticeable share of its rows, so
-    /// that it is worth keeping for pruning even when evaluating it on rows is not.
-    fn prunes_zones(&self, conjunct: &BoundExpression) -> VortexResult<bool> {
-        let row_count = self.reader().row_count();
-        let len = usize::try_from(row_count).unwrap_or(usize::MAX);
-        let evaluation =
-            self.reader()
-                .pruning_evaluation(&(0..row_count), conjunct, Mask::new_true(len))?;
-        let mask = RUNTIME.block_on(evaluation)?;
-        Ok(mask.true_count() < len - len / MIN_PRUNED_DIVISOR)
     }
 
     fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
@@ -252,79 +250,95 @@ impl OpenFileReader {
 /// keys on its own tables when they keep this share of rows.
 const MIN_KEPT_SHARE_TO_SKIP_OPTIONAL: f64 = 0.75;
 
-/// Whether `conjunct` compares a column with a constant such that, judging by the column's
-/// minimum and maximum in the file, it keeps most of the column's values.
-fn keeps_most_values(file_stats: &FileStatsLayoutReader, conjunct: &BoundExpression) -> bool {
-    let Some(operator) = conjunct.as_opt::<Binary>() else {
-        return false;
-    };
-    let is_column = |expr: &BoundExpression| expr.is::<GetItem>() && expr.child(0).is_root();
-    let (column, constant, operator) = if is_column(conjunct.child(0))
-        && let Some(constant) = conjunct.child(1).as_opt::<Literal>()
-    {
-        (conjunct.child(0), constant, *operator)
-    } else if is_column(conjunct.child(1))
-        && let Some(constant) = conjunct.child(0).as_opt::<Literal>()
-    {
-        let flipped = match operator {
-            Operator::Gt => Operator::Lt,
-            Operator::Gte => Operator::Lte,
-            Operator::Lt => Operator::Gt,
-            Operator::Lte => Operator::Gte,
-            _ => return false,
+/// A bound on a column from comparing it with a constant, with the column's range in the file.
+struct ColumnBound {
+    field: usize,
+    lower: Option<f64>,
+    upper: Option<f64>,
+    min: f64,
+    max: f64,
+}
+
+impl ColumnBound {
+    /// The bound `conjunct` puts on a column, if it compares a column with a constant and the
+    /// file has the column's minimum and maximum.
+    fn try_new(file_stats: &FileStatsLayoutReader, conjunct: &BoundExpression) -> Option<Self> {
+        let operator = conjunct.as_opt::<Binary>()?;
+        let is_column = |expr: &BoundExpression| expr.is::<GetItem>() && expr.child(0).is_root();
+        let (column, constant, operator) = if is_column(conjunct.child(0)) {
+            (
+                conjunct.child(0),
+                conjunct.child(1).as_opt::<Literal>()?,
+                *operator,
+            )
+        } else if is_column(conjunct.child(1)) {
+            let flipped = match operator {
+                Operator::Gt => Operator::Lt,
+                Operator::Gte => Operator::Lte,
+                Operator::Lt => Operator::Gt,
+                Operator::Lte => Operator::Gte,
+                _ => return None,
+            };
+            (
+                conjunct.child(1),
+                conjunct.child(0).as_opt::<Literal>()?,
+                flipped,
+            )
+        } else {
+            return None;
         };
-        (conjunct.child(1), constant, flipped)
-    } else {
-        return false;
-    };
-    let field = column.as_::<GetItem>();
-    let Some(fields) = file_stats.dtype().as_struct_fields_opt() else {
-        return false;
-    };
-    let Some(index) = fields.find(field) else {
-        return false;
-    };
-    let (Some(stats), Some(dtype)) = (
-        file_stats.file_stats().stats_sets().get(index),
-        fields.field_by_index(index),
-    ) else {
-        return false;
-    };
-    let as_f64 = |value: Option<ScalarValue>| {
-        Scalar::try_new(dtype.clone(), value)
-            .ok()?
-            .as_primitive_opt()?
-            .as_::<f64>()
-    };
-    let (Some(min), Some(max), Some(value)) = (
-        as_f64(stats.get(Stat::Min).as_exact()),
-        as_f64(stats.get(Stat::Max).as_exact()),
-        constant
-            .as_primitive_opt()
-            .and_then(|value| value.as_::<f64>()),
-    ) else {
-        return false;
-    };
-    kept_share(operator, value, min, max)
+        let fields = file_stats.dtype().as_struct_fields_opt()?;
+        let field = fields.find(column.as_::<GetItem>())?;
+        let stats = file_stats.file_stats().stats_sets().get(field)?;
+        let dtype = fields.field_by_index(field)?;
+        let as_f64 = |value: Option<ScalarValue>| {
+            Scalar::try_new(dtype.clone(), value)
+                .ok()?
+                .as_primitive_opt()?
+                .as_::<f64>()
+        };
+        let min = as_f64(stats.get(Stat::Min).as_exact())?;
+        let max = as_f64(stats.get(Stat::Max).as_exact())?;
+        let value = constant.as_primitive_opt()?.as_::<f64>()?;
+        let (lower, upper) = match operator {
+            Operator::Gt | Operator::Gte => (Some(value), None),
+            Operator::Lt | Operator::Lte => (None, Some(value)),
+            _ => return None,
+        };
+        Some(Self {
+            field,
+            lower,
+            upper,
+            min,
+            max,
+        })
+    }
+}
+
+/// Whether all the bounds on the column of `bound` together keep at least
+/// [`MIN_KEPT_SHARE_TO_SKIP_OPTIONAL`] of its range. The bounds of one column are judged
+/// together, as a narrow range of a sorted column is worth its pruning even when each bound alone
+/// keeps most values.
+fn keeps_most_values(bound: &ColumnBound, bounds: &[Option<ColumnBound>]) -> bool {
+    let column_bounds = bounds
+        .iter()
+        .flatten()
+        .filter(|other| other.field == bound.field);
+    let lower = column_bounds
+        .clone()
+        .filter_map(|other| other.lower)
+        .fold(bound.min, f64::max);
+    let upper = column_bounds
+        .filter_map(|other| other.upper)
+        .fold(bound.max, f64::min);
+    kept_share(lower, upper, bound.min, bound.max)
         .is_some_and(|kept| kept >= MIN_KEPT_SHARE_TO_SKIP_OPTIONAL)
 }
 
-/// The share of the range from `min` to `max` that `operator` against `value` keeps.
-fn kept_share(operator: Operator, value: f64, min: f64, max: f64) -> Option<f64> {
-    if max <= min {
-        return None;
-    }
-    let kept = match operator {
-        Operator::Gt | Operator::Gte => (max - value) / (max - min),
-        Operator::Lt | Operator::Lte => (value - min) / (max - min),
-        _ => return None,
-    };
-    Some(kept.clamp(0.0, 1.0))
+/// The share of the range from `min` to `max` that lies between `lower` and `upper`.
+fn kept_share(lower: f64, upper: f64, min: f64, max: f64) -> Option<f64> {
+    (max > min).then(|| ((upper.min(max) - lower.max(min)) / (max - min)).clamp(0.0, 1.0))
 }
-
-/// An optional comparison whose zone maps skip at least 1/20 of a file's rows is kept for
-/// pruning.
-const MIN_PRUNED_DIVISOR: usize = 20;
 
 /// Appends the operands of the AND expressions at the top of `expr` to `out`.
 fn collect_conjuncts(expr: &BoundExpression, out: &mut Vec<BoundExpression>) {
@@ -639,25 +653,24 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::scalar_fn::fns::operators::Operator;
 
     use super::kept_share;
 
     #[rstest]
-    #[case(Operator::Gte, 37.0, Some(1.0))]
-    #[case(Operator::Lte, 2_399_788.0, Some(0.999_9))]
-    #[case(Operator::Gte, 1_200_000.0, Some(0.5))]
-    #[case(Operator::Lt, -5.0, Some(0.0))]
-    #[case(Operator::Eq, 5.0, None)]
-    fn share_of_range_kept(
-        #[case] operator: Operator,
-        #[case] value: f64,
-        #[case] expected: Option<f64>,
-    ) {
-        let kept = kept_share(operator, value, 0.0, 2_400_000.0);
+    #[case(37.0, 2_399_788.0, Some(1.0))]
+    #[case(1_172_551.0, 1_319_947.0, Some(0.061))]
+    #[case(1_200_000.0, f64::INFINITY, Some(0.5))]
+    #[case(f64::NEG_INFINITY, -5.0, Some(0.0))]
+    fn share_of_range_kept(#[case] lower: f64, #[case] upper: f64, #[case] expected: Option<f64>) {
+        let kept = kept_share(lower, upper, 0.0, 2_400_000.0);
         match (kept, expected) {
             (Some(kept), Some(expected)) => assert!((kept - expected).abs() < 1e-3, "{kept}"),
             (kept, expected) => assert_eq!(kept, expected),
         }
+    }
+
+    #[test]
+    fn share_of_empty_range_is_unknown() {
+        assert_eq!(kept_share(0.0, 1.0, 5.0, 5.0), None);
     }
 }
