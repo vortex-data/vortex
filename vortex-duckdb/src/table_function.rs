@@ -32,6 +32,13 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::fns::between::Between;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex::scalar_fn::fns::is_null::IsNull;
+use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -438,15 +445,51 @@ pub fn pushdown_complex_filter(
         return Ok(false);
     };
 
-    // Only table filters may be optional, any complex filter is
-    // non-optional by definition.
-    bind_data
-        .has_non_optional_filter
-        .store(true, Ordering::Relaxed);
-
+    // The filter is evaluated by the scan, but reported as not pushed so DuckDB keeps it in the
+    // plan like it does for Parquet scans: it becomes a table filter or stays in a filter above
+    // the scan. DuckDB then estimates the cardinality of the scan from the filters as it does for
+    // Parquet, which its join order depends on. A filter it keeps above the scan only sees rows
+    // the scan has already filtered.
+    //
+    // Reporting every filter as pushed also enables a LEFT_DELIM_JOIN -> COMPARISON_JOIN
+    // rewrite (duckdb/src/optimizer/deliminator.cpp) that regresses tpch sf=10 q17, see
+    // https://github.com/duckdb/duckdb/issues/22669.
+    //
+    // DuckDB turns comparisons of a column with a constant into table filters, which the scan
+    // receives on initialization, so only the other filters are kept here.
+    if is_table_filter_like(&expr) {
+        debug!(%expr, "left expression to table filters");
+        return Ok(false);
+    }
     debug!(%expr, "pushed down expression");
     bind_data.filters.push(expr);
-    Ok(true)
+    Ok(false)
+}
+
+/// Whether DuckDB turns `expr` into table filters: a comparison of a column with a constant,
+/// a conjunction of those, or a null check of a column.
+fn is_table_filter_like(expr: &Expression) -> bool {
+    let is_column = |expr: &Expression| expr.is::<GetItem>() && expr.child(0).is_root();
+    let is_constant = |expr: &Expression| expr.is::<Literal>();
+    if let Some(operator) = expr.as_opt::<Binary>() {
+        return match operator {
+            Operator::And => expr.children().iter().all(is_table_filter_like),
+            Operator::Eq
+            | Operator::NotEq
+            | Operator::Gt
+            | Operator::Gte
+            | Operator::Lt
+            | Operator::Lte => {
+                (is_column(expr.child(0)) && is_constant(expr.child(1)))
+                    || (is_constant(expr.child(0)) && is_column(expr.child(1)))
+            }
+            _ => false,
+        };
+    }
+    if expr.is::<Between>() {
+        return is_column(expr.child(0)) && is_constant(expr.child(1)) && is_constant(expr.child(2));
+    }
+    (expr.is::<IsNull>() || expr.is::<IsNotNull>()) && is_column(expr.child(0))
 }
 
 pub fn pushdown_projection_expression(
@@ -661,5 +704,39 @@ pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
         .join("\n");
     if !projections.is_empty() {
         map.push("SELECT projections", &projections);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::expr::between;
+    use vortex::expr::col;
+    use vortex::expr::eq;
+    use vortex::expr::gt;
+    use vortex::expr::in_list;
+    use vortex::expr::is_null;
+    use vortex::expr::lit;
+    use vortex::expr::or;
+    use vortex::scalar_fn::fns::between::BetweenOptions;
+    use vortex::scalar_fn::fns::between::StrictComparison;
+
+    use super::*;
+
+    #[rstest]
+    #[case::comparison(gt(col("a"), lit(1)), true)]
+    #[case::between(
+        between(col("a"), lit(1), lit(2), BetweenOptions {
+            lower_strict: StrictComparison::NonStrict,
+            upper_strict: StrictComparison::NonStrict,
+        }),
+        true
+    )]
+    #[case::null_check(is_null(col("a")), true)]
+    #[case::disjunction(or(eq(col("a"), lit(1)), eq(col("a"), lit(2))), false)]
+    #[case::in_list(in_list(col("a"), lit(vec![1, 2])), false)]
+    #[case::two_columns(gt(col("a"), col("b")), false)]
+    fn table_filter_like(#[case] expr: Expression, #[case] expected: bool) {
+        assert_eq!(is_table_filter_like(&expr), expected);
     }
 }
