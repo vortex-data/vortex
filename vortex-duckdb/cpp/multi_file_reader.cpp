@@ -345,6 +345,9 @@ static unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, 
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
+    if (stats.distinct_count) {
+        out.SetDistinctCount(stats.distinct_count);
+    }
 
     return out.ToUnique();
 }
@@ -359,6 +362,9 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
     }
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
+    }
+    if (stats.distinct_count) {
+        out.SetDistinctCount(stats.distinct_count);
     }
     return out.ToUnique();
 }
