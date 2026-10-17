@@ -30,6 +30,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::layout::scan::repeated_scan::LazySplit;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::Between;
@@ -167,7 +168,22 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+/// A split of a file scan, returning its rows or `None` when it is filtered out.
+pub enum Split {
+    /// A split whose reads are registered already.
+    Started(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// A split that the thread scanning it builds.
+    Lazy(LazySplit<ArrayRef>),
+}
+
+impl Split {
+    pub fn into_future(self) -> VortexResult<BoxFuture<'static, VortexResult<Option<ArrayRef>>>> {
+        match self {
+            Split::Started(future) => Ok(future),
+            Split::Lazy(split) => split.start(),
+        }
+    }
+}
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
