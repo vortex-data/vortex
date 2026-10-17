@@ -45,7 +45,10 @@ use crate::validity::Validity;
 /// bitmap over the span, bounding the bitmap to a few words per element.
 const BITMAP_BITS_PER_ELEMENT: u128 = 64;
 /// A span this narrow is looked up through a bitmap whatever the size of the set.
-const BITMAP_MIN_BITS: u128 = 1 << 12;
+///
+/// A lookup in a bitmap of up to 128 KiB stays in the L2 cache and does not branch, where a
+/// binary search through a sparse set mispredicts about half its comparisons.
+const BITMAP_MIN_BITS: u128 = 1 << 20;
 
 /// Looks up needles among the elements of an array, for many batches of needles.
 ///
