@@ -70,6 +70,23 @@ where
         );
 
         return if bits.len() <= COLLECT_TO_VEC {
+            #[cfg(target_arch = "x86_64")]
+            {
+                // Gathering the bits beats a byte per bit, but its 32-bit loads need the buffer
+                // padded, which a small copy, at most 520 bytes, provides.
+                let mut padded = [0u8; COLLECT_TO_VEC / 8 + 8];
+                for (word, chunk) in bits
+                    .chunks()
+                    .iter_padded()
+                    .zip(padded.as_chunks_mut::<8>().0)
+                {
+                    *chunk = word.to_le_bytes();
+                }
+                let padded = BitBufferView::new(&padded, bits.len());
+                if let Some(taken) = avx2::take(padded, indices, None) {
+                    return taken;
+                }
+            }
             let bools: Vec<bool> = bits.iter().collect();
             BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
                 // SAFETY: we're already iterating over every index, a bound
