@@ -351,7 +351,8 @@ impl VortexWriteOptions {
                     file_stats.legacy_aggregate_stats()?.into(),
                     &dtype,
                 )
-                .with_distinct_counts(file_stats.distinct_counts().into()),
+                .with_distinct_counts(file_stats.distinct_counts().into())
+                .with_max_lengths(file_stats.max_lengths().into()),
             )
         };
         let mut footer = Footer::new(

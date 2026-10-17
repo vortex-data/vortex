@@ -172,13 +172,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_284 } else { 70_220 }
+    if cfg!(feature = "zstd") { 70_308 } else { 70_244 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_368
+        55_392
     )
 )]
 #[tokio::test]
@@ -2370,7 +2370,7 @@ async fn file_statistics_count_increasing_keys_exactly() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
-        .with_file_statistics(PRUNING_STATS.to_vec())
+        .with_file_statistics(pruning_aggregate_fns())
         .writer(&mut buf, first.dtype().clone());
     writer.push(first).await?;
     writer.push(batch(50_000..100_000)?).await?;
@@ -2437,6 +2437,8 @@ async fn file_statistics_estimate_distinct_counts() -> VortexResult<()> {
         "estimated {names} distinct names"
     );
     assert_eq!(file_stats.distinct_count(2), None);
+    assert_eq!(file_stats.max_length(0), None);
+    assert_eq!(file_stats.max_length(1), Some("name 999".len() as u64));
 
     Ok(())
 }

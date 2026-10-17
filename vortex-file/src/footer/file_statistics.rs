@@ -65,6 +65,9 @@ pub struct FileStatistics {
     /// An estimate of the number of distinct non-null values of each entry, parallel to
     /// `aggregates`, where 0 means unknown.
     distinct_counts: Option<Arc<[u64]>>,
+    /// One more than the byte length of the longest value of each entry, parallel to
+    /// `aggregates`, where 0 means unknown.
+    max_lengths: Option<Arc<[u64]>>,
 }
 
 impl FileStatistics {
@@ -89,6 +92,7 @@ impl FileStatistics {
             path_index: Arc::new(path_index),
             legacy_aggregates,
             distinct_counts: None,
+            max_lengths: None,
         }
     }
 
@@ -155,6 +159,22 @@ impl FileStatistics {
             "distinct counts length must match number of entries"
         );
         self.distinct_counts = Some(distinct_counts);
+        self
+    }
+
+    /// Sets one more than the byte length of the longest non-null value of each string or binary
+    /// entry, where 0 means unknown.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is not one length per entry.
+    pub fn with_max_lengths(mut self, max_lengths: Arc<[u64]>) -> Self {
+        assert_eq!(
+            max_lengths.len(),
+            self.aggregates.len(),
+            "max lengths length must match number of entries"
+        );
+        self.max_lengths = Some(max_lengths);
         self
     }
 
@@ -225,6 +245,10 @@ impl FileStatistics {
                 .distinct_counts()
                 .filter(|counts| counts.len() == entry_sets.len())
                 .map(|counts| counts.iter().collect());
+            file_stats.max_lengths = fb
+                .max_lengths()
+                .filter(|lengths| lengths.len() == entry_sets.len())
+                .map(|lengths| lengths.iter().collect());
             return Ok(file_stats);
         }
 
@@ -316,6 +340,21 @@ impl FileStatistics {
     /// if the file has one.
     pub fn distinct_count_by_path(&self, path: &FieldPath) -> Option<u64> {
         self.distinct_count(*self.path_index.get(path)?)
+    }
+
+    /// Returns the byte length of the longest non-null value of a string or binary entry, if the
+    /// file has it.
+    pub fn max_length(&self, field_idx: usize) -> Option<u64> {
+        self.max_lengths
+            .as_ref()?
+            .get(field_idx)
+            .and_then(|&length| length.checked_sub(1))
+    }
+
+    /// Returns the byte length of the longest non-null value of the string or binary field at the
+    /// given path, if the file has it.
+    pub fn max_length_by_path(&self, path: &FieldPath) -> Option<u64> {
+        self.max_length(*self.path_index.get(path)?)
     }
 
     /// Returns the aggregates and data type for the field at the given path, if present.
@@ -562,6 +601,10 @@ impl WriteFlatBuffer for FileStatistics {
             .distinct_counts
             .as_ref()
             .map(|counts| fbb.create_vector(counts));
+        let max_lengths = self
+            .max_lengths
+            .as_ref()
+            .map(|lengths| fbb.create_vector(lengths));
 
         Ok(fb::FileStatistics::create(
             fbb,
@@ -572,6 +615,7 @@ impl WriteFlatBuffer for FileStatistics {
                 entry_sets: Some(entry_sets),
                 partials: Some(partials),
                 distinct_counts,
+                max_lengths,
             },
         ))
     }
@@ -854,6 +898,7 @@ mod tests {
                 entry_sets: Some(entry_sets),
                 partials: Some(partials),
                 distinct_counts: None,
+                max_lengths: None,
             },
         );
         fbb.finish_minimal(root);

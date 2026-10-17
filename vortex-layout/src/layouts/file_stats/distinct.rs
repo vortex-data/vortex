@@ -28,6 +28,8 @@ const NUM_REGISTERS: usize = 1 << PRECISION;
 /// distinct counts to estimate the size of joins and to order them.
 pub(super) struct DistinctSketch {
     registers: Box<[u8]>,
+    /// The byte length of the longest string or binary value added, while it is tracked.
+    max_length: Option<u64>,
 }
 
 impl DistinctSketch {
@@ -43,6 +45,7 @@ impl DistinctSketch {
         )
         .then(|| Self {
             registers: vec![0; NUM_REGISTERS].into_boxed_slice(),
+            max_length: matches!(countable, DType::Utf8(_) | DType::Binary(_)).then_some(0),
         })
     }
 
@@ -125,10 +128,12 @@ impl DistinctSketch {
             .iter()
             .map(|buffer| buffer.as_host())
             .collect::<Vec<_>>();
+        let mut max_length = 0;
         for (index, view) in array.views().iter().enumerate() {
             if !mask.value(index) {
                 continue;
             }
+            max_length = max_length.max(view.len());
             if view.is_inlined() {
                 self.insert_bytes(view.as_inlined().value());
             } else {
@@ -136,7 +141,15 @@ impl DistinctSketch {
                 self.insert_bytes(&buffers[view.buffer_index as usize][view.as_range()]);
             }
         }
+        if let Some(longest) = &mut self.max_length {
+            *longest = (*longest).max(u64::from(max_length));
+        }
         Ok(())
+    }
+
+    /// The byte length of the longest string or binary value added.
+    pub(super) fn max_length(&self) -> Option<u64> {
+        self.max_length
     }
 
     #[inline]

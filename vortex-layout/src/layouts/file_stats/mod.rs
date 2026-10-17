@@ -559,18 +559,18 @@ impl StatsNode {
         }
     }
 
-    /// Appends this node's distinct-count estimates, 0 where unknown, in the same post-order as
-    /// [`postorder_stats_layout`].
-    fn collect_distinct_counts(&self, out: &mut Vec<u64>) {
+    /// Appends `value` of each of this node's entries, 0 for unrecorded ones, in the same
+    /// post-order as [`postorder_stats_layout`].
+    fn collect_entry_values(&self, value: &impl Fn(&StatsAccumulator) -> u64, out: &mut Vec<u64>) {
         match self {
             Self::Skipped => {}
             Self::Unrecorded { entries } => out.extend(iter::repeat_n(0, *entries)),
-            Self::Leaf(acc) => out.push(acc.distinct_count()),
+            Self::Leaf(acc) => out.push(value(acc)),
             Self::Container { children, own } => {
                 for (_, child) in children {
-                    child.collect_distinct_counts(out);
+                    child.collect_entry_values(value, out);
                 }
-                own.collect_distinct_counts(out);
+                own.collect_entry_values(value, out);
             }
         }
     }
@@ -686,7 +686,26 @@ impl FileStatsAccumulator {
     /// nested layout (see [`postorder_stats_layout`]), where 0 means unknown.
     pub fn distinct_counts(&self) -> Vec<u64> {
         let mut out = Vec::new();
-        self.root.lock().collect_distinct_counts(&mut out);
+        self.root
+            .lock()
+            .collect_entry_values(&StatsAccumulator::distinct_count, &mut out);
+        out
+    }
+
+    /// Returns one more than the byte length of the longest non-null value of every string or
+    /// binary entry in the post-order nested layout (see [`postorder_stats_layout`]), where 0 means
+    /// unknown.
+    pub fn max_lengths(&self) -> Vec<u64> {
+        let mut out = Vec::new();
+        self.root.lock().collect_entry_values(
+            &|acc: &StatsAccumulator| {
+                acc.distinct
+                    .as_ref()
+                    .and_then(DistinctSketch::max_length)
+                    .map_or(0, |length| length + 1)
+            },
+            &mut out,
+        );
         out
     }
 

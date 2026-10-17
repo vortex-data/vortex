@@ -9,8 +9,6 @@ use vortex::aggregate_fn::fns::max::Max;
 use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::nan_count::NanCount;
 use vortex::aggregate_fn::fns::null_count::NullCount;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
@@ -90,7 +88,11 @@ pub struct ColumnStatisticsAggregate {
 }
 
 impl ColumnStatisticsAggregate {
-    pub fn new(aggregates: &AggregateStats, distinct_count: Option<u64>) -> Self {
+    pub fn new(
+        aggregates: &AggregateStats,
+        distinct_count: Option<u64>,
+        max_length: Option<u64>,
+    ) -> Self {
         let exact = |aggregate_fn: AggregateFnRef| match aggregates.get(&aggregate_fn) {
             Precision::Exact(value) => value.into_value(),
             _ => None,
@@ -99,10 +101,8 @@ impl ColumnStatisticsAggregate {
         let min = exact(Min.bind(NumericalAggregateOpts::skip_nans()));
         let max = exact(Max.bind(NumericalAggregateOpts::skip_nans()));
 
-        // DuckDB's string length is u32
-        #[allow(clippy::cast_possible_truncation)]
-        let max_string_length = exact(UncompressedSizeInBytes.bind(UncompressedSizeOpts::exact()))
-            .map(|value| value.as_primitive().as_u64().vortex_expect("not a u64") as u32);
+        // DuckDB's string length is u32, and a longer one is no use to it.
+        let max_string_length = max_length.and_then(|length| u32::try_from(length).ok());
 
         let has_null = exact(NullCount.bind(EmptyOptions))
             .is_none_or(|count| count.as_primitive().as_u64().vortex_expect("not a u64") > 0);
