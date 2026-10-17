@@ -13,6 +13,9 @@ use std::os::unix::fs::FileExt;
 use std::os::windows::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -123,13 +126,37 @@ impl VortexReadAt for FileReadAt {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
+        let uri = tracing::enabled!(target: "vortex_io::read_timing", tracing::Level::DEBUG)
+            .then(|| Arc::clone(&self.uri));
         async move {
+            let submitted = uri.as_ref().map(|_| Instant::now());
             handle
                 .spawn_blocking(move || {
+                    let started = submitted.map(|_| Instant::now());
                     let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
                     // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
                     unsafe { buffer.set_len(length) };
-                    read_exact_at(&file, buffer.as_mut_slice(), offset)?;
+                    let read_started = started.map(|_| Instant::now());
+                    let result = read_exact_at(&file, buffer.as_mut_slice(), offset);
+                    if let Some(((submitted, started), (read_started, uri))) =
+                        submitted.zip(started).zip(read_started.zip(uri))
+                    {
+                        let finished = Instant::now();
+                        tracing::debug!(
+                            target: "vortex_io::read_timing",
+                            path = %uri,
+                            offset,
+                            length,
+                            completed_unix_ns = u64::try_from(
+                                SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+                            ).unwrap_or(u64::MAX),
+                            queue_ns = u64::try_from(started.duration_since(submitted).as_nanos()).unwrap_or(u64::MAX),
+                            allocation_ns = u64::try_from(read_started.duration_since(started).as_nanos()).unwrap_or(u64::MAX),
+                            read_ns = u64::try_from(finished.duration_since(read_started).as_nanos()).unwrap_or(u64::MAX),
+                            "local positional read"
+                        );
+                    }
+                    result?;
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })
                 .await
