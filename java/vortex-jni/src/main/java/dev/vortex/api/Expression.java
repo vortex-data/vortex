@@ -168,6 +168,54 @@ public final class Expression {
                 value.nativePointer(), lower.nativePointer(), upper.nativePointer(), lowerStrict, upperStrict));
     }
 
+    /**
+     * Whether the list {@code list} evaluates to contains {@code needle}, with Vortex's null rules: a null element
+     * never matches anything, so a needle that matches no element is {@code false}. A null {@code needle} is null,
+     * except against an empty list, where the result is {@code false}.
+     *
+     * <p>{@code list} must evaluate to a Vortex list whose element type matches {@code needle}'s type, ignoring
+     * nullability. With a {@link #literalList(Expression, boolean, Expression...) list literal} on the left and a
+     * column on the right this is a set-membership test that a constant-set kernel answers in one pass over the column,
+     * however large the set.
+     *
+     * @see #listContains(Expression, Expression, boolean)
+     * @see #in(Expression, Expression)
+     */
+    public static Expression listContains(Expression list, Expression needle) {
+        return listContains(list, needle, /* sqlNullSemantics= */ false);
+    }
+
+    /**
+     * {@link #listContains(Expression, Expression)} with a choice of null rules.
+     *
+     * @param sqlNullSemantics {@code false} for Vortex's rules, where a null element never matches; {@code true} for
+     *     SQL's three-valued {@code IN}, where a null element is an unknown value, so a needle that matches no element
+     *     is {@code null} rather than {@code false} whenever the list holds a null. A null needle is null, except
+     *     against an empty list with Vortex's default rules, where the result is {@code false}.
+     */
+    public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
+        return new Expression(
+                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics));
+    }
+
+    /**
+     * SQL {@code value IN (list)}: {@link #listContains(Expression, Expression, boolean)} with SQL null semantics and
+     * the operands in SQL order. A null {@code value} is null, and so is a non-match against a list that holds a null;
+     * both filter the row out of a scan.
+     */
+    public static Expression in(Expression value, Expression list) {
+        return listContains(list, value, /* sqlNullSemantics= */ true);
+    }
+
+    /**
+     * SQL {@code value NOT IN (list)}: the negation of {@link #in(Expression, Expression)}. Under SQL's rules a null
+     * {@code value}, or a list that holds a null, makes a non-match null rather than true, so such a row is never
+     * admitted.
+     */
+    public static Expression notIn(Expression value, Expression list) {
+        return not(in(value, list));
+    }
+
     public static Expression literal(boolean value) {
         return new Expression(NativeExpression.literalBool(value, false));
     }

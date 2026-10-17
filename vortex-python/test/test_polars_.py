@@ -449,3 +449,27 @@ def test_polars_struct_field_null_parents_and_leaf(tmp_path):
     predicate = pl.col("x").struct.field("child").struct.field("value") >= 0
     expected = pl.DataFrame({"id": [4], "x": [{"child": {"value": 50}}]})
     _assert_struct_field_scan(tmp_path, outer, predicate, expected)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pl.col("x").is_in([1, 3]),
+        pl.col("x").is_in([1, None]),
+        pl.col("x").is_in([]),
+        pl.col("x").is_in([1, None], nulls_equal=True),
+        pl.col("x").is_in([1], nulls_equal=True),
+        ~pl.col("x").is_in([1, 3]),
+        ~pl.col("x").is_in([1, None]),
+        pl.col("x").is_in(pl.Series([2, 3]).implode()),
+        pl.col("s").is_in(["a", "c"]),
+        ~pl.col("s").is_in(["a", None]),
+    ],
+)
+def test_polars_is_in(tmp_path, expr):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [1, 2, None, 3], "s": ["a", "b", None, "c"]})
+    path = tmp_path / "is_in.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected)
