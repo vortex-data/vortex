@@ -191,7 +191,7 @@ impl OpenFileReader {
             }
             for conjunct in conjuncts {
                 let satisfied = if optional {
-                    keeps_most_values(file_stats, &conjunct)
+                    (keeps_most_values(file_stats, &conjunct) && !self.prunes_zones(&conjunct)?)
                         || file_stats.is_satisfied_by_non_null(&conjunct)?
                 } else {
                     file_stats.is_satisfied(&conjunct)?
@@ -202,6 +202,18 @@ impl OpenFileReader {
             }
         }
         Ok(bound_and_collect(unsatisfied))
+    }
+
+    /// Whether the zone maps of the file let `conjunct` skip a noticeable share of its rows, so
+    /// that it is worth keeping for pruning even when evaluating it on rows is not.
+    fn prunes_zones(&self, conjunct: &BoundExpression) -> VortexResult<bool> {
+        let row_count = self.reader().row_count();
+        let len = usize::try_from(row_count).unwrap_or(usize::MAX);
+        let evaluation =
+            self.reader()
+                .pruning_evaluation(&(0..row_count), conjunct, Mask::new_true(len))?;
+        let mask = RUNTIME.block_on(evaluation)?;
+        Ok(mask.true_count() < len - len / MIN_PRUNED_DIVISOR)
     }
 
     fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
@@ -293,6 +305,10 @@ fn kept_share(operator: Operator, value: f64, min: f64, max: f64) -> Option<f64>
     };
     Some(kept.clamp(0.0, 1.0))
 }
+
+/// An optional comparison whose zone maps skip at least 1/20 of a file's rows is kept for
+/// pruning.
+const MIN_PRUNED_DIVISOR: usize = 20;
 
 /// Appends the operands of the AND expressions at the top of `expr` to `out`.
 fn collect_conjuncts(expr: &BoundExpression, out: &mut Vec<BoundExpression>) {
