@@ -32,6 +32,8 @@ mod file_reader;
 mod projection;
 mod table_function;
 
+pub use file_reader::enable_mmap_local_files;
+
 #[rustfmt::skip]
 #[allow(rustdoc::all)]
 #[path = "./cpp.rs"]
