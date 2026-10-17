@@ -59,6 +59,46 @@ pub(crate) fn split_exec(ctx: &TaskContext, read_mask: RowMask) -> VortexResult<
     .boxed())
 }
 
+/// Like [`split_exec`], but registers the projection only once pruning has kept rows.
+///
+/// Pruning on zone maps is cheap and eliminates most splits of selective scans, so building
+/// their projections up front costs more than it saves. The projection of a split that pruning
+/// keeps is still registered before its filter runs, so that its reads start meanwhile.
+pub(crate) fn split_exec_deferred(
+    ctx: Arc<TaskContext>,
+    read_mask: RowMask,
+) -> VortexResult<SplitFuture> {
+    let row_range = read_mask.row_range();
+    let row_mask = read_mask.mask().clone();
+
+    let Some(filter) = ctx.filter.clone() else {
+        return split_projection(&ctx, &row_range, row_mask);
+    };
+
+    Ok(async move {
+        let len = row_mask.len();
+        let (pruned, dynamic_versions) =
+            prune_conjuncts(&ctx.reader, &filter, &row_range, row_mask).await?;
+        if pruned.all_false() {
+            return Ok(None);
+        }
+
+        let reader = Arc::clone(&ctx.reader);
+        let filter_range = row_range.clone();
+        let filter_mask = MaskFuture::new(len, async move {
+            evaluate_conjuncts(&reader, &filter, &filter_range, pruned, dynamic_versions).await
+        });
+        let projection =
+            ctx.reader
+                .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+        if filter_mask.await?.all_false() {
+            return Ok(None);
+        }
+        projection.await.map(Some)
+    }
+    .boxed())
+}
+
 /// Project the rows selected by an already-evaluated `mask`.
 pub(crate) fn split_projection(
     ctx: &TaskContext,
@@ -89,67 +129,88 @@ fn build_filter_mask(
     let filter = Arc::clone(filter);
     let filter_row_range = row_range.clone();
     MaskFuture::new(row_mask.len(), async move {
-        let mut mask = row_mask;
-        let mut dynamic_versions = vec![None; filter.conjuncts().len()];
+        let (mask, dynamic_versions) =
+            prune_conjuncts(&reader, &filter, &filter_row_range, row_mask).await?;
+        evaluate_conjuncts(&reader, &filter, &filter_row_range, mask, dynamic_versions).await
+    })
+}
 
-        // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-        for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
-            if mask.all_false() {
-                return Ok(mask);
-            }
+/// Prune `mask` with every conjunct, returning it with the version of each dynamic conjunct
+/// that pruning saw.
+async fn prune_conjuncts(
+    reader: &LayoutReaderRef,
+    filter: &FilterExpr,
+    row_range: &Range<u64>,
+    mut mask: Mask,
+) -> VortexResult<(Mask, Vec<Option<u64>>)> {
+    let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
-            // Store the latest version of the dynamic expression prior to pruning.
-            // We will re-run the pruning later if the version has changed in the meantime.
-            dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+    // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
+    for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
+        if mask.all_false() {
+            return Ok((mask, dynamic_versions));
+        }
 
+        // Store the latest version of the dynamic expression prior to pruning.
+        // We will re-run the pruning later if the version has changed in the meantime.
+        dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+
+        let conjunct_mask = reader
+            .pruning_evaluation(row_range, conjunct, mask.clone())?
+            .await?;
+        mask = mask.bitand(&conjunct_mask);
+    }
+    Ok((mask, dynamic_versions))
+}
+
+/// Evaluate the conjuncts in their preferred order over the rows of `mask`.
+async fn evaluate_conjuncts(
+    reader: &LayoutReaderRef,
+    filter: &FilterExpr,
+    row_range: &Range<u64>,
+    mut mask: Mask,
+    mut dynamic_versions: Vec<Option<u64>>,
+) -> VortexResult<Mask> {
+    let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
+    while let Some(idx) = filter.next_conjunct(&remaining) {
+        remaining.set(idx, false);
+        if mask.all_false() {
+            return Ok(mask);
+        }
+
+        let conjunct = &filter.conjuncts()[idx];
+
+        // If the dynamic expression has changed since pruning, re-run the pruning.
+        // Store the dynamic update once to avoid TOCTOU race condition.
+        let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+        if let Some(dv) = current_version
+            && dynamic_versions[idx].is_none_or(|v| v < dv)
+        {
+            // The dynamic expression has changed, re-run the pruning.
+            dynamic_versions[idx] = Some(dv);
             let conjunct_mask = reader
-                .pruning_evaluation(&filter_row_range, conjunct, mask.clone())?
+                .pruning_evaluation(row_range, conjunct, mask.clone())?
                 .await?;
             mask = mask.bitand(&conjunct_mask);
         }
-
-        // Now we loop through the conjuncts in the preferred order and evaluate them.
-        let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
-        while let Some(idx) = filter.next_conjunct(&remaining) {
-            remaining.set(idx, false);
-            if mask.all_false() {
-                return Ok(mask);
-            }
-
-            let conjunct = &filter.conjuncts()[idx];
-
-            // If the dynamic expression has changed since pruning, re-run the pruning.
-            // Store the dynamic update once to avoid TOCTOU race condition.
-            let current_version = filter.dynamic_updates(idx).map(|du| du.version());
-            if let Some(dv) = current_version
-                && dynamic_versions[idx].is_none_or(|v| v < dv)
-            {
-                // The dynamic expression has changed, re-run the pruning.
-                dynamic_versions[idx] = Some(dv);
-                let conjunct_mask = reader
-                    .pruning_evaluation(&filter_row_range, conjunct, mask.clone())?
-                    .await?;
-                mask = mask.bitand(&conjunct_mask);
-            }
-            if mask.all_false() {
-                return Ok(mask);
-            }
-
-            let input_true_count = mask.true_count();
-            let conjunct_mask = reader
-                .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
-                .await?;
-            filter.report_selectivity(
-                idx,
-                conditional_selectivity(input_true_count, conjunct_mask.true_count()),
-            );
-
-            // Filter evaluations return a mask already intersected with the input mask.
-            mask = conjunct_mask;
+        if mask.all_false() {
+            return Ok(mask);
         }
 
-        Ok(mask)
-    })
+        let input_true_count = mask.true_count();
+        let conjunct_mask = reader
+            .filter_evaluation(row_range, conjunct, MaskFuture::ready(mask))?
+            .await?;
+        filter.report_selectivity(
+            idx,
+            conditional_selectivity(input_true_count, conjunct_mask.true_count()),
+        );
+
+        // Filter evaluations return a mask already intersected with the input mask.
+        mask = conjunct_mask;
+    }
+
+    Ok(mask)
 }
 
 fn conditional_selectivity(input_true_count: usize, output_true_count: usize) -> f64 {

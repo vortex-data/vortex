@@ -43,6 +43,7 @@ use crate::scan::splits::Splits;
 use crate::scan::tasks::SplitFuture;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
+use crate::scan::tasks::split_exec_deferred;
 use crate::scan::tasks::split_projection;
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
@@ -121,7 +122,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
     /// Describe the splits of the scan without building their futures.
     ///
     /// Unlike [`Self::execute`], no split registers its reads until [`LazySplit::start`] is
-    /// called, so the cost of building a split is paid by whoever starts it. Use this when the
+    /// called, so the cost of building a split is paid by whoever starts it, and a split builds
+    /// its projection only once its filter has selected rows. Use this when the
     /// executor starts splits on its worker threads and reads are cheap to issue late, for
     /// example from memory-mapped files.
     ///
@@ -357,7 +359,7 @@ impl<A: 'static + Send> LazySplit<A> {
     /// filtered out.
     pub fn start(self) -> VortexResult<BoxFuture<'static, VortexResult<Option<A>>>> {
         Ok(map_split(
-            split_exec(&self.ctx, self.row_mask)?,
+            split_exec_deferred(self.ctx, self.row_mask)?,
             &self.map_fn,
         ))
     }
