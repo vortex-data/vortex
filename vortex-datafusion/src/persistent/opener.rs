@@ -23,6 +23,7 @@ use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -32,6 +33,7 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr::utils::conjunction_opt;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
 use datafusion_physical_plan::filter::batch_filter;
 use datafusion_physical_plan::limit::LimitStream;
@@ -194,6 +196,19 @@ impl FileOpener for VortexOpener {
                 .transpose()?;
         }
 
+        // Dynamic filters (hash join build-side bounds, TopK thresholds) are only reported to
+        // DataFusion as unsupported, so they are not part of `filter`. They are snapshotted when
+        // the file is opened, which for a hash join probe side happens after the build side has
+        // published its bounds, and pushed into the scan for zone pruning and filtering.
+        let dynamic_filter = file_pruning_predicate.as_ref().and_then(|predicate| {
+            conjunction_opt(
+                split_conjunction(predicate)
+                    .into_iter()
+                    .filter(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter())
+                    .cloned(),
+            )
+        });
+
         Ok(async move {
             // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
             let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
@@ -324,6 +339,18 @@ impl FileOpener for VortexOpener {
                     match converted {
                         Some(expr) => native_filters.push(expr),
                         None => residual_filters.push(Arc::clone(expr)),
+                    }
+                }
+            }
+            if let Some(dynamic_filter) = dynamic_filter {
+                let snapshot = simplifier.simplify(
+                    expr_adapter.rewrite(snapshot_physical_expr(dynamic_filter)?)?,
+                )?;
+                // Dynamic filters only discard rows that cannot contribute to the result, so
+                // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals.
+                for expr in split_conjunction(&snapshot) {
+                    if let Some(expr) = expr_converter.try_convert(expr, &this_file_schema)? {
+                        native_filters.push(expr);
                     }
                 }
             }
