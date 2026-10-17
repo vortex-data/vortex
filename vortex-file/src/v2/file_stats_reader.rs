@@ -7,20 +7,28 @@
 //! [`FileStatsLayoutReader`] short-circuits [`pruning_evaluation`](LayoutReader::pruning_evaluation)
 //! by returning an all-false mask — avoiding all downstream I/O.
 
+use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::MaskFuture;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::stats::Precision;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::RowSplits;
 use vortex_layout::SplitRange;
+use vortex_layout::layouts::file_stats::AggregateStat;
+use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -28,6 +36,7 @@ use vortex_utils::aliases::dash_map::Entry;
 
 use crate::FileStatistics;
 use crate::pruning::can_prune_file_stats;
+use crate::pruning::is_satisfied_by_file_stats;
 
 /// A [`LayoutReader`] decorator that prunes entire files based on file-level statistics.
 ///
@@ -71,6 +80,47 @@ impl FileStatsLayoutReader {
     /// Returns the file-level statistics used by this reader.
     pub fn file_stats(&self) -> &FileStatistics {
         &self.file_stats
+    }
+
+    /// Returns `true` if file-level statistics prove `expr` true for every row of the file, so
+    /// that a filter on it keeps every row and need not be evaluated.
+    pub fn is_satisfied(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        is_satisfied_by_file_stats(
+            expr,
+            self.child.row_count(),
+            &self.file_stats,
+            &self.session,
+        )
+    }
+
+    /// Returns `true` if file-level statistics prove `expr` true for every row whose columns are
+    /// not null, which suffices for a filter that may keep rows it does not match.
+    pub fn is_satisfied_by_non_null(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        let aggregates: Arc<[AggregateStats]> = self
+            .file_stats
+            .aggregates()
+            .iter()
+            .map(|stats| {
+                let no_nulls = AggregateStat::from_value(
+                    NullCount.bind(EmptyOptions),
+                    Precision::exact(Scalar::from(0u64)),
+                );
+                AggregateStats::new(
+                    stats
+                        .iter()
+                        .filter(|stat| !stat.aggregate_fn().is::<NullCount>())
+                        .cloned()
+                        .chain(iter::once(no_nulls))
+                        .collect(),
+                )
+            })
+            .collect();
+        let file_stats = FileStatistics::new(
+            aggregates,
+            Arc::clone(self.file_stats.dtypes()),
+            Arc::clone(self.file_stats.paths()),
+        );
+        is_satisfied_by_file_stats(expr, self.child.row_count(), &file_stats, &self.session)
     }
 }
 
@@ -231,6 +281,62 @@ mod tests {
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
             Arc::from([FieldPath::from_name("col")]),
         )
+    }
+
+    #[test]
+    fn satisfied_by_non_null_ignores_nulls() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = PrimitiveArray::from_option_iter([Some(1i32), None, Some(5)]);
+            let struct_array = StructArray::from_fields([("col", values.into_array())].as_slice())?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+
+            let stats = AggregateStats::new(vec![
+                AggregateStat::from_value(
+                    Min.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::exact(Scalar::from(1i32)),
+                ),
+                AggregateStat::from_value(
+                    Max.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::exact(Scalar::from(5i32)),
+                ),
+                AggregateStat::from_value(
+                    NullCount.bind(EmptyOptions),
+                    Precision::exact(Scalar::from(1u64)),
+                ),
+            ]);
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
+                Arc::from([FieldPath::from_name("col")]),
+            );
+            let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
+
+            // The null row does not match, but every other row does.
+            let expr = gt(get_item("col", root()), lit(0i32)).bind(reader.dtype())?;
+            assert!(!reader.is_satisfied(&expr)?);
+            assert!(reader.is_satisfied_by_non_null(&expr)?);
+
+            let expr = gt(get_item("col", root()), lit(1i32)).bind(reader.dtype())?;
+            assert!(!reader.is_satisfied_by_non_null(&expr)?);
+            Ok(())
+        })
     }
 
     #[test]
