@@ -3,12 +3,15 @@
 
 #![expect(clippy::missing_safety_doc)]
 
+use std::env;
 use std::ffi::c_char;
 use std::ffi::c_void;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
+use vortex::array::memory::MemorySessionExt;
+use vortex::buffer::BufferAllocatorRef;
 use vortex::cloud::Registry;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
@@ -20,9 +23,11 @@ use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
+use crate::buffer_pool::PooledBufferAllocator;
 use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
 
+mod buffer_pool;
 mod column_statistics;
 mod convert;
 pub mod duckdb;
@@ -48,7 +53,16 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 /// Process-wide registry, so repeated scans against the same bucket share one client.
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::default().with_handle(RUNTIME.handle());
+    let mut session = VortexSession::default().with_handle(RUNTIME.handle());
+
+    // DuckDB scans read and decode on every DuckDB thread at the same time. Fresh large buffers
+    // page-fault on first write, and on machines with many cores these faults wait behind DuckDB's
+    // own memory-map changes. Reusing freed blocks avoids the faults.
+    if env::var("VORTEX_DUCKDB_POOLED_ALLOCATOR").is_ok_and(|v| v == "1") {
+        session =
+            session.with_allocator(BufferAllocatorRef::new(PooledBufferAllocator::default()));
+    }
+
     session
         .enable_edition(CORE_2026_08_3)
         .map_err(|error| vortex_err!("{error}"))

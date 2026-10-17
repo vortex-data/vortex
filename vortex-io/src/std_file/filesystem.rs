@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream;
 use futures::stream::BoxStream;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
@@ -24,6 +25,7 @@ use crate::std_file::FileReadAt;
 /// A FileSystem over local filesystem.
 pub struct StdFileSystem {
     handle: Handle,
+    allocator: BufferAllocatorRef,
 }
 
 impl Debug for StdFileSystem {
@@ -34,7 +36,16 @@ impl Debug for StdFileSystem {
 
 impl StdFileSystem {
     pub fn new(handle: Handle) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            allocator: BufferAllocatorRef::statically_allocated(),
+        }
+    }
+
+    /// Allocate the buffers of file reads with `allocator`.
+    pub fn with_allocator(mut self, allocator: BufferAllocatorRef) -> Self {
+        self.allocator = allocator;
+        self
     }
 }
 
@@ -89,10 +100,11 @@ impl FileSystem for StdFileSystem {
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         let handle = self.handle.clone();
+        let allocator = self.allocator.clone();
         let path = path.to_owned();
         let reader = self
             .handle
-            .spawn_blocking(move || FileReadAt::open(path, handle))
+            .spawn_blocking(move || FileReadAt::open_with_allocator(path, handle, allocator))
             .await?;
         Ok(Arc::new(reader))
     }
