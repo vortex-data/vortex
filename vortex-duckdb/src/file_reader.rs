@@ -354,7 +354,7 @@ pub fn reader_get_statistics(
         stats_sets.get(index)?,
         reader.file_stats().distinct_count(index),
     );
-    match ColumnStatistics::try_from(stats, dtype, file.reader().row_count()) {
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -405,7 +405,7 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
         file_stats.stats_sets().get(index)?,
         file_stats.distinct_count(index),
     );
-    match ColumnStatistics::try_from(stats, dtype, footer.row_count()) {
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }

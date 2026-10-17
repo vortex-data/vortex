@@ -22,19 +22,16 @@ pub struct ColumnStatistics {
     pub max: Option<Value>,
     pub max_string_length: u64,
     pub has_null: bool,
-    /// An estimate of the number of distinct values, or 0 when unknown.
+    /// The estimated number of distinct non-null values, or 0 when unknown.
     pub distinct_count: u64,
     pub logical_type: LogicalType,
 }
 
 impl ColumnStatistics {
-    /// Converts the statistics of a column of `row_count` rows.
-    pub fn try_from(
-        stats: ColumnStatisticsAggregate,
-        dtype: DType,
-        row_count: u64,
-    ) -> VortexResult<Self> {
-        let distinct_count = reported_distinct_count(stats.distinct_count, row_count);
+    pub fn try_from(stats: ColumnStatisticsAggregate, dtype: DType) -> VortexResult<Self> {
+        // DuckDB treats a column without a distinct count as having one distinct value per row,
+        // which makes it overestimate joins on columns whose values repeat, such as foreign keys.
+        let distinct_count = stats.distinct_count.unwrap_or(0);
         let to_value = |value: ScalarValue| {
             Scalar::try_new(dtype.clone(), Some(value))
                 .and_then(|scalar| scalar.try_to_duckdb_scalar())
@@ -70,22 +67,6 @@ impl ColumnStatistics {
             logical_type,
         })
     }
-}
-
-/// The distinct count to give DuckDB for a column of `row_count` rows with `distinct_count`
-/// estimated distinct values, or 0 to leave it unknown.
-///
-/// DuckDB treats a column without a distinct count as having one distinct value per row left
-/// after filters, which makes it overestimate joins on foreign keys, whose values repeat. For a
-/// column that is unique, or close to it, such as the key of a dimension table, that default is
-/// exact even after filters, where the distinct count of the whole column would make DuckDB
-/// underestimate joins with a filtered dimension table.
-fn reported_distinct_count(distinct_count: Option<u64>, row_count: u64) -> u64 {
-    // Distinct counts are sketched with an error of about 1%.
-    let near_unique = row_count - row_count / 20;
-    distinct_count
-        .filter(|&count| count > 0 && count < near_unique)
-        .unwrap_or(0)
 }
 
 #[derive(Default)]
@@ -137,30 +118,5 @@ impl ColumnStatisticsAggregate {
             nan_count,
             distinct_count,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::reported_distinct_count;
-
-    #[rstest]
-    // A foreign key repeats its values.
-    #[case(Some(1_823), 28_800_991, 1_823)]
-    #[case(Some(12), 1_000, 12)]
-    // A unique column, as estimated by a sketch, is left to DuckDB's default.
-    #[case(Some(73_049), 73_049, 0)]
-    #[case(Some(73_300), 73_049, 0)]
-    #[case(Some(70_000), 73_049, 0)]
-    #[case(None, 100, 0)]
-    #[case(Some(0), 100, 0)]
-    fn reports_distinct_counts_of_repeating_columns(
-        #[case] distinct_count: Option<u64>,
-        #[case] row_count: u64,
-        #[case] expected: u64,
-    ) {
-        assert_eq!(reported_distinct_count(distinct_count, row_count), expected);
     }
 }
