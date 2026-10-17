@@ -32,7 +32,7 @@ use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
-use vortex::expr::in_list as in_list_expr;
+use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -476,8 +476,7 @@ impl DefaultExpressionConverter {
                     .map(|scalar| scalar.cast(&element_dtype))
                     .collect::<VortexResult<Vec<_>>>()
                     .map_err(|_| Unconverted::Unsupported)?;
-                let list = Scalar::list(Arc::new(element_dtype), scalars, Nullability::NonNullable);
-                return Ok(in_list_expr(value, lit(list)));
+                return Ok(in_list_of(value, element_dtype, scalars));
             }
         }
         let mut comparisons = Vec::with_capacity(in_list.len());

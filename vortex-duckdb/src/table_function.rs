@@ -37,7 +37,9 @@ use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex::scalar_fn::fns::is_null::IsNull;
+use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::not::Not;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -46,10 +48,12 @@ use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
 use crate::cpp::DUCKDB_TYPE;
+use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::AggregateExpression;
 use crate::duckdb::AggregatePushdownInputRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
+use crate::duckdb::ExpressionClass;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableFilterSet;
@@ -425,30 +429,84 @@ pub fn pushdown_complex_filter(
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
+    // DuckDB holds IN lists in a filter above the scan even when they convert to a range.
+    let is_membership = matches!(
+        expr.as_class(),
+        Some(ExpressionClass::BoundOperator(operator)) if matches!(
+            operator.op,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN
+                | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN
+        )
+    );
+
     let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
         debug!(%expr, "failed to push down expression");
         return Ok(false);
     };
 
-    // The filter is evaluated by the scan, but reported as not pushed so DuckDB keeps it in the
-    // plan like it does for Parquet scans: it becomes a table filter or stays in a filter above
-    // the scan. DuckDB then estimates the cardinality of the scan from the filters as it does for
-    // Parquet, which its join order depends on. A filter it keeps above the scan only sees rows
-    // the scan has already filtered.
-    //
-    // Reporting every filter as pushed also enables a LEFT_DELIM_JOIN -> COMPARISON_JOIN
-    // rewrite (duckdb/src/optimizer/deliminator.cpp) that regresses tpch sf=10 q17, see
-    // https://github.com/duckdb/duckdb/issues/22669.
-    //
     // DuckDB turns comparisons of a column with a constant into table filters, which the scan
-    // receives on initialization, so only the other filters are kept here.
-    if is_table_filter_like(&expr) {
+    // receives on initialization, so these are left to DuckDB.
+    if !is_membership && is_table_filter_like(&expr) {
         debug!(%expr, "left expression to table filters");
         return Ok(false);
     }
-    debug!(%expr, "pushed down expression");
+
+    // Membership tests and disjunctions of comparisons are evaluated by the scan, but reported
+    // as not pushed so that DuckDB keeps them in a filter above the scan like it does for Parquet
+    // scans. DuckDB then estimates the cardinality of the scan from them as it does for Parquet,
+    // which its join order depends on, and checks them again only on the rows the scan kept.
+    if is_membership || is_cheap_residual(&expr) {
+        debug!(%expr, "pushed down expression, kept by DuckDB");
+        bind_data.filters.push(expr);
+        return Ok(false);
+    }
+
+    // Duckdb calls pushdown_complex_filter during planning phase.
+    // If all filters are pushed down, duckdb enables a LEFT_DELIM_JOIN ->
+    // COMPARISON_JOIN (HASH_JOIN) optimization:
+    // duckdb/src/optimizer/deliminator.cpp: Deliminator::HasSelection,
+    // Deliminator::Optimize.
+    //
+    // This leads to a massive regression on tpch sf=10 q17 and other
+    // benchmarks.
+    //
+    // This bug is reported to Duckdb
+    // https://github.com/duckdb/duckdb/issues/22669
+    //
+    // As a hack, report equality filters as not pushed.
+    let report_pushed = !expr
+        .as_opt::<Binary>()
+        .map(|op| *op == Operator::Eq)
+        .unwrap_or(false);
+
+    // Only table filters may be optional, any complex filter is
+    // non-optional by definition.
+    bind_data
+        .has_non_optional_filter
+        .store(true, Ordering::Relaxed);
+
+    debug!(%expr, report_pushed, "pushed down expression");
     bind_data.filters.push(expr);
-    Ok(false)
+    Ok(report_pushed)
+}
+
+/// Whether `expr` is a membership test of a column in a constant list, possibly negated, or a
+/// disjunction of those and of comparisons that DuckDB would turn into table filters.
+fn is_cheap_residual(expr: &Expression) -> bool {
+    if expr.is::<ListContains>() {
+        return expr.child(0).is::<Literal>()
+            && expr.child(1).is::<GetItem>()
+            && expr.child(1).child(0).is_root();
+    }
+    if expr.is::<Not>() {
+        return is_cheap_residual(expr.child(0));
+    }
+    expr.as_opt::<Binary>()
+        .is_some_and(|operator| *operator == Operator::Or)
+        && expr
+            .children()
+            .iter()
+            .all(|child| is_cheap_residual(child) || is_table_filter_like(child))
 }
 
 /// Whether DuckDB turns `expr` into table filters: a comparison of a column with a constant,
@@ -702,6 +760,7 @@ mod tests {
     use vortex::expr::in_list;
     use vortex::expr::is_null;
     use vortex::expr::lit;
+    use vortex::expr::not;
     use vortex::expr::or;
     use vortex::scalar_fn::fns::between::BetweenOptions;
     use vortex::scalar_fn::fns::between::StrictComparison;
@@ -723,5 +782,15 @@ mod tests {
     #[case::two_columns(gt(col("a"), col("b")), false)]
     fn table_filter_like(#[case] expr: Expression, #[case] expected: bool) {
         assert_eq!(is_table_filter_like(&expr), expected);
+    }
+
+    #[rstest]
+    #[case::in_list(in_list(col("a"), lit(vec![1, 3])), true)]
+    #[case::not_in_list(not(in_list(col("a"), lit(vec![1, 3]))), true)]
+    #[case::disjunction(or(eq(col("a"), lit(1)), gt(col("b"), lit(2))), true)]
+    #[case::two_columns(or(gt(col("a"), col("b")), eq(col("a"), lit(1))), false)]
+    #[case::comparison(gt(col("a"), lit(1)), false)]
+    fn cheap_residual(#[case] expr: Expression, #[case] expected: bool) {
+        assert_eq!(is_cheap_residual(&expr), expected);
     }
 }

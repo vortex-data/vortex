@@ -22,6 +22,7 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
@@ -1145,6 +1146,67 @@ pub fn in_list(needle: Expression, list: Expression) -> Expression {
             sql_null_semantics: true,
         },
     )
+}
+
+/// Creates `needle IN (elements)` for a list of constant elements of `element_dtype`.
+///
+/// Non-null integers that hold every value between their smallest and largest become a range
+/// check, which is cheaper to evaluate and prunes with tighter bounds than a set lookup, as for
+/// the keys of a small dimension table that a join pushes down.
+///
+/// ```rust
+/// # use vortex_array::dtype::{DType, Nullability, PType};
+/// # use vortex_array::expr::{in_list_of, root};
+/// let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+/// let expr = in_list_of(root(), dtype, vec![3i32.into(), 1i32.into(), 2i32.into()]);
+/// assert_eq!(expr.to_string(), "(1i32 <= $ <= 3i32)");
+/// ```
+pub fn in_list_of(
+    needle: Expression,
+    element_dtype: DType,
+    mut elements: Vec<Scalar>,
+) -> Expression {
+    if let Some((low, high)) = contiguous_integer_bounds(&elements) {
+        let options = BetweenOptions {
+            lower_strict: StrictComparison::NonStrict,
+            upper_strict: StrictComparison::NonStrict,
+        };
+        return between(needle, lit(low.clone()), lit(high.clone()), options);
+    }
+    // Ordered elements make equal lists from the same set, so that equal filters deduplicate.
+    if elements
+        .windows(2)
+        .all(|pair| pair[0].partial_cmp(&pair[1]).is_some())
+    {
+        elements.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
+    in_list(needle, lit(list))
+}
+
+/// The smallest and largest of non-null integer `scalars` when they hold every integer between
+/// those two.
+fn contiguous_integer_bounds(scalars: &[Scalar]) -> Option<(&Scalar, &Scalar)> {
+    let mut values = scalars
+        .iter()
+        .map(|scalar| {
+            let primitive = scalar.as_primitive_opt()?;
+            if !primitive.ptype().is_int() {
+                return None;
+            }
+            let value = if primitive.ptype().is_unsigned_int() {
+                primitive.as_opt::<u64>()??.into()
+            } else {
+                i128::from(primitive.as_opt::<i64>()??)
+            };
+            Some((value, scalar))
+        })
+        .collect::<Option<Vec<(i128, &Scalar)>>>()?;
+    values.sort_unstable_by_key(|(value, _)| *value);
+    values.dedup_by_key(|(value, _)| *value);
+    let (low, low_scalar) = values.first()?;
+    let (high, high_scalar) = values.last()?;
+    (high - low + 1 == i128::try_from(values.len()).ok()?).then_some((*low_scalar, *high_scalar))
 }
 
 /// Creates a bound expression that checks whether a list contains a value.

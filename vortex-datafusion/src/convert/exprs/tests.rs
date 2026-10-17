@@ -33,7 +33,10 @@ use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::encodings::uuid::Uuid;
+use vortex::expr::between;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::fns::between::BetweenOptions;
+use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
@@ -329,7 +332,7 @@ fn test_in_list_converts_to_set_lookup() -> DFResult<()> {
     let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
     let expr = Arc::new(df_expr::InListExpr::try_new(
         Arc::new(df_expr::Column::new("a", 0)),
-        int_literals([Some(1), Some(2), Some(3)]),
+        int_literals([Some(1), Some(3), Some(7)]),
         false,
         &schema,
     )?);
@@ -339,12 +342,32 @@ fn test_in_list_converts_to_set_lookup() -> DFResult<()> {
     ));
     let list = Scalar::list(
         element_dtype,
-        vec![1i32.into(), 2i32.into(), 3i32.into()],
+        vec![1i32.into(), 3i32.into(), 7i32.into()],
         Nullability::NonNullable,
     );
     assert_eq!(
         convert(expr, &schema)?,
         vortex::expr::in_list(get_item("a", root()), lit(list))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_contiguous_in_list_converts_to_between() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals([Some(3), Some(1), Some(2), Some(2)]),
+        false,
+        &schema,
+    )?);
+    let options = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+    assert_eq!(
+        convert(expr, &schema)?,
+        between(get_item("a", root()), lit(1i32), lit(3i32), options)
     );
     Ok(())
 }

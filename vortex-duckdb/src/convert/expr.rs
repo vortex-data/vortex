@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
-use std::sync::Arc;
 
 use tracing::debug;
 use vortex::aggregate_fn::Accumulator;
@@ -33,7 +32,7 @@ use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
-use vortex::expr::in_list;
+use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -742,13 +741,8 @@ fn try_from_compare_in(
         return Ok(None);
     };
     // The IN list itself is never null. Null values are elements, and in_list handles them.
-    let list = Scalar::list(
-        Arc::new(list_elements[0].dtype().clone()),
-        list_elements,
-        Nullability::NonNullable,
-    );
-
-    let expr = in_list(element, lit(list));
+    let element_dtype = list_elements[0].dtype().clone();
+    let expr = in_list_of(element, element_dtype, list_elements);
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 

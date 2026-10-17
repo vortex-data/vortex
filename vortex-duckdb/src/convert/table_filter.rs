@@ -2,12 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -15,7 +13,7 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
-use vortex::expr::in_list;
+use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::lit;
@@ -89,8 +87,7 @@ pub fn try_from_table_filter(
             let dtype = scalars[0].dtype().clone();
             // The IN list itself is never null. Null values are elements, and in_list handles
             // them.
-            let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::NonNullable);
-            in_list(col.clone(), lit(list_scalar))
+            in_list_of(col.clone(), dtype, scalars)
         }
         TableFilterClass::Dynamic(dynamic) => {
             let op = match dynamic.operator {
