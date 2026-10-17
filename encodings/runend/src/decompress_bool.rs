@@ -24,7 +24,6 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-
 /// Threshold for number of runs below which we use sequential append instead of prefill.
 /// With few runs, the overhead of prefilling the entire buffer dominates.
 const PREFILL_RUN_THRESHOLD: usize = 32;
