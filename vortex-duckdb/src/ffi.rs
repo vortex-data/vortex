@@ -230,6 +230,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
     stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max_string_length = stats.max_string_length;
     stats_out.has_null = stats.has_null;
+    stats_out.distinct_count = stats.distinct_count;
     stats_out.type_ = stats.logical_type.into_ptr();
     true
 }
@@ -279,6 +280,7 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_statistics(
     stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max_string_length = stats.max_string_length;
     stats_out.has_null = stats.has_null;
+    stats_out.distinct_count = stats.distinct_count;
     stats_out.type_ = stats.logical_type.into_ptr();
     true
 }

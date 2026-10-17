@@ -351,7 +351,7 @@ pub fn reader_get_statistics(
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    match ColumnStatistics::try_from(stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype, file.reader().row_count()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -400,7 +400,7 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     let dtype = fields.field_by_index(index)?;
     let stats = stats.stats_sets().get(index)?;
     let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype, footer.row_count()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
