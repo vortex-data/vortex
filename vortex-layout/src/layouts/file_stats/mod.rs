@@ -36,6 +36,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+mod distinct;
+
+use distinct::DistinctSketch;
+
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::MIN_IS_TRUNCATED;
 use crate::sequence::SendableSequentialStream;
@@ -68,6 +72,7 @@ pub fn accumulate_stats(
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
     builders: Vec<Box<dyn StatsArrayBuilder>>,
+    distinct: Option<DistinctSketch>,
     length: usize,
 }
 
@@ -76,6 +81,7 @@ impl StatsAccumulator {
         if !supports_file_stats(dtype) {
             return Self {
                 builders: Vec::new(),
+                distinct: None,
                 length: 0,
             };
         }
@@ -96,6 +102,9 @@ impl StatsAccumulator {
 
         Self {
             builders,
+            distinct: (!stats.is_empty())
+                .then(|| DistinctSketch::try_new(dtype))
+                .flatten(),
             length: 0,
         }
     }
@@ -108,8 +117,16 @@ impl StatsAccumulator {
                 builder.append_null();
             }
         }
+        if let Some(distinct) = &mut self.distinct {
+            distinct.insert_array(array, ctx)?;
+        }
         self.length += 1;
         Ok(())
+    }
+
+    /// The estimated number of distinct non-null values, or 0 when unknown.
+    fn distinct_count(&self) -> u64 {
+        self.distinct.as_ref().map_or(0, DistinctSketch::estimate)
     }
 
     fn as_array(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Option<StructArray>> {
@@ -517,6 +534,15 @@ impl FileStatsAccumulator {
             self.accumulators.lock()[0].push_chunk(&chunk, &mut ctx)?;
         }
         Ok((sequence_id, chunk))
+    }
+
+    /// The estimated number of distinct non-null values of each field, where 0 means unknown.
+    pub fn distinct_counts(&self) -> Vec<u64> {
+        self.accumulators
+            .lock()
+            .iter()
+            .map(StatsAccumulator::distinct_count)
+            .collect()
     }
 
     pub fn stats_sets(&self) -> Vec<StatsSet> {

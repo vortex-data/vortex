@@ -350,7 +350,10 @@ pub fn reader_get_statistics(
 
     let dtype = fields.field_by_index(index)?;
 
-    let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
+    let stats = ColumnStatisticsAggregate::new(
+        stats_sets.get(index)?,
+        reader.file_stats().distinct_count(index),
+    );
     match ColumnStatistics::try_from(stats, dtype, file.reader().row_count()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
@@ -396,10 +399,12 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     let DType::Struct(fields, _) = footer.dtype() else {
         return None;
     };
-    let stats = footer.statistics()?;
+    let file_stats = footer.statistics()?;
     let dtype = fields.field_by_index(index)?;
-    let stats = stats.stats_sets().get(index)?;
-    let stats = ColumnStatisticsAggregate::new(stats);
+    let stats = ColumnStatisticsAggregate::new(
+        file_stats.stats_sets().get(index)?,
+        file_stats.distinct_count(index),
+    );
     match ColumnStatistics::try_from(stats, dtype, footer.row_count()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),

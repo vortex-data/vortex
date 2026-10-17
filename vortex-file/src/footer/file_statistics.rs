@@ -32,6 +32,8 @@ pub struct FileStatistics {
     stats: Arc<[StatsSet]>,
     /// An array of `DType`s, one for each field or column in the file.
     dtypes: Arc<[DType]>,
+    /// An estimate of the number of distinct non-null values of each field, where 0 means unknown.
+    distinct_counts: Option<Arc<[u64]>>,
 }
 
 impl FileStatistics {
@@ -47,7 +49,11 @@ impl FileStatistics {
             "stats and dtypes must have the same length"
         );
 
-        Self { stats, dtypes }
+        Self {
+            stats,
+            dtypes,
+            distinct_counts: None,
+        }
     }
 
     /// Creates a new [`FileStatistics`] from the given statistics and file dtype.
@@ -68,7 +74,11 @@ impl FileStatistics {
 
             let dtypes = struct_fields.fields().collect();
 
-            Self { stats, dtypes }
+            Self {
+                stats,
+                dtypes,
+                distinct_counts: None,
+            }
         } else {
             assert_eq!(
                 stats.len(),
@@ -79,8 +89,34 @@ impl FileStatistics {
             Self {
                 stats,
                 dtypes: Arc::new([file_dtype.clone()]),
+                distinct_counts: None,
             }
         }
+    }
+
+    /// Sets the estimated number of distinct non-null values of each field, where 0 means
+    /// unknown.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is not one count per field.
+    pub fn with_distinct_counts(mut self, distinct_counts: Arc<[u64]>) -> Self {
+        assert_eq!(
+            distinct_counts.len(),
+            self.stats.len(),
+            "distinct counts length must match number of fields"
+        );
+        self.distinct_counts = Some(distinct_counts);
+        self
+    }
+
+    /// Returns the estimated number of distinct non-null values of a field, if the file has one.
+    pub fn distinct_count(&self, field_idx: usize) -> Option<u64> {
+        self.distinct_counts
+            .as_ref()?
+            .get(field_idx)
+            .copied()
+            .filter(|&count| count > 0)
     }
 
     /// Creates [`FileStatistics`] from a flatbuffers [`fb::FileStatistics<'a>`].
@@ -93,6 +129,10 @@ impl FileStatistics {
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let field_stats = fb.field_stats().unwrap_or_default();
+        let distinct_counts: Option<Arc<[u64]>> = fb
+            .distinct_counts()
+            .filter(|counts| counts.len() == field_stats.len())
+            .map(|counts| counts.iter().collect());
 
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(field_stats.len(), struct_fields.nfields());
@@ -110,6 +150,7 @@ impl FileStatistics {
             Ok(Self {
                 stats: stats_sets,
                 dtypes,
+                distinct_counts,
             })
         } else {
             vortex_ensure_eq!(field_stats.len(), 1);
@@ -120,6 +161,7 @@ impl FileStatistics {
             Ok(Self {
                 stats: Arc::new([stats_set]),
                 dtypes: Arc::new([file_dtype.clone()]),
+                distinct_counts,
             })
         }
     }
@@ -168,11 +210,16 @@ impl WriteFlatBuffer for FileStatistics {
             .map(|s| s.write_flatbuffer(fbb))
             .collect::<VortexResult<Vec<_>>>()?;
         let field_stats = fbb.create_vector(field_stats.as_slice());
+        let distinct_counts = self
+            .distinct_counts
+            .as_ref()
+            .map(|counts| fbb.create_vector(counts));
 
         Ok(fb::FileStatistics::create(
             fbb,
             &fb::FileStatisticsArgs {
                 field_stats: Some(field_stats),
+                distinct_counts,
             },
         ))
     }

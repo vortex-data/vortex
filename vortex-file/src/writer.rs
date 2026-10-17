@@ -323,10 +323,10 @@ impl VortexWriteOptions {
         let statistics = if self.file_statistics.is_empty() {
             None
         } else {
-            Some(FileStatistics::new_with_dtype(
-                file_stats.stats_sets().into(),
-                &dtype,
-            ))
+            Some(
+                FileStatistics::new_with_dtype(file_stats.stats_sets().into(), &dtype)
+                    .with_distinct_counts(file_stats.distinct_counts().into()),
+            )
         };
         let mut footer = Footer::new(
             Arc::clone(&layout),
