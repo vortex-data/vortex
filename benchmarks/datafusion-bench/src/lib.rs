@@ -101,8 +101,8 @@ pub fn make_object_store(
 
 /// Creates the DataFusion format that reads `format` files under `data_url`.
 ///
-/// Setting `VORTEX_MMAP=1` reads local Vortex files through memory maps of them, which requires
-/// that the files are not modified while the benchmark runs.
+/// Local Vortex files are read through memory maps of them, which requires that the files are not
+/// modified while the benchmark runs. Set `VORTEX_MMAP=0` to read them with copies instead.
 pub fn format_to_df_format(
     format: Format,
     scan_v2: bool,
@@ -115,7 +115,9 @@ pub fn format_to_df_format(
         Format::Parquet => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => {
             let mut vortex_format = VortexFormat::new_with_options(SESSION.clone(), options);
-            if data_url.scheme() == "file" && std::env::var("VORTEX_MMAP").is_ok_and(|v| v == "1") {
+            if data_url.scheme() == "file"
+                && std::env::var("VORTEX_MMAP").map_or(true, |v| v != "0")
+            {
                 // SAFETY: benchmark data files are not modified while queries run.
                 let factory =
                     unsafe { MmapVortexReaderFactory::new(Arc::new(LocalFileSystem::default())) };
