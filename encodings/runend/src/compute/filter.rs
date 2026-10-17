@@ -191,6 +191,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::BitBuffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
@@ -210,9 +211,10 @@ mod tests {
         let mut retained = Vec::new();
         let (mut start, mut end_count) = (0usize, 0u32);
         for &run_end in run_ends {
-            let end = (u64::from(run_end) - offset).min(length) as usize;
+            let end = usize::try_from((u64::from(run_end) - offset).min(length))
+                .vortex_expect("run end fits in usize");
             let selected = mask.count_range(start, end);
-            end_count += selected as u32;
+            end_count += u32::try_from(selected).vortex_expect("run count fits in u32");
             if selected > 0 {
                 ends.push(end_count);
             }
@@ -227,18 +229,18 @@ mod tests {
         #[values(0, 3, 64, 70)] mask_offset: usize,
         #[values(1, 3, 63, 64, 65, 200)] run_length: u32,
     ) -> VortexResult<()> {
-        let length = 1000u64;
-        let offset = 5;
+        let (offset, length) = (5u32, 1000u32);
         // Every run ends after the offset, and the last one at the end of the array.
-        let last_end = (offset + length) as u32;
+        let last_end = offset + length;
         let run_ends: Vec<u32> = (1..)
-            .map(|run| offset as u32 + run * run_length)
+            .map(|run| offset + run * run_length)
             .take_while(|&end| end < last_end)
             .chain([last_end])
             .collect();
-        let bits =
-            BitBuffer::collect_bool(length as usize + mask_offset, |i| (i * 7 + i / 13) % 5 < 2)
-                .slice(mask_offset..mask_offset + length as usize);
+        let (offset, length) = (u64::from(offset), u64::from(length));
+        let mask_len = usize::try_from(length).vortex_expect("length fits in usize");
+        let bits = BitBuffer::collect_bool(mask_len + mask_offset, |i| (i * 7 + i / 13) % 5 < 2)
+            .slice(mask_offset..mask_offset + mask_len);
 
         let (ends, values_mask) = filter_run_end_primitive(&run_ends, offset, length, &bits)?;
         let (expected_ends, expected_mask) =

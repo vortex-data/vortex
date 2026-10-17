@@ -409,29 +409,6 @@ fn test_in_list_from_array_converts_to_set_lookup(#[case] data_type: DataType) -
 }
 
 #[rstest]
-#[case::utf8(DataType::Utf8)]
-#[case::utf8_view(DataType::Utf8View)]
-fn test_in_list_from_array_converts_to_set_lookup(#[case] data_type: DataType) -> DFResult<()> {
-    let schema = Schema::new(vec![Field::new("a", data_type.clone(), true)]);
-    let values = datafusion_common::arrow::compute::cast(
-        &arrow_array::StringArray::from(vec![Some("x"), None, Some("y"), Some("x")]),
-        &data_type,
-    )?;
-    let expr = Arc::new(df_expr::InListExpr::try_new_from_array(
-        Arc::new(df_expr::Column::new("a", 0)),
-        values,
-        false,
-        &schema,
-    )?);
-    let converted = convert(expr, &schema)?;
-    assert!(
-        converted.is::<ListContains>(),
-        "expected a set lookup, got {converted}"
-    );
-    Ok(())
-}
-
-#[rstest]
 fn test_native_in_list_float(
     #[values(false, true)] negated: bool,
     #[values(DataType::Float32, DataType::Float64)] data_type: DataType,
