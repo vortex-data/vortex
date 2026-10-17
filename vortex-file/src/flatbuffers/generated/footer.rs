@@ -817,6 +817,7 @@ impl<'a> ::flatbuffers::Follow<'a> for FileStatistics<'a> {
 impl<'a> FileStatistics<'a> {
   pub const VT_FIELD_STATS: ::flatbuffers::VOffsetT = 4;
   pub const VT_DISTINCT_COUNTS: ::flatbuffers::VOffsetT = 6;
+  pub const VT_MAX_LENGTHS: ::flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -828,6 +829,7 @@ impl<'a> FileStatistics<'a> {
     args: &'args FileStatisticsArgs<'args>
   ) -> ::flatbuffers::WIPOffset<FileStatistics<'bldr>> {
     let mut builder = FileStatisticsBuilder::new(_fbb);
+    if let Some(x) = args.max_lengths { builder.add_max_lengths(x); }
     if let Some(x) = args.distinct_counts { builder.add_distinct_counts(x); }
     if let Some(x) = args.field_stats { builder.add_field_stats(x); }
     builder.finish()
@@ -852,6 +854,16 @@ impl<'a> FileStatistics<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(FileStatistics::VT_DISTINCT_COUNTS, None)}
   }
+  /// One more than the byte length of the longest non-null value of each string or binary
+  /// field, in the order of `field_stats`, where 0 means unknown. Absent in files written
+  /// without these lengths.
+  #[inline]
+  pub fn max_lengths(&self) -> Option<::flatbuffers::Vector<'a, u64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(FileStatistics::VT_MAX_LENGTHS, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for FileStatistics<'_> {
@@ -862,6 +874,7 @@ impl ::flatbuffers::Verifiable for FileStatistics<'_> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ArrayStats>>>>("field_stats", Self::VT_FIELD_STATS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("distinct_counts", Self::VT_DISTINCT_COUNTS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("max_lengths", Self::VT_MAX_LENGTHS, false)?
      .finish();
     Ok(())
   }
@@ -869,6 +882,7 @@ impl ::flatbuffers::Verifiable for FileStatistics<'_> {
 pub struct FileStatisticsArgs<'a> {
     pub field_stats: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
     pub distinct_counts: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
+    pub max_lengths: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
 }
 impl<'a> Default for FileStatisticsArgs<'a> {
   #[inline]
@@ -876,6 +890,7 @@ impl<'a> Default for FileStatisticsArgs<'a> {
     FileStatisticsArgs {
       field_stats: None,
       distinct_counts: None,
+      max_lengths: None,
     }
   }
 }
@@ -892,6 +907,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> FileStatisticsBuilder<'a, 'b,
   #[inline]
   pub fn add_distinct_counts(&mut self, distinct_counts: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u64>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_DISTINCT_COUNTS, distinct_counts);
+  }
+  #[inline]
+  pub fn add_max_lengths(&mut self, max_lengths: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u64>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_MAX_LENGTHS, max_lengths);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> FileStatisticsBuilder<'a, 'b, A> {
@@ -913,6 +932,7 @@ impl ::core::fmt::Debug for FileStatistics<'_> {
     let mut ds = f.debug_struct("FileStatistics");
       ds.field("field_stats", &self.field_stats());
       ds.field("distinct_counts", &self.distinct_counts());
+      ds.field("max_lengths", &self.max_lengths());
       ds.finish()
   }
 }

@@ -149,13 +149,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_092 } else { 70_028 }
+    if cfg!(feature = "zstd") { 70_116 } else { 70_052 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_176
+        55_200
     )
 )]
 #[tokio::test]
@@ -2246,6 +2246,8 @@ async fn file_statistics_estimate_distinct_counts() -> VortexResult<()> {
         "estimated {names} distinct names"
     );
     assert_eq!(file_stats.distinct_count(2), None);
+    assert_eq!(file_stats.max_length(0), None);
+    assert_eq!(file_stats.max_length(1), Some("name 999".len() as u64));
 
     Ok(())
 }

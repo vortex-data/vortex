@@ -596,6 +596,21 @@ impl FileStatsAccumulator {
         Ok((sequence_id, chunk))
     }
 
+    /// One more than the byte length of the longest non-null value of each string or binary
+    /// field, where 0 means unknown.
+    pub fn max_lengths(&self) -> Vec<u64> {
+        self.accumulators
+            .lock()
+            .iter()
+            .map(|acc| {
+                acc.distinct
+                    .as_ref()
+                    .and_then(DistinctSketch::max_length)
+                    .map_or(0, |length| length + 1)
+            })
+            .collect()
+    }
+
     /// The estimated number of distinct non-null values of each field, where 0 means unknown.
     pub fn distinct_counts(&self) -> Vec<u64> {
         self.accumulators

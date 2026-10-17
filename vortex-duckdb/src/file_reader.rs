@@ -534,6 +534,7 @@ pub fn reader_get_statistics(
     let stats = ColumnStatisticsAggregate::new(
         stats_sets.get(index)?,
         reader.file_stats().distinct_count(index),
+        reader.file_stats().max_length(index),
     );
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
@@ -585,6 +586,7 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     let stats = ColumnStatisticsAggregate::new(
         file_stats.stats_sets().get(index)?,
         file_stats.distinct_count(index),
+        file_stats.max_length(index),
     );
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),

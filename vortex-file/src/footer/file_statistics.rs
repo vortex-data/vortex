@@ -34,6 +34,8 @@ pub struct FileStatistics {
     dtypes: Arc<[DType]>,
     /// An estimate of the number of distinct non-null values of each field, where 0 means unknown.
     distinct_counts: Option<Arc<[u64]>>,
+    /// One more than the byte length of the longest value of each field, where 0 means unknown.
+    max_lengths: Option<Arc<[u64]>>,
 }
 
 impl FileStatistics {
@@ -53,6 +55,7 @@ impl FileStatistics {
             stats,
             dtypes,
             distinct_counts: None,
+            max_lengths: None,
         }
     }
 
@@ -78,6 +81,7 @@ impl FileStatistics {
                 stats,
                 dtypes,
                 distinct_counts: None,
+                max_lengths: None,
             }
         } else {
             assert_eq!(
@@ -90,6 +94,7 @@ impl FileStatistics {
                 stats,
                 dtypes: Arc::new([file_dtype.clone()]),
                 distinct_counts: None,
+                max_lengths: None,
             }
         }
     }
@@ -119,6 +124,31 @@ impl FileStatistics {
             .filter(|&count| count > 0)
     }
 
+    /// Sets one more than the byte length of the longest non-null value of each string or binary
+    /// field, where 0 means unknown.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is not one length per field.
+    pub fn with_max_lengths(mut self, max_lengths: Arc<[u64]>) -> Self {
+        assert_eq!(
+            max_lengths.len(),
+            self.stats.len(),
+            "max lengths length must match number of fields"
+        );
+        self.max_lengths = Some(max_lengths);
+        self
+    }
+
+    /// Returns the byte length of the longest non-null value of a string or binary field, if the
+    /// file has it.
+    pub fn max_length(&self, field_idx: usize) -> Option<u64> {
+        self.max_lengths
+            .as_ref()?
+            .get(field_idx)
+            .and_then(|&length| length.checked_sub(1))
+    }
+
     /// Creates [`FileStatistics`] from a flatbuffers [`fb::FileStatistics<'a>`].
     ///
     /// If the [`DType`] of the file is a [`DType::Struct`], then there must be the same number of
@@ -133,6 +163,10 @@ impl FileStatistics {
             .distinct_counts()
             .filter(|counts| counts.len() == field_stats.len())
             .map(|counts| counts.iter().collect());
+        let max_lengths: Option<Arc<[u64]>> = fb
+            .max_lengths()
+            .filter(|lengths| lengths.len() == field_stats.len())
+            .map(|lengths| lengths.iter().collect());
 
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(field_stats.len(), struct_fields.nfields());
@@ -151,6 +185,7 @@ impl FileStatistics {
                 stats: stats_sets,
                 dtypes,
                 distinct_counts,
+                max_lengths,
             })
         } else {
             vortex_ensure_eq!(field_stats.len(), 1);
@@ -162,6 +197,7 @@ impl FileStatistics {
                 stats: Arc::new([stats_set]),
                 dtypes: Arc::new([file_dtype.clone()]),
                 distinct_counts,
+                max_lengths,
             })
         }
     }
@@ -214,12 +250,17 @@ impl WriteFlatBuffer for FileStatistics {
             .distinct_counts
             .as_ref()
             .map(|counts| fbb.create_vector(counts));
+        let max_lengths = self
+            .max_lengths
+            .as_ref()
+            .map(|lengths| fbb.create_vector(lengths));
 
         Ok(fb::FileStatistics::create(
             fbb,
             &fb::FileStatisticsArgs {
                 field_stats: Some(field_stats),
                 distinct_counts,
+                max_lengths,
             },
         ))
     }
