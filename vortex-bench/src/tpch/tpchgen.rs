@@ -13,7 +13,7 @@ use arrow_schema::SchemaRef;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
-use parquet::arrow::AsyncArrowWriter;
+use parquet::arrow::ArrowWriter;
 use tokio::fs::File as TokioFile;
 use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
@@ -33,6 +33,7 @@ use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::CompactionStrategy;
@@ -40,7 +41,9 @@ use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::ParquetTableJob;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::write_parquet_tables;
 
 /// The parquet-rs default, kept explicit so the shared writer settings do not change the
 /// parallelism of existing TPC-H Parquet benchmarks.
@@ -105,6 +108,10 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
         ("lineitem", TableGenerator::LineItem),
     ];
 
+    if matches!(options.format, Format::Parquet | Format::OnDiskDuckDB) {
+        return generate_parquet_tables(&tables, options).await;
+    }
+
     const MAX_CONCURRENT_FILES: usize = 32;
 
     let all_futures = tables
@@ -149,6 +156,41 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     Ok(())
 }
 
+/// Generate every table as Parquet, with all tables' parts sharing one pool of one worker per core.
+async fn generate_parquet_tables(
+    tables: &[(&str, TableGenerator)],
+    options: TpchGenOptions,
+) -> Result<()> {
+    let output_dir = options.output_dir.join(Format::Parquet.name());
+    let scale_factor: f64 = options.scale_factor.parse()?;
+    let options = Arc::new(options);
+    let jobs = tables
+        .iter()
+        .map(|&(table_name, generator)| {
+            let num_parts = generator.num_parquet_parts(scale_factor);
+            info!(
+                scale_factor = options.scale_factor,
+                table = table_name,
+                num_parts,
+                "Generating TPC-H table as parquet",
+            );
+            let options = Arc::clone(&options);
+            ParquetTableJob {
+                path: output_dir.join(format!("{table_name}.{}", Format::Parquet.ext())),
+                num_parts,
+                write_part: Box::new(move |part, path| {
+                    write_parquet_part(
+                        path,
+                        create_batch_iterator(generator, &options, part + 1, num_parts)?,
+                    )
+                }),
+            }
+        })
+        .collect();
+    let workers = get_available_parallelism().unwrap_or(1);
+    tokio::task::spawn_blocking(move || write_parquet_tables(jobs, workers)).await?
+}
+
 #[derive(Debug, Clone, Copy)]
 enum TableGenerator {
     Nation,
@@ -161,6 +203,32 @@ enum TableGenerator {
     LineItem,
 }
 
+/// Rows per Parquet part. Each part is generated and encoded on its own thread.
+const ROWS_PER_PART: f64 = (4 * ROW_GROUP_SIZE) as f64;
+
+impl TableGenerator {
+    /// Approximate row count at scale factor 1, from the TPC-H specification.
+    fn rows_per_scale_factor(self) -> f64 {
+        match self {
+            Self::Nation | Self::Region => 0.0,
+            Self::Part => 200_000.0,
+            Self::Supplier => 10_000.0,
+            Self::Customer => 150_000.0,
+            Self::PartSupp => 800_000.0,
+            Self::Orders => 1_500_000.0,
+            Self::LineItem => 6_000_000.0,
+        }
+    }
+
+    /// Number of parts to generate this table's Parquet file in, at most one per core.
+    // `as` saturates on overflow, NaN and negatives, and the clamp bounds the result.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn num_parquet_parts(self, scale_factor: f64) -> usize {
+        let parts = (self.rows_per_scale_factor() * scale_factor / ROWS_PER_PART).ceil();
+        (parts as usize).clamp(1, get_available_parallelism().unwrap_or(1))
+    }
+}
+
 /// Generate one file for a specific table in streaming fashion
 fn generate_table_file(
     table_name: String,
@@ -168,7 +236,6 @@ fn generate_table_file(
     options: TpchGenOptions,
 ) -> Result<BoxFuture<'static, Result<()>>> {
     let write_format = match options.format {
-        Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
         Format::VortexCompact => Format::VortexCompact,
         f => {
@@ -190,14 +257,13 @@ fn generate_table_file(
                 of.to_string_lossy()
             );
 
-            let iter = create_batch_iterator(generator, &options)?;
+            let iter = create_batch_iterator(generator, &options, 1, 1)?;
 
             // Create generator and process batches in streaming fashion
             let schema = Arc::clone(iter.schema());
 
             // Create writer based on format
             let mut writer: Box<dyn FileWriter + Send> = match write_format {
-                Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
                 Format::OnDiskVortex => Box::new(VortexWriter::new(
                     path,
                     schema,
@@ -226,14 +292,16 @@ fn generate_table_file(
     Ok(future)
 }
 
-/// Create a batch iterator for one full table
+/// Create a batch iterator for part `part` (one-based) of `num_parts` of a table.
 fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
+    part: usize,
+    num_parts: usize,
 ) -> Result<Box<dyn RecordBatchIterator>> {
     let scale_factor = options.scale_factor.parse::<f64>()?;
-    let part = 1;
-    let num_parts = 1;
+    let part = i32::try_from(part)?;
+    let num_parts = i32::try_from(num_parts)?;
     let batch_size = options.batch_size;
 
     let iterator: Box<dyn RecordBatchIterator> = match generator {
@@ -297,32 +365,21 @@ trait FileWriter {
     async fn finalize(self: Box<Self>) -> Result<()>;
 }
 
-/// Parquet writer for streaming TPC-H data
-struct ParquetWriter {
-    writer: AsyncArrowWriter<TokioFile>,
-}
-
-impl ParquetWriter {
-    async fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
-        let file = TokioFile::create(&path).await?;
-        let props = parquet_writer_properties()
-            .set_max_row_group_row_count(Some(ROW_GROUP_SIZE))
-            .build();
-        let writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
-        Ok(Self { writer })
+/// Write one TPC-H table part as a standalone Parquet file.
+fn write_parquet_part(path: &Path, batches: Box<dyn RecordBatchIterator>) -> Result<()> {
+    let props = parquet_writer_properties()
+        .set_max_row_group_row_count(Some(ROW_GROUP_SIZE))
+        .build();
+    let mut writer = ArrowWriter::try_new(
+        fs::File::create(path)?,
+        Arc::clone(batches.schema()),
+        Some(props),
+    )?;
+    for batch in batches {
+        writer.write(&batch)?;
     }
-}
-
-#[async_trait::async_trait]
-impl FileWriter for ParquetWriter {
-    async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        self.writer.write(batch).await.map_err(|e| anyhow!(e))
-    }
-
-    async fn finalize(self: Box<Self>) -> Result<()> {
-        self.writer.close().await?;
-        Ok(())
-    }
+    writer.close()?;
+    Ok(())
 }
 
 /// Vortex writer for streaming TPC-H data
@@ -386,6 +443,65 @@ impl FileWriter for VortexWriter {
                 .map_err(|e| anyhow!("Write task failed: {}", e))??;
         }
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_select::concat::concat_batches;
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    use rstest::rstest;
+
+    use super::*;
+
+    fn read_parquet(path: &Path) -> Result<(SchemaRef, usize, RecordBatch)> {
+        let builder = ParquetRecordBatchReaderBuilder::try_new(fs::File::open(path)?)?;
+        let schema = Arc::clone(builder.schema());
+        let row_groups = builder.metadata().num_row_groups();
+        let batches = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+        Ok((
+            Arc::clone(&schema),
+            row_groups,
+            concat_batches(&schema, &batches)?,
+        ))
+    }
+
+    #[rstest]
+    #[case::customer(TableGenerator::Customer)]
+    #[case::partsupp(TableGenerator::PartSupp)]
+    #[case::orders(TableGenerator::Orders)]
+    #[case::lineitem(TableGenerator::LineItem)]
+    fn parquet_parts_match_single_writer(#[case] generator: TableGenerator) -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let options = TpchGenOptions::new("0.1".to_string(), dir.path()).with_batch_size(10_000);
+
+        let single = dir.path().join("single.parquet");
+        write_parquet_part(&single, create_batch_iterator(generator, &options, 1, 1)?)?;
+
+        let num_parts = 7;
+        let parts = dir.path().join("parts.parquet");
+        let part_options = options;
+        let job = ParquetTableJob {
+            path: parts.clone(),
+            num_parts,
+            write_part: Box::new(move |part, part_path| {
+                write_parquet_part(
+                    part_path,
+                    create_batch_iterator(generator, &part_options, part + 1, num_parts)?,
+                )
+            }),
+        };
+        write_parquet_tables(vec![job], 3)?;
+
+        let (single_schema, _, single_rows) = read_parquet(&single)?;
+        let (parts_schema, parts_row_groups, parts_rows) = read_parquet(&parts)?;
+        // The schema comparison includes the embedded Arrow schema metadata.
+        assert_eq!(parts_schema, single_schema);
+        assert_eq!(parts_rows, single_rows);
+        assert_eq!(parts_row_groups, num_parts);
+        // Only the two output files remain: the part files are cleaned up.
+        assert_eq!(fs::read_dir(dir.path())?.count(), 2);
         Ok(())
     }
 }

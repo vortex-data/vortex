@@ -17,8 +17,6 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
-use futures::StreamExt;
-use futures::stream;
 use parquet::arrow::ArrowWriter;
 use tpcdsgen::config::CompatMode;
 use tpcdsgen::config::Session;
@@ -52,8 +50,9 @@ use tracing::info;
 use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Format;
-use crate::utils::file::idempotent;
+use crate::utils::parquet::ParquetTableJob;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::write_parquet_tables;
 
 const BATCH_SIZE: usize = 8192 * 16;
 
@@ -63,8 +62,11 @@ const ROW_GROUP_SIZE: usize = 122_880;
 /// Generate every TPC-DS table as a single Parquet file per table under `base_dir/parquet`.
 ///
 /// The files use the column names and types of the TPC-DS specification (and of DuckDB's
-/// `dsdgen`). Each table is generated on its own blocking thread. Already generated tables are
-/// skipped.
+/// `dsdgen`). Tables are generated on a shared pool of one worker per core. Already generated
+/// tables are skipped.
+///
+/// Each table is one unit of work: the released `tpcdsgen-arrow` always starts generating at a
+/// table's first row, so a table cannot yet be split into parts.
 pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf> {
     let output_dir = base_dir.join(Format::Parquet.name());
     fs::create_dir_all(&output_dir)?;
@@ -77,23 +79,22 @@ pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<P
         .with_compat_mode(CompatMode::C)
         .build()?;
 
-    let parallelism = get_available_parallelism().unwrap_or(1);
-    let mut tasks = stream::iter(TABLES.map(|table| {
-        let session = session.clone();
-        let path = output_dir.join(format!("{table}.{}", Format::Parquet.ext()));
-        tokio::task::spawn_blocking(move || {
-            idempotent(&path, |tmp| {
-                info!(table, scale_factor, "Generating TPC-DS table");
-                write_parquet(tmp, table_batches(table, session))
-            })
+    let jobs = TABLES
+        .map(|table| {
+            let session = session.clone();
+            ParquetTableJob {
+                path: output_dir.join(format!("{table}.{}", Format::Parquet.ext())),
+                num_parts: 1,
+                write_part: Box::new(move |_, path| {
+                    info!(table, scale_factor, "Generating TPC-DS table");
+                    write_parquet(path, table_batches(table, session.clone()))
+                }),
+            }
         })
-    }))
-    .buffer_unordered(parallelism);
-
-    while let Some(result) = tasks.next().await {
-        result??;
-    }
-    drop(tasks);
+        .into_iter()
+        .collect();
+    let workers = get_available_parallelism().unwrap_or(1);
+    tokio::task::spawn_blocking(move || write_parquet_tables(jobs, workers)).await??;
 
     Ok(output_dir)
 }
