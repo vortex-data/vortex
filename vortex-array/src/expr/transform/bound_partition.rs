@@ -28,6 +28,8 @@ use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::pack::Pack;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -146,18 +148,90 @@ where
         self.root = root;
         Ok(())
     }
+
+    /// Unwrap every partition that holds a single sub-expression.
+    ///
+    /// Such a partition is `pack(<name>_0: expr)`; it becomes `expr`, and the root's
+    /// `$.<name>.<name>_0` accesses become `$.<name>`. Callers then evaluate `expr` directly
+    /// instead of wrapping each result in a one-field struct, and a pass-through projection's root
+    /// reduces to a pack of the partitions themselves.
+    ///
+    /// Call this at most once: a second call would unwrap a single-field `pack` written in the
+    /// original expression.
+    pub fn collapse_single_partitions(&mut self) -> VortexResult<()> {
+        let mut collapsed = HashMap::new();
+        let partitions = self
+            .partitions
+            .iter()
+            .zip_eq(self.partition_names.iter())
+            .map(|(partition, partition_name)| {
+                if let Some(pack) = partition.as_opt::<Pack>()
+                    && let [value] = partition.children()
+                {
+                    let value_name = pack.names.get(0).vortex_expect("pack has one field");
+                    collapsed.insert(partition_name.clone(), value_name.clone());
+                    value.clone()
+                } else {
+                    partition.clone()
+                }
+            })
+            .collect::<Box<[_]>>();
+        if collapsed.is_empty() {
+            return Ok(());
+        }
+
+        let root_dtype = partition_root_dtype(&self.partition_names, &partitions);
+        let root = self
+            .root
+            .clone()
+            .transform_down(|node| {
+                if let Some(value_name) = node.as_opt::<GetItem>()
+                    && let partition_access = &node.children()[0]
+                    && let Some(partition_name) = partition_access.as_opt::<GetItem>()
+                    && partition_access.children()[0].is_root()
+                    && collapsed.get(partition_name) == Some(value_name)
+                {
+                    return Ok(Transformed {
+                        value: get_item(
+                            partition_name.clone(),
+                            BoundExpression::new_root(root_dtype.clone()),
+                        ),
+                        changed: true,
+                        order: TraversalOrder::Skip,
+                    });
+                }
+                if node.is_root() {
+                    return Ok(Transformed {
+                        value: BoundExpression::new_root(root_dtype.clone()),
+                        changed: true,
+                        order: TraversalOrder::Skip,
+                    });
+                }
+                Ok(Transformed::no(node))
+            })?
+            .into_inner();
+
+        self.partitions = partitions;
+        self.root = root;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
 struct PartitionCollector<'a, A: Annotation> {
     annotations: &'a BoundAnnotations<A>,
-    sub_expressions: HashMap<A, Vec<BoundExpression>>,
+    /// Sub-expressions per annotation, in the order each annotation is first visited, so that
+    /// partitions follow the order of the expression rather than hash order.
+    sub_expressions: Vec<(A, Vec<BoundExpression>)>,
+    /// Index into `sub_expressions` for each annotation.
+    positions: HashMap<A, usize>,
 }
 
 impl<'a, A: Annotation + Display> PartitionCollector<'a, A> {
     fn new(annotations: &'a BoundAnnotations<A>) -> Self {
         Self {
-            sub_expressions: HashMap::new(),
+            sub_expressions: Vec::new(),
+            positions: HashMap::new(),
             annotations,
         }
     }
@@ -183,8 +257,14 @@ where
                     .iter()
                     .next()
                     .vortex_expect("expected one field");
-                let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
-                sub_exprs.push(node.clone());
+                let position = *self
+                    .positions
+                    .entry(annotation.clone())
+                    .or_insert_with(|| {
+                        self.sub_expressions.push((annotation.clone(), Vec::new()));
+                        self.sub_expressions.len() - 1
+                    });
+                self.sub_expressions[position].1.push(node.clone());
                 Ok(Transformed {
                     value: node,
                     changed: false,
@@ -360,6 +440,54 @@ mod tests {
                 .unwrap();
             assert_eq!(partitioned.find_partition(name), Some(&expected));
         }
+    }
+
+    #[rstest]
+    fn test_collapse_single_partitions(dtype: DType) -> VortexResult<()> {
+        let expr = pack(
+            [
+                ("x", get_item("c", root())),
+                ("y", get_item("x", get_item("a", root()))),
+                ("z", get_item("y", get_item("a", root()))),
+            ],
+            NonNullable,
+        );
+        let mut partitioned = partition_by_field(expr.bind(&dtype)?, &dtype)?;
+        // Partitions follow the order in which the expression references them.
+        assert_eq!(
+            partitioned.partition_names,
+            FieldNames::from_iter(["c", "a"].map(FieldName::from))
+        );
+
+        partitioned.collapse_single_partitions()?;
+
+        assert_eq!(partitioned.partitions[0], get_item("c", root()).bind(&dtype)?);
+        assert_eq!(
+            partitioned.partitions[1],
+            pack(
+                [
+                    ("a_0", get_item("x", get_item("a", root()))),
+                    ("a_1", get_item("y", get_item("a", root()))),
+                ],
+                NonNullable
+            )
+            .bind(&dtype)?
+        );
+        let root_dtype =
+            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
+        assert_eq!(
+            partitioned.root,
+            pack(
+                [
+                    ("x", get_item("c", root())),
+                    ("y", get_item("a_0", get_item("a", root()))),
+                    ("z", get_item("a_1", get_item("a", root()))),
+                ],
+                NonNullable
+            )
+            .bind(&root_dtype)?
+        );
+        Ok(())
     }
 
     #[rstest]
