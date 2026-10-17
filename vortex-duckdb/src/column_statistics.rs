@@ -73,12 +73,14 @@ impl ColumnStatistics {
 }
 
 /// Estimates the distinct values of an integer column, including dates and times stored as
-/// integers, as the number of integers between its minimum and maximum, at most `row_count`.
+/// integers, as the number of integers between its minimum and maximum, or 0 when that does not
+/// show fewer distinct values than rows.
 ///
-/// DuckDB treats a column without a distinct count as having one distinct value per row, which
-/// makes it overestimate joins on foreign keys, whose values span a much smaller range than the
-/// rows referencing them. Its native tables carry distinct counts from a sketch; the range is
-/// exact for surrogate keys and close for the foreign keys referencing them.
+/// DuckDB treats a column without a distinct count as having one distinct value per row left
+/// after filters, which makes it overestimate joins on foreign keys, whose values span a much
+/// smaller range than the rows referencing them. For a column that may be unique, such as the key
+/// of a dimension table, that default is exact even after filters, where the distinct count of
+/// the whole column would make DuckDB underestimate joins with a filtered dimension table.
 fn integer_distinct_count(stats: &ColumnStatisticsAggregate, dtype: &DType, row_count: u64) -> u64 {
     let storage = match dtype {
         DType::Extension(ext) => ext.storage_dtype(),
@@ -109,7 +111,10 @@ fn integer_distinct_count(stats: &ColumnStatisticsAggregate, dtype: &DType, row_
     if span < 0 {
         return 0;
     }
-    u64::try_from(span + 1).map_or(row_count, |values| values.min(row_count))
+    u64::try_from(span + 1)
+        .ok()
+        .filter(|&values| values < row_count)
+        .unwrap_or(0)
 }
 
 #[derive(Default)]
@@ -158,5 +163,55 @@ impl ColumnStatisticsAggregate {
             has_null,
             nan_count,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::scalar::ScalarValue;
+
+    use super::ColumnStatisticsAggregate;
+    use super::integer_distinct_count;
+
+    fn stats(min: ScalarValue, max: ScalarValue) -> ColumnStatisticsAggregate {
+        ColumnStatisticsAggregate {
+            min: Some(min),
+            max: Some(max),
+            ..Default::default()
+        }
+    }
+
+    #[rstest]
+    // A foreign key spans fewer values than it has rows.
+    #[case(PType::I64, 2_450_816i64.into(), 2_452_642i64.into(), 28_800_991, 1_827)]
+    #[case(PType::U32, 1u32.into(), 12u32.into(), 1_000, 12)]
+    // A column that may be unique is left to DuckDB's default.
+    #[case(PType::I32, 1i32.into(), 73_049i32.into(), 73_049, 0)]
+    #[case(PType::I32, 1i32.into(), 1_000_000i32.into(), 100, 0)]
+    // Floats have no countable range.
+    #[case(PType::F64, 1.0f64.into(), 2.0f64.into(), 100, 0)]
+    fn distinct_count_from_range(
+        #[case] ptype: PType,
+        #[case] min: ScalarValue,
+        #[case] max: ScalarValue,
+        #[case] row_count: u64,
+        #[case] expected: u64,
+    ) {
+        let dtype = DType::Primitive(ptype, Nullability::Nullable);
+        assert_eq!(
+            integer_distinct_count(&stats(min, max), &dtype, row_count),
+            expected
+        );
+    }
+
+    #[test]
+    fn distinct_count_without_bounds_is_unknown() {
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let stats = ColumnStatisticsAggregate::default();
+        assert_eq!(integer_distinct_count(&stats, &dtype, 100), 0);
     }
 }
