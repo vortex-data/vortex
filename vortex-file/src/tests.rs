@@ -98,6 +98,7 @@ use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::list::ListLayoutEncoding;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
@@ -2031,6 +2032,106 @@ async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
 
     let result = write_read_roundtrip(st.clone()).await?;
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[rstest]
+#[case::empty_lists(Validity::NonNullable)]
+#[case::nullable_empty_lists(Validity::AllValid)]
+#[case::null_lists(Validity::AllInvalid)]
+#[case::mixed_empty_and_null(
+    Validity::Array(BoolArray::from_iter([true, false]).into_array())
+)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn nested_empty_list_roundtrip(#[case] validity: Validity) -> VortexResult<()> {
+    let inner = ListArray::try_new(
+        PrimitiveArray::new::<i32>(buffer![], Validity::NonNullable).into_array(),
+        buffer![0u32].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let outer = ListArray::try_new(inner, buffer![0u32, 0, 0].into_array(), validity)?.into_array();
+    let array = StructArray::from_fields(&[("nested", outer)])?.into_array();
+
+    let result = write_read_roundtrip(array.clone()).await?;
+    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[rstest]
+#[case::one_level(1)]
+#[case::two_levels(2)]
+#[case::five_levels(5)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn empty_nested_list_layouts_have_zero_offsets(
+    #[case] depth: usize,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    let mut elements =
+        PrimitiveArray::new::<i32>(buffer![], Validity::from(nullability)).into_array();
+    for _ in 1..depth {
+        elements = ListArray::try_new(
+            elements,
+            buffer![0u32].into_array(),
+            Validity::from(nullability),
+        )?
+        .into_array();
+    }
+    let lists = ListArray::try_new(
+        elements,
+        buffer![0u32, 0, 0].into_array(),
+        Validity::from(nullability),
+    )?
+    .into_array();
+    let array = StructArray::from_fields(&[("nested", lists)])?.into_array();
+    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+        .with_list_layout()
+        .build();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
+
+    let mut list_levels = 0;
+    let mut empty_levels = 0;
+    for layout in file.footer().layout().depth_first_traversal() {
+        let layout = layout?;
+        let Some(list) = layout.as_opt::<ListLayoutEncoding>() else {
+            continue;
+        };
+        list_levels += 1;
+        if list.row_count() == 0 {
+            empty_levels += 1;
+            assert_eq!(list.elements()?.row_count(), 0);
+            if let Some(validity) = list.validity()? {
+                assert_eq!(validity.row_count(), 0);
+            }
+            let reader = list.offsets()?.new_reader(
+                "offsets".into(),
+                file.segment_source(),
+                &SESSION,
+                &Default::default(),
+            )?;
+            let offsets = ScanBuilder::new(SESSION.clone(), reader)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(
+                offsets,
+                buffer![0u64].into_array(),
+                &mut SESSION.create_execution_ctx()
+            );
+        }
+    }
+    assert_eq!(list_levels, depth);
+    assert_eq!(empty_levels, depth - 1);
     Ok(())
 }
 

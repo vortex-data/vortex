@@ -23,6 +23,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -149,11 +150,16 @@ impl LayoutStrategy for ListLayoutStrategy {
             (None, None)
         };
 
+        // Reserve the sentinel's sequence before the child EOFs so the offsets
+        // writer can publish it even when the input contains no chunks.
+        let empty_offsets_sequence = eof.split_off().downgrade();
+
         // Transpose the list column into its child sub-streams and rebase offsets to global
         // positions. Kept joined with the child writers below so producer errors surface rather
         // than being hidden as an early channel close.
         let fanout_fut = transpose_list_column(
             stream,
+            empty_offsets_sequence,
             session.clone(),
             elements_tx,
             offsets_tx,
@@ -214,6 +220,7 @@ impl LayoutStrategy for ListLayoutStrategy {
 /// joins this against the child writers, rather than being hidden as an early channel close.
 async fn transpose_list_column(
     mut stream: SendableSequentialStream,
+    empty_offsets_sequence: SequenceId,
     session: VortexSession,
     elements_tx: kanal::AsyncSender<ChildChunk>,
     offsets_tx: kanal::AsyncSender<ChildChunk>,
@@ -261,7 +268,15 @@ async fn transpose_list_column(
         }
     }
     if !saw_chunk {
-        vortex_bail!("ListLayoutStrategy needs at least one chunk");
+        // Zero lists still need one boundary offset. Closing the other channels
+        // leaves typed empty elements and validity streams for their writers.
+        if offsets_tx
+            .send(Ok((empty_offsets_sequence, buffer![0u64].into_array())))
+            .await
+            .is_err()
+        {
+            vortex_bail!("list offset writer finished before the empty offset was sent");
+        }
     }
     Ok(())
 }
@@ -322,6 +337,7 @@ impl Matcher for AnyList {
 #[cfg(test)]
 mod tests {
     use futures::stream;
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
@@ -431,15 +447,20 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::non_nullable(false)]
+    #[case::nullable(true)]
     #[tokio::test]
-    async fn empty_stream_errors() {
+    async fn empty_stream_preserves_dtype_and_row_count(
+        #[case] nullable: bool,
+    ) -> VortexResult<()> {
         let segments = Arc::new(TestSegments::default());
         let (_, eof) = SequenceId::root().split();
         let empty = stream::empty::<VortexResult<(SequenceId, ArrayRef)>>().boxed();
-        let stream = SequentialStreamAdapter::new(i32_list_dtype(false), empty).sendable();
+        let stream = SequentialStreamAdapter::new(i32_list_dtype(nullable), empty).sendable();
         let session = layout_test_session();
 
-        let res = flat_list_strategy()
+        let layout = flat_list_strategy()
             .write_stream(
                 ArrayContext::empty().into(),
                 segments,
@@ -447,8 +468,10 @@ mod tests {
                 eof,
                 &session,
             )
-            .await;
-        assert!(res.is_err())
+            .await?;
+        assert_eq!(layout.dtype(), &i32_list_dtype(nullable));
+        assert_eq!(layout.row_count(), 0);
+        Ok(())
     }
 
     #[tokio::test]
