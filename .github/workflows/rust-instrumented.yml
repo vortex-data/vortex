@@ -22,30 +22,10 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
 
 jobs:
-  duckdb-mirror:
-    name: "Mirror DuckDB to R2"
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/duckdb-r2.yml
-    secrets: inherit
-
-  duckdb-ready:
-    name: "DuckDB libraries available in R2"
-    needs: duckdb-mirror
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify DuckDB mirror
-        if: ${{ needs.duckdb-mirror.result == 'failure' }}
-        run: |
-          echo "DuckDB mirror failed"
-          exit 1
-
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
-    needs: duckdb-ready
-    # The PR-only mirror is a skipped ancestor on develop; override implicit success().
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    # Coverage only runs on develop; PRs get the same tests uninstrumented in ci.yml.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
     permissions:
       id-token: write
@@ -123,6 +103,7 @@ jobs:
 
   cxx-coverage:
     name: "C++ API (coverage)"
+    if: github.event_name != 'pull_request'
     timeout-minutes: 15
     env:
       # Symbolizing error backtrace in debug .so is slow
