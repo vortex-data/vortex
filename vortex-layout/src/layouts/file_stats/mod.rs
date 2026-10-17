@@ -73,7 +73,56 @@ pub fn accumulate_stats(
 struct StatsAccumulator {
     builders: Vec<Box<dyn StatsArrayBuilder>>,
     distinct: Option<DistinctSketch>,
+    increasing: Option<StrictlyIncreasing>,
     length: usize,
+}
+
+/// Tracks whether a column's values are all present and strictly increasing, as surrogate keys
+/// usually are. The distinct count of such a column is its row count, which is exact where the
+/// sketch is not.
+#[derive(Default)]
+struct StrictlyIncreasing {
+    rows: u64,
+    max: Option<Scalar>,
+}
+
+impl StrictlyIncreasing {
+    /// Extend with the next chunk, returning `None` once the values are not strictly increasing.
+    fn push_chunk(
+        mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
+        if array.is_empty() {
+            return Ok(Some(self));
+        }
+        let stats = array.statistics();
+        let increasing = stats
+            .compute_stat(Stat::NullCount, ctx)?
+            .is_some_and(|count| count.as_primitive().as_::<u64>() == Some(0))
+            && stats
+                .compute_stat(Stat::IsStrictSorted, ctx)?
+                .is_some_and(|sorted| sorted.as_bool().value() == Some(true));
+        if !increasing {
+            return Ok(None);
+        }
+        let (Some(min), Some(max)) = (
+            stats.compute_stat(Stat::Min, ctx)?,
+            stats.compute_stat(Stat::Max, ctx)?,
+        ) else {
+            return Ok(None);
+        };
+        if self
+            .max
+            .as_ref()
+            .is_some_and(|previous| previous.partial_cmp(&min) != Some(std::cmp::Ordering::Less))
+        {
+            return Ok(None);
+        }
+        self.rows += array.len() as u64;
+        self.max = Some(max);
+        Ok(Some(self))
+    }
 }
 
 impl StatsAccumulator {
@@ -82,6 +131,7 @@ impl StatsAccumulator {
             return Self {
                 builders: Vec::new(),
                 distinct: None,
+                increasing: None,
                 length: 0,
             };
         }
@@ -100,11 +150,13 @@ impl StatsAccumulator {
             })
             .collect::<Vec<_>>();
 
+        let distinct = (!stats.is_empty())
+            .then(|| DistinctSketch::try_new(dtype))
+            .flatten();
         Self {
             builders,
-            distinct: (!stats.is_empty())
-                .then(|| DistinctSketch::try_new(dtype))
-                .flatten(),
+            increasing: distinct.as_ref().map(|_| StrictlyIncreasing::default()),
+            distinct,
             length: 0,
         }
     }
@@ -120,12 +172,20 @@ impl StatsAccumulator {
         if let Some(distinct) = &mut self.distinct {
             distinct.insert_array(array, ctx)?;
         }
+        if let Some(increasing) = self.increasing.take() {
+            self.increasing = increasing.push_chunk(array, ctx)?;
+        }
         self.length += 1;
         Ok(())
     }
 
     /// The estimated number of distinct non-null values, or 0 when unknown.
     fn distinct_count(&self) -> u64 {
+        if let Some(increasing) = &self.increasing
+            && increasing.rows > 0
+        {
+            return increasing.rows;
+        }
         self.distinct.as_ref().map_or(0, DistinctSketch::estimate)
     }
 
