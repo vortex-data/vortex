@@ -30,6 +30,8 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
 use crate::bitpacking::compute::compare_fused::stream_compare_fused;
+use crate::bitpacking::compute::packed_range::constant_result;
+use crate::bitpacking::compute::packed_range::packed_range;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for BitPacked {
@@ -87,25 +89,105 @@ where
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
     match operator {
-        CompareOperator::Eq => {
-            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_eq(b), ctx)
-        }
-        CompareOperator::NotEq => {
-            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| !a.is_eq(b), ctx)
-        }
-        CompareOperator::Lt => {
-            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_lt(b), ctx)
-        }
-        CompareOperator::Lte => {
-            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_le(b), ctx)
-        }
-        CompareOperator::Gt => {
-            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_gt(b), ctx)
-        }
-        CompareOperator::Gte => {
-            stream_compare_fused::<T, _>(lhs, bit_width, rhs, nullability, |a, b| a.is_ge(b), ctx)
-        }
+        CompareOperator::Eq => compare_with(
+            lhs,
+            bit_width,
+            rhs,
+            operator,
+            nullability,
+            |a, b| a.is_eq(b),
+            ctx,
+        ),
+        CompareOperator::NotEq => compare_with(
+            lhs,
+            bit_width,
+            rhs,
+            operator,
+            nullability,
+            |a, b| !a.is_eq(b),
+            ctx,
+        ),
+        CompareOperator::Lt => compare_with(
+            lhs,
+            bit_width,
+            rhs,
+            operator,
+            nullability,
+            |a, b| a.is_lt(b),
+            ctx,
+        ),
+        CompareOperator::Lte => compare_with(
+            lhs,
+            bit_width,
+            rhs,
+            operator,
+            nullability,
+            |a, b| a.is_le(b),
+            ctx,
+        ),
+        CompareOperator::Gt => compare_with(
+            lhs,
+            bit_width,
+            rhs,
+            operator,
+            nullability,
+            |a, b| a.is_gt(b),
+            ctx,
+        ),
+        CompareOperator::Gte => compare_with(
+            lhs,
+            bit_width,
+            rhs,
+            operator,
+            nullability,
+            |a, b| a.is_ge(b),
+            ctx,
+        ),
     }
+}
+
+fn compare_with<T, F>(
+    lhs: ArrayView<'_, BitPacked>,
+    bit_width: u8,
+    rhs: T,
+    operator: CompareOperator,
+    nullability: Nullability,
+    cmp: F,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+    F: Fn(T, T) -> bool + Copy,
+{
+    let exact = move |value| cmp(value, rhs);
+    if let Some(value) = decided_by_bit_width(bit_width, rhs, operator, cmp) {
+        return constant_result(lhs, value, nullability, &exact, ctx);
+    }
+    stream_compare_fused(lhs, bit_width, rhs, nullability, cmp, &exact, ctx)
+}
+
+/// The result for every packed value, if the bit width alone decides it.
+///
+/// Orderings are decided when both ends of the packed range agree, equality only by a constant
+/// outside the range or by W = 0.
+fn decided_by_bit_width<T: NativePType>(
+    bit_width: u8,
+    rhs: T,
+    operator: CompareOperator,
+    cmp: impl Fn(T, T) -> bool,
+) -> Option<bool> {
+    let (lo, hi) = packed_range::<T>(bit_width)?;
+    let at_lo = cmp(lo, rhs);
+    let decided = match operator {
+        CompareOperator::Eq | CompareOperator::NotEq => {
+            rhs.is_lt(lo) || rhs.is_gt(hi) || lo.is_eq(hi)
+        }
+        _ => at_lo == cmp(hi, rhs),
+    };
+    decided.then_some(at_lo)
 }
 
 #[cfg(test)]
@@ -303,6 +385,115 @@ mod tests {
         let actual = packed.into_array().binary(rhs.clone(), Operator::Eq)?;
         let expected = prim.into_array().binary(rhs, Operator::Eq)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    const ALL_OPERATORS: [CompareOperator; 6] = [
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte,
+    ];
+
+    /// A constant outside or on the edge of `[0, 2^W - 1]` gives a constant, patches and nulls
+    /// still exact.
+    #[rstest]
+    fn decided_by_bit_width_matches_primitive(
+        #[values(i32::MIN, -5, 0, 1, 127, 128, 1000, i32::MAX)] rhs: i32,
+        #[values(false, true)] patched: bool,
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = (0..3000i32).map(|i| match i % 97 {
+            0 if patched => 100_000 + i,
+            _ => i % 128,
+        });
+        let prim = if nullable {
+            PrimitiveArray::from_option_iter(
+                values.enumerate().map(|(i, v)| (i % 11 != 0).then_some(v)),
+            )
+        } else {
+            PrimitiveArray::from_iter(values)
+        };
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+        assert_eq!(packed.patches().is_some(), patched);
+        let rhs_array = ConstantArray::new(rhs, prim.len()).into_array();
+        for op in ALL_OPERATORS {
+            let got =
+                <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs_array, op, &mut ctx)?
+                    .expect("compare kernel must engage");
+            // Packed values span [0, 127].
+            let decided = match op {
+                CompareOperator::Eq | CompareOperator::NotEq => !(0..=127).contains(&rhs),
+                CompareOperator::Lt | CompareOperator::Gte => !(1..=127).contains(&rhs),
+                CompareOperator::Lte | CompareOperator::Gt => !(0..127).contains(&rhs),
+            };
+            if !patched && !nullable {
+                assert_eq!(got.as_constant().is_some(), decided, "{op:?} {rhs}");
+            }
+            let want = prim
+                .clone()
+                .into_array()
+                .binary(rhs_array.clone(), Operator::from(op))?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got.execute::<BoolArray>(&mut ctx)?, want, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// Width 0 is always decided.
+    #[rstest]
+    fn zero_bit_width(#[values(0u32, 1, u32::MAX)] rhs: u32) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim = PrimitiveArray::from_iter(std::iter::repeat_n(0u32, 1500));
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 0, &mut ctx)?;
+        let rhs_array = ConstantArray::new(rhs, prim.len()).into_array();
+        for op in ALL_OPERATORS {
+            let got =
+                <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs_array, op, &mut ctx)?
+                    .expect("compare kernel must engage");
+            assert!(
+                got.as_constant().is_some(),
+                "{op:?} {rhs} should stay constant"
+            );
+            let want = prim
+                .clone()
+                .into_array()
+                .binary(rhs_array.clone(), Operator::from(op))?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got.execute::<BoolArray>(&mut ctx)?, want, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// Patches past the packed width compare at full width.
+    #[rstest]
+    fn wide_patches_compare_exactly(
+        #[values(0u64, 1, 1 << 26, (1 << 27) - 1)] rhs: u64,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = (0..5000u64).map(|i| match i % 89 {
+            0 => (1 << 40) + i,
+            1 => u64::MAX - i,
+            _ => (i * 7919) % (1 << 27),
+        });
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 27, &mut ctx)?;
+        assert!(packed.patches().is_some(), "test setup expects patches");
+        let rhs_array = ConstantArray::new(rhs, prim.len()).into_array();
+        for op in ALL_OPERATORS {
+            let got =
+                <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs_array, op, &mut ctx)?
+                    .expect("compare kernel must engage");
+            let want = prim
+                .clone()
+                .into_array()
+                .binary(rhs_array.clone(), Operator::from(op))?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got.execute::<BoolArray>(&mut ctx)?, want, &mut ctx);
+        }
         Ok(())
     }
 }

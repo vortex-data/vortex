@@ -20,7 +20,7 @@
 //! slot with no per-block temporary and only one shared scratch `[u64; 16]`. The leading `offset`
 //! garbage rows are represented as the final [`BitBuffer`] bit offset, which naturally handles
 //! sub-byte slices without copy-aligning. Inline patches are spliced in afterwards by overwriting
-//! the bits at the patched indices with `cmp(patch_value, rhs)`.
+//! the bits at the patched indices with `predicate(patch_value)`.
 //!
 //! [`BitPackedArray`]: crate::BitPackedArray
 //! [`BitBuffer`]: vortex_buffer::BitBuffer
@@ -59,16 +59,18 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
 /// `unpack_cmp` kernel, producing a [`BoolArray`].
 ///
-/// `cmp(value, rhs)` defines the predicate; it must be the total-order comparison matching the
-/// requested operator (e.g. `|a, b| a.is_lt(b)`).
+/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`.
+/// `predicate(value)` is exact and handles patches and width 0; it is `&dyn` since that path is
+/// cold.
 ///
 /// [`BitPackedArray`]: crate::BitPackedArray
-pub(super) fn stream_compare_fused<T, F>(
+pub(super) fn stream_compare_fused<T, K>(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
     rhs: T,
     nullability: Nullability,
-    cmp: F,
+    kernel: K,
+    predicate: &dyn Fn(T) -> bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
@@ -76,7 +78,7 @@ where
         + BitPackedIter
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
-    F: Fn(T, T) -> bool + Copy,
+    K: Fn(T, T) -> bool + Copy,
 {
     let len = array.len();
     let bit_width = bit_width as usize;
@@ -85,7 +87,7 @@ where
     // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
     // streaming predicate, which handles every layout (including the empty array).
     if len == 0 || bit_width == 0 {
-        return stream_predicate::<T, _>(array, nullability, move |v| cmp(v, rhs), ctx);
+        return stream_predicate::<T, _>(array, nullability, predicate, ctx);
     }
 
     // Over-allocate to whole 1024-bit blocks in padded coordinates so every block - including the
@@ -113,7 +115,7 @@ where
                     <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<
                         T,
                         _,
-                    >(bit_width, packed_chunk, &mut lane_major, cmp, rhs);
+                    >(bit_width, packed_chunk, &mut lane_major, kernel, rhs);
                 }
                 transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
             },
@@ -136,7 +138,7 @@ where
             for (&global, &value) in indices.iter().zip(values) {
                 let global: usize = global.as_();
                 let idx = global - p_off;
-                bits.set_to(idx, cmp(value, rhs))
+                bits.set_to(idx, predicate(value))
             }
         });
     }

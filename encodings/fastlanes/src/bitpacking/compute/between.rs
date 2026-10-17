@@ -9,11 +9,17 @@
 //!
 //! [`BitPackedArray`]: crate::BitPackedArray
 
+use fastlanes::BitPacking;
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
+use num_traits::AsPrimitive;
+use num_traits::WrappingSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::between::BetweenKernel;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
@@ -23,7 +29,12 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidthsView;
+use crate::bitpacking::compute::compare_fused::stream_compare_fused;
+use crate::bitpacking::compute::packed_range::constant_result;
+use crate::bitpacking::compute::packed_range::packed_range;
 use crate::bitpacking::compute::stream_predicate::stream_predicate;
+use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl BetweenKernel for BitPacked {
     fn between(
@@ -78,7 +89,11 @@ fn between_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + crate::unpack_iter::BitPacked,
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>
+        + AsPrimitive<<T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare + WrappingSub,
 {
     // Branch on strictness once at the top so each call into `between_impl` monomorphises
     // a single tight predicate — same shape as `Primitive::between` in `vortex-array`.
@@ -132,16 +147,71 @@ fn between_impl<T, Lo, Up>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + crate::unpack_iter::BitPacked,
-    Lo: Fn(T, T) -> bool,
-    Up: Fn(T, T) -> bool,
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>
+        + AsPrimitive<<T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare + WrappingSub,
+    Lo: Fn(T, T) -> bool + Copy,
+    Up: Fn(T, T) -> bool + Copy,
 {
-    stream_predicate::<T, _>(
+    let predicate = move |v| lower_fn(lower, v) & upper_fn(v, upper);
+    let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+        return stream_predicate::<T, _>(array, nullability, predicate, ctx);
+    };
+    let Some((lo, hi)) = packed_range::<T>(bit_width) else {
+        return stream_predicate::<T, _>(array, nullability, predicate, ctx);
+    };
+
+    // Both tests are monotone, so the ends of the packed range decide them.
+    if lower_fn(lower, lo) && upper_fn(hi, upper) {
+        return constant_result(array, true, nullability, &predicate, ctx);
+    }
+    if !lower_fn(lower, hi) || !upper_fn(lo, upper) {
+        return constant_result(array, false, nullability, &predicate, ctx);
+    }
+
+    // Inclusive bounds clamped to the packed range, so one kernel serves every strictness.
+    // A strict bound at the end of `T` returned above, so the step cannot overflow.
+    let first = if lower_fn(lower, lower) {
+        lower
+    } else {
+        lower + T::one()
+    };
+    let first = if first.is_lt(lo) { lo } else { first };
+    let last = if upper_fn(upper, upper) {
+        upper
+    } else {
+        upper - T::one()
+    };
+    let last = if last.is_gt(hi) { hi } else { last };
+    if first.is_gt(last) {
+        return constant_result(array, false, nullability, &predicate, ctx);
+    }
+
+    let kernel = offset_within::<T>(first, last);
+    stream_compare_fused(
         array,
+        bit_width,
+        lower,
         nullability,
-        |v| lower_fn(lower, v) & upper_fn(v, upper),
+        kernel,
+        &predicate,
         ctx,
     )
+}
+
+/// `first <= v <= last` as one unsigned compare: values below `first` wrap around.
+fn offset_within<T>(first: T, last: T) -> impl Fn(T, T) -> bool + Copy
+where
+    T: NativePType + PhysicalPType + AsPrimitive<<T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: NativePType + WrappingSub + PartialOrd,
+{
+    let span: <T as PhysicalPType>::Physical = (last - first).as_();
+    let first: <T as PhysicalPType>::Physical = first.as_();
+    move |v: T, _| {
+        AsPrimitive::<<T as PhysicalPType>::Physical>::as_(v).wrapping_sub(&first) <= span
+    }
 }
 
 #[cfg(test)]
@@ -155,6 +225,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::scalar_fn::fns::between::BetweenKernel;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::validity::Validity;
@@ -162,6 +233,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::BitPacked;
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
 
@@ -244,6 +316,114 @@ mod tests {
             .between(lower.clone(), upper.clone(), options.clone())?;
         let expected = prim.into_array().between(lower, upper, options)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Bounds covering or missing `[0, 2^W - 1]` give a constant, patches and nulls still exact.
+    #[rstest]
+    fn decided_by_bit_width_matches_primitive(
+        #[values(false, true)] patched: bool,
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = (0..3000i32).map(|i| match i % 97 {
+            0 if patched => 100_000 + i,
+            _ => i % 128,
+        });
+        let prim = if nullable {
+            PrimitiveArray::from_option_iter(
+                values.enumerate().map(|(i, v)| (i % 11 != 0).then_some(v)),
+            )
+        } else {
+            PrimitiveArray::from_iter(values)
+        };
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+        assert_eq!(packed.patches().is_some(), patched);
+        let bounds = [i32::MIN, -5, 0, 50, 127, 128, 1000];
+        let strictness = [StrictComparison::Strict, StrictComparison::NonStrict];
+        for (&lo, &up) in bounds
+            .iter()
+            .flat_map(|l| bounds.iter().map(move |u| (l, u)))
+        {
+            for (&lower_strict, &upper_strict) in strictness
+                .iter()
+                .flat_map(|l| strictness.iter().map(move |u| (l, u)))
+            {
+                let options = opts(lower_strict, upper_strict);
+                let lower = ConstantArray::new(lo, prim.len()).into_array();
+                let upper = ConstantArray::new(up, prim.len()).into_array();
+                let got = <BitPacked as BetweenKernel>::between(
+                    packed.as_view(),
+                    &lower,
+                    &upper,
+                    &options,
+                    &mut ctx,
+                )?
+                .expect("between kernel must engage");
+                // Packed values span [0, 127].
+                let inside = |v: i32| {
+                    let above = match lower_strict {
+                        StrictComparison::Strict => lo < v,
+                        StrictComparison::NonStrict => lo <= v,
+                    };
+                    let below = match upper_strict {
+                        StrictComparison::Strict => v < up,
+                        StrictComparison::NonStrict => v <= up,
+                    };
+                    above && below
+                };
+                let decided = (0..=127).all(|v| inside(v) == inside(0));
+                if !patched && !nullable {
+                    assert_eq!(got.as_constant().is_some(), decided, "{lo} {up}");
+                }
+                let want = prim
+                    .clone()
+                    .into_array()
+                    .between(lower, upper, options)?
+                    .execute::<BoolArray>(&mut ctx)?;
+                assert_arrays_eq!(got.execute::<BoolArray>(&mut ctx)?, want, &mut ctx);
+            }
+        }
+        Ok(())
+    }
+
+    /// Patches past the packed width compare at full width.
+    #[rstest]
+    #[case(0, 1000)]
+    #[case(1000, 1 << 26)]
+    #[case(5, (1 << 27) - 1)]
+    fn wide_patches_compare_exactly(#[case] lo: u64, #[case] up: u64) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = (0..5000u64).map(|i| match i % 89 {
+            0 => (1 << 40) + i,
+            1 => u64::MAX - i,
+            2 => (1 << 32) + lo,
+            _ => (i * 7919) % (1 << 27),
+        });
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 27, &mut ctx)?;
+        assert!(packed.patches().is_some(), "test setup expects patches");
+        let lower = ConstantArray::new(lo, prim.len()).into_array();
+        let upper = ConstantArray::new(up, prim.len()).into_array();
+        for options in [
+            opts(StrictComparison::NonStrict, StrictComparison::NonStrict),
+            opts(StrictComparison::Strict, StrictComparison::Strict),
+        ] {
+            let got = <BitPacked as BetweenKernel>::between(
+                packed.as_view(),
+                &lower,
+                &upper,
+                &options,
+                &mut ctx,
+            )?
+            .expect("between kernel must engage");
+            let want = prim
+                .clone()
+                .into_array()
+                .between(lower.clone(), upper.clone(), options)?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got.execute::<BoolArray>(&mut ctx)?, want, &mut ctx);
+        }
         Ok(())
     }
 }
