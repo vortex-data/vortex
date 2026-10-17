@@ -15,6 +15,7 @@ use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::buffer::NullBuffer;
+use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::datatypes::i256 as arrow_i256;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::metadata::FieldMetadata;
@@ -32,6 +33,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
 use vortex::expr::between;
 use vortex::scalar::Scalar;
@@ -336,10 +338,7 @@ fn test_in_list_converts_to_set_lookup() -> DFResult<()> {
         false,
         &schema,
     )?);
-    let element_dtype = Arc::new(DType::Primitive(
-        vortex::dtype::PType::I32,
-        Nullability::NonNullable,
-    ));
+    let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
     let list = Scalar::list(
         element_dtype,
         vec![1i32.into(), 3i32.into(), 7i32.into()],
@@ -377,7 +376,7 @@ fn test_contiguous_in_list_converts_to_between() -> DFResult<()> {
 #[case::utf8_view(DataType::Utf8View)]
 fn test_in_list_from_array_converts_to_set_lookup(#[case] data_type: DataType) -> DFResult<()> {
     let schema = Schema::new(vec![Field::new("a", data_type.clone(), true)]);
-    let values = datafusion_common::arrow::compute::cast(
+    let values = cast(
         &arrow_array::StringArray::from(vec![Some("x"), None, Some("y"), Some("x")]),
         &data_type,
     )?;
