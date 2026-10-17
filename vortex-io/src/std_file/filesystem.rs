@@ -20,6 +20,7 @@ use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
 use crate::runtime::Handle;
 use crate::std_file::FileReadAt;
+use crate::std_file::MmapReadAt;
 
 /// A FileSystem over local filesystem.
 pub struct StdFileSystem {
@@ -41,7 +42,7 @@ impl StdFileSystem {
         }
     }
 
-    /// Read files through memory maps of them, see [`FileReadAt::open_mmap`].
+    /// Read files through memory maps of them with [`MmapReadAt`].
     ///
     /// # Safety
     ///
@@ -106,18 +107,16 @@ impl FileSystem for StdFileSystem {
         let handle = self.handle.clone();
         let path = path.to_owned();
         let mmap = self.mmap;
-        let reader = self
-            .handle
-            .spawn_blocking(move || {
+        self.handle
+            .spawn_blocking(move || -> VortexResult<Arc<dyn VortexReadAt>> {
                 if mmap {
                     // SAFETY: `with_mmap` requires that read files do not change.
-                    unsafe { FileReadAt::open_mmap(path, handle) }
+                    Ok(Arc::new(unsafe { MmapReadAt::open(path) }?))
                 } else {
-                    FileReadAt::open(path, handle)
+                    Ok(Arc::new(FileReadAt::open(path, handle)?))
                 }
             })
-            .await?;
-        Ok(Arc::new(reader))
+            .await
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {
