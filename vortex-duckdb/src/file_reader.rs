@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -81,14 +82,24 @@ use crate::table_function::convert_result;
 // `reader_get_progress_in_file` is called during `reader_scan` calls from a
 // separate thread.
 
+/// Whether to read local files through memory maps of them, which saves copying every read out
+/// of the page cache. Set `VORTEX_MMAP=1` to enable it, which is only safe when no scanned file is
+/// truncated or modified during a scan: a truncated file crashes the process with `SIGBUS`.
+static MMAP_LOCAL_FILES: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("VORTEX_MMAP").is_ok_and(|value| value == "1"));
+
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
     // high-core machines because reads go into blocking pool
     if url.scheme() == "file" {
-        return Ok((
-            Arc::new(StdFileSystem::new(RUNTIME.handle())),
-            url.path().to_string(),
-        ));
+        let fs = StdFileSystem::new(RUNTIME.handle());
+        // SAFETY: setting VORTEX_MMAP asserts that scanned files do not change during a scan.
+        let fs = if *MMAP_LOCAL_FILES {
+            unsafe { fs.with_mmap() }
+        } else {
+            fs
+        };
+        return Ok((Arc::new(fs), url.path().to_string()));
     }
 
     let (object_store, path) = REGISTRY.resolve(url)?;

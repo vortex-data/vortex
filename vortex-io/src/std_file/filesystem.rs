@@ -24,6 +24,7 @@ use crate::std_file::FileReadAt;
 /// A FileSystem over local filesystem.
 pub struct StdFileSystem {
     handle: Handle,
+    mmap: bool,
 }
 
 impl Debug for StdFileSystem {
@@ -34,7 +35,21 @@ impl Debug for StdFileSystem {
 
 impl StdFileSystem {
     pub fn new(handle: Handle) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            mmap: false,
+        }
+    }
+
+    /// Read files through memory maps of them, see [`FileReadAt::open_mmap`].
+    ///
+    /// # Safety
+    ///
+    /// No file read through this file system may be truncated or modified while a buffer read
+    /// from it is alive.
+    pub unsafe fn with_mmap(mut self) -> Self {
+        self.mmap = true;
+        self
     }
 }
 
@@ -90,9 +105,17 @@ impl FileSystem for StdFileSystem {
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         let handle = self.handle.clone();
         let path = path.to_owned();
+        let mmap = self.mmap;
         let reader = self
             .handle
-            .spawn_blocking(move || FileReadAt::open(path, handle))
+            .spawn_blocking(move || {
+                if mmap {
+                    // SAFETY: `with_mmap` requires that read files do not change.
+                    unsafe { FileReadAt::open_mmap(path, handle) }
+                } else {
+                    FileReadAt::open(path, handle)
+                }
+            })
             .await?;
         Ok(Arc::new(reader))
     }

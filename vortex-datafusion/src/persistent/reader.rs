@@ -6,13 +6,16 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_datasource::PartitionedFile;
 use object_store::ObjectStore;
+use object_store::local::LocalFileSystem;
 use vortex::array::memory::MemorySessionExt;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::io::std_file::FileReadAt;
 use vortex::session::VortexSession;
 
 /// Factory to create [`VortexReadAt`] instances for a `PartitionedFile`.
@@ -75,5 +78,44 @@ impl VortexReaderFactory for DefaultVortexReaderFactory {
             session.handle(),
             session.allocator(),
         )) as _)
+    }
+}
+
+/// [`VortexReaderFactory`] that reads local files through memory maps of them.
+///
+/// Reads return slices of the map instead of copying each segment out of the page cache into a
+/// freshly allocated buffer on a blocking thread, which is a large part of a scan's cost when the
+/// files are cached in memory.
+#[derive(Debug)]
+pub struct MmapVortexReaderFactory {
+    local: Arc<LocalFileSystem>,
+}
+
+impl MmapVortexReaderFactory {
+    /// Creates a factory that maps files of `local`.
+    ///
+    /// # Safety
+    ///
+    /// No file read through this factory may be truncated or modified while a buffer read from it
+    /// is alive, see [`FileReadAt::open_mmap`].
+    pub unsafe fn new(local: Arc<LocalFileSystem>) -> Self {
+        Self { local }
+    }
+}
+
+impl VortexReaderFactory for MmapVortexReaderFactory {
+    fn create_reader(
+        &self,
+        file: &PartitionedFile,
+        session: &VortexSession,
+    ) -> DFResult<Arc<dyn VortexReadAt>> {
+        let path = self
+            .local
+            .path_to_filesystem(file.path())
+            .map_err(|e| DataFusionError::ObjectStore(Box::new(e)))?;
+        // SAFETY: `new` requires that the files do not change while they are mapped.
+        let reader = unsafe { FileReadAt::open_mmap(path, session.handle()) }
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        Ok(Arc::new(reader) as _)
     }
 }
