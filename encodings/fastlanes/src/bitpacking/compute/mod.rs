@@ -12,7 +12,7 @@ use vortex_buffer::BufferMut;
 mod between;
 mod cast;
 mod compare;
-mod compare_fused;
+pub(crate) mod compare_fused;
 mod filter;
 pub(crate) mod is_constant;
 mod slice;
