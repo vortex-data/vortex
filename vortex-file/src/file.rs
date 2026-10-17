@@ -32,6 +32,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::pruning::can_prune_file_stats;
+use crate::pruning::is_satisfied_by_file_stats;
 use crate::source::FileDataSource;
 use crate::v2::FileStatsLayoutReader;
 
@@ -287,6 +288,21 @@ impl VortexFile {
         };
 
         can_prune_file_stats(
+            &filter.bind(self.footer.dtype())?,
+            self.footer.row_count(),
+            stats,
+            &self.session,
+        )
+    }
+
+    /// Returns `true` if file-level statistics prove the expression is true for every row in
+    /// this file, so that a filter on it would keep every row.
+    pub fn is_satisfied(&self, filter: &Expression) -> VortexResult<bool> {
+        let Some(stats) = self.footer.statistics() else {
+            return Ok(false);
+        };
+
+        is_satisfied_by_file_stats(
             &filter.bind(self.footer.dtype())?,
             self.footer.row_count(),
             stats,

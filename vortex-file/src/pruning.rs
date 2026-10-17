@@ -32,7 +32,29 @@ pub(crate) fn can_prune_file_stats(
     let Some(pruning_expr) = expr.falsify(session)? else {
         return Ok(false);
     };
+    evaluate_file_stats_proof(pruning_expr, row_count, file_stats, session)
+}
 
+/// Returns `true` if file-level statistics prove `expr` is true for every row of the file.
+pub(crate) fn is_satisfied_by_file_stats(
+    expr: &BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(proof) = expr.satisfy(session)? else {
+        return Ok(false);
+    };
+    evaluate_file_stats_proof(proof, row_count, file_stats, session)
+}
+
+/// Evaluates a stats proof against the file statistics; only a definite `true` proves it.
+fn evaluate_file_stats_proof(
+    pruning_expr: BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+) -> VortexResult<bool> {
     let binder = FileStatsBinder { file_stats };
     let pruning_expr = bind_stats(pruning_expr, &binder)?;
 
