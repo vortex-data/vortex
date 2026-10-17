@@ -2,10 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::min;
-use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
-use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -16,7 +14,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::buffer_mut;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -72,6 +71,7 @@ impl FilterKernel for RunEnd {
                     array.offset() as u64,
                     array.len() as u64,
                     mask_values.bit_buffer(),
+                    ctx,
                 )?
             });
         let filtered_values = array.values().filter(values_mask)?;
@@ -97,62 +97,165 @@ impl FilterKernel for RunEnd {
 /// exactly `length` bits. The returned ends are strictly increasing and contain one entry for each
 /// selected run value.
 ///
-/// Adapted from the [Apache Arrow Rust implementation](https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425).
-pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+/// A filtered run end is the rank of the mask at the source run end, i.e. the number of selected
+/// rows before it, and a run is retained when its rank exceeds the previous run's rank. Ranks are
+/// written for every run so the loop carries no data-dependent store index, and the retained ends
+/// are then compacted by the primitive filter with the same mask that selects the run values.
+pub fn filter_run_end_primitive<R: NativePType + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
     mask: &BitBuffer,
-) -> VortexResult<(PrimitiveArray, Mask)> {
-    let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(PrimitiveArray, Mask)>
+where
+    u64: AsPrimitive<R>,
+{
+    let (ranks, retained_runs) = run_end_ranks(run_ends, offset, length, mask);
+    let values_mask = Mask::from(retained_runs);
 
-    let mut run_start = 0u64;
-    let mut retained_run_count = 0;
-    let mut filtered_end = R::zero();
+    let filtered_run_ends = PrimitiveArray::new(ranks, Validity::NonNullable)
+        .into_array()
+        .filter(values_mask.clone())?
+        .execute::<PrimitiveArray>(ctx)?;
 
-    let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
-        let run_end = min(run_ends[run_idx].as_() - offset, length);
+    Ok((filtered_run_ends, values_mask))
+}
 
-        // Bulk popcount is SIMD-capable and avoids per-bit reads. The input contract and clamp prove
-        // `run_start_idx <= run_end_idx <= mask.len()`.
-        let run_start_idx = run_start
-            .try_into()
-            .vortex_expect("run start index must fit in usize");
-        let run_end_idx = run_end
-            .try_into()
-            .vortex_expect("run end index must fit in usize");
-        let selected_in_run = mask.count_range(run_start_idx, run_end_idx);
-        filtered_end += <R as NumCast>::from(selected_in_run)
-            .vortex_expect("run popcount must fit in run-end native type");
-        let retain_run = selected_in_run > 0;
+/// Returns the rank of `mask` at every source run end and the runs that contain selected rows.
+fn run_end_ranks<R: NativePType + AsPrimitive<u64>>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mask: &BitBuffer,
+) -> (Buffer<R>, BitBuffer)
+where
+    u64: AsPrimitive<R>,
+{
+    // The x86-64 baseline has no POPCNT, so a plain build lowers every per-run popcount to a
+    // bit-twiddling sequence that dominates the loop.
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("popcnt") {
+            // SAFETY: POPCNT support was detected above.
+            return unsafe { run_end_ranks_popcnt(run_ends, offset, length, mask) };
+        }
+    }
+    run_end_ranks_inline::<R, false>(run_ends, offset, length, mask)
+}
 
-        // Always write the current end, then advance only for a retained run. This keeps the loop
-        // branchless.
-        filtered_run_ends[retained_run_count] = filtered_end;
-        retained_run_count += retain_run as usize;
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "popcnt")]
+unsafe fn run_end_ranks_popcnt<R: NativePType + AsPrimitive<u64>>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mask: &BitBuffer,
+) -> (Buffer<R>, BitBuffer)
+where
+    u64: AsPrimitive<R>,
+{
+    run_end_ranks_inline::<R, true>(run_ends, offset, length, mask)
+}
 
-        run_start = run_end;
+/// Rank loop shared by the POPCNT and portable paths.
+///
+/// `POPCNT` is unused in the body. It gives each path its own instantiation, and so its own
+/// closure type, so each `BitBuffer::collect_bool` instantiation has one caller and LLVM inlines it.
+/// With a shared closure type LLVM keeps `collect_bool` out of line, where the predicate is
+/// compiled without POPCNT.
+#[expect(
+    clippy::inline_always,
+    reason = "the loop must inline into the POPCNT-enabled caller to use the instruction"
+)]
+#[inline(always)]
+fn run_end_ranks_inline<R: NativePType + AsPrimitive<u64>, const POPCNT: bool>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mask: &BitBuffer,
+) -> (Buffer<R>, BitBuffer)
+where
+    u64: AsPrimitive<R>,
+{
+    let rank = RankDirectory::new(mask);
+    let mut ranks = BufferMut::<R>::zeroed(run_ends.len());
+    let mut prev_rank = 0u64;
+
+    let retained_runs = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
+        let run_rank = rank.rank(min(run_ends[run_idx].as_() - offset, length));
+        // The rank is at most `length`, which fits in `R` because the source run ends reach
+        // `offset + length`.
+        ranks[run_idx] = run_rank.as_();
+        let retain_run = run_rank > prev_rank;
+        prev_rank = run_rank;
         retain_run
-    })
-    .into();
+    });
 
-    filtered_run_ends.truncate(retained_run_count);
+    (ranks.freeze(), retained_runs)
+}
 
-    Ok((
-        PrimitiveArray::new(filtered_run_ends, Validity::NonNullable),
-        values_mask,
-    ))
+/// Constant-time rank queries over a bitmap.
+///
+/// Each entry pairs a 64-bit word of the bitmap with the number of set bits in all preceding
+/// words, so a rank is one load and one popcount instead of a range count per query.
+struct RankDirectory {
+    /// `(word, set bits before word)` over the bitmap's aligned words, followed by one zero word so
+    /// `rank(len)` is in bounds.
+    entries: Vec<(u64, u64)>,
+    /// Bit position of logical bit 0 within the first word. The padding bits are zero.
+    lead_padding: u64,
+}
+
+impl RankDirectory {
+    #[expect(
+        clippy::inline_always,
+        reason = "must inline into the POPCNT-enabled caller to use the instruction"
+    )]
+    #[inline(always)]
+    fn new(bits: &BitBuffer) -> Self {
+        let chunks = bits.unaligned_chunks();
+        let mut entries = Vec::with_capacity(chunks.chunks().len() + 3);
+        let mut preceding = 0u64;
+        let mut push = |word: u64| {
+            entries.push((word, preceding));
+            preceding += u64::from(word.count_ones());
+        };
+        chunks.prefix().into_iter().for_each(&mut push);
+        chunks.chunks().iter().copied().for_each(&mut push);
+        chunks.suffix().into_iter().for_each(&mut push);
+        push(0);
+        Self {
+            entries,
+            lead_padding: chunks.lead_padding() as u64,
+        }
+    }
+
+    /// Returns the number of set bits before position `n`, for `n <= len`.
+    #[expect(
+        clippy::inline_always,
+        reason = "must inline into the POPCNT-enabled caller to use the instruction"
+    )]
+    #[inline(always)]
+    fn rank(&self, n: u64) -> u64 {
+        let position = n + self.lead_padding;
+        let (word, preceding) = self.entries[(position / 64) as usize];
+        preceding + u64::from((word & ((1u64 << (position % 64)) - 1)).count_ones())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::filter_run_end_primitive;
     use crate::RunEnd;
     use crate::RunEndArray;
     use crate::tests::SESSION;
@@ -212,6 +315,55 @@ mod tests {
             .collect();
         assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected), &mut ctx);
 
+        Ok(())
+    }
+
+    /// Checks rank-based run filtering against a per-row reference over word-boundary run ends
+    /// and a bit-offset mask.
+    #[rstest]
+    #[case(0, 200)]
+    #[case(3, 200)]
+    #[case(64, 128)]
+    #[case(70, 129)]
+    fn filter_run_end_primitive_matches_reference(
+        #[case] offset: u64,
+        #[case] length: u64,
+    ) -> VortexResult<()> {
+        let run_ends: Vec<u32> = [1u32, 2, 63, 64, 65, 127, 128, 129, 150, 192, 260, 300]
+            .into_iter()
+            .filter(|&end| u64::from(end) > offset)
+            .collect();
+        let mask_bits: Vec<bool> = (0..length).map(|i| (i * 7 + i / 5) % 3 == 0).collect();
+        let length_usize = usize::try_from(length)?;
+        // Start the mask at a non-zero bit offset in its backing buffer.
+        let backing =
+            BitBuffer::from_iter(std::iter::repeat_n(false, 5).chain(mask_bits.iter().copied()));
+        let mask = BitBuffer::new_with_offset(backing.inner().clone(), length_usize, 5);
+
+        let (ends, values_mask) = filter_run_end_primitive(
+            &run_ends,
+            offset,
+            length,
+            &mask,
+            &mut SESSION.create_execution_ctx(),
+        )?;
+
+        let mut expected_ends = Vec::new();
+        let mut expected_retained = Vec::new();
+        let (mut start, mut selected) = (0usize, 0u32);
+        for &end in &run_ends {
+            let end = usize::try_from(u64::from(end) - offset)?.min(length_usize);
+            let in_run = mask_bits[start..end].iter().filter(|&&bit| bit).count();
+            selected += u32::try_from(in_run)?;
+            if in_run > 0 {
+                expected_ends.push(selected);
+            }
+            expected_retained.push(in_run > 0);
+            start = end;
+        }
+
+        assert_eq!(ends.as_slice::<u32>(), expected_ends.as_slice());
+        assert_eq!(values_mask, Mask::from_iter(expected_retained));
         Ok(())
     }
 }
