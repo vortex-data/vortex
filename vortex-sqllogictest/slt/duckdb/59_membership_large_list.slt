@@ -3,6 +3,9 @@
 
 include ../setup.slt.no
 
+# The scan evaluates the membership test. Scans of small files report it as not pushed, so DuckDB
+# also keeps it above the scan, as it does for Parquet.
+
 query I
 COPY (SELECT * FROM (VALUES (1), (8), (1001), (NULL)) t(number)) TO '${WORK_DIR}/members.vortex';
 ----
@@ -18,4 +21,4 @@ query TT
 EXPLAIN (FORMAT json) SELECT count(*) FROM '${WORK_DIR}/members.vortex'
 WHERE number IN (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38);
 ----
-<!REGEX>:FILTER
+<REGEX>:.*Filters.*
