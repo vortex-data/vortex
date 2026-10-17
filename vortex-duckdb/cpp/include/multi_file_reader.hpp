@@ -143,6 +143,10 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
 
     unique_ptr<NodeStatistics> GetCardinality(const MultiFileBindData &bind_data, idx_t file_count) override;
 
+    optional_idx MaxThreads(const MultiFileBindData &bind_data,
+                            const MultiFileGlobalState &global_state,
+                            FileExpandResult expand_result) override;
+
     inline FileGlobInput GetGlobInput() override {
         return {FileGlobOptions::FALLBACK_GLOB, "vortex"};
     }

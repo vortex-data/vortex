@@ -39,6 +39,8 @@ bool duckdb_table_function_pushdown_projection_aggregates(void *bind,
 
 extern bool duckdb_table_function_pushdown_expression(duckdb_vx_expr expr);
 
+extern uint64_t duckdb_table_function_max_threads(const void *bind);
+
 extern
 void duckdb_table_function_cardinality(const void *bind,
                                        uint64_t file_count,

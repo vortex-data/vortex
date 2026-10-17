@@ -309,6 +309,17 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
     return out;
 }
 
+optional_idx VortexReaderInterface::MaxThreads(const MultiFileBindData &data,
+                                              const MultiFileGlobalState &,
+                                              FileExpandResult expand_result) {
+    // Threads take files in turn when there are several.
+    if (expand_result == FileExpandResult::MULTIPLE_FILES) {
+        return optional_idx();
+    }
+    const VortexBindData &bind_data = data.bind_data->Cast<VortexBindData>();
+    return duckdb_table_function_max_threads(bind_data.ffi_bind_data->DataPtr());
+}
+
 bool VortexBaseReader::TryInitializeScan(ClientContext &,
                                          GlobalTableFunctionState &,
                                          LocalTableFunctionState &local_state) {
