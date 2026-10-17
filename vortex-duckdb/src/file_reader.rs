@@ -431,7 +431,7 @@ pub fn reader_get_statistics(
 
     let stats =
         ColumnStatisticsAggregate::new(stats, reader.file_stats().distinct_count_by_path(&path));
-    match ColumnStatistics::try_from(stats, dtype.clone(), file.reader().row_count()) {
+    match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -480,7 +480,7 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
     let path = FieldPath::from_name(column);
     let (stats, dtype) = file_stats.get_by_path(&path)?;
     let stats = ColumnStatisticsAggregate::new(stats, file_stats.distinct_count_by_path(&path));
-    match ColumnStatistics::try_from(stats, dtype.clone(), footer.row_count()) {
+    match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
