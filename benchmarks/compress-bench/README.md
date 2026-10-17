@@ -31,19 +31,25 @@ CI runs the timed benchmark on a fixed budget of 16 cores: `scripts/compress-spl
 `--threads 16`, so the result does not depend on how many cores the benchmark machine has.
 Pass `--cpus 0` to use every benchmark CPU instead.
 
-Vortex schedules its own compression and scan work as tasks on the runtime. The Parquet
-compressor splits its work into tasks on the same runtime:
+Vortex schedules its own compression and scan work as tasks on the runtime. Parquet runs on
+the same runtime the way DataFusion's Parquet sink and scan do with their default options:
 
-- **Compress** splits the input into row groups at the writer's default
-  `max_row_group_row_count` (1,048,576 rows), the same boundaries `ArrowWriter` produces, then
-  encodes every (row group, top-level field) chunk as its own task with parquet-rs's
-  `ArrowRowGroupWriterFactory`, largest first, and appends the chunks in order into an output
-  buffer sized once from the encoded chunk sizes. This is how DataFusion's parallel Parquet
-  writer (`ParquetSink`) uses multiple cores.
-- **Decompress** scans the way DataFusion and DuckDB do: one task per row group, each decoding
-  all projected columns of its row group, so the scan uses as many workers as the file has row
-  groups. To match the Vortex reader's output, strings and binaries decode to `Utf8View` /
-  `BinaryView`, in batches of 8,192 rows (the Vortex writer's row block size).
+- **Compress** follows DataFusion's parallel `ParquetSink`. Input is split into row groups at
+  the writer's default `max_row_group_row_count` (1,048,576 rows), the same boundaries
+  `ArrowWriter` produces. Every leaf column of the open row group is encoded by its own task,
+  fed through a channel of at most 2 arrays (`maximum_buffered_record_batches_per_stream`). When
+  a row group is full, a separate task closes its column writers while the next row group
+  starts, and at most 1 finished row group waits to be appended to the file
+  (`maximum_parallel_row_group_writers`). Encoded bytes leave the writer's buffer every ~1 MB,
+  as DataFusion streams them to the object store, and are joined into one buffer at the end.
+- **Decompress** follows DataFusion's file scan. The file's bytes are split into one range per
+  runtime worker (`target_partitions`), unless the file is under 1 MiB
+  (`repartition_file_min_size`), and each row group belongs to the range holding its first page.
+  Each range is one task that decodes its row groups in order, in batches of 8,192 rows
+  (`batch_size`, also the Vortex writer's row block size), reading strings and binaries as
+  `Utf8View` / `BinaryView` (`schema_force_view_types`), the types the Vortex reader produces.
+  Spark plans a single file the same way: byte-range splits, each row group read by the split
+  holding its midpoint, one sequential reader per split.
 
 The written file has the same row groups, encodings and compression as a sequential
 `ArrowWriter` with the same settings. Arrow IPC is a serialization baseline and stays
