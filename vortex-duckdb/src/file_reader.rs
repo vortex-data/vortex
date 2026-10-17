@@ -27,10 +27,12 @@ use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
+use vortex::io::VortexReadAt;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
+use vortex::io::std_file::MmapReadAt;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReader as _;
 use vortex::layout::LayoutReaderRef;
@@ -166,8 +168,16 @@ impl OpenFileReader {
         // Reads of mapped files are cheap to issue late, so their splits are built by the
         // threads that scan them instead of all up front during reader initialization.
         let lazy_splits = url.scheme() == "file" && MMAP_LOCAL_FILES.load(Ordering::Relaxed);
-        let (fs, fs_path) = resolve_filesystem(&url)?;
-        let source = fs.open_read(&fs_path).await?;
+        let source: Arc<dyn VortexReadAt> = if lazy_splits {
+            // Mapping a local file takes a few system calls, so it is done here instead of
+            // handing it to a blocking thread, which takes longer than the calls themselves.
+            // SAFETY: `enable_mmap_local_files` requires that scanned files do not change during
+            // a scan.
+            Arc::new(unsafe { MmapReadAt::open(url.path()) }?)
+        } else {
+            let (fs, fs_path) = resolve_filesystem(&url)?;
+            fs.open_read(&fs_path).await?
+        };
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
