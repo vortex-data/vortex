@@ -710,6 +710,18 @@ fn try_push_projection_aggregate(
 /// duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic it
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
+/// Rows of a file that one thread scans, about one split.
+const ROWS_PER_SCAN_THREAD: u64 = 1 << 16;
+
+/// The number of threads worth scanning a single file with. More threads than splits only wait
+/// for work, which costs a thread per scan of a small dimension table.
+pub fn max_threads(bind_data: &BindState) -> u64 {
+    bind_data
+        .first_file_row_count
+        .div_ceil(ROWS_PER_SCAN_THREAD)
+        .max(1)
+}
+
 pub fn cardinality(bind_data: &BindState, file_count: u64) -> Cardinality {
     // If we're doing an aggregate scan, we don't change output cardinality to
     // 1 as we want duckdb to do our aggregation in parallel. That may look

@@ -56,6 +56,7 @@ use crate::table_function::finalize_scan;
 use crate::table_function::finish_reading;
 use crate::table_function::init_global;
 use crate::table_function::init_local;
+use crate::table_function::max_threads;
 use crate::table_function::pushdown_complex_filter;
 use crate::table_function::pushdown_projection_aggregates;
 use crate::table_function::pushdown_projection_expression;
@@ -123,6 +124,13 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_pushdown_expression(
     expr: cpp::duckdb_vx_expr,
 ) -> bool {
     can_push_expression(unsafe { Expression::borrow(expr) })
+}
+
+/// The number of threads worth scanning a single file with, one per split of its rows.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_max_threads(bind: *const c_void) -> u64 {
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    max_threads(bind)
 }
 
 #[unsafe(no_mangle)]
