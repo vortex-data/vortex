@@ -1288,6 +1288,50 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     new_patch_indices: &mut BufferMut<u64>,
     kept_patches: &mut BitBufferMut,
 ) -> VortexResult<()> {
+    // The x86-64 baseline has no POPCNT, so a plain build lowers the cursor's popcounts to a
+    // bit-twiddling sequence that dominates the loop.
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("popcnt") {
+            // SAFETY: POPCNT support was detected above.
+            return unsafe {
+                rank_patches_in_mask_bitmap_popcnt(
+                    patch_indices,
+                    offset,
+                    mask,
+                    new_patch_indices,
+                    kept_patches,
+                )
+            };
+        }
+    }
+    rank_patches_in_mask_bitmap_inline(patch_indices, offset, mask, new_patch_indices, kept_patches)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "popcnt")]
+unsafe fn rank_patches_in_mask_bitmap_popcnt<T: IntegerPType>(
+    patch_indices: &[T],
+    offset: usize,
+    mask: &BitBuffer,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut BitBufferMut,
+) -> VortexResult<()> {
+    rank_patches_in_mask_bitmap_inline(patch_indices, offset, mask, new_patch_indices, kept_patches)
+}
+
+#[expect(
+    clippy::inline_always,
+    reason = "the loop must inline into the POPCNT-enabled caller to use the instruction"
+)]
+#[inline(always)]
+fn rank_patches_in_mask_bitmap_inline<T: IntegerPType>(
+    patch_indices: &[T],
+    offset: usize,
+    mask: &BitBuffer,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut BitBufferMut,
+) -> VortexResult<()> {
     let mut ranks = mask.rank_cursor();
 
     for (patch_position, patch_index) in patch_indices.iter().enumerate() {
