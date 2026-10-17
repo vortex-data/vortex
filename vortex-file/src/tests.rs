@@ -2051,6 +2051,30 @@ async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::empty_lists(Validity::NonNullable)]
+#[case::nullable_empty_lists(Validity::AllValid)]
+#[case::null_lists(Validity::AllInvalid)]
+#[case::mixed_empty_and_null(
+    Validity::Array(BoolArray::from_iter([true, false]).into_array())
+)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn nested_empty_list_roundtrip(#[case] validity: Validity) -> VortexResult<()> {
+    let inner = ListArray::try_new(
+        PrimitiveArray::new::<i32>(buffer![], Validity::NonNullable).into_array(),
+        buffer![0u32].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let outer = ListArray::try_new(inner, buffer![0u32, 0, 0].into_array(), validity)?.into_array();
+    let array = StructArray::from_fields(&[("nested", outer)])?.into_array();
+
+    let result = write_read_roundtrip(array.clone()).await?;
+    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
 type MapEntryFixture<'a> = (i32, Option<&'a str>);
 type MapRowFixture<'a> = Option<Vec<MapEntryFixture<'a>>>;
 
