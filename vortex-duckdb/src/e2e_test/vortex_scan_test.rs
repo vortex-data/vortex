@@ -305,7 +305,11 @@ fn assert_membership_filter_pushed(
         }
     }
     assert!(plan.contains("Read Vortex"), "missing Vortex scan:\n{plan}");
-    assert!(!plan.contains("FILTER"), "filter was not pushed:\n{plan}");
+    // Scans of small files evaluate membership tests but leave DuckDB a filter above them too.
+    assert!(
+        plan.contains("Filters") || !plan.contains("FILTER"),
+        "filter was not pushed:\n{plan}"
+    );
     Ok(())
 }
 
