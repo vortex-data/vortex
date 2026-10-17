@@ -5,6 +5,7 @@
 #include "data.hpp"
 #include "table_function.h"
 #include "duckdb/common/multi_file/multi_file_function.hpp"
+#include "duckdb/planner/table_filter_state.hpp"
 
 using namespace duckdb;
 
@@ -30,11 +31,16 @@ struct VortexGlobalState final : GlobalTableFunctionState {
 
     const void *ffi_bind_data = nullptr; // needed for local state partial accumulation
     unique_ptr<CData> ffi_global_state;
+    // Bloom filters that hash joins push into the scan, which Vortex does not
+    // evaluate, with the position of their column in scanned chunks.
+    vector<pair<idx_t, const TableFilter *>> bloom_filters;
 };
 
 struct VortexLocalState final : LocalTableFunctionState {
     VortexLocalState() = default;
     unique_ptr<CData> ffi_local_state;
+    // The state of each filter in VortexGlobalState::bloom_filters.
+    vector<unique_ptr<TableFilterState>> bloom_filter_states;
 };
 
 struct VortexMultiFileReader final : MultiFileReader {

@@ -8,6 +8,10 @@
 #include "vortex.h"
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include "duckdb/planner/filter/optional_filter.hpp"
+#include "duckdb/storage/table/column_segment.hpp"
+
+#include <algorithm>
 
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
@@ -35,6 +39,44 @@ bool SkipMultiFileReaderColumn(size_t i,
         }
     }
     return false;
+}
+
+// Whether the filter is a bloom filter of a hash join's keys, possibly behind
+// an optional filter that stops applying it when it keeps most rows.
+static bool IsBloomFilter(const TableFilter &filter) {
+    if (filter.filter_type == TableFilterType::BLOOM_FILTER) {
+        return true;
+    }
+    return filter.filter_type == TableFilterType::OPTIONAL_FILTER &&
+           filter.Cast<OptionalFilter>().child_filter->filter_type == TableFilterType::BLOOM_FILTER;
+}
+
+// Keeps the rows of a scanned chunk that pass the bloom filters hash joins
+// pushed into the scan, as DuckDB does when it scans its own tables, so that
+// rows without a join partner do not reach the join.
+static void ApplyBloomFilters(const VortexGlobalState &global, VortexLocalState &local, DataChunk &chunk) {
+    const idx_t count = chunk.size();
+    if (global.bloom_filters.empty() || count == 0) {
+        return;
+    }
+    SelectionVector sel;
+    idx_t approved = count;
+    for (idx_t i = 0; i < global.bloom_filters.size() && approved > 0; i++) {
+        const auto &[chunk_idx, filter] = global.bloom_filters[i];
+        Vector &keys = chunk.data[chunk_idx];
+        UnifiedVectorFormat keys_data;
+        keys.ToUnifiedFormat(count, keys_data);
+        approved = ColumnSegment::FilterSelection(sel,
+                                                  keys,
+                                                  keys_data,
+                                                  *filter,
+                                                  *local.bloom_filter_states[i],
+                                                  count,
+                                                  approved);
+    }
+    if (approved < count) {
+        chunk.Slice(sel, approved);
+    }
 }
 
 ReaderInitializeType
@@ -184,17 +226,40 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     auto result = make_uniq<VortexGlobalState>();
     result->ffi_bind_data = ffi_bind;
     result->ffi_global_state = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_global_state));
+    if (input.filters) {
+        for (const auto &[column_idx, filter] : input.filters->filters) {
+            if (!IsBloomFilter(*filter)) {
+                continue;
+            }
+            // Scanned chunks hold the projected columns when DuckDB prunes
+            // filter-only columns. A join key is always projected.
+            idx_t chunk_idx = column_idx;
+            if (projection_ids) {
+                const idx_t *end = projection_ids + projection_ids_count;
+                const idx_t *found = std::find(projection_ids, end, column_idx);
+                if (found == end) {
+                    continue;
+                }
+                chunk_idx = NumericCast<idx_t>(found - projection_ids);
+            }
+            result->bloom_filters.emplace_back(chunk_idx, filter.get());
+        }
+    }
     return result;
 }
 
 unique_ptr<LocalTableFunctionState>
-VortexReaderInterface::InitializeLocalState(ExecutionContext &, GlobalTableFunctionState &global_state) {
+VortexReaderInterface::InitializeLocalState(ExecutionContext &context,
+                                            GlobalTableFunctionState &global_state) {
     auto &global = global_state.Cast<VortexGlobalState>();
     const void *const ffi_global = global.ffi_global_state->DataPtr();
     duckdb_vx_data ffi_local_state = duckdb_table_function_init_local(global.ffi_bind_data, ffi_global);
 
     auto result = make_uniq<VortexLocalState>();
     result->ffi_local_state = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_local_state));
+    for (const auto &[chunk_idx, filter] : global.bloom_filters) {
+        result->bloom_filter_states.push_back(TableFilterState::Initialize(context.client, *filter));
+    }
     return result;
 }
 
@@ -270,6 +335,7 @@ AsyncResult VortexBaseReader::Scan(ClientContext &,
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
+    ApplyBloomFilters(global, local, chunk);
     return has_more_data ? SourceResultType::HAVE_MORE_OUTPUT : SourceResultType::FINISHED;
 }
 
