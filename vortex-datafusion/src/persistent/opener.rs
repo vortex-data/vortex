@@ -70,6 +70,10 @@ use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
 
+/// Per-core scan concurrency when the table options leave it unset. It is lower than the Vortex
+/// scan default because DataFusion already runs one scan stream per partition.
+const DATAFUSION_DEFAULT_SCAN_CONCURRENCY: usize = 1;
+
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
     /// The partition this opener is assigned to. Only used for labeling metrics.
@@ -409,9 +413,13 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
-            if let Some(concurrency) = scan_concurrency {
-                scan_builder = scan_builder.with_concurrency(concurrency);
-            }
+            // The scan runs `concurrency * available_parallelism` splits per stream, and DataFusion
+            // already opens one stream per partition (one per core by default). Vortex's default of
+            // 4 multiplies with that: at SF1000 on 96 cores it kept ~37k decoded splits in flight
+            // and Q1 peaked at 115 GiB against Parquet's 37 GiB. One split per core per stream
+            // keeps every core busy without the second multiplier.
+            scan_builder = scan_builder
+                .with_concurrency(scan_concurrency.unwrap_or(DATAFUSION_DEFAULT_SCAN_CONCURRENCY));
 
             // Set before the byte-range translation below, which computes natural splits for
             // the fields the scan's projection and filter reference.

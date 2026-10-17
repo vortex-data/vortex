@@ -4,6 +4,7 @@
 pub mod metrics;
 pub mod tracer;
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use datafusion::datasource::file_format::FileFormat;
@@ -12,6 +13,8 @@ use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
+use datafusion::execution::memory_pool::FairSpillPool;
+use datafusion::execution::memory_pool::TrackConsumersPool;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
@@ -32,6 +35,30 @@ pub fn get_session_context() -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
     rt_builder = rt_builder.with_cache_manager(CacheManagerConfig::default());
+
+    // Without a memory pool DataFusion never spills, so large joins and aggregations grow until
+    // the process is killed. A limit makes aggregations and sorts spill to disk, and operators
+    // that cannot spill (such as hash join builds) fail with a resources-exhausted error.
+    if let Some(limit_gib) = std::env::var("DATAFUSION_BENCH_MEMORY_LIMIT_GIB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        let pool = TrackConsumersPool::new(
+            FairSpillPool::new(limit_gib << 30),
+            NonZeroUsize::new(10).expect("non-zero"),
+        );
+        rt_builder = rt_builder.with_memory_pool(Arc::new(pool));
+    }
+    if let Ok(spill_dir) = std::env::var("DATAFUSION_BENCH_SPILL_DIR") {
+        rt_builder = rt_builder.with_temp_file_path(spill_dir);
+    }
+    // DataFusion caps spill files at 100 GB by default, which sort-merge joins exceed at SF1000.
+    if let Some(max_spill_gib) = std::env::var("DATAFUSION_BENCH_MAX_SPILL_GIB")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        rt_builder = rt_builder.with_max_temp_directory_size(max_spill_gib << 30);
+    }
 
     let rt = rt_builder
         .build_arc()

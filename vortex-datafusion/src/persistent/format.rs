@@ -224,7 +224,8 @@ extensions_options! {
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.
         ///
-        /// Leave as `None` to use Vortex's scan default. Override per session
+        /// Leave as `None` for one split per core per stream: DataFusion already runs one stream
+        /// per partition, so Vortex's own default would multiply with it. Override per session
         /// with `SET vortex.scan_concurrency = <n>`, or per table with
         /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None

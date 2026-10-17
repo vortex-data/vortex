@@ -1,0 +1,287 @@
+#  SPDX-License-Identifier: Apache-2.0
+#  SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Weekly TPC-H at SF=1000 on NVMe for DataFusion and DuckDB over Parquet and Vortex.
+#
+# At this scale the data (~6B lineitem rows) is larger than the runner's memory, so the run is
+# as much a memory check as a benchmark: every query runs in its own process, a query that is
+# OOM-killed or times out is recorded and the rest still run, and system memory is sampled
+# throughout data generation, conversion and every query. Query failures are reported in the job
+# summary rather than failing the job: DataFusion does not yet fit Q18 (Parquet and Vortex) or Q21
+# (Parquet) in memory at this scale with hash joins, so it also runs a second pass with sort-merge
+# joins and spilling.
+
+name: TPC-H SF1000
+
+concurrency:
+  group: tpch-sf1000
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: "17 2 * * 6"  # weekly, Saturday
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: "Engines to run, each on its own machine"
+        type: choice
+        options:
+          - both
+          - datafusion
+          - duckdb
+        default: both
+      scale_factor:
+        description: "TPC-H scale factor"
+        type: string
+        default: "1000.0"
+      machine_type:
+        description: "EC2 instance type for the benchmark machines"
+        type: string
+        default: c8gd.metal-24xl
+      queries:
+        description: "Space-separated query numbers (empty runs all 22)"
+        type: string
+        default: ""
+      iterations:
+        description: "Timed iterations per query"
+        type: string
+        default: "1"
+      query_timeout_minutes:
+        description: "Per-query timeout in minutes"
+        type: string
+        default: "45"
+
+permissions:
+  contents: read
+
+env:
+  SCALE_FACTOR: ${{ inputs.scale_factor || '1000.0' }}
+
+jobs:
+  build:
+    if: github.repository == 'vortex-data/vortex'
+    timeout-minutes: 60
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build/extras=s3-cache
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          cargo build --bin data-gen --bin datafusion-bench --bin duckdb-bench --profile release_debug
+      - name: Install tpchgen-cli
+        shell: bash
+        # The in-repo generator writes each table from a single thread, which takes hours for
+        # SF=1000 lineitem. tpchgen-cli generates in parallel from the same tpchgen-arrow 3.0
+        # crate, so the schema matches.
+        run: cargo install tpchgen-cli --version 3.0.0 --locked --root target/tpchgen-cli
+      - name: Upload binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: tpch-sf1000-binaries
+          path: |
+            target/release_debug/data-gen
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+            target/tpchgen-cli/bin/tpchgen-cli
+
+  bench:
+    needs: build
+    timeout-minutes: 720
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: ${{ fromJSON(inputs.engine == 'datafusion' && '["datafusion"]' || inputs.engine == 'duckdb' && '["duckdb"]' || '["datafusion", "duckdb"]') }}
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ inputs.machine_type || 'c8gd.metal-24xl' }}/image=ubuntu24-full-arm64-pre-v2/tag=tpch-sf1000-${{ matrix.engine }}
+    env:
+      DATA_DIR: vortex-bench/data/tpch/${{ inputs.scale_factor || '1000.0' }}
+      OUT_DIR: ${{ github.workspace }}/tpch-sf1000-out
+      PHASE_FILE: ${{ github.workspace }}/tpch-sf1000-out/phase
+      MONITOR_CSV: ${{ github.workspace }}/tpch-sf1000-out/memory.csv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - name: Download binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: tpch-sf1000-binaries
+          path: target/
+      - name: Make binaries executable
+        shell: bash
+        run: chmod +x target/release_debug/data-gen target/release_debug/*-bench target/tpchgen-cli/bin/tpchgen-cli
+
+      - uses: ./.github/actions/system-info
+
+      - name: Check free disk
+        shell: bash
+        # Parquet and Vortex are each about 0.25 GB per scale factor unit, DuckDB spills large
+        # joins next to its database, and DataFusion's spill pass may write up to 500 GiB.
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$DATA_DIR"
+          need_gb=$(python3 -c "print(int(float('$SCALE_FACTOR') * 0.6) + 550)")
+          avail_gb=$(( $(df -B1 --output=avail "$DATA_DIR" | tail -1) / 1024 / 1024 / 1024 ))
+          echo "Need ~${need_gb} GB free under $DATA_DIR, have ${avail_gb} GB"
+          if (( avail_gb < need_gb )); then
+            echo "::error::Not enough disk for SF=$SCALE_FACTOR: ${avail_gb} GB free, need ~${need_gb} GB"
+            exit 1
+          fi
+
+      - name: Start memory monitor
+        shell: bash
+        run: |
+          if [[ -x /usr/bin/time ]]; then
+            echo "TIME_CMD=/usr/bin/time -v" >> "$GITHUB_ENV"
+          fi
+          # systemd-oomd kills whole cgroups under memory pressure, which takes the runner agent
+          # down with a runaway query and loses the job. Leave OOM handling to the query
+          # watchdog and the kernel, which picks the query first by its raised OOM score.
+          sudo -n systemctl stop systemd-oomd.service systemd-oomd.socket || true
+          mkdir -p "$OUT_DIR"
+          echo idle > "$PHASE_FILE"
+          nohup python3 scripts/bench-memory.py monitor \
+            --output "$MONITOR_CSV" --phase-file "$PHASE_FILE" --interval 2 \
+            > "$OUT_DIR/monitor.log" 2>&1 &
+          echo $! > "$OUT_DIR/monitor.pid"
+
+      - name: Generate Parquet
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo gen-parquet > "$PHASE_FILE"
+          ${TIME_CMD:-} target/tpchgen-cli/bin/tpchgen-cli parquet \
+            --scale-factor "$SCALE_FACTOR" \
+            --output-dir "$DATA_DIR/parquet" \
+            --compression 'ZSTD(3)' \
+            --row-group-bytes 67108864 \
+            --num-threads "$(nproc)" \
+            --no-progress
+          echo idle > "$PHASE_FILE"
+          du -sh "$DATA_DIR/parquet"/*
+
+      - name: Convert to Vortex
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          set -Eeuo pipefail
+          echo convert-vortex > "$PHASE_FILE"
+          # data-gen skips the Parquet tables that already exist and only converts.
+          ${TIME_CMD:-} target/release_debug/data-gen tpch \
+            --formats parquet,vortex \
+            --opt scale-factor="$SCALE_FACTOR"
+          echo idle > "$PHASE_FILE"
+          du -sh "$DATA_DIR"/vortex-file-compressed/*
+
+      - name: Run ${{ matrix.engine }} queries
+        id: queries
+        shell: bash
+        env:
+          RUST_BACKTRACE: "1"
+          QUERIES: ${{ inputs.queries }}
+          ITERATIONS: ${{ inputs.iterations || '1' }}
+          QUERY_TIMEOUT_MINUTES: ${{ inputs.query_timeout_minutes || '45' }}
+        run: |
+          set -Eeuo pipefail
+          # Word splitting of $QUERIES is intended.
+          # shellcheck disable=SC2086
+          python3 scripts/bench-memory.py run-queries \
+            --binary "target/release_debug/${{ matrix.engine }}-bench" \
+            --engine "${{ matrix.engine }}" \
+            --formats parquet vortex \
+            ${QUERIES:+--queries $QUERIES} \
+            --iterations "$ITERATIONS" \
+            --timeout "$(( QUERY_TIMEOUT_MINUTES * 60 ))" \
+            --budget "$(( 3 * 3600 ))" \
+            --opt scale-factor="$SCALE_FACTOR" \
+            --out-dir "$OUT_DIR" \
+            --phase-file "$PHASE_FILE" \
+            --min-available-gib 8
+
+      # DataFusion's hash join keeps its whole build side in memory and cannot spill, so at
+      # SF1000 the largest joins run out of memory. This second pass uses sort-merge joins, which
+      # spill, under a memory limit, with spill files on the local NVMe. The limit leaves headroom
+      # for scan buffers the pool does not track, and DataFusion's default 100 GB spill cap is
+      # too small for these joins.
+      - name: Run datafusion queries with spilling
+        if: ${{ !cancelled() && matrix.engine == 'datafusion' }}
+        shell: bash
+        env:
+          RUST_BACKTRACE: "1"
+          QUERIES: ${{ inputs.queries }}
+          ITERATIONS: ${{ inputs.iterations || '1' }}
+          QUERY_TIMEOUT_MINUTES: ${{ inputs.query_timeout_minutes || '45' }}
+          DATAFUSION_OPTIMIZER_PREFER_HASH_JOIN: "false"
+          DATAFUSION_BENCH_MEMORY_LIMIT_GIB: "80"
+          DATAFUSION_BENCH_MAX_SPILL_GIB: "500"
+          DATAFUSION_BENCH_SPILL_DIR: ${{ github.workspace }}/df-spill
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$DATAFUSION_BENCH_SPILL_DIR"
+          # Word splitting of $QUERIES is intended.
+          # shellcheck disable=SC2086
+          python3 scripts/bench-memory.py run-queries \
+            --binary target/release_debug/datafusion-bench \
+            --engine datafusion \
+            --variant spill \
+            --formats parquet vortex \
+            ${QUERIES:+--queries $QUERIES} \
+            --iterations "$ITERATIONS" \
+            --timeout "$(( QUERY_TIMEOUT_MINUTES * 60 ))" \
+            --budget "$(( 5 * 3600 ))" \
+            --opt scale-factor="$SCALE_FACTOR" \
+            --out-dir "$OUT_DIR" \
+            --phase-file "$PHASE_FILE" \
+            --min-available-gib 8
+          du -sh "$DATAFUSION_BENCH_SPILL_DIR" || true
+          rm -rf "$DATAFUSION_BENCH_SPILL_DIR"
+
+      - name: Stop memory monitor
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$OUT_DIR/monitor.pid" ]]; then
+            kill "$(cat "$OUT_DIR/monitor.pid")" || true
+          fi
+          sudo -n dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" > "$OUT_DIR/dmesg-oom.txt" || true
+          df -h "$DATA_DIR" || true
+
+      - name: Summarize memory usage
+        if: always()
+        shell: bash
+        run: |
+          python3 scripts/bench-memory.py summarize \
+            --monitor-csv "$MONITOR_CSV" \
+            --queries-jsonl "$OUT_DIR/queries.jsonl" \
+            --title "TPC-H SF=$SCALE_FACTOR ${{ matrix.engine }} on ${{ inputs.machine_type || 'c8gd.metal-24xl' }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ -s "$OUT_DIR/dmesg-oom.txt" ]]; then
+            {
+              echo '<details><summary>Kernel OOM log</summary>'
+              echo
+              echo '```'
+              cat "$OUT_DIR/dmesg-oom.txt"
+              echo '```'
+              echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: tpch-sf1000-${{ matrix.engine }}
+          path: tpch-sf1000-out/
+          if-no-files-found: ignore
