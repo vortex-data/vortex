@@ -83,18 +83,31 @@ use crate::table_function::convert_result;
 // separate thread.
 
 /// Whether to read local files through memory maps of them, which saves copying every read out
-/// of the page cache. Set `VORTEX_MMAP=1` to enable it, which is only safe when no scanned file is
-/// truncated or modified during a scan: a truncated file crashes the process with `SIGBUS`.
+/// of the page cache. Set `VORTEX_MMAP=1` or call [`enable_mmap_local_files`] to enable it, which
+/// is only safe when no scanned file is truncated or modified during a scan: a truncated file
+/// crashes the process with `SIGBUS`.
 static MMAP_LOCAL_FILES: LazyLock<bool> =
     LazyLock::new(|| std::env::var("VORTEX_MMAP").is_ok_and(|value| value == "1"));
+static MMAP_LOCAL_FILES_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Reads local files opened from now on through memory maps of them.
+///
+/// # Safety
+///
+/// No local file scanned by this process may be truncated or modified during a scan. Accessing
+/// the unmapped pages of a truncated file crashes the process with `SIGBUS`.
+pub unsafe fn enable_mmap_local_files() {
+    MMAP_LOCAL_FILES_ENABLED.store(true, Ordering::Relaxed);
+}
 
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
     // high-core machines because reads go into blocking pool
     if url.scheme() == "file" {
         let fs = StdFileSystem::new(RUNTIME.handle());
-        // SAFETY: setting VORTEX_MMAP asserts that scanned files do not change during a scan.
-        let fs = if *MMAP_LOCAL_FILES {
+        // SAFETY: setting VORTEX_MMAP or enabling mmap asserts that scanned files do not change
+        // during a scan.
+        let fs = if *MMAP_LOCAL_FILES || MMAP_LOCAL_FILES_ENABLED.load(Ordering::Relaxed) {
             unsafe { fs.with_mmap() }
         } else {
             fs
