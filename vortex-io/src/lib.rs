@@ -23,6 +23,7 @@ mod limit;
 #[cfg(feature = "object_store")]
 pub mod object_store;
 mod read_at;
+mod read_buffer_pool;
 pub mod request;
 pub mod runtime;
 pub mod session;

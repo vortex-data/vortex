@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
+use crate::read_buffer_pool::read_allocator;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
@@ -122,7 +123,7 @@ impl VortexReadAt for FileReadAt {
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
-        let allocator = self.allocator.clone();
+        let allocator = read_allocator(self.allocator.clone());
         async move {
             handle
                 .spawn_blocking(move || {
