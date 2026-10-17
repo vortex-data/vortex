@@ -37,7 +37,11 @@ impl<'a> BitRankCursor<'a> {
         cursor
     }
 
-    #[inline]
+    #[expect(
+        clippy::inline_always,
+        reason = "must inline into POPCNT-enabled callers to use the instruction"
+    )]
+    #[inline(always)]
     fn next_word(&mut self) -> u64 {
         self.words
             .next()
@@ -51,7 +55,11 @@ impl<'a> BitRankCursor<'a> {
     ///
     /// Panics if `position` exceeds the length of the buffer or is less than the position of a
     /// previous call.
-    #[inline]
+    #[expect(
+        clippy::inline_always,
+        reason = "must inline into POPCNT-enabled callers to use the instruction"
+    )]
+    #[inline(always)]
     pub fn rank(&mut self, position: usize) -> usize {
         assert!(
             position <= self.len,
