@@ -77,6 +77,29 @@ pub trait Executable: Sized {
 
 #[expect(clippy::same_name_method)]
 impl ArrayRef {
+    /// Slice the array, running the slice kernel of its encoding when slicing it needs to read
+    /// buffers.
+    ///
+    /// [`Self::slice`] leaves such encodings, run-end for example, under a lazy slice, which
+    /// hides them from the rewrite rules that would evaluate expressions on their compressed
+    /// form. The kernels slice structurally instead of decoding, so this costs about a search
+    /// of the array's metadata.
+    pub fn execute_slice(
+        &self,
+        range: std::ops::Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let sliced = self.slice(range)?;
+        if !sliced.is::<crate::arrays::Slice>() {
+            return Ok(sliced);
+        }
+        let kernels = Arc::clone(&ctx.execute_parent_kernels);
+        match try_execute_parent(&sliced, &kernels, ctx)? {
+            Some(executed) => executed.optimize_ctx(ctx.session()),
+            None => Ok(sliced),
+        }
+    }
+
     /// Execute this array to produce an instance of `E`.
     ///
     /// See the [`Executable`] implementation for details on how this execution is performed.
@@ -977,6 +1000,35 @@ mod tests {
     use crate::optimizer::kernels::execute_parent_key;
 
     assert_impl_all!(ExecutionCtx: Send, Sync);
+
+    #[test]
+    fn execute_slice_runs_slice_kernels() -> VortexResult<()> {
+        use vortex_buffer::buffer;
+
+        use crate::arrays::Chunked;
+        use crate::arrays::ChunkedArray;
+        use crate::arrays::PrimitiveArray;
+        use crate::arrays::Slice;
+        use crate::assert_arrays_eq;
+        use crate::dtype::Nullability;
+        use crate::dtype::PType;
+
+        let chunked = ChunkedArray::try_new(
+            vec![
+                buffer![1i32, 2, 3].into_array(),
+                buffer![4i32, 5, 6].into_array(),
+            ],
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?
+        .into_array();
+        let mut ctx = crate::array_session().create_execution_ctx();
+
+        assert!(chunked.slice(1..5)?.is::<Slice>());
+        let sliced = chunked.execute_slice(1..5, &mut ctx)?;
+        assert!(sliced.is::<Chunked>());
+        assert_arrays_eq!(sliced, PrimitiveArray::from_iter([2i32, 3, 4, 5]), &mut ctx);
+        Ok(())
+    }
 
     fn noop_execute_parent(
         _child: &ArrayRef,
