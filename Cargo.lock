@@ -12491,6 +12491,7 @@ name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.0",
+ "arrow-buffer 59.3.0",
  "arrow-schema 59.3.0",
  "codspeed-divan-compat",
  "half",
@@ -12499,6 +12500,8 @@ dependencies = [
  "num-traits",
  "prost 0.14.4",
  "rstest",
+ "serde",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-btrblocks",
