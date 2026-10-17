@@ -2354,6 +2354,45 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn file_statistics_count_increasing_keys_exactly() -> VortexResult<()> {
+    let batch = |range: std::ops::Range<u64>| {
+        StructArray::from_fields(&[
+            ("ids", PrimitiveArray::from_iter(range.clone()).into_array()),
+            (
+                "restarting",
+                PrimitiveArray::from_iter(range.map(|i| i % 50_000)).into_array(),
+            ),
+        ])
+        .map(IntoArray::into_array)
+    };
+    let first = batch(0..50_000)?;
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_file_statistics(PRUNING_STATS.to_vec())
+        .writer(&mut buf, first.dtype().clone());
+    writer.push(first).await?;
+    writer.push(batch(50_000..100_000)?).await?;
+    writer.finish().await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    assert_eq!(file_stats.distinct_count(0), Some(100_000));
+    let restarting = file_stats
+        .distinct_count(1)
+        .vortex_expect("integers are counted");
+    assert!(
+        restarting.abs_diff(50_000) <= 1_000,
+        "estimated {restarting} distinct restarting values"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_statistics_estimate_distinct_counts() -> VortexResult<()> {
     let keys = (0..10_000u32).map(|i| i % 100);
     let names = (0..10_000u32).map(|i| Some(format!("name {}", i % 1_000)));
