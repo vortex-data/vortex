@@ -423,6 +423,10 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
     }
 }
 
+/// Scans of files with at least this many rows report membership tests and disjunctions of
+/// comparisons as pushed, so that DuckDB does not check them again.
+const MIN_ROWS_TO_OWN_RESIDUAL_FILTERS: u64 = 1 << 20;
+
 pub fn pushdown_complex_filter(
     bind_data: &mut BindState,
     expr: &ExpressionRef,
@@ -451,11 +455,13 @@ pub fn pushdown_complex_filter(
         return Ok(false);
     }
 
-    // Membership tests and disjunctions of comparisons are evaluated by the scan, but reported
-    // as not pushed so that DuckDB keeps them in a filter above the scan like it does for Parquet
-    // scans. DuckDB then estimates the cardinality of the scan from them as it does for Parquet,
-    // which its join order depends on, and checks them again only on the rows the scan kept.
-    if is_membership || is_cheap_residual(&expr) {
+    // Membership tests and disjunctions of comparisons are evaluated by the scan, but on small
+    // scans reported as not pushed so that DuckDB keeps them in a filter above the scan like it
+    // does for Parquet scans. DuckDB then plans joins of small tables as it does for Parquet, and
+    // checks the filters again only on the few rows the scan kept. Large scans own them, as
+    // checking them again costs a large share of such a scan.
+    let large_scan = bind_data.first_file_row_count >= MIN_ROWS_TO_OWN_RESIDUAL_FILTERS;
+    if (is_membership || is_cheap_residual(&expr)) && !large_scan {
         debug!(%expr, "pushed down expression, kept by DuckDB");
         bind_data.filters.push(expr);
         return Ok(false);
