@@ -111,8 +111,7 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
     // Runs are visited in order, so each run's popcount is the difference of the ranks of its
     // bounds, which one pass over the mask words computes. Counting each run separately costs a
     // call per run, which dominates for short runs.
-    let chunks = mask.chunks();
-    let mut ranks = RankCursor::new(chunks.iter_padded());
+    let mut ranks = mask.rank_cursor();
     let mut rank_at_run_start = 0usize;
 
     let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
@@ -142,45 +141,6 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
         PrimitiveArray::new(filtered_run_ends, Validity::NonNullable),
         values_mask,
     ))
-}
-
-/// Counts the set bits before non-decreasing positions of a bitmap, given as 64-bit words.
-struct RankCursor<I> {
-    words: I,
-    /// The word holding the bits from `word_start`.
-    word: u64,
-    word_start: usize,
-    /// The set bits before `word_start`.
-    rank_at_word_start: usize,
-}
-
-impl<I: Iterator<Item = u64>> RankCursor<I> {
-    fn new(mut words: I) -> Self {
-        let word = words.next().unwrap_or(0);
-        Self {
-            words,
-            word,
-            word_start: 0,
-            rank_at_word_start: 0,
-        }
-    }
-
-    /// The number of set bits before `position`, which must not be less than in a previous call.
-    #[inline]
-    fn rank(&mut self, position: usize) -> usize {
-        while position >= self.word_start + 64 {
-            self.rank_at_word_start += self.word.count_ones() as usize;
-            self.word = self.words.next().unwrap_or(0);
-            self.word_start += 64;
-        }
-        let bits = position - self.word_start;
-        let below = if bits == 0 {
-            0
-        } else {
-            self.word & (u64::MAX >> (64 - bits))
-        };
-        self.rank_at_word_start + below.count_ones() as usize
-    }
 }
 
 #[cfg(test)]

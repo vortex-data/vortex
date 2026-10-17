@@ -1289,7 +1289,8 @@ fn gallop_mask_indices_for_patches<T: IntegerPType>(
 
 /// Finds the mask position of each patch from the mask bitmap, without building the mask indices.
 ///
-/// The mask position is the number of set bits before the patch, counted between adjacent patches.
+/// The mask position is the number of set bits before the patch, which a rank cursor counts in
+/// one pass over the mask for all patches.
 fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1297,14 +1298,11 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     new_patch_indices: &mut BufferMut<u64>,
     kept_patches: &mut Vec<usize>,
 ) -> VortexResult<()> {
-    let mut rank = 0;
-    let mut previous_index = 0;
+    let mut ranks = mask.rank_cursor();
 
     for (patch_position, patch_index) in patch_indices.iter().enumerate() {
         let index = patch_index_to_usize(*patch_index, offset)?;
-
-        rank += mask.count_range(previous_index, index);
-        previous_index = index;
+        let rank = ranks.rank(index);
 
         if mask.value(index) {
             new_patch_indices.push(rank as u64);
