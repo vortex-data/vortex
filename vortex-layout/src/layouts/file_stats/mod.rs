@@ -40,6 +40,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+mod distinct;
+
+use distinct::DistinctSketch;
+
 use crate::LayoutWriterContext;
 use crate::layouts::zoned::default_bounded_stat_max_bytes;
 use crate::sequence::SendableSequentialStream;
@@ -201,6 +205,7 @@ fn non_null(value: Precision<Scalar>) -> Precision<Scalar> {
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
     aggregates: Vec<(AggregateFnRef, AccumulatorRef)>,
+    distinct: Option<DistinctSketch>,
 }
 
 impl StatsAccumulator {
@@ -208,6 +213,7 @@ impl StatsAccumulator {
     fn empty() -> Self {
         Self {
             aggregates: Vec::new(),
+            distinct: None,
         }
     }
 
@@ -238,14 +244,27 @@ impl StatsAccumulator {
             }
         }
 
-        Self { aggregates }
+        Self {
+            distinct: (!aggregates.is_empty())
+                .then(|| DistinctSketch::try_new(dtype))
+                .flatten(),
+            aggregates,
+        }
     }
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for (_, accumulator) in &mut self.aggregates {
             accumulator.accumulate(array, ctx)?;
         }
+        if let Some(distinct) = &mut self.distinct {
+            distinct.insert_array(array, ctx)?;
+        }
         Ok(())
+    }
+
+    /// The estimated number of distinct non-null values, or 0 when unknown.
+    fn distinct_count(&self) -> u64 {
+        self.distinct.as_ref().map_or(0, DistinctSketch::estimate)
     }
 
     /// Returns the accumulated aggregates that `allowed` permits.
@@ -479,6 +498,22 @@ impl StatsNode {
             }
         }
     }
+
+    /// Appends this node's distinct-count estimates, 0 where unknown, in the same post-order as
+    /// [`postorder_stats_layout`].
+    fn collect_distinct_counts(&self, out: &mut Vec<u64>) {
+        match self {
+            Self::Skipped => {}
+            Self::Unrecorded { entries } => out.extend(iter::repeat_n(0, *entries)),
+            Self::Leaf(acc) => out.push(acc.distinct_count()),
+            Self::Container { children, own } => {
+                for (_, child) in children {
+                    child.collect_distinct_counts(out);
+                }
+                own.collect_distinct_counts(out);
+            }
+        }
+    }
 }
 
 /// An array stream processor that computes aggregate statistics for every field, recursing into
@@ -585,6 +620,14 @@ impl FileStatsAccumulator {
             .lock()
             .collect_aggregate_stats(&allowed, &mut out)?;
         Ok(out)
+    }
+
+    /// Returns the estimated number of distinct non-null values of every entry in the post-order
+    /// nested layout (see [`postorder_stats_layout`]), where 0 means unknown.
+    pub fn distinct_counts(&self) -> Vec<u64> {
+        let mut out = Vec::new();
+        self.root.lock().collect_distinct_counts(&mut out);
+        out
     }
 
     /// Returns the legacy top-level-fields-only aggregates (one per top-level struct field, or a

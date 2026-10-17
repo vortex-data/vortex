@@ -111,6 +111,10 @@ table FileStatistics {
     /// Readers skip the partial of an aggregate they don't recognize using its length prefix, so
     /// unknown aggregates never desynchronize the stream.
     partials: [ubyte];
+    /// An estimate of the number of distinct non-null values of each entry, in `entry_sets` order,
+    /// where 0 means unknown. Absent in files written without these estimates, and ignored
+    /// without `entry_sets`.
+    distinct_counts: [uint64];
 }
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,

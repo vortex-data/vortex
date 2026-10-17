@@ -345,11 +345,14 @@ impl VortexWriteOptions {
         let statistics = if matches!(&self.file_statistics, Some(stats) if stats.is_empty()) {
             None
         } else {
-            Some(FileStatistics::new_with_dtype(
-                file_stats.aggregate_stats()?.into(),
-                file_stats.legacy_aggregate_stats()?.into(),
-                &dtype,
-            ))
+            Some(
+                FileStatistics::new_with_dtype(
+                    file_stats.aggregate_stats()?.into(),
+                    file_stats.legacy_aggregate_stats()?.into(),
+                    &dtype,
+                )
+                .with_distinct_counts(file_stats.distinct_counts().into()),
+            )
         };
         let mut footer = Footer::new(
             Arc::clone(&layout),

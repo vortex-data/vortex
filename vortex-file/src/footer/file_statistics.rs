@@ -62,6 +62,9 @@ pub struct FileStatistics {
     /// into `field_stats`; empty for instances built from [`Self::from_flatbuffer`], which are
     /// never re-serialized.
     legacy_aggregates: Arc<[AggregateStats]>,
+    /// An estimate of the number of distinct non-null values of each entry, parallel to
+    /// `aggregates`, where 0 means unknown.
+    distinct_counts: Option<Arc<[u64]>>,
 }
 
 impl FileStatistics {
@@ -85,6 +88,7 @@ impl FileStatistics {
             paths,
             path_index: Arc::new(path_index),
             legacy_aggregates,
+            distinct_counts: None,
         }
     }
 
@@ -136,6 +140,22 @@ impl FileStatistics {
 
         let (paths, dtypes): (Vec<FieldPath>, Vec<DType>) = layout.into_iter().unzip();
         Self::from_parts(aggregates, dtypes.into(), paths.into(), legacy_aggregates)
+    }
+
+    /// Sets the estimated number of distinct non-null values of each entry, where 0 means
+    /// unknown.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is not one count per entry.
+    pub fn with_distinct_counts(mut self, distinct_counts: Arc<[u64]>) -> Self {
+        assert_eq!(
+            distinct_counts.len(),
+            self.aggregates.len(),
+            "distinct counts length must match number of entries"
+        );
+        self.distinct_counts = Some(distinct_counts);
+        self
     }
 
     /// Creates [`FileStatistics`] from a flatbuffers [`fb::FileStatistics<'a>`].
@@ -199,12 +219,13 @@ impl FileStatistics {
             }
             partials.finish()?;
 
-            return Ok(Self::from_parts(
-                aggregates.into(),
-                dtypes.into(),
-                paths.into(),
-                Arc::new([]),
-            ));
+            let mut file_stats =
+                Self::from_parts(aggregates.into(), dtypes.into(), paths.into(), Arc::new([]));
+            file_stats.distinct_counts = fb
+                .distinct_counts()
+                .filter(|counts| counts.len() == entry_sets.len())
+                .map(|counts| counts.iter().collect());
+            return Ok(file_stats);
         }
 
         // Legacy (pre-nested-stats) layout: top-level struct fields only, or a single entry for a
@@ -280,6 +301,21 @@ impl FileStatistics {
     /// Panics if `field_idx` is out of bounds.
     pub fn get(&self, field_idx: usize) -> (&AggregateStats, &DType) {
         (&self.aggregates[field_idx], &self.dtypes[field_idx])
+    }
+
+    /// Returns the estimated number of distinct non-null values of an entry, if the file has one.
+    pub fn distinct_count(&self, field_idx: usize) -> Option<u64> {
+        self.distinct_counts
+            .as_ref()?
+            .get(field_idx)
+            .copied()
+            .filter(|&count| count > 0)
+    }
+
+    /// Returns the estimated number of distinct non-null values of the field at the given path,
+    /// if the file has one.
+    pub fn distinct_count_by_path(&self, path: &FieldPath) -> Option<u64> {
+        self.distinct_count(*self.path_index.get(path)?)
     }
 
     /// Returns the aggregates and data type for the field at the given path, if present.
@@ -522,6 +558,10 @@ impl WriteFlatBuffer for FileStatistics {
         let aggregate_sets = fbb.create_vector(aggregate_sets.as_slice());
         let entry_sets = fbb.create_vector(entry_sets.as_slice());
         let partials = fbb.create_vector(partials.as_slice());
+        let distinct_counts = self
+            .distinct_counts
+            .as_ref()
+            .map(|counts| fbb.create_vector(counts));
 
         Ok(fb::FileStatistics::create(
             fbb,
@@ -531,6 +571,7 @@ impl WriteFlatBuffer for FileStatistics {
                 aggregate_sets: Some(aggregate_sets),
                 entry_sets: Some(entry_sets),
                 partials: Some(partials),
+                distinct_counts,
             },
         ))
     }
@@ -812,6 +853,7 @@ mod tests {
                 aggregate_sets: Some(sets),
                 entry_sets: Some(entry_sets),
                 partials: Some(partials),
+                distinct_counts: None,
             },
         );
         fbb.finish_minimal(root);

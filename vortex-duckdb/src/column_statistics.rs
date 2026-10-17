@@ -42,7 +42,7 @@ impl ColumnStatistics {
         dtype: DType,
         row_count: u64,
     ) -> VortexResult<Self> {
-        let distinct_count = integer_distinct_count(&stats, &dtype, row_count);
+        let distinct_count = reported_distinct_count(stats.distinct_count, row_count);
         let to_value = |value: ScalarValue| {
             Scalar::try_new(dtype.clone(), Some(value))
                 .and_then(|scalar| scalar.try_to_duckdb_scalar())
@@ -80,48 +80,19 @@ impl ColumnStatistics {
     }
 }
 
-/// Estimates the distinct values of an integer column, including dates and times stored as
-/// integers, as the number of integers between its minimum and maximum, or 0 when that does not
-/// show fewer distinct values than rows.
+/// The distinct count to give DuckDB for a column of `row_count` rows with `distinct_count`
+/// estimated distinct values, or 0 to leave it unknown.
 ///
 /// DuckDB treats a column without a distinct count as having one distinct value per row left
-/// after filters, which makes it overestimate joins on foreign keys, whose values span a much
-/// smaller range than the rows referencing them. For a column that may be unique, such as the key
-/// of a dimension table, that default is exact even after filters, where the distinct count of
-/// the whole column would make DuckDB underestimate joins with a filtered dimension table.
-fn integer_distinct_count(stats: &ColumnStatisticsAggregate, dtype: &DType, row_count: u64) -> u64 {
-    let storage = match dtype {
-        DType::Extension(ext) => ext.storage_dtype(),
-        dtype => dtype,
-    };
-    let DType::Primitive(ptype, _) = storage else {
-        return 0;
-    };
-    if !ptype.is_int() {
-        return 0;
-    }
-    let (Some(ScalarValue::Primitive(min)), Some(ScalarValue::Primitive(max))) =
-        (&stats.min, &stats.max)
-    else {
-        return 0;
-    };
-    let span = if ptype.is_unsigned_int() {
-        match (min.cast::<u64>(), max.cast::<u64>()) {
-            (Ok(min), Ok(max)) => i128::from(max) - i128::from(min),
-            _ => return 0,
-        }
-    } else {
-        match (min.cast::<i64>(), max.cast::<i64>()) {
-            (Ok(min), Ok(max)) => i128::from(max) - i128::from(min),
-            _ => return 0,
-        }
-    };
-    if span < 0 {
-        return 0;
-    }
-    u64::try_from(span + 1)
-        .ok()
-        .filter(|&values| values < row_count)
+/// after filters, which makes it overestimate joins on foreign keys, whose values repeat. For a
+/// column that is unique, or close to it, such as the key of a dimension table, that default is
+/// exact even after filters, where the distinct count of the whole column would make DuckDB
+/// underestimate joins with a filtered dimension table.
+fn reported_distinct_count(distinct_count: Option<u64>, row_count: u64) -> u64 {
+    // Distinct counts are sketched with an error of about 1%.
+    let near_unique = row_count - row_count / 20;
+    distinct_count
+        .filter(|&count| count > 0 && count < near_unique)
         .unwrap_or(0)
 }
 
@@ -133,10 +104,12 @@ pub struct ColumnStatisticsAggregate {
     /// May be true if null count stat isn't present
     pub has_null: bool,
     pub nan_count: Option<u64>,
+    /// The estimated number of distinct non-null values.
+    pub distinct_count: Option<u64>,
 }
 
 impl ColumnStatisticsAggregate {
-    pub fn new(aggregates: &AggregateStats) -> Self {
+    pub fn new(aggregates: &AggregateStats, distinct_count: Option<u64>) -> Self {
         let exact = |aggregate_fn: AggregateFnRef| match aggregates.get(&aggregate_fn) {
             Precision::Exact(value) => value.into_value(),
             _ => None,
@@ -162,6 +135,7 @@ impl ColumnStatisticsAggregate {
             max_string_length,
             has_null,
             nan_count,
+            distinct_count,
         }
     }
 }
@@ -169,49 +143,24 @@ impl ColumnStatisticsAggregate {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::PType;
-    use vortex::scalar::ScalarValue;
 
-    use super::ColumnStatisticsAggregate;
-    use super::integer_distinct_count;
-
-    fn stats(min: ScalarValue, max: ScalarValue) -> ColumnStatisticsAggregate {
-        ColumnStatisticsAggregate {
-            min: Some(min),
-            max: Some(max),
-            ..Default::default()
-        }
-    }
+    use super::reported_distinct_count;
 
     #[rstest]
-    // A foreign key spans fewer values than it has rows.
-    #[case(PType::I64, 2_450_816i64.into(), 2_452_642i64.into(), 28_800_991, 1_827)]
-    #[case(PType::U32, 1u32.into(), 12u32.into(), 1_000, 12)]
-    // A column that may be unique is left to DuckDB's default.
-    #[case(PType::I32, 1i32.into(), 73_049i32.into(), 73_049, 0)]
-    #[case(PType::I32, 1i32.into(), 1_000_000i32.into(), 100, 0)]
-    // Floats have no countable range.
-    #[case(PType::F64, 1.0f64.into(), 2.0f64.into(), 100, 0)]
-    fn distinct_count_from_range(
-        #[case] ptype: PType,
-        #[case] min: ScalarValue,
-        #[case] max: ScalarValue,
+    // A foreign key repeats its values.
+    #[case(Some(1_823), 28_800_991, 1_823)]
+    #[case(Some(12), 1_000, 12)]
+    // A unique column, as estimated by a sketch, is left to DuckDB's default.
+    #[case(Some(73_049), 73_049, 0)]
+    #[case(Some(73_300), 73_049, 0)]
+    #[case(Some(70_000), 73_049, 0)]
+    #[case(None, 100, 0)]
+    #[case(Some(0), 100, 0)]
+    fn reports_distinct_counts_of_repeating_columns(
+        #[case] distinct_count: Option<u64>,
         #[case] row_count: u64,
         #[case] expected: u64,
     ) {
-        let dtype = DType::Primitive(ptype, Nullability::Nullable);
-        assert_eq!(
-            integer_distinct_count(&stats(min, max), &dtype, row_count),
-            expected
-        );
-    }
-
-    #[test]
-    fn distinct_count_without_bounds_is_unknown() {
-        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let stats = ColumnStatisticsAggregate::default();
-        assert_eq!(integer_distinct_count(&stats, &dtype, 100), 0);
+        assert_eq!(reported_distinct_count(distinct_count, row_count), expected);
     }
 }

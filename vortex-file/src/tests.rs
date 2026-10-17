@@ -2354,6 +2354,55 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn file_statistics_estimate_distinct_counts() -> VortexResult<()> {
+    let keys = (0..10_000u32).map(|i| i % 100);
+    let names = (0..10_000u32).map(|i| Some(format!("name {}", i % 1_000)));
+    let array = StructArray::from_fields(&[
+        ("keys", PrimitiveArray::from_iter(keys).into_array()),
+        (
+            "names",
+            VarBinViewArray::from_iter_nullable_str(names).into_array(),
+        ),
+        (
+            "lists",
+            ListArray::from_iter_slow::<i64, _>(
+                (0..10_000i64).map(|i| vec![i % 2]),
+                Arc::new(DType::from(PType::I64)),
+            )?
+            .into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns())
+        .writer(&mut buf, array.dtype().clone());
+    writer.push(array).await?;
+    writer.finish().await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    let keys = file_stats
+        .distinct_count(0)
+        .vortex_expect("integers are counted");
+    let names = file_stats
+        .distinct_count(1)
+        .vortex_expect("strings are counted");
+    assert!(keys.abs_diff(100) <= 2, "estimated {keys} distinct keys");
+    assert!(
+        names.abs_diff(1_000) <= 20,
+        "estimated {names} distinct names"
+    );
+    assert_eq!(file_stats.distinct_count(2), None);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
     let dtype = DType::Struct(
         StructFields::from_iter([("numbers", DType::from(PType::I64))]),

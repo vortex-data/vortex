@@ -1044,6 +1044,7 @@ impl<'a> FileStatistics<'a> {
   pub const VT_AGGREGATE_SETS: ::flatbuffers::VOffsetT = 8;
   pub const VT_ENTRY_SETS: ::flatbuffers::VOffsetT = 10;
   pub const VT_PARTIALS: ::flatbuffers::VOffsetT = 12;
+  pub const VT_DISTINCT_COUNTS: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1055,6 +1056,7 @@ impl<'a> FileStatistics<'a> {
     args: &'args FileStatisticsArgs<'args>
   ) -> ::flatbuffers::WIPOffset<FileStatistics<'bldr>> {
     let mut builder = FileStatisticsBuilder::new(_fbb);
+    if let Some(x) = args.distinct_counts { builder.add_distinct_counts(x); }
     if let Some(x) = args.partials { builder.add_partials(x); }
     if let Some(x) = args.entry_sets { builder.add_entry_sets(x); }
     if let Some(x) = args.aggregate_sets { builder.add_aggregate_sets(x); }
@@ -1127,6 +1129,16 @@ impl<'a> FileStatistics<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(FileStatistics::VT_PARTIALS, None)}
   }
+  /// An estimate of the number of distinct non-null values of each entry, in `entry_sets` order,
+  /// where 0 means unknown. Absent in files written without these estimates, and ignored
+  /// without `entry_sets`.
+  #[inline]
+  pub fn distinct_counts(&self) -> Option<::flatbuffers::Vector<'a, u64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(FileStatistics::VT_DISTINCT_COUNTS, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for FileStatistics<'_> {
@@ -1140,6 +1152,7 @@ impl ::flatbuffers::Verifiable for FileStatistics<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<AggregateSet>>>>("aggregate_sets", Self::VT_AGGREGATE_SETS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("entry_sets", Self::VT_ENTRY_SETS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("partials", Self::VT_PARTIALS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("distinct_counts", Self::VT_DISTINCT_COUNTS, false)?
      .finish();
     Ok(())
   }
@@ -1150,6 +1163,7 @@ pub struct FileStatisticsArgs<'a> {
     pub aggregate_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSet<'a>>>>>,
     pub entry_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
     pub partials: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+    pub distinct_counts: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
 }
 impl<'a> Default for FileStatisticsArgs<'a> {
   #[inline]
@@ -1160,6 +1174,7 @@ impl<'a> Default for FileStatisticsArgs<'a> {
       aggregate_sets: None,
       entry_sets: None,
       partials: None,
+      distinct_counts: None,
     }
   }
 }
@@ -1190,6 +1205,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> FileStatisticsBuilder<'a, 'b,
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_PARTIALS, partials);
   }
   #[inline]
+  pub fn add_distinct_counts(&mut self, distinct_counts: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u64>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_DISTINCT_COUNTS, distinct_counts);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> FileStatisticsBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     FileStatisticsBuilder {
@@ -1212,6 +1231,7 @@ impl ::core::fmt::Debug for FileStatistics<'_> {
       ds.field("aggregate_sets", &self.aggregate_sets());
       ds.field("entry_sets", &self.entry_sets());
       ds.field("partials", &self.partials());
+      ds.field("distinct_counts", &self.distinct_counts());
       ds.finish()
   }
 }
