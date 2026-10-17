@@ -572,7 +572,17 @@ impl LayoutReader for StructReader {
             validity_ref.register_splits(field_mask, split_range, splits)?;
         }
 
+        let children = self.layout.children();
         self.layout.matching_fields(field_mask, |mask, idx| {
+            // An indivisible field only registers the end of the range, which is pushed below,
+            // so its reader need not be created.
+            let child = self
+                .layout
+                .slot_to_child(idx + 1)
+                .vortex_expect("struct field slot is always present");
+            if children.child_is_indivisible(child) {
+                return Ok(());
+            }
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], split_range, splits)
         })?;
