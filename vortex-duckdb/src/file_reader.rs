@@ -9,6 +9,10 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
+use vortex::aggregate_fn::AggregateFnVTableExt as _;
+use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::aggregate_fn::fns::max::Max;
+use vortex::aggregate_fn::fns::min::Min;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
@@ -18,7 +22,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
 use vortex::expr::BoundExpression;
 use vortex::expr::bound_and_collect;
-use vortex::expr::stats::Stat;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
@@ -36,7 +39,6 @@ use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
-use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::literal::Literal;
@@ -143,6 +145,8 @@ pub struct OpenFileReader {
     /// File splits stored in inverse order
     pub splits: Vec<Split>,
     total_splits: usize,
+    /// Whether the threads scanning the file build its splits, see [`Split::Lazy`].
+    lazy_splits: bool,
 }
 
 /// The state of an open file that the threads scanning it share.
@@ -158,7 +162,11 @@ pub struct FileScanState {
 
 impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
-        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
+        let url = parse_uri_or_path(&path)?;
+        // Reads of mapped files are cheap to issue late, so their splits are built by the
+        // threads that scan them instead of all up front during reader initialization.
+        let lazy_splits = url.scheme() == "file" && MMAP_LOCAL_FILES.load(Ordering::Relaxed);
+        let (fs, fs_path) = resolve_filesystem(&url)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         let mut scan_file = file.scan_file();
@@ -172,6 +180,7 @@ impl OpenFileReader {
             })),
             splits: vec![],
             total_splits: 0,
+            lazy_splits,
         })
     }
 
@@ -288,17 +297,22 @@ impl ColumnBound {
             return None;
         };
         let fields = file_stats.dtype().as_struct_fields_opt()?;
-        let field = fields.find(column.as_::<GetItem>())?;
-        let stats = file_stats.file_stats().stats_sets().get(field)?;
-        let dtype = fields.field_by_index(field)?;
-        let as_f64 = |value: Option<ScalarValue>| {
-            Scalar::try_new(dtype.clone(), value)
-                .ok()?
-                .as_primitive_opt()?
-                .as_::<f64>()
-        };
-        let min = as_f64(stats.get(Stat::Min).as_exact())?;
-        let max = as_f64(stats.get(Stat::Max).as_exact())?;
+        let name = column.as_::<GetItem>();
+        let field = fields.find(name)?;
+        let (stats, _) = file_stats
+            .file_stats()
+            .get_by_path(&FieldPath::from_name(name.clone()))?;
+        let as_f64 = |value: Option<Scalar>| value?.as_primitive_opt()?.as_::<f64>();
+        let min = as_f64(
+            stats
+                .get(&Min.bind(NumericalAggregateOpts::skip_nans()))
+                .as_exact(),
+        )?;
+        let max = as_f64(
+            stats
+                .get(&Max.bind(NumericalAggregateOpts::skip_nans()))
+                .as_exact(),
+        )?;
         let value = constant.as_primitive_opt()?.as_::<f64>()?;
         let (lower, upper) = match operator {
             Operator::Gt | Operator::Gte => (Some(value), None),
@@ -413,11 +427,17 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_some_filter(file.unsatisfied_filter(filter)?)
         .with_selection(filter.row_selection.clone());
     let scan = builder.prepare()?;
-    let mut splits: Vec<Split> = scan
-        .execute(filter.row_range.clone())?
-        .into_iter()
-        .map(Split::V1)
-        .collect();
+    let mut splits: Vec<Split> = if file.lazy_splits {
+        scan.execute_lazy(filter.row_range.clone())?
+            .into_iter()
+            .map(Split::Lazy)
+            .collect()
+    } else {
+        scan.execute(filter.row_range.clone())?
+            .into_iter()
+            .map(Split::Started)
+            .collect()
+    };
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
@@ -453,8 +473,11 @@ enum SplitItem {
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     match local.split.take() {
         None => Ok(SplitItem::Done),
-        Some(Split::V1(task)) => Ok(RUNTIME
+        Some(Split::Started(task)) => Ok(RUNTIME
             .block_on(task)?
+            .map_or(SplitItem::Empty, SplitItem::Array)),
+        Some(Split::Lazy(split)) => Ok(RUNTIME
+            .block_on(split.start()?)?
             .map_or(SplitItem::Empty, SplitItem::Array)),
         Some(Split::V2) => {
             let file = local.file.as_ref().vortex_expect("split without a file");

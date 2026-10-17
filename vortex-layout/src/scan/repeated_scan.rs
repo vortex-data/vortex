@@ -118,6 +118,31 @@ impl<A: 'static + Send> RepeatedScan<A> {
             .collect()
     }
 
+    /// Describe the splits of the scan without building their futures.
+    ///
+    /// Unlike [`Self::execute`], no split registers its reads until [`LazySplit::start`] is
+    /// called, so the cost of building a split is paid by whoever starts it. Use this when the
+    /// executor starts splits on its worker threads and reads are cheap to issue late, for
+    /// example from memory-mapped files.
+    ///
+    /// Scans with row limits must use [`Self::execute_stream`] so the scan can coordinate the
+    /// limit across splits.
+    pub fn execute_lazy(&self, row_range: Option<Range<u64>>) -> VortexResult<Vec<LazySplit<A>>> {
+        if self.limit.is_some() {
+            vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
+        }
+
+        let ctx = self.task_context();
+        Ok(self
+            .split_masks(row_range)
+            .map(|row_mask| LazySplit {
+                ctx: Arc::clone(&ctx),
+                row_mask,
+                map_fn: Arc::clone(&self.map_fn),
+            })
+            .collect())
+    }
+
     pub fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -319,6 +344,25 @@ impl<A: 'static + Send> RepeatedScan<A> {
 }
 
 /// Apply `map_fn` to a split's array within the split's task.
+/// A split of a scan whose future is built when it is started, see
+/// [`RepeatedScan::execute_lazy`].
+pub struct LazySplit<A> {
+    ctx: Arc<TaskContext>,
+    row_mask: RowMask,
+    map_fn: MapFn<A>,
+}
+
+impl<A: 'static + Send> LazySplit<A> {
+    /// Build the future of the split. It returns the mapped split, or `None` when the split is
+    /// filtered out.
+    pub fn start(self) -> VortexResult<BoxFuture<'static, VortexResult<Option<A>>>> {
+        Ok(map_split(
+            split_exec(&self.ctx, self.row_mask)?,
+            &self.map_fn,
+        ))
+    }
+}
+
 fn map_split<A: 'static + Send>(
     task: SplitFuture,
     map_fn: &MapFn<A>,

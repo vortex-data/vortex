@@ -30,6 +30,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::layout::scan::repeated_scan::LazySplit;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::Between;
@@ -172,8 +173,11 @@ assert_impl_all!(GlobalState: Send, Sync);
 
 /// A unit of scan work that one thread takes at a time.
 pub enum Split {
-    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
-    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// A V1 scan task whose reads are registered already, yielding one array, or `None` if the
+    /// filter removed every row.
+    Started(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// A V1 scan task that the thread scanning it builds.
+    Lazy(LazySplit<ArrayRef>),
     /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
     V2,
 }
