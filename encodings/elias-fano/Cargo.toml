@@ -1,0 +1,26 @@
+[package]
+name = "vortex-elias-fano"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex Elias-Fano encoding for monotonic integer sequences"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+
+[[bench]]
+name = "ef_codec"
+harness = false
+
+[lints]
+workspace = true
