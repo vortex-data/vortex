@@ -16,6 +16,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
 use vortex::expr::BoundExpression;
 use vortex::expr::bound_and_collect;
+use vortex::expr::stats::Stat;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
@@ -26,10 +27,15 @@ use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
+use vortex::layout::LayoutReader as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::SessionExt as _;
 
@@ -185,7 +191,8 @@ impl OpenFileReader {
             }
             for conjunct in conjuncts {
                 let satisfied = if optional {
-                    file_stats.is_satisfied_by_non_null(&conjunct)?
+                    keeps_most_values(file_stats, &conjunct)
+                        || file_stats.is_satisfied_by_non_null(&conjunct)?
                 } else {
                     file_stats.is_satisfied(&conjunct)?
                 };
@@ -210,6 +217,81 @@ impl OpenFileReader {
             None => Ok(false),
         }
     }
+}
+
+/// An optional comparison that keeps at least this share of a column's range of values is not
+/// worth evaluating row by row. DuckDB stops evaluating the range filters of a hash join's build
+/// keys on its own tables when they keep this share of rows.
+const MIN_KEPT_SHARE_TO_SKIP_OPTIONAL: f64 = 0.75;
+
+/// Whether `conjunct` compares a column with a constant such that, judging by the column's
+/// minimum and maximum in the file, it keeps most of the column's values.
+fn keeps_most_values(file_stats: &FileStatsLayoutReader, conjunct: &BoundExpression) -> bool {
+    let Some(operator) = conjunct.as_opt::<Binary>() else {
+        return false;
+    };
+    let is_column = |expr: &BoundExpression| expr.is::<GetItem>() && expr.child(0).is_root();
+    let (column, constant, operator) = if is_column(conjunct.child(0))
+        && let Some(constant) = conjunct.child(1).as_opt::<Literal>()
+    {
+        (conjunct.child(0), constant, *operator)
+    } else if is_column(conjunct.child(1))
+        && let Some(constant) = conjunct.child(0).as_opt::<Literal>()
+    {
+        let flipped = match operator {
+            Operator::Gt => Operator::Lt,
+            Operator::Gte => Operator::Lte,
+            Operator::Lt => Operator::Gt,
+            Operator::Lte => Operator::Gte,
+            _ => return false,
+        };
+        (conjunct.child(1), constant, flipped)
+    } else {
+        return false;
+    };
+    let field = column.as_::<GetItem>();
+    let Some(fields) = file_stats.dtype().as_struct_fields_opt() else {
+        return false;
+    };
+    let Some(index) = fields.find(field) else {
+        return false;
+    };
+    let (Some(stats), Some(dtype)) = (
+        file_stats.file_stats().stats_sets().get(index),
+        fields.field_by_index(index),
+    ) else {
+        return false;
+    };
+    let as_f64 = |value: Option<ScalarValue>| {
+        Scalar::try_new(dtype.clone(), value)
+            .ok()?
+            .as_primitive_opt()?
+            .as_::<f64>()
+    };
+    let (Some(min), Some(max), Some(value)) = (
+        as_f64(stats.get(Stat::Min).as_exact()),
+        as_f64(stats.get(Stat::Max).as_exact()),
+        constant
+            .as_primitive_opt()
+            .and_then(|value| value.as_::<f64>()),
+    ) else {
+        return false;
+    };
+    kept_share(operator, value, min, max)
+        .is_some_and(|kept| kept >= MIN_KEPT_SHARE_TO_SKIP_OPTIONAL)
+}
+
+/// The share of the range from `min` to `max` that `operator` against `value` keeps.
+fn kept_share(operator: Operator, value: f64, min: f64, max: f64) -> Option<f64> {
+    if max <= min {
+        return None;
+    }
+    let kept = match operator {
+        Operator::Gt | Operator::Gte => (max - value) / (max - min),
+        Operator::Lt | Operator::Lte => (value - min) / (max - min),
+        _ => return None,
+    };
+    Some(kept.clamp(0.0, 1.0))
 }
 
 /// Appends the operands of the AND expressions at the top of `expr` to `out`.
@@ -460,5 +542,31 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::scalar_fn::fns::operators::Operator;
+
+    use super::kept_share;
+
+    #[rstest]
+    #[case(Operator::Gte, 37.0, Some(1.0))]
+    #[case(Operator::Lte, 2_399_788.0, Some(0.999_9))]
+    #[case(Operator::Gte, 1_200_000.0, Some(0.5))]
+    #[case(Operator::Lt, -5.0, Some(0.0))]
+    #[case(Operator::Eq, 5.0, None)]
+    fn share_of_range_kept(
+        #[case] operator: Operator,
+        #[case] value: f64,
+        #[case] expected: Option<f64>,
+    ) {
+        let kept = kept_share(operator, value, 0.0, 2_400_000.0);
+        match (kept, expected) {
+            (Some(kept), Some(expected)) => assert!((kept - expected).abs() < 1e-3, "{kept}"),
+            (kept, expected) => assert_eq!(kept, expected),
+        }
     }
 }
