@@ -19,6 +19,8 @@ extern "C" {
 
 extern void duckdb_table_function_to_string(const void *bind, duckdb_vx_string_map map);
 
+extern void duckdb_table_function_signature(const void *bind, duckdb_vx_string_map map);
+
 extern
 bool duckdb_table_function_pushdown_complex_filter(void *bind,
                                                    duckdb_vx_expr expr,
