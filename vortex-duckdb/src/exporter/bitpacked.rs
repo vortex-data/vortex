@@ -149,11 +149,7 @@ impl<T: UnpackType + NativePType + WrappingAdd> ColumnExporter for BitPackedExpo
         let values = values.freeze();
         let data = values.as_ptr();
         // SAFETY: the vector buffer keeps `values` alive for as long as the vector uses them.
-        unsafe {
-            vector.set_vector_buffer(&VectorBuffer::new(values));
-            // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
-            vector.set_data_ptr(data.cast_mut());
-        }
+        unsafe { vector.set_vector_buffer(&VectorBuffer::new(values), data, len) };
         Ok(())
     }
 }
