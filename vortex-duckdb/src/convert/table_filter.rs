@@ -48,15 +48,25 @@ pub fn try_from_table_filter(
             Binary.new_expr(const_.operator.try_into()?, [col.clone(), lit(scalar)])
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
-            let Some(children) = conj_and
-                .children()
-                .map(|child| try_from_table_filter(child, col, scope_dtype))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
+            let mut children = Vec::new();
+            for child in conj_and.children() {
+                // An optional filter need not hold for every row, and DuckDB applies bloom
+                // filters to the scanned chunks, so the other filters of the conjunction still
+                // apply when one of those cannot be converted.
+                let skippable = matches!(
+                    child.as_class(),
+                    TableFilterClass::Optional(_) | TableFilterClass::Bloom
+                );
+                match try_from_table_filter(child, col, scope_dtype)? {
+                    Some(expr) => children.push(expr),
+                    None if skippable => {}
+                    None => return Ok(None),
+                }
+            }
+            let Some(conjunction) = and_collect(children) else {
                 return Ok(None);
             };
-
-            and_collect(children).unwrap_or_else(|| lit(true))
+            conjunction
         }
         // This is a disjunction.
         TableFilterClass::ConjunctionOr(disjuction_or) => {
@@ -100,9 +110,8 @@ pub fn try_from_table_filter(
                 None => return Ok(None),
             }
         }
-        TableFilterClass::Bloom => {
-            vortex_bail!("bloom filter table filter is not supported")
-        }
+        // DuckDB applies bloom filters to the scanned chunks.
+        TableFilterClass::Bloom => return Ok(None),
     }))
 }
 
