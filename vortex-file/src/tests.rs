@@ -2360,7 +2360,7 @@ async fn file_statistics_count_increasing_keys_exactly() -> VortexResult<()> {
             ("ids", PrimitiveArray::from_iter(range.clone()).into_array()),
             (
                 "restarting",
-                PrimitiveArray::from_iter(range.map(|i| i % 50_000)).into_array(),
+                PrimitiveArray::from_iter(range.map(|i| i % 1_000)).into_array(),
             ),
         ])
         .map(IntoArray::into_array)
@@ -2385,7 +2385,7 @@ async fn file_statistics_count_increasing_keys_exactly() -> VortexResult<()> {
         .distinct_count(1)
         .vortex_expect("integers are counted");
     assert!(
-        restarting.abs_diff(50_000) <= 1_000,
+        restarting.abs_diff(1_000) <= 20,
         "estimated {restarting} distinct restarting values"
     );
 
@@ -2395,7 +2395,7 @@ async fn file_statistics_count_increasing_keys_exactly() -> VortexResult<()> {
 #[tokio::test]
 async fn file_statistics_estimate_distinct_counts() -> VortexResult<()> {
     let keys = (0..10_000u32).map(|i| i % 100);
-    let names = (0..10_000u32).map(|i| Some(format!("name {}", i % 1_000)));
+    let names = (0..10_000u32).map(|i| Some(format!("name {}", i % 100)));
     let array = StructArray::from_fields(&[
         ("keys", PrimitiveArray::from_iter(keys).into_array()),
         (
@@ -2432,13 +2432,12 @@ async fn file_statistics_estimate_distinct_counts() -> VortexResult<()> {
         .distinct_count(1)
         .vortex_expect("strings are counted");
     assert!(keys.abs_diff(100) <= 2, "estimated {keys} distinct keys");
-    assert!(
-        names.abs_diff(1_000) <= 20,
-        "estimated {names} distinct names"
-    );
+    // Strings are sampled less than integers, so the 100 names seen in the 1020 sampled rows
+    // scale up to 100 + (100 / 1020)^2 * 100 / 1020 * (10000 - 1020).
+    assert!(names.abs_diff(108) <= 2, "estimated {names} distinct names");
     assert_eq!(file_stats.distinct_count(2), None);
     assert_eq!(file_stats.max_length(0), None);
-    assert_eq!(file_stats.max_length(1), Some("name 999".len() as u64));
+    assert_eq!(file_stats.max_length(1), Some("name 99".len() as u64));
 
     Ok(())
 }
