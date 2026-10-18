@@ -25,6 +25,8 @@ use crate::scalar::UnionValue;
 use crate::scalar::Utf8Scalar;
 use crate::scalar::VariantScalar;
 
+// The `_opt` views check the dtype before constructing a view, so that asking a scalar of another
+// type does not build an error, which captures a backtrace.
 impl Scalar {
     /// Returns a view of the scalar as a boolean scalar.
     ///
@@ -38,6 +40,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a boolean scalar if it has a boolean type.
     pub fn as_bool_opt(&self) -> Option<BoolScalar<'_>> {
+        if !self.dtype().is_boolean() {
+            return None;
+        }
         BoolScalar::try_new(self.dtype(), self.value()).ok()
     }
 
@@ -53,6 +58,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a primitive scalar if it has a primitive type.
     pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar<'_>> {
+        if !self.dtype().is_primitive() {
+            return None;
+        }
         PrimitiveScalar::try_new(self.dtype(), self.value()).ok()
     }
 
@@ -68,6 +76,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a decimal scalar if it has a decimal type.
     pub fn as_decimal_opt(&self) -> Option<DecimalScalar<'_>> {
+        if !self.dtype().is_decimal() {
+            return None;
+        }
         DecimalScalar::try_new(self.dtype(), self.value()).ok()
     }
 
@@ -83,6 +94,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a UTF-8 string scalar if it has a UTF-8 type.
     pub fn as_utf8_opt(&self) -> Option<Utf8Scalar<'_>> {
+        if !self.dtype().is_utf8() {
+            return None;
+        }
         Utf8Scalar::try_new(self.dtype(), self.value()).ok()
     }
 
@@ -98,6 +112,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a binary scalar if it has a binary type.
     pub fn as_binary_opt(&self) -> Option<BinaryScalar<'_>> {
+        if !self.dtype().is_binary() {
+            return None;
+        }
         BinaryScalar::try_new(self.dtype(), self.value()).ok()
     }
 
@@ -135,6 +152,9 @@ impl Scalar {
     /// Note that we use [`ListScalar`] to represent **both** [`List`](crate::dtype::DType::List)
     /// and [`FixedSizeList`](crate::dtype::DType::FixedSizeList).
     pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
+        if !self.dtype().is_list() && !self.dtype().is_fixed_size_list() {
+            return None;
+        }
         ListScalar::try_new(self.dtype(), self.value()).ok()
     }
 
@@ -150,6 +170,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a map scalar if it has a map type.
     pub fn as_map_opt(&self) -> Option<MapScalar<'_>> {
+        if !self.dtype().is_map() {
+            return None;
+        }
         MapScalar::try_new(self.dtype(), self.value()).ok()
     }
 
