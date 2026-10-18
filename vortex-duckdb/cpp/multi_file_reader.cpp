@@ -42,9 +42,10 @@ bool SkipMultiFileReaderColumn(size_t i,
     return false;
 }
 
-// Whether the filter is a single-column bloom filter of a hash join's keys,
-// possibly behind an optional filter that stops applying it when it keeps most
-// rows.
+// Whether the filter is a single-column filter holding a bloom filter of a hash
+// join's keys, possibly behind an optional filter that stops applying it when it
+// keeps most rows, or combined under a conjunction with the other filters that
+// joins push into the same column.
 static bool IsBloomFilter(const TableFilter &filter) {
     if (filter.filter_type != TableFilterType::EXPRESSION_FILTER) {
         return false;
@@ -309,8 +310,8 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
 }
 
 optional_idx VortexReaderInterface::MaxThreads(const MultiFileBindData &data,
-                                              const MultiFileGlobalState &,
-                                              FileExpandResult expand_result) {
+                                               const MultiFileGlobalState &,
+                                               FileExpandResult expand_result) {
     // Threads take files in turn when there are several.
     if (expand_result == FileExpandResult::MULTIPLE_FILES) {
         return optional_idx();
