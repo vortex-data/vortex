@@ -98,6 +98,7 @@ impl ZstdBuffers {
             compressed_buffers,
             uncompressed_sizes,
             buffer_alignments,
+            session: session.clone(),
         };
         let slots: ArraySlots = serialization.children.into_iter().map(Some).collect();
         let compressed = Array::try_from_parts(ArrayParts::new(
@@ -160,6 +161,8 @@ pub struct ZstdBuffersData {
     compressed_buffers: Vec<BufferHandle>,
     uncompressed_sizes: Vec<u64>,
     buffer_alignments: Vec<u32>,
+    /// The session used to rebuild the wrapped array, which resolves its encoding.
+    session: VortexSession,
 }
 
 impl Display for ZstdBuffersData {
@@ -513,6 +516,7 @@ impl VTable for ZstdBuffers {
             compressed_buffers,
             uncompressed_sizes: metadata.uncompressed_sizes.clone(),
             buffer_alignments: metadata.buffer_alignments.clone(),
+            session: session.clone(),
         };
 
         data.validate()?;
@@ -554,16 +558,13 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
 }
 
 impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
-    #[allow(clippy::disallowed_methods)]
     fn validity(array: ArrayView<'_, ZstdBuffers>) -> VortexResult<Validity> {
         if !array.dtype().is_nullable() {
             return Ok(Validity::NonNullable);
         }
 
-        let inner_array = ZstdBuffers::decompress_and_build_inner(
-            &array.into_owned(),
-            vortex_array::legacy_session(),
-        )?;
+        let session = array.data().session.clone();
+        let inner_array = ZstdBuffers::decompress_and_build_inner(&array.into_owned(), &session)?;
         inner_array.validity()
     }
 }
