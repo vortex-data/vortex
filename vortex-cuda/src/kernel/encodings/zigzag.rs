@@ -157,7 +157,7 @@ mod tests {
             .execute(zigzag_array.clone(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
