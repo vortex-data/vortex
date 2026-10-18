@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::time::SystemTime;
 
 use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
+use parking_lot::Mutex;
 use url::Url;
 use vortex::aggregate_fn::AggregateFnVTableExt as _;
 use vortex::aggregate_fn::NumericalAggregateOpts;
@@ -46,6 +49,7 @@ use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::SessionExt as _;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -104,9 +108,51 @@ static MMAP_LOCAL_FILES: AtomicBool = AtomicBool::new(false);
 /// # Safety
 ///
 /// No local file scanned by this process may be truncated or modified during a scan. Accessing
-/// the unmapped pages of a truncated file crashes the process with `SIGBUS`.
+/// the unmapped pages of a truncated file crashes the process with `SIGBUS`. Maps are reused by
+/// later scans while a file keeps its length and modification time, so a file must also not be
+/// modified between scans without changing either.
 pub unsafe fn enable_mmap_local_files() {
     MMAP_LOCAL_FILES.store(true, Ordering::Relaxed);
+}
+
+/// A memory map of a local file, with the length and modification time it had when mapped.
+struct MappedFile {
+    len: u64,
+    modified: SystemTime,
+    reader: Arc<dyn VortexReadAt>,
+}
+
+/// The maps of the local files scanned so far, by path.
+///
+/// Each query opens the files it scans again. Reusing their maps saves unmapping a file after
+/// every query and faulting its pages into a fresh map in the next one.
+static MAPPED_FILES: LazyLock<Mutex<HashMap<String, MappedFile>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// A reader of a memory map of the local file at `path`, reusing the map of an earlier scan
+/// while the file keeps its length and modification time.
+fn map_local_file(path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+    let metadata = std::fs::metadata(path)?;
+    let len = metadata.len();
+    let modified = metadata.modified()?;
+    let mut files = MAPPED_FILES.lock();
+    if let Some(file) = files.get(path)
+        && file.len == len
+        && file.modified == modified
+    {
+        return Ok(Arc::clone(&file.reader));
+    }
+    // SAFETY: `enable_mmap_local_files` requires that scanned files do not change during a scan.
+    let reader: Arc<dyn VortexReadAt> = Arc::new(unsafe { MmapReadAt::open(path) }?);
+    files.insert(
+        path.to_owned(),
+        MappedFile {
+            len,
+            modified,
+            reader: Arc::clone(&reader),
+        },
+    );
+    Ok(reader)
 }
 
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
@@ -171,9 +217,7 @@ impl OpenFileReader {
         let source: Arc<dyn VortexReadAt> = if lazy_splits {
             // Mapping a local file takes a few system calls, so it is done here instead of
             // handing it to a blocking thread, which takes longer than the calls themselves.
-            // SAFETY: `enable_mmap_local_files` requires that scanned files do not change during
-            // a scan.
-            Arc::new(unsafe { MmapReadAt::open(url.path()) }?)
+            map_local_file(url.path())?
         } else {
             let (fs, fs_path) = resolve_filesystem(&url)?;
             fs.open_read(&fs_path).await?
