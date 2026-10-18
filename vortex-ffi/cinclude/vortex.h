@@ -677,7 +677,8 @@ size_t vx_array_len(const vx_array *array);
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
-const vx_array *vx_array_get_field(const vx_array *array, size_t index, vx_error **error_out);
+const vx_array *
+vx_array_get_field(const vx_session *session, const vx_array *array, size_t index, vx_error **error_out);
 
 const vx_array *vx_array_slice(const vx_array *array, size_t start, size_t stop, vx_error **error_out);
 
@@ -694,7 +695,7 @@ bool vx_array_element_is_invalid(const vx_session *session,
 /**
  * Check how many items in the array are invalid (null).
  */
-size_t vx_array_invalid_count(const vx_array *array, vx_error **error_out);
+size_t vx_array_invalid_count(const vx_session *session, const vx_array *array, vx_error **error_out);
 
 /**
  * Increase reference count on vx_array

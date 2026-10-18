@@ -77,7 +77,7 @@ TEST_CASE("Import Arrow array as Vortex array", "[arrow]") {
     REQUIRE(vx.size() == 3);
     REQUIRE(vx.has_dtype(DataTypeVariant::Struct));
 
-    Array a = vx.field(0);
+    Array a = vx.field(session, 0);
     REQUIRE(a.is_primitive(I32));
     auto view = a.values<int32_t>(session);
     REQUIRE(view.values()[0] == 10);

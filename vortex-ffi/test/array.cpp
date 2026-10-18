@@ -156,7 +156,7 @@ TEST_CASE("Array with validity", "[array]") {
         REQUIRE(vx_array_element_is_invalid(session, array, i, &error) == !valid[i]);
         require_no_error(error);
     }
-    REQUIRE(vx_array_invalid_count(array, &error) == 2);
+    REQUIRE(vx_array_invalid_count(session, array, &error) == 2);
     require_no_error(error);
 
     validity = {};

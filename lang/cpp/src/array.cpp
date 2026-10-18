@@ -228,21 +228,21 @@ Validity Array::validity() const {
     return Access::adopt<Validity>(static_cast<ValidityType>(raw.type), raw.array);
 }
 
-size_t Array::null_count() const {
+size_t Array::null_count(const Session &session) const {
     vx_error *error = nullptr;
-    const size_t count = vx_array_invalid_count(handle_.get(), &error);
+    const size_t count = vx_array_invalid_count(Access::c_ptr(session), handle_.get(), &error);
     throw_on_error(error);
     return count;
 }
 
-Array Array::field(size_t index) const {
+Array Array::field(const Session &session, size_t index) const {
     vx_error *error = nullptr;
-    const vx_array *out = vx_array_get_field(handle_.get(), index, &error);
+    const vx_array *out = vx_array_get_field(Access::c_ptr(session), handle_.get(), index, &error);
     throw_on_error(error);
     return Access::adopt<Array>(out);
 }
 
-Array Array::field(std::string_view name) const {
+Array Array::field(const Session &session, std::string_view name) const {
     const DataType dt = dtype();
     const std::unique_ptr<const vx_struct_fields, decltype(&vx_struct_fields_free)> fields(
         struct_fields_or_throw(detail::Access::c_ptr(dt)),
@@ -251,7 +251,7 @@ Array Array::field(std::string_view name) const {
     for (uint64_t i = 0; i < fields_size; ++i) {
         const vx_view field = vx_struct_fields_field_name(fields.get(), i);
         if (std::string_view {field.ptr, field.len} == name) {
-            return this->field(i);
+            return this->field(session, i);
         }
     }
     throw VortexException("no field named \"" + std::string(name) + "\"", ErrorCode::InvalidArgument);

@@ -66,16 +66,16 @@ void verify_age_field(const Session &session,
 void verify_sample_array(const Session &session, const Array &array) {
     REQUIRE(array.size() == SAMPLE_ROWS);
     REQUIRE(array.has_dtype(DataTypeVariant::Struct));
-    verify_age_field(session, array.field(0));
+    verify_age_field(session, array.field(session, 0));
 
-    Array height = array.field(1);
+    Array height = array.field(session, 1);
     REQUIRE(height.is_primitive(U16));
     auto view = height.values<uint16_t>(session);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
         REQUIRE(view.values()[i] == (i + 1) % 200);
     }
 
-    REQUIRE_THROWS_AS(array.field(2), VortexException);
+    REQUIRE_THROWS_AS(array.field(session, 2), VortexException);
 }
 
 TEST_CASE("Basic scan", "[scan]") {

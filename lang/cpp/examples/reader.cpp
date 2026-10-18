@@ -21,7 +21,7 @@ int main() {
 
     for (Partition &partition : scan.partitions()) {
         for (Array &array : partition.batches()) {
-            const Array age = array.field("age");
+            const Array age = array.field(session, "age");
             const PrimitiveView<uint8_t> age_view = age.values<uint8_t>(session);
             const std::span<const uint8_t> age_values = age_view.values();
             for (uint8_t value : age_values) {

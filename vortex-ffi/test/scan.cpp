@@ -361,17 +361,17 @@ void verify_sample_array(vx_session *session, const vx_array *array) {
     require_no_error(error);
     REQUIRE(validity.type == VX_VALIDITY_NON_NULLABLE);
 
-    const vx_array *age_field = vx_array_get_field(array, 0, &error);
+    const vx_array *age_field = vx_array_get_field(session, array, 0, &error);
     require_no_error(error);
     verify_age_field(session, age_field);
     vx_array_free(age_field);
 
-    const vx_array *height_field = vx_array_get_field(array, 1, &error);
+    const vx_array *height_field = vx_array_get_field(session, array, 1, &error);
     require_no_error(error);
     verify_height_field(session, height_field);
     vx_array_free(height_field);
 
-    REQUIRE(vx_array_get_field(array, 2, &error) == nullptr);
+    REQUIRE(vx_array_get_field(session, array, 2, &error) == nullptr);
     REQUIRE(error != nullptr);
     vx_error_free(error);
 }
@@ -751,7 +751,7 @@ TEST_CASE("Filter with literal expression", "[filter]") {
     REQUIRE(vx_array_len(array) == SAMPLE_ROWS - threshold);
 
     vx_error *error = nullptr;
-    const vx_array *filtered_age = vx_array_get_field(array, 0, &error);
+    const vx_array *filtered_age = vx_array_get_field(session, array, 0, &error);
     require_no_error(error);
     REQUIRE(filtered_age != nullptr);
     defer {
