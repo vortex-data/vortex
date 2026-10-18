@@ -112,5 +112,16 @@ build on the binder.
 
 ## Relation to the Decimal and type roadmap
 
-The Decimal work in [`../decimal/`](../decimal/README.md) depends on phases 2 and 3. An opaque
-Decimal wrapper uses the same derives, casts and normal form.
+The [Decimal notes](../decimal/README.md) place these phases in a larger graph of type work. Three
+points affect the order:
+
+- The array-level fix for `Decimal` does not wait for this plan. The built-in `Decimal` wrapper
+  owns its rewrites, so it does not need the `ExtVTable` hooks.
+- A move of `Decimal` into an extension type needs phases 0, 2 and 3 first. Without them, a cast
+  from a decimal to an integer returns the unscaled values.
+- Phase 3 and the Decimal work share one integer kernel family, `rescale` and `check_range`.
+  `Timestamp` unit casts and decimal rescales both use it.
+
+The Decimal rewrites are also good acceptance tests for the binder of phase 2. The decimal-like
+reference type of phase 1 can run them against the built-in `Decimal`. Phase 4 and the Decimal
+wrapper share one normal form.

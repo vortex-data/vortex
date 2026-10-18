@@ -38,3 +38,8 @@ That causes wrong results, panics, and code paths that disagree with each other.
 
 The findings come from reading `develop` at `5fc5cb8`, and from a throwaway test against
 `vortex-array` in a debug build. Findings marked "lead" in the agent catalog are not confirmed.
+
+## Related
+
+The [Decimal notes](../decimal/README.md) use `Decimal` as a test of this design. They also place
+this plan in a larger graph of type work.

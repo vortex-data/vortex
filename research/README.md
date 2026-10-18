@@ -7,6 +7,7 @@ merged.
 | Topic | Summary for people | Detail for agents |
 | --- | --- | --- |
 | Extension types | [`extension-types/`](extension-types/README.md) | [`extension-types/agents/`](extension-types/agents/) |
+| Decimal and the type roadmap | [`decimal/`](decimal/README.md) | [`decimal/agents/`](decimal/agents/) |
 
 Each summary document links to the agent documents. The agent documents hold file and line
 references, reproductions, fix sketches and file lists.

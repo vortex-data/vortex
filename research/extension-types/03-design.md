@@ -112,6 +112,12 @@ type-specific encodings (`DateTimeParts`) live under the wrapper and see the sto
 removes the two shapes of EXT-S1 and EXT-S2. The compressor chooses a type-specific encoding from
 the extension metadata.
 
+Then no generic encoding needs code for extension dtypes, and `ext_storage` only reads the child.
+The cost is that code which builds a constant, a dictionary or chunks of an extension dtype must
+put the wrapper on top. The [Decimal notes](../decimal/02-design.md) use the same rule for the
+built-in `Decimal` wrapper. A writer can still produce an older wire shape with the wrapper lower
+down when an older format needs it.
+
 ### Statistics
 
 Zone maps and file statistics store storage statistics for extension columns. The rewrites in the
@@ -155,6 +161,10 @@ plugins like the Arrow registry. Then a new extension type does not need code in
   mandatory rewrite pass that also covers the row path.
 - Open question: are rewrites owned only by the extension type? Or can a function owner register a
   rewrite for a type that it does not own?
+- Open question: is the wrapper always on top of generic encodings? The alternative keeps generic
+  encodings above the wrapper, as `ExtensionConstantRule` does for constants today. That matches
+  the current code, but each generic encoding then needs a pushdown rule for `ext_storage`, or a
+  fallback that executes it. This proposal puts the wrapper on top.
 - Open question: are operations on values with different metadata rejected, or coerced to a common
   type? Rust and the built-in `Decimal` reject them today. SQL coerces them.
 - Open question: are `EQ` and `ORD` enough? A refinement over a storage dtype can need a third flag

@@ -242,6 +242,15 @@ Consequences:
   the encoding from the extension metadata, and compresses the storage child.
 - The same applies to any future encoding for one extension type.
 
+Open: the direction of the normal form. The alternative is "wrapper below generic encodings":
+`Constant(extension scalar)`, `Dict(codes, Extension(d, values))` and `Chunked[Extension(d, a_i)]`
+stay as they are, and only value-reading encodings must sit under the wrapper. That matches
+`ExtensionConstantRule` and the legacy decimal wire form. It has two costs. `ext_storage` needs a
+pushdown rule for each generic encoding, or a fallback that executes the encoding to the canonical
+wrapper. Also, each generic encoding keeps an extension arm in its canonicalization. The wrapper on
+top removes those arms. The Decimal report (`../../decimal/agents/report.md`, sections 3.3 and
+3.5) uses the wrapper on top in memory, and its wire plugin writes the older shapes.
+
 ## 7. Statistics
 
 - **S1.** Zone maps and file statistics for an extension column store statistics of the storage,
