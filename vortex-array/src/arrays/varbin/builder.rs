@@ -26,7 +26,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 #[cfg(debug_assertions)]
-use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
@@ -40,7 +39,6 @@ use crate::dtype::OffsetBuilderPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 #[cfg(debug_assertions)]
-use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -352,7 +350,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         usize: AsPrimitive<O>,
     {
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        let bytes: ByteBuffer = array.sliced_bytes();
+        let bytes: ByteBuffer = array.sliced_bytes(ctx);
         let validity = array
             .varbin_validity()
             .execute_mask(array.as_ref().len(), ctx)?;
@@ -406,7 +404,6 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     }
 
     /// Finishes the appended values into a [`VarBinArray`] and resets the builder.
-    #[allow(clippy::disallowed_methods)]
     pub fn finish_into_varbin(&mut self) -> VarBinArray {
         assert_eq!(
             self.offsets.len() - 1,
@@ -424,14 +421,10 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
 
         // The builder adds offsets in monotonically increasing order. Store this statistic to
         // prevent VarBinArray::validate from recomputing it after deserialization.
-        #[cfg(debug_assertions)]
-        {
-            let offsets_are_sorted = offsets
-                .statistics()
-                .compute_is_sorted(&mut legacy_session().create_execution_ctx())
-                .unwrap_or(false);
-            debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
-        }
+        debug_assert!(
+            offsets.as_slice::<O>().is_sorted(),
+            "VarBinBuilder offsets must be sorted"
+        );
         offsets
             .statistics()
             .set(Stat::IsSorted, Precision::Exact(true.into()));

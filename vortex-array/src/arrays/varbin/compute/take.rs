@@ -885,6 +885,7 @@ mod tests {
             bytes,
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
 
         let indices = buffer![0u32; 3].into_array();
@@ -940,6 +941,7 @@ mod tests {
             ByteBuffer::copy_from(b"helloworld"),
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
 
         let taken = array.take(buffer![1u32, 0].into_array()).unwrap();

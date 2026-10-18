@@ -77,7 +77,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     let mut ctx = SESSION.create_execution_ctx();
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, uniqueness));
     let dict = dict_encode(&varbin_arr.clone().into_array(), &mut ctx).unwrap();
-    let const_bytes = varbin_arr.bytes_at(0);
+    let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
 
     bencher
@@ -155,7 +155,7 @@ fn bench_compare_sliced_dict_varbinview(
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
     let dict = dict_encode(&varbin_arr.clone().into_array(), &mut ctx).unwrap();
     let dict = dict.into_array().slice(0..codes_len).unwrap();
-    let const_bytes = varbin_arr.bytes_at(0);
+    let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
 
     bencher

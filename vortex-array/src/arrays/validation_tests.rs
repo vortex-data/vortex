@@ -94,6 +94,7 @@ mod tests {
 
     #[test]
     fn test_varbin_array_validation_success() {
+        let mut ctx = array_session().create_execution_ctx();
         // Valid case: offsets are monotonically increasing and within bounds.
         let offsets = buffer![0i32, 3, 6, 10].into_array();
         let bytes = ByteBuffer::from(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -102,6 +103,7 @@ mod tests {
             bytes,
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
         assert!(result.is_ok());
     }
@@ -226,6 +228,7 @@ mod tests {
         #[case] validity: Validity,
         #[case] ok: bool,
     ) {
+        let mut ctx = array_session().create_execution_ctx();
         let nullability = if matches!(validity, Validity::NonNullable) {
             Nullability::NonNullable
         } else {
@@ -236,6 +239,7 @@ mod tests {
             ByteBuffer::from(bytes),
             DType::Utf8(nullability),
             validity,
+            &mut ctx,
         );
         assert_eq!(result.is_ok(), ok);
     }

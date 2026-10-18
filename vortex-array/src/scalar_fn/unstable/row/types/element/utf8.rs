@@ -426,14 +426,15 @@ mod tests {
         #[case] offsets: PrimitiveArray,
         #[case] shares_offsets: bool,
     ) -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let bytes = ByteBuffer::from("héllo!".as_bytes().to_vec());
         let array = VarBinArray::try_new(
             offsets.clone().into_array(),
             bytes.clone(),
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         )?;
-        let mut ctx = VortexSession::empty().create_execution_ctx();
         let column = Utf8Column::decode(array.into_array(), &mut ctx)?;
 
         let Utf8Storage::Offsets {
@@ -477,13 +478,14 @@ mod tests {
     /// view storage, which replaces null rows with empty strings.
     #[test]
     fn varbin_input_with_invalid_null_bytes_reads_views() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = VarBinArray::try_new(
             PrimitiveArray::from_iter([0u32, 1, 2]).into_array(),
             ByteBuffer::from(vec![b'a', 0xff]),
             DType::Utf8(Nullability::Nullable),
             Validity::from_iter([true, false]),
+            &mut ctx,
         )?;
-        let mut ctx = VortexSession::empty().create_execution_ctx();
         let column = Utf8Column::decode(array.into_array(), &mut ctx)?;
 
         assert!(matches!(column.0, Utf8Storage::Views { .. }));

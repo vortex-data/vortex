@@ -70,7 +70,7 @@ fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
         .unwrap();
     (0..data.len())
         .filter(|&i| mask.value(i))
-        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i).to_vec()) })
+        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i, &mut ctx).to_vec()) })
         .find(|u| u.contains(domain))
         .unwrap_or_else(|| format!("http://{domain}/missing"))
 }
