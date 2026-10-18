@@ -13,6 +13,7 @@ use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -24,6 +25,7 @@ use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use super::bitpacked_v2_id;
 use crate::BitPacked;
@@ -68,7 +70,10 @@ pub(super) fn serialize(
     ))
 }
 
-pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<ArrayRef> {
+pub(super) fn deserialize(
+    parts: ArrayDeserialization<'_>,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
     let ArrayDeserialization {
         dtype,
         len,
@@ -127,7 +132,14 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Array
                 .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
                 .transpose()?;
 
-            Patches::new(len, p.offset()?, indices, values, chunk_offsets)
+            Patches::new(
+                len,
+                p.offset()?,
+                indices,
+                values,
+                chunk_offsets,
+                &mut session.create_execution_ctx(),
+            )
         })
         .transpose()?;
 

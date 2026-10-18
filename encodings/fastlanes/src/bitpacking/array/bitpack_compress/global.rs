@@ -279,13 +279,18 @@ where
     if indices.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Patches::new(
-            data.len(),
-            0,
-            indices.into_array(),
-            PrimitiveArray::new(values, patch_validity).into_array(),
-            Some(chunk_offsets.into_array()),
-        )?))
+        // SAFETY: the indices are collected in increasing order from positions in `data`, with
+        // one patch value each.
+        Ok(Some(unsafe {
+            Patches::new_unchecked(
+                data.len(),
+                0,
+                indices.into_array(),
+                PrimitiveArray::new(values, patch_validity).into_array(),
+                Some(chunk_offsets.into_array()),
+                Some(0),
+            )
+        }))
     }
 }
 

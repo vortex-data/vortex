@@ -21,6 +21,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
@@ -137,7 +138,7 @@ impl VTable for ALP {
         metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ALPMetadata::decode(metadata)?;
         let encoded_ptype = match &dtype {
@@ -157,7 +158,14 @@ impl VTable for ALP {
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
+                Patches::new(
+                    len,
+                    p.offset()?,
+                    indices,
+                    values,
+                    chunk_offsets,
+                    &mut session.create_execution_ctx(),
+                )
             })
             .transpose()?;
 
@@ -755,6 +763,7 @@ mod tests {
     /// be preserved, or when building ALPArrays manually without chunk_offsets.
     #[test]
     fn test_execute_decompress_with_patches_no_chunk_offsets_regression_5948() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create an array with values that will produce patches. PI doesn't encode cleanly.
         let values: Vec<f64> = vec![1.0, 2.0, PI, 4.0, 5.0];
         let original = PrimitiveArray::from_iter(values);
@@ -784,6 +793,7 @@ mod tests {
             original_patches.indices().clone(),
             original_patches.values().clone(),
             None, // NO chunk_offsets - this triggers the bug!
+            &mut ctx,
         )
         .unwrap();
 
@@ -810,10 +820,7 @@ mod tests {
         );
 
         // The execute path has the bug - it drops patches when chunk_offsets is None.
-        let result_execute = {
-            let mut ctx = SESSION.create_execution_ctx();
-            execute_decompress(alp_without_chunk_offsets, &mut ctx).unwrap()
-        };
+        let result_execute = { execute_decompress(alp_without_chunk_offsets, &mut ctx).unwrap() };
         let execute_slice = result_execute.as_slice::<f64>();
 
         // This assertion FAILS until the bug is fixed because execute_decompress drops patches.

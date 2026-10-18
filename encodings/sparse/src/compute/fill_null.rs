@@ -78,6 +78,7 @@ mod tests {
         PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array().cast(nullable_i32()).unwrap(),
         8,
         Scalar::null(nullable_i32()),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap().into_array())]
     // non-null fill, nullable patches with a null
     #[case(Sparse::try_new(
@@ -85,6 +86,7 @@ mod tests {
         PrimitiveArray::from_option_iter([Some(7i32), None]).into_array().cast(nullable_i32()).unwrap(),
         4,
         Scalar::from(1i32).cast(&nullable_i32()).unwrap(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap().into_array())]
     fn fill_null_matches_canonical(#[case] array: vortex_array::ArrayRef) {
         let mut ctx = SESSION.create_execution_ctx();

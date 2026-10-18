@@ -85,16 +85,17 @@ mod tests {
     #[case::lte(Scalar::from(10i32), Operator::Lte)]
     #[case::neq(Scalar::from(1i32), Operator::NotEq)]
     fn compare_matches_canonical(#[case] rhs: Scalar, #[case] op: Operator) {
+        let mut ctx = SESSION.create_execution_ctx();
         let array: SparseArray = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
             buffer![10i32, 20, 30].into_array(),
             8,
             Scalar::from(1i32),
+            &mut ctx,
         )
         .unwrap();
         let arr = array.into_array();
         let len = arr.len();
-        let mut ctx = SESSION.create_execution_ctx();
 
         // Kernel path: compare pushes through the Sparse encoding.
         let kernel_bool = arr

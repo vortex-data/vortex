@@ -35,14 +35,14 @@ impl SliceKernel for BitPacked {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
         let patches = array
             .patches()
-            .map(|p| p.slice(range.clone()))
+            .map(|p| p.slice(range.clone(), ctx))
             .transpose()?
             .flatten();
 

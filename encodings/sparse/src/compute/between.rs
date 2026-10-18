@@ -96,11 +96,13 @@ mod tests {
         #[case] lower_strict: StrictComparison,
         #[case] upper_strict: StrictComparison,
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
             buffer![10i32, 20, 30].into_array(),
             8,
             Scalar::from(1i32),
+            &mut ctx,
         )
         .unwrap()
         .into_array();
@@ -112,8 +114,6 @@ mod tests {
 
         let lower = ConstantArray::new(Scalar::from(lo), len).into_array();
         let upper = ConstantArray::new(Scalar::from(hi), len).into_array();
-
-        let mut ctx = SESSION.create_execution_ctx();
 
         // Kernel path: between pushes through the Sparse encoding.
         let kernel = array

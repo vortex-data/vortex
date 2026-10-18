@@ -67,6 +67,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -75,12 +76,13 @@ mod tests {
 
     #[test]
     fn test_reduce() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![0u16; 512].into_array();
         let patch_indices = buffer![1u32, 8, 30].into_array();
         let patch_values = buffer![u16::MAX; 3].into_array();
-        let patches = Patches::new(512, 0, patch_indices, patch_values, None)?;
+        let patches = Patches::new(512, 0, patch_indices, patch_values, None, &mut ctx)?;
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
@@ -123,10 +125,11 @@ mod tests {
             patch_indices.into_array(),
             patch_values.into_array(),
             None,
+            &mut array_session().create_execution_ctx(),
         )
         .unwrap();
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
             .unwrap()
@@ -152,13 +155,14 @@ mod tests {
 
     #[test]
     fn test_stacked_slices() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::from_iter(0u64..10_000).into_array();
 
         let patched_indices = buffer![1u32, 2, 1024, 2048, 3072, 3088].into_array();
         let patched_values = buffer![0u64, 1, 2, 3, 4, 5].into_array();
 
-        let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let patches =
+            Patches::new(10_000, 0, patched_indices, patched_values, None, &mut ctx).unwrap();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()

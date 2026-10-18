@@ -278,6 +278,7 @@ mod tests {
             PrimitiveArray::new(buffer![0u32, 1024u32], NN).into_array(),
             PrimitiveArray::new(buffer![99.9f32, 88.8f32], NN).into_array(),
             None,
+            ctx.execution_ctx(),
         )
         .unwrap();
         let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;

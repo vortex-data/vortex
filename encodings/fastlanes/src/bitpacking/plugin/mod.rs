@@ -86,12 +86,12 @@ impl ArrayPlugin for BitPackedPlugin {
     fn deserialize(
         &self,
         parts: ArrayDeserialization<'_>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         if parts.serialized_id == bitpacked_v1_id() {
-            v1::deserialize(parts)
+            v1::deserialize(parts, session)
         } else if parts.serialized_id == bitpacked_v2_id() {
-            v2::deserialize(parts)
+            v2::deserialize(parts, session)
         } else {
             vortex_bail!(
                 "BitPacked plugin does not recognize serialized ID {}",

@@ -68,6 +68,7 @@ mod tests {
             buffer![100i32, 200, 300].into_array(),
             10,
             Scalar::from(0i32),
+            &mut ctx,
         )
         .unwrap();
 
@@ -87,11 +88,13 @@ mod tests {
 
     #[test]
     fn test_cast_sparse_with_null_fill() {
+        let mut ctx = SESSION.create_execution_ctx();
         let sparse = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
             PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(126)]).into_array(),
             8,
             Scalar::null_native::<i32>(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -110,25 +113,29 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array(),
         10,
-        Scalar::from(0i32)
+        Scalar::from(0i32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![1.5f32, 2.5, 3.5].into_array(),
         10,
-        Scalar::from(0.0f32)
+        Scalar::from(0.0f32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
         10,
-        Scalar::null_native::<i32>()
+        Scalar::null_native::<i32>(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(Sparse::try_new(
         buffer![5u64].into_array(),
         buffer![42u8].into_array(),
         10,
-        Scalar::from(0u8)
+        Scalar::from(0u8),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     fn test_cast_sparse_conformance(#[case] array: SparseArray) {
         test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
@@ -149,6 +156,7 @@ mod tests {
                 .into_array(),
             5,
             Scalar::null_native::<u64>(),
+            &mut ctx,
         )?;
 
         let casted = sparse
@@ -168,6 +176,7 @@ mod tests {
 
     #[test]
     fn test_fill_null_sparse_with_null_fill() -> vortex_error::VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // Regression test for https://github.com/vortex-data/vortex/issues/6932
         // fill_null on a sparse array with null fill triggers an internal cast to
         // non-nullable, which must not panic.
@@ -177,6 +186,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10u64), Some(20)]).into_array(),
             5,
             Scalar::null_native::<u64>(),
+            &mut ctx,
         )?;
 
         let filled = sparse.into_array().fill_null(Scalar::from(0u64))?;

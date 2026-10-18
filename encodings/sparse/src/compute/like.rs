@@ -101,12 +101,12 @@ mod tests {
         #[case] fill: Scalar,
         #[case] options: LikeOptions,
     ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = VarBinViewArray::from_iter_str(["world", "help", "foo"]).into_array();
         let values = values.cast(fill.dtype().clone())?;
-        let array =
-            Sparse::try_new(buffer![1u64, 3, 5].into_array(), values, 8, fill)?.into_array();
+        let array = Sparse::try_new(buffer![1u64, 3, 5].into_array(), values, 8, fill, &mut ctx)?
+            .into_array();
         let pattern = ConstantArray::new(pattern, array.len()).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
 
         // Kernel path: like pushes through the Sparse encoding.
         let kernel = Like::try_new(array.clone(), pattern.clone(), options)?

@@ -143,6 +143,7 @@ where
             Buffer::from(valid_exceptional_positions).into_array(),
             valid_exceptional_values,
             Some(Buffer::from(chunk_offsets).into_array()),
+            ctx,
         )?)
     };
     Ok((exponents, encoded_array, patches))
