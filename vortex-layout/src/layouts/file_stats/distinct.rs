@@ -219,19 +219,19 @@ impl DistinctSketch {
             return 0;
         }
         #[expect(clippy::cast_precision_loss, reason = "counts are estimates")]
-        let (u, s, n) = (
+        let (distinct, sampled, rows) = (
             self.sample_estimate().min(self.sampled) as f64,
             self.sampled as f64,
             self.rows as f64,
         );
         // Good-Turing estimation, assuming this proportion of the sampled values occurs once.
-        let once = (u / s).powi(2) * u;
+        let once = (distinct / sampled).powi(2) * distinct;
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "the estimate is a non-negative count"
         )]
-        let estimate = (u + once / s * (n - s)) as u64;
+        let estimate = (distinct + once / sampled * (rows - sampled)) as u64;
         estimate.min(self.rows)
     }
 
