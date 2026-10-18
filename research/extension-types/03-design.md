@@ -54,7 +54,8 @@ how to answer. The answer is a rewrite into an expression over storage, or a rej
 ```text
 ts_ms < lit(Timestamp(ms) 1500)  =>  ext_storage(ts_ms) < 1500i64
 min(ts_ms)                       =>  ext_wrap(min(ext_storage(ts_ms)), Timestamp(ms))
-cast(ts_ms, Timestamp(ns))       =>  ext_wrap(ext_storage(ts_ms) * 1_000_000, Timestamp(ns))
+cast(ts_ms, Timestamp(ns))       =>  ext_wrap(checked_mul(ext_storage(ts_ms), 1_000_000),
+                                              Timestamp(ns))
 json_a = json_b                  =>  rejected, because Json derives no equality
 ```
 
@@ -83,9 +84,9 @@ storage hash valid. `ORD` means that storage order is value order.
 | --- | --- | --- |
 | `Timestamp` | Same unit, and both with a time zone or both without | `EQ`, `ORD` |
 | `Date`, `Time` | Same unit | `EQ`, `ORD` |
-| `Decimal` | Same scale and same storage width | `EQ`, `ORD` |
+| `Decimal`, if it follows this design | Same scale and same storage width | `EQ`, `ORD` |
 | `Uuid` | Any | `EQ`, plus `ORD` if byte order is the chosen order |
-| `Vector`, `FixedShapeTensor` | Same shape | `EQ` |
+| `Vector`, `FixedShapeTensor` | Equal metadata | `EQ` |
 | `Json`, WKB, native geometry | Any | None |
 | Unknown type | Any | None |
 
@@ -126,9 +127,10 @@ per-row check that each read does today.
 
 ### Nullability
 
-The short-term rule: `validate_dtype` sees the storage dtype without nullability, so a nullability
-change never validates the type again. The long-term option: store nullability on the extension
-dtype, like every other `DType` variant, and keep the storage dtype non-nullable.
+The short-term rule: the result of `validate_dtype` must not depend on nullability. Building a dtype
+checks both nullabilities, so a later nullability change never validates the type again. The
+long-term option: store nullability on the extension dtype, like every other `DType` variant, and
+keep the storage dtype non-nullable.
 
 ### Authoring and boundaries
 
@@ -163,7 +165,8 @@ plugins like the Arrow registry. Then a new extension type does not need code in
   Readers can convert them to storage values, but the switch needs a compatibility decision.
 - Open question: is `validate_array` a no-op by default, or a check of each value through
   `validate_scalar_value`?
-- Open question: is the nullability contract enough, or is the structural change worth its cost?
+- Open question: is the nullability contract enough, or does nullability move onto the extension
+  dtype?
 - Open question: does `Uuid` order by bytes, or have no order?
 - Open question: `Scalar` implements `PartialEq` and `Hash` for use in Rust code. Can these stay
   structural (same dtype and same storage value) if they are documented as identity, not SQL

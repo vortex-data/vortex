@@ -34,6 +34,9 @@ and often on the metadata:
 | Unit vector | `+` | Element sums | No, the sum is not a unit vector |
 | `Uuid` | `<` | Byte order | A design decision |
 
+`Decimal` is a built-in dtype, but it has the same shape: an integer storage value plus a scale. The
+[Decimal notes](../decimal/README.md) use it as a test of this design.
+
 The meaning lives in the extension type, so the core cannot know which rows of this table are
 "yes". The core has two choices:
 

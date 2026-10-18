@@ -96,7 +96,7 @@ implementation.
 5. **Nullability in the storage dtype.** Any nullability change validates the type again.
 6. **Manual authoring.** The core has no typed array view, no explicit wrap expression, and no
    export hooks for DuckDB, DataFusion or Python. Extension crates fill the gaps by hand.
-   `vortex-spatial` has eight typed array wrappers, and its Arrow code is 4.7 times the size of its
+   `vortex-spatial` has seven typed array wrappers, and its Arrow code is 4.7 times the size of its
    type definitions.
 
 <details>

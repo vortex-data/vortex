@@ -287,9 +287,11 @@ pub trait ExtVTable {
 
 ## 9. Nullability
 
-- **N1, short term.** `ExtDType::try_with_vtable` calls `validate_dtype` with the non-nullable form
-  of the storage dtype. The documentation states that `validate_dtype` receives a non-nullable
-  storage dtype. `with_nullability` then never validates again.
+- **N1, short term.** `ExtDType::try_with_vtable` calls `validate_dtype` for both nullabilities of
+  the storage dtype, and fails if either call fails. The documentation states that the result of
+  `validate_dtype` must not depend on nullability. `with_nullability` then never validates again. A
+  type that breaks the rule fails when its dtype is built, not later in a kernel. Calling
+  `validate_dtype` only with the non-nullable form is the alternative, but it hides such a type.
 - **N2, long term.** `ExtDType` stores a non-nullable storage dtype and a `Nullability`, like every
   other `DType` variant. The storage child has the dtype `storage_dtype.with_nullability(n)`. The
   wire format does not change, because the serialized storage dtype already carries nullability.
