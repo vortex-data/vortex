@@ -92,7 +92,6 @@ mod tests {
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::validity::Validity;
-    use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -139,7 +138,7 @@ mod tests {
         wkb::writer::write_geometry(&mut buf, geometry, &WriteOptions::default())
             .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
         let session = vortex_array::array_session();
-        let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session.arrow())?
+        let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session)?
             .ok_or_else(|| vortex_err!("unsupported geometry type"))?;
         Ok(ConstantArray::new(scalar, len).into_array())
     }

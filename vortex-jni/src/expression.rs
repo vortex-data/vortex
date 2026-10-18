@@ -24,6 +24,7 @@ use jni::sys::jfloat;
 use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jshort;
+use vortex::VortexSessionDefault;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
@@ -69,7 +70,7 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
-use vortex_arrow::ArrowSession;
+use vortex::session::VortexSession;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
 use vortex_spatial::scalar_fn::collect::SpatialCollect;
@@ -719,7 +720,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalGeometry(
             throw_runtime!("geometry literal WKB bytes must not be null");
         }
         let bytes = env.convert_byte_array(&wkb)?;
-        let scalar = native_geometry_scalar_from_wkb(&bytes, &ArrowSession::default())?
+        let scalar = native_geometry_scalar_from_wkb(&bytes, &VortexSession::default())?
             .ok_or_else(|| vortex_err!("unsupported WKB geometry type for a geometry literal"))?;
         Ok(into_raw(lit(scalar)))
     })

@@ -667,6 +667,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -1030,10 +1031,12 @@ mod test {
     #[test]
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
-        #[expect(deprecated)]
         let error = arr
             .cast(PType::U32.into())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut array_session().create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap_err();
         assert!(matches!(error, VortexError::Compute(..)));
         assert!(error.to_string().contains("values exceed target range"));
@@ -1042,11 +1045,13 @@ mod test {
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
-        #[expect(deprecated)]
         let err = arr
             .into_array()
             .cast(PType::I32.into())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut array_session().create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap_err();
 
         assert!(matches!(err, VortexError::InvalidArgument(..)));
@@ -1112,10 +1117,12 @@ mod test {
     #[test]
     fn cast_same_width_int_out_of_range_errors() {
         let arr = buffer![u32::MAX].into_array();
-        #[expect(deprecated)]
         let err = arr
             .cast(PType::I32.into())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut array_session().create_execution_ctx())
+                    .map(|c| c.into_array())
+            })
             .unwrap_err();
         assert!(matches!(err, VortexError::Compute(..)));
     }
