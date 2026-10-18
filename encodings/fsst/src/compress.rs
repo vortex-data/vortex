@@ -228,7 +228,7 @@ where
             }
         }
     }
-    sink.finish(strings.dtype().clone(), ctx)
+    sink.finish(strings.dtype().clone())
 }
 
 fn compress_varbin<O>(
@@ -252,7 +252,7 @@ where
         let off = offsets.as_slice::<I>();
         for_each_varbin_row(off, bytes, mask, |row| sink.emit(row));
     });
-    sink.finish(strings.dtype().clone(), ctx)
+    sink.finish(strings.dtype().clone())
 }
 
 /// Call `f` once per row of a `VarBinArray` with the row bytes or `None`.
@@ -333,7 +333,7 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
         self.builder.append_value(&self.buffer);
     }
 
-    fn finish(mut self, dtype: DType, ctx: &mut ExecutionCtx) -> VortexResult<FSSTArray> {
+    fn finish(mut self, dtype: DType) -> VortexResult<FSSTArray> {
         let codes = self.builder.finish_into_varbin();
         // Pad the symbol table here so that the array can hand it straight to a `Decompressor`
         // without copying.
@@ -346,7 +346,6 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
             )?),
             codes,
             self.uncompressed_lengths.into_array(),
-            ctx,
         )
     }
 }

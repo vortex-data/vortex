@@ -2729,7 +2729,6 @@ mod tests {
             fsst.symbol_table(),
             fsst.codes(),
             PrimitiveArray::from_iter([i32::MAX, i32::MAX]).into_array(),
-            ctx.execution_ctx(),
         )?
         .into_array();
         let schema = arrow_schema_for_array(&oversized, &mut ctx)?;

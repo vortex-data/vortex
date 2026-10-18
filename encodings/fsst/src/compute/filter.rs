@@ -37,7 +37,6 @@ impl FilterKernel for FSST {
                 array.symbol_table(),
                 filtered_codes,
                 array.uncompressed_lengths().filter(mask.clone())?,
-                ctx,
             )?
             .into_array(),
         ))

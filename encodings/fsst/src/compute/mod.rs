@@ -77,7 +77,6 @@ impl TakeExecute for FSST {
                     .fill_null(Scalar::zero_value(
                         &array.uncompressed_lengths_dtype().clone(),
                     ))?,
-                ctx,
             )?
             .into_array(),
         ))

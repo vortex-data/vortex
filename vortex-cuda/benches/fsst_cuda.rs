@@ -89,7 +89,6 @@ fn make_fixture(n: usize) -> FSSTBenchFixture {
         ),
         fsst.codes(),
         fsst.uncompressed_lengths().clone(),
-        setup_ctx.execution_ctx(),
     )
     .vortex_expect("rebuild FSST fixture with Binary dtype")
     .into_array();
