@@ -20,12 +20,16 @@ fn build_with_validity(
     new_dtype: DType,
     new_validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    Ok(VarBinArray::try_new(
-        array.offsets().clone(),
-        array.bytes().clone(),
-        new_dtype,
-        new_validity,
-    )?
+    // SAFETY: the offsets and bytes are unchanged from a valid array, and the validity was cast
+    // from the array's own validity, so it has the same length.
+    Ok(unsafe {
+        VarBinArray::new_unchecked_from_handle(
+            array.offsets().clone(),
+            array.bytes_handle().clone(),
+            new_dtype,
+            new_validity,
+        )
+    }
     .into_array())
 }
 

@@ -310,6 +310,7 @@ mod setup {
             codes
                 .validity()
                 .vortex_expect("FSST code validity should be derivable"),
+            &mut ctx,
         )
         .unwrap();
 

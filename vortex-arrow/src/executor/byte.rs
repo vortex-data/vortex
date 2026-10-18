@@ -363,15 +363,15 @@ mod tests {
     #[case(DataType::Utf8)]
     #[case(DataType::LargeUtf8)]
     fn binary_to_string_rejects_offsets_splitting_a_character(#[case] target_dtype: DataType) {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 1, 2].into_array(),
             ByteBuffer::copy_from("é".as_bytes()),
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
-
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, false);
         let result = session
             .arrow()
@@ -387,15 +387,15 @@ mod tests {
     fn binary_to_string_accepts_multibyte_characters(
         #[case] target_dtype: DataType,
     ) -> VortexResult<()> {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 2, 5].into_array(),
             ByteBuffer::copy_from("é☃".as_bytes()),
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
-
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), false);
         let arrow = session
             .arrow()
@@ -418,15 +418,15 @@ mod tests {
         #[case] target_dtype: DataType,
     ) -> VortexResult<()> {
         // Slot 1 is null and its offsets still span two bytes that are not valid UTF-8.
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 5, 7, 12].into_array(),
             ByteBuffer::copy_from(b"hello\xff\xfeworld".as_slice()),
             DType::Binary(Nullability::Nullable),
             Validity::from_mask(Mask::from_iter([true, false, true]), Nullability::Nullable),
+            &mut ctx,
         );
-
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
         let arrow = session
             .arrow()

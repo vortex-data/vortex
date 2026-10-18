@@ -311,7 +311,8 @@ mod test {
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, true, true, true]).into_array(),
         );
-        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity, &mut ctx)
+            .unwrap();
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(arr, &[(0, 3), (4, 6)], 5, &mut ctx).unwrap();
@@ -339,7 +340,8 @@ mod test {
 
         let offsets = buffer![0, 0, 3, 6].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
-        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity, &mut ctx)
+            .unwrap();
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(arr, &[(0, 1), (2, 3)], 2, &mut ctx).unwrap();
@@ -357,6 +359,7 @@ mod test {
             ByteBuffer::empty(),
             DType::Utf8(Nullable),
             validity,
+            &mut ctx,
         )
         .unwrap();
 

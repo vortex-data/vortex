@@ -301,7 +301,7 @@ mod tests {
             let arr = builder.finish_into_varbin();
             let mask = arr.validity()?.execute_mask(arr.len(), &mut ctx)?;
             let actual = (0..arr.len())
-                .map(|i| mask.value(i).then(|| arr.bytes_at(i).to_vec()))
+                .map(|i| mask.value(i).then(|| arr.bytes_at(i, &mut ctx).to_vec()))
                 .collect::<Vec<_>>();
             assert_eq!(data, actual);
         }
@@ -358,6 +358,7 @@ mod tests {
             encoded.codes_bytes().clone(),
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
         let sliced = FSST::try_new_with_symbol_table(
             encoded.dtype().clone(),
