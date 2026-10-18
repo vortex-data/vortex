@@ -36,6 +36,9 @@ struct RunEndExporter<E: IntegerPType> {
     run_end_offset: usize,
 }
 
+/// Arrays whose runs are shorter than this on average are exported as flat values.
+const MIN_AVERAGE_RUN_LEN: usize = 8;
+
 pub(crate) fn new_exporter_with_flatten(
     array: RunEndArray,
     cache: &ConversionCache,
@@ -44,7 +47,8 @@ pub(crate) fn new_exporter_with_flatten(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Our canonicalization is faster than creating a dictionary vector and
     // letting duckdb flatten it for us.
-    if flatten {
+    // A dictionary vector of short runs costs DuckDB more than flat values.
+    if flatten || array.len() < MIN_AVERAGE_RUN_LEN * array.ends().len() {
         return canonical::new_exporter(array.into_array(), cache, ctx);
     }
 
@@ -143,11 +147,46 @@ mod tests {
     use crate::exporter::ConversionCache;
     use crate::exporter::new_array_exporter;
 
+    /// Formats `values`, each repeated over a run of eight rows, as DuckDB prints a vector.
+    fn runs_of_eight(values: &[&str]) -> String {
+        values
+            .iter()
+            .flat_map(|value| [*value; 8])
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     #[test]
     fn test_one_chunk_null() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let source = vec![Some(0u32), Some(1), None, Some(3), None];
+        let source = [Some(0u32), Some(1), None, Some(3), None]
+            .into_iter()
+            .flat_map(|value| [value; 8]);
         let array = PrimitiveArray::from_option_iter(source);
+        let array = RunEnd::encode(array.into_array(), &mut ctx)?;
+
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE_INTEGER)]);
+        new_array_exporter(array.into_array(), &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            40,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(40);
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            format!(
+                "Chunk - [1 Columns]\n- DICTIONARY INTEGER: 40 = [ {}]\n",
+                runs_of_eight(&["0", "1", "NULL", "3", "NULL"])
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn short_runs_export_flat() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_option_iter([Some(0u32), Some(1), None, Some(3), None]);
         let array = RunEnd::encode(array.into_array(), &mut ctx)?;
 
         let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE_INTEGER)]);
@@ -158,11 +197,10 @@ mod tests {
             &mut ctx,
         )?;
         chunk.set_len(5);
-        let chunk_str = String::try_from(&*chunk)?;
         assert_eq!(
-            chunk_str,
+            String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
-- DICTIONARY INTEGER: 5 = [ 0, 1, NULL, 3, NULL]
+- FLAT INTEGER: 5 = [ 0, 1, NULL, 3, NULL]
 "#
         );
         Ok(())
@@ -175,7 +213,7 @@ mod tests {
         let values1 = PrimitiveArray::from_iter([20i32]).into_array();
         let values = ChunkedArray::try_new(vec![values0, values1], dtype)?.into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let field = RunEnd::try_new(buffer![1u32, 2].into_array(), values, &mut ctx)?.into_array();
+        let field = RunEnd::try_new(buffer![8u32, 16].into_array(), values, &mut ctx)?.into_array();
         let array = StructArray::from_fields(&[("field", field)])?;
         let mut exporter = ArrayExporter::try_new(&array, &ConversionCache::default(), ctx)?;
         let mut chunk = DataChunk::new([LogicalType::int32()]);
@@ -183,9 +221,10 @@ mod tests {
         assert!(exporter.export(&mut chunk, None)?);
         assert_eq!(
             String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- DICTIONARY INTEGER: 2 = [ 10, 20]
-"#
+            format!(
+                "Chunk - [1 Columns]\n- DICTIONARY INTEGER: 16 = [ {}]\n",
+                runs_of_eight(&["10", "20"])
+            )
         );
 
         assert!(!exporter.export(&mut chunk, None)?);
