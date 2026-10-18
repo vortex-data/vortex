@@ -114,8 +114,8 @@ Watch for these accessors inside `for i in 0..n { ... }`:
 
 | Per-element accessor | Hidden cost | Bulk replacement |
 | --- | --- | --- |
-| `Validity::is_valid(i)` / `is_null(i)` | Array-backed validity allocates an `ExecutionCtx` and runs a scalar lookup per call. | Call `validity.execute_mask(len, ctx)?` once, then read the materialized mask. |
-| `array.scalar_at(i)` / `array.execute_scalar(i, ctx)` | Executes through the compute stack per element. | Canonicalize once with `execute::<PrimitiveArray>` or `as_slice`, then index. |
+| `Validity::execute_is_valid(i, ctx)` / `execute_is_null(i, ctx)` | Array-backed validity runs a scalar lookup per call. | Call `validity.execute_mask(len, ctx)?` once, then read the materialized mask. |
+| `array.execute_scalar(i, ctx)` | Executes through the compute stack per element. | Canonicalize once with `execute::<PrimitiveArray>` or `as_slice`, then index. |
 | `BitBuffer::value(i)` / `Mask::value(i)` accumulated into a count | Recomputes the byte address and defeats popcount. | Use `true_count()`, `BitBuffer::count_range(start, end)`, or `set_indices()`. |
 | `BitIterator::next()` accumulated into a rank or prefix count | Processes one bit at a time. | Use `count_range` over each gap. |
 | Re-deriving a value such as `self.validity()?` | Repeats the derivation for every element. | Hoist the derivation above the loop. |

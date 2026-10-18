@@ -79,8 +79,6 @@
 
 extern crate self as vortex_array;
 
-use std::sync::LazyLock;
-
 pub use array::*;
 pub use canonical::*;
 pub use columnar::*;
@@ -175,17 +173,6 @@ pub fn array_session() -> VortexSession {
         .with::<StatsSession>()
         .with::<AggregateFnSession>()
         .with::<MemorySession>()
-}
-
-// TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
-//  from the new array encodings to support back-compat for legacy encodings. So we hold a session
-//  here...
-/// Returns the hidden global [`VortexSession`] used as a back-compat shim for code paths that
-/// cannot yet thread an explicit session through.
-#[inline]
-pub fn legacy_session() -> &'static VortexSession {
-    static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
-    &LEGACY_SESSION
 }
 
 pub type ArrayContext = Interner;

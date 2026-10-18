@@ -16,11 +16,6 @@
 //! The [`ArrowSession`] session variable is created lazily on first use of
 //! [`ArrowSessionExt::arrow`], so no explicit registration is required for plain conversions.
 
-use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
-use vortex_array::ArrayRef;
-use vortex_array::VortexSessionExecute;
-use vortex_array::legacy_session;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -88,31 +83,4 @@ pub trait FromArrowArray<A> {
     fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
     where
         Self: Sized;
-}
-
-#[deprecated(note = "Use `execute_arrow(None, ctx)` or `execute_arrow(Some(dt), ctx)` instead")]
-pub trait IntoArrowArray {
-    #[deprecated(note = "Use `execute_arrow(None, ctx)` instead")]
-    fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef>;
-
-    #[deprecated(note = "Use `execute_arrow(Some(data_type), ctx)` instead")]
-    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef>;
-}
-
-#[allow(deprecated)]
-impl IntoArrowArray for ArrayRef {
-    /// Convert this [`vortex_array::ArrayRef`] into an Arrow [`ArrowArrayRef`] by using the array's
-    /// preferred (cheapest) Arrow [`DataType`].
-    #[allow(clippy::disallowed_methods)]
-    fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(None, &mut legacy_session().create_execution_ctx())
-    }
-
-    #[allow(clippy::disallowed_methods)]
-    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(
-            Some(data_type),
-            &mut legacy_session().create_execution_ctx(),
-        )
-    }
 }

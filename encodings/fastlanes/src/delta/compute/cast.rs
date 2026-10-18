@@ -53,6 +53,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -173,11 +174,13 @@ mod tests {
         let array = Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())?;
 
         // The cast is lazy; the nullability check fires when it is executed.
-        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            });
 
         assert!(
             result.is_err(),

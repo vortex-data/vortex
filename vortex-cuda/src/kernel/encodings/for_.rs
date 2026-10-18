@@ -208,7 +208,7 @@ mod tests {
             .execute(for_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -237,7 +237,7 @@ mod tests {
             .execute(for_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await
             .vortex_expect("copying to host failed")
             .into_array();
@@ -282,7 +282,7 @@ mod tests {
             .execute(for_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

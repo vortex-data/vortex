@@ -288,7 +288,7 @@ mod tests {
         .into_array()
         .execute::<vortex::array::Canonical>(&mut ctx)
         .unwrap()
-        .into_host()
+        .into_host(&mut ctx)
         .await
         .unwrap()
         .into_primitive();

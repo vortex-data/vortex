@@ -178,7 +178,7 @@ async fn decode_onpair(
     // only here do the lengths leave the device. The host views index the
     // copied window, so validate the lengths first.
     let lengths = Canonical::Primitive(lengths)
-        .into_host()
+        .into_host(ctx.execution_ctx())
         .await?
         .into_primitive();
     let row_total = sum_lengths(&lengths)?;
@@ -289,7 +289,7 @@ async fn decode_onpair_bytes(
     // metadata, so this early-out costs no device read.
     if onpair.codes().is_empty() {
         let lengths = decode_primitive_child(onpair.uncompressed_lengths().clone(), ctx).await?;
-        ensure_zero_lengths(lengths).await?;
+        ensure_zero_lengths(lengths, ctx).await?;
         return Ok(None);
     }
 
@@ -476,7 +476,7 @@ where
     );
     if token_start == token_end {
         // No codes in the window (e.g. a slice covering only null rows).
-        ensure_zero_lengths(lengths).await?;
+        ensure_zero_lengths(lengths, ctx).await?;
         return Ok(None);
     }
     let byte_start_u64 = byte_start;
@@ -620,7 +620,7 @@ async fn host_dict_offsets(
 ) -> VortexResult<Buffer<u32>> {
     let offsets = decode_primitive_child(onpair.dict_offsets().clone(), ctx).await?;
     let offsets = Canonical::Primitive(offsets)
-        .into_host()
+        .into_host(ctx.execution_ctx())
         .await?
         .into_primitive();
     let nullability = offsets.dtype().nullability();
@@ -632,9 +632,12 @@ async fn host_dict_offsets(
 }
 
 /// Cold path: the window has no codes, so the rows must decode to zero bytes.
-async fn ensure_zero_lengths(lengths: PrimitiveArray) -> VortexResult<()> {
+async fn ensure_zero_lengths(
+    lengths: PrimitiveArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<()> {
     let lengths = Canonical::Primitive(lengths)
-        .into_host()
+        .into_host(ctx.execution_ctx())
         .await?
         .into_primitive();
     let total = sum_lengths(&lengths)?;
@@ -761,7 +764,10 @@ mod tests {
         assert_eq!(gpu_result.dtype(), &dtype);
         assert_device_resident(&gpu_result);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(onpair, host_result, &mut ctx);
         Ok(())
     }
@@ -807,7 +813,10 @@ mod tests {
             .vortex_expect("GPU decompression failed");
         assert_eq!(gpu_result.dtype(), &dtype);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(onpair, host_result, &mut ctx);
         Ok(())
     }
@@ -833,7 +842,10 @@ mod tests {
             .execute(sliced.clone(), &mut cuda_ctx)
             .await?;
         assert_device_resident(&gpu_result);
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
     }
@@ -853,7 +865,10 @@ mod tests {
             .execute(sliced.clone(), &mut cuda_ctx)
             .await?;
         assert_device_resident(&gpu_result);
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
     }
@@ -881,7 +896,10 @@ mod tests {
             .vortex_expect("GPU decompression failed");
         assert_device_resident(&gpu_result);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(onpair, host_result, &mut ctx);
         Ok(())
     }
@@ -917,7 +935,10 @@ mod tests {
             .sum::<usize>();
         let values = &gpu_result.as_varbinview().data_buffers()[0];
         assert_eq!(cuda_backing_allocation(values)?.len(), expected_bytes);
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
     }
@@ -981,7 +1002,10 @@ mod tests {
             .execute(onpair.into_array(), &mut cuda_ctx)
             .await?;
         assert_device_resident(&gpu_result);
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(expected, host_result, &mut ctx);
         Ok(())
     }

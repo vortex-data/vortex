@@ -92,11 +92,13 @@ Return values are automatically black-boxed. You only need explicit
 `black_box` for side-effect-free results inside manual loops:
 
 ```rust
-bencher.with_inputs(|| &array).bench_refs(|array| {
-    for idx in 0..len {
-        divan::black_box(array.scalar_at(idx).unwrap());
-    }
-});
+bencher
+    .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+    .bench_refs(|(array, ctx)| {
+        for idx in 0..len {
+            divan::black_box(array.execute_scalar(idx, ctx).unwrap());
+        }
+    });
 ```
 
 ### Use deterministic, seeded RNG

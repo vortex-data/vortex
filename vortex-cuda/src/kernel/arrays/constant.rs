@@ -230,7 +230,7 @@ mod tests {
             .execute(constant_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -250,7 +250,7 @@ mod tests {
             .execute(constant_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -271,7 +271,7 @@ mod tests {
             .execute(constant_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
