@@ -46,6 +46,7 @@ impl FlatLayoutFixture for ListViewFixture {
             int_offsets.into_array(),
             int_sizes.into_array(),
             Validity::NonNullable,
+            _ctx,
         )?;
 
         // ListView of strings: [["a","b"], ["hello"], [], ["x","y","z"]]
@@ -57,6 +58,7 @@ impl FlatLayoutFixture for ListViewFixture {
             str_offsets.into_array(),
             str_sizes.into_array(),
             Validity::NonNullable,
+            _ctx,
         )?;
 
         // Nullable ListView of i32: [[10,20], null, [30], [40,50,60]]
@@ -69,6 +71,7 @@ impl FlatLayoutFixture for ListViewFixture {
             nullable_offsets.into_array(),
             nullable_sizes.into_array(),
             Validity::from_iter([true, false, true, true]),
+            _ctx,
         )?;
 
         let arr = StructArray::try_new(

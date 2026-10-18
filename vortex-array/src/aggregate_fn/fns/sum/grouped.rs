@@ -229,13 +229,14 @@ mod tests {
         ranges: &[(usize, usize)],
         group_valid: &[bool],
     ) -> VortexResult<ArrayRef> {
+        let mut ctx = array_session().create_execution_ctx();
         let (offsets, sizes) = offsets_sizes(ranges);
         let validity = if group_valid.iter().all(|&v| v) {
             Validity::NonNullable
         } else {
             Validity::from_iter(group_valid.iter().copied())
         };
-        Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
+        Ok(ListViewArray::try_new(elements, offsets, sizes, validity, &mut ctx)?.into_array())
     }
 
     #[test]

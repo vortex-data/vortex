@@ -48,6 +48,7 @@ fn make_listview(
     step: usize,
     with_nulls: bool,
 ) -> ListViewArray {
+    let mut ctx = array_session().create_execution_ctx();
     let element_count = step * num_lists + list_size;
     let elements = PrimitiveArray::from_iter(0..element_count as i32).into_array();
     let offsets: Buffer<u32> = (0..num_lists).map(|i| (i * step) as u32).collect();
@@ -58,7 +59,13 @@ fn make_listview(
         Validity::NonNullable
     };
 
-    ListViewArray::new(elements, offsets.into_array(), sizes.into_array(), validity)
+    ListViewArray::new(
+        elements,
+        offsets.into_array(),
+        sizes.into_array(),
+        validity,
+        &mut ctx,
+    )
 }
 
 #[divan::bench(args = ZCTL_ARGS)]

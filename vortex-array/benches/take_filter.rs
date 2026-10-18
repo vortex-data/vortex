@@ -70,10 +70,11 @@ fn primitive_array() -> ArrayRef {
 }
 
 fn list_array(len: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE) as u32).into_array();
     let offsets = Buffer::from_iter((0..=len).map(|idx| (idx * LIST_SIZE) as u32)).into_array();
 
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
+    ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
         .unwrap()
         .into_array()
 }

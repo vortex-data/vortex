@@ -233,6 +233,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Filter;
@@ -336,7 +337,7 @@ mod tests {
             (0..128).map(|idx| Scalar::primitive(idx, NonNullable)),
         );
         let array = ConstantArray::new(scalar, 1_000_000).into_array();
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let item: ArrayRef = GetItem::try_new(array, "f97")?
             .into_array()
@@ -470,6 +471,7 @@ mod tests {
 
     #[test]
     fn get_item_filter_list_field() {
+        let mut ctx = array_session().create_execution_ctx();
         use vortex_mask::Mask;
 
         use crate::arrays::BoolArray;
@@ -480,6 +482,7 @@ mod tests {
             buffer![0f32, 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11.].into_array(),
             buffer![2u64, 4, 6, 8, 10, 12].into_array(),
             Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array()),
+            &mut ctx,
         )
         .unwrap();
 

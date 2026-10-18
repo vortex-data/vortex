@@ -438,11 +438,17 @@ mod tests {
 
     #[test]
     fn test_cast_conformance_list() {
+        let mut ctx = SESSION.create_execution_ctx();
         let data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let offsets = buffer![0i64, 2, 2, 5, 6].into_array();
 
-        let array =
-            ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
+        let array = ListArray::try_new(
+            data,
+            offsets,
+            crate::validity::Validity::NonNullable,
+            &mut ctx,
+        )
+        .unwrap();
         test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

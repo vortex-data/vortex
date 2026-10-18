@@ -691,12 +691,13 @@ mod tests {
 
     #[test]
     fn list_matches_materialized_size() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
         let offsets = buffer![2u32, 0].into_array();
         let sizes = buffer![2u32, 1].into_array();
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)
+            .into_array();
 
         // The lists are out of order and leave element 1 unreferenced, so compare against the
         // exact layout rather than a builder round-trip.

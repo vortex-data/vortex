@@ -22,6 +22,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_nullable_listview_comprehensive() {
+    let mut ctx = array_session().create_execution_ctx();
     // Comprehensive test for nullable ListView including scalar_at with nulls.
     // Logical lists: [[1,2], null, [5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
@@ -92,7 +93,7 @@ fn test_nullable_listview_comprehensive() {
     );
 
     // list_elements_at still returns data even for null lists.
-    let null_list_data = listview.list_elements_at(1).unwrap();
+    let null_list_data = listview.list_elements_at(1, &mut ctx).unwrap();
     assert_eq!(null_list_data.len(), 2);
     assert_eq!(
         null_list_data
@@ -133,6 +134,7 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
 
 #[test]
 fn test_nullable_elements() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test with nullable elements inside the lists.
     // Logical lists: [[Some(1), None], [Some(3), None], [Some(5), Some(6)]]
     let elements =
@@ -147,7 +149,7 @@ fn test_nullable_elements() {
     };
 
     // First list: [Some(1), None].
-    let first_list = listview.list_elements_at(0).unwrap();
+    let first_list = listview.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(first_list.len(), 2);
     assert!(
         !first_list
@@ -169,7 +171,7 @@ fn test_nullable_elements() {
     );
 
     // Second list: [Some(3), None].
-    let second_list = listview.list_elements_at(1).unwrap();
+    let second_list = listview.list_elements_at(1, &mut ctx).unwrap();
     assert!(
         !second_list
             .execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -190,7 +192,7 @@ fn test_nullable_elements() {
     );
 
     // Third list: [Some(5), Some(6)].
-    let third_list = listview.list_elements_at(2).unwrap();
+    let third_list = listview.list_elements_at(2, &mut ctx).unwrap();
     assert!(
         !third_list
             .execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -225,6 +227,7 @@ fn test_nullable_elements() {
 
 #[test]
 fn test_validity_length_mismatch() {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists (invalid due to validity length mismatch): [[1,2], [3,4]]
     let elements = buffer![1i32, 2, 3, 4].into_array();
     let offsets = buffer![0i32, 2].into_array();
@@ -232,7 +235,7 @@ fn test_validity_length_mismatch() {
     // Wrong length validity.
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, validity);
+    let result = ListViewArray::try_new(elements, offsets, sizes, validity, &mut ctx);
 
     assert!(result.is_err());
     let err = result.unwrap_err();

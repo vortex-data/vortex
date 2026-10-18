@@ -74,6 +74,7 @@ fn random_lists(num_lists: usize) -> (Vec<i32>, Validity) {
 
 /// A canonical `List<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_list(num_lists: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let (sizes, validity) = random_lists(num_lists);
     let total: i32 = sizes.iter().sum();
     let elements = PrimitiveArray::from_iter(0..total).into_array();
@@ -83,13 +84,14 @@ fn make_list(num_lists: usize) -> ArrayRef {
             Some(*acc)
         }))
         .collect();
-    ListArray::try_new(elements, offsets.into_array(), validity)
+    ListArray::try_new(elements, offsets.into_array(), validity, &mut ctx)
         .unwrap()
         .into_array()
 }
 
 /// A gapless `ListView<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_listview(num_lists: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let (sizes, validity) = random_lists(num_lists);
     let total: i32 = sizes.iter().sum();
     let elements = PrimitiveArray::from_iter(0..total).into_array();
@@ -102,7 +104,14 @@ fn make_listview(num_lists: usize) -> ArrayRef {
         })
         .collect();
     let sizes: Buffer<i32> = sizes.into_iter().collect();
-    ListViewArray::new(elements, offsets.into_array(), sizes.into_array(), validity).into_array()
+    ListViewArray::new(
+        elements,
+        offsets.into_array(),
+        sizes.into_array(),
+        validity,
+        &mut ctx,
+    )
+    .into_array()
 }
 
 /// Apply `list_length(root())` and materialize the result.

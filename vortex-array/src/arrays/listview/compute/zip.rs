@@ -159,6 +159,7 @@ impl ZipKernel for ListView {
                 offsets.freeze().into_array(),
                 sizes.freeze().into_array(),
                 validity,
+                ctx,
             )?
             .into_array(),
         ))
@@ -265,7 +266,8 @@ mod tests {
         sizes: ArrayRef,
         validity: Validity,
     ) -> ArrayRef {
-        ListViewArray::try_new(elements, offsets, sizes, validity)
+        let mut ctx = array_session().create_execution_ctx();
+        ListViewArray::try_new(elements, offsets, sizes, validity, &mut ctx)
             .unwrap()
             .into_array()
     }

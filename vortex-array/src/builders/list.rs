@@ -184,12 +184,15 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             "offsets length must be one more than nulls length."
         );
 
-        ListArray::try_new(
-            self.elements_builder.finish(),
-            self.offsets_builder.finish(),
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-        )
-        .vortex_expect("Buffer, offsets, and validity must have same length.")
+        // SAFETY: the builder appends non-negative, monotonically increasing offsets that end at
+        // the number of appended elements, and one validity bit per list.
+        unsafe {
+            ListArray::new_unchecked(
+                self.elements_builder.finish(),
+                self.offsets_builder.finish(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+            )
+        }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
@@ -501,8 +504,8 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let list_array = list.execute::<ListViewArray>(&mut ctx).unwrap();
 
-        assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
-        assert_eq!(list_array.list_elements_at(1).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(0, &mut ctx).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(1, &mut ctx).unwrap().len(), 3);
     }
 
     #[test]
@@ -566,9 +569,9 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let list_array = list.execute::<ListViewArray>(&mut ctx).unwrap();
 
-        assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
-        assert_eq!(list_array.list_elements_at(1).unwrap().len(), 0);
-        assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(0, &mut ctx).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(1, &mut ctx).unwrap().len(), 0);
+        assert_eq!(list_array.list_elements_at(2, &mut ctx).unwrap().len(), 3);
     }
 
     fn test_extend_builder_gen<O: OffsetBuilderPType>() {
@@ -837,10 +840,12 @@ mod tests {
 
     #[test]
     pub fn test_array_with_gap() {
+        let mut ctx = array_session().create_execution_ctx();
         let one_trailing_unused_element = ListArray::try_new(
             buffer![1, 2, 3, 4].into_array(),
             buffer![0, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 
@@ -848,6 +853,7 @@ mod tests {
             buffer![5, 6].into_array(),
             buffer![0, 2].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 

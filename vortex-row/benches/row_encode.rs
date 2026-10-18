@@ -85,13 +85,14 @@ fn gen_words(n: usize, mean_len: usize, seed: u64) -> Vec<String> {
 }
 
 fn make_vortex_list(elements: vortex_array::ArrayRef) -> vortex_array::ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let offsets = PrimitiveArray::from_iter(
         (0..N).map(|i| u32::try_from(i * LIST_LEN).expect("benchmark offset must fit u32")),
     )
     .into_array();
     let list_len = u32::try_from(LIST_LEN).expect("benchmark list length must fit u32");
     let sizes = PrimitiveArray::from_iter(std::iter::repeat_n(list_len, N)).into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array()
+    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array()
 }
 
 fn arrow_output_bytes(rows: &arrow_row::Rows) -> u64 {

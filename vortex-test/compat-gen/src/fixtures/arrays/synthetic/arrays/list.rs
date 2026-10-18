@@ -44,6 +44,7 @@ impl FlatLayoutFixture for ListFixture {
             elements.into_array(),
             offsets.into_array(),
             Validity::NonNullable,
+            _ctx,
         )?;
 
         // List of strings: [["a","b"], ["hello"], [], ["x","y","z"]]
@@ -53,6 +54,7 @@ impl FlatLayoutFixture for ListFixture {
             str_elements.into_array(),
             str_offsets.into_array(),
             Validity::NonNullable,
+            _ctx,
         )?;
 
         // Nullable list of i32: [[100,200], null, [], [300]]
@@ -64,6 +66,7 @@ impl FlatLayoutFixture for ListFixture {
             nullable_elements.into_array(),
             nullable_offsets.into_array(),
             Validity::from_iter([true, false, true, true]),
+            _ctx,
         )?;
 
         let arr = StructArray::try_new(

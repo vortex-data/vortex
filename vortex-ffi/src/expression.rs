@@ -584,7 +584,7 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();
         let offsets = buffer![0u32, 2, 5, 5].into_array();
-        let array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
+        let array = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx).unwrap();
 
         unsafe {
             let root = vx_expression_root();

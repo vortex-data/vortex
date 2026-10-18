@@ -985,6 +985,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
             buffer![0u32, 2, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
         assert_eq!(

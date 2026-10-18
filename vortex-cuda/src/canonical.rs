@@ -196,12 +196,15 @@ impl CanonicalCudaExt for Canonical {
                 } = list.into_data_parts();
                 let validity = validity_into_host(validity).await?;
 
-                Ok(Canonical::List(ListViewArray::try_new(
-                    child_into_host(elements).await?,
-                    child_into_host(offsets).await?,
-                    child_into_host(sizes).await?,
-                    validity,
-                )?))
+                // SAFETY: the children of a valid list view are copied to the host unchanged.
+                Ok(Canonical::List(unsafe {
+                    ListViewArray::new_unchecked(
+                        child_into_host(elements).await?,
+                        child_into_host(offsets).await?,
+                        child_into_host(sizes).await?,
+                        validity,
+                    )
+                }))
             }
             Canonical::Extension(ext) => {
                 // Copy the storage array to host and rewrap in ExtensionArray.

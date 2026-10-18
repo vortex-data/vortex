@@ -880,10 +880,12 @@ mod tests {
     }
 
     fn test_array() -> ArrayRef {
+        let mut ctx = array_session().create_execution_ctx();
         ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2, 2, 2, 3, 3, 3]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 10]).into_array(),
             Validity::AllValid,
+            &mut ctx,
         )
         .unwrap()
         .into_array()
@@ -948,10 +950,12 @@ mod tests {
 
     #[test]
     pub fn test_empty() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::AllValid,
+            &mut ctx,
         )
         .unwrap()
         .into_array();
@@ -973,10 +977,12 @@ mod tests {
 
     #[test]
     pub fn test_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::Array(BoolArray::from(BitBuffer::from(vec![true, false])).into_array()),
+            &mut ctx,
         )
         .unwrap()
         .into_array();
@@ -1161,7 +1167,7 @@ mod tests {
 
         let mut ctx = array_session().create_execution_ctx();
 
-        ListArray::try_new(elements, offsets, Validity::NonNullable)
+        ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
             .unwrap()
             .as_array()
             .clone()
@@ -1364,8 +1370,13 @@ mod tests {
         let offsets = Buffer::from_iter([0u32, 1, 4, 0]).into_array();
         let sizes = Buffer::from_iter([1u32, 2, 1, 0]).into_array();
 
-        let list_array =
-            ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
+        let list_array = ListViewArray::new(
+            elements.into_array(),
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            &mut ctx,
+        );
 
         let expr = list_contains(root(), lit(2i32));
         let result = list_array.clone().into_array().apply(&expr).unwrap();
@@ -1387,8 +1398,13 @@ mod tests {
         let offsets = Buffer::from_iter([0u8, 100, 200, 254]).into_array();
         let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array();
 
-        let list_array =
-            ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
+        let list_array = ListViewArray::new(
+            elements.into_array(),
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            &mut ctx,
+        );
 
         let expr = list_contains(root(), lit(255i32));
         let result = list_array.clone().into_array().apply(&expr).unwrap();
@@ -1423,6 +1439,7 @@ mod tests {
             elements.into_array(),
             buffer![0u32, 1, 2, 3, 3].into_array(),
             Validity::AllValid,
+            &mut array_session().create_execution_ctx(),
         )?
         .into_array();
         assert_result(
@@ -1441,6 +1458,7 @@ mod tests {
             buffer![1i32, 2].into_array(),
             buffer![0u32, 1, 2].into_array(),
             Validity::from(BitBuffer::from_iter([true, false])),
+            &mut array_session().create_execution_ctx(),
         )?
         .into_array();
         assert_result(
@@ -1648,6 +1666,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32)]).into_array(),
             PrimitiveArray::from_iter(vec![0, 1, 1, 1]).into_array(),
             Validity::from_iter([true, true, false]),
+            &mut array_session().create_execution_ctx(),
         )?
         .into_array();
         let null = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
@@ -1696,6 +1715,7 @@ mod tests {
             .into_array(),
             PrimitiveArray::from_iter(vec![0, 2, 2, 2, 4, 5, 6]).into_array(),
             Validity::from_iter([true, true, false, true, true, true]),
+            &mut array_session().create_execution_ctx(),
         )?
         .into_array();
         let needles =
@@ -1707,12 +1727,14 @@ mod tests {
 
     #[test]
     fn list_view_column_with_overlapping_views() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Views out of order and overlapping in `[1, 2, 3, 4]`: `[3, 4]` then `[1, 2, 3]`.
         let lists = ListViewArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
             buffer![2u32, 0].into_array(),
             buffer![2u32, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
         let needles = buffer![4i32, 4].into_array();
@@ -1940,11 +1962,13 @@ mod tests {
 
     #[test]
     fn list_array_null_elements_under_sql_semantics() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Lists `[1, null]`, `[2]`, `[3]`, `[]` against a constant needle.
         let lists = ListArray::try_new(
             PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(3)]).into_array(),
             PrimitiveArray::from_iter(vec![0, 2, 3, 4, 4]).into_array(),
             Validity::AllValid,
+            &mut ctx,
         )?
         .into_array();
         assert_result(

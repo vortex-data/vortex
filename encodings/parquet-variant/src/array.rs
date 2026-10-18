@@ -195,6 +195,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
             elements,
             list_array.offsets().clone(),
             list_array.list_validity(),
+            ctx,
         )?
         .into_array());
     }
@@ -341,6 +342,7 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
             elements,
             list_array.offsets().clone(),
             list_array.list_validity(),
+            ctx,
         )?
         .into_array());
     }

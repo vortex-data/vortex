@@ -461,7 +461,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
         // pays an optimizer pass, where this pays one for the elements alone.
         if patch_valid {
             let patch_list = patch_values
-                .list_elements_at(patch_idx)
+                .list_elements_at(patch_idx, ctx)
                 .vortex_expect("list_elements_at");
             builder
                 .append_array_as_list(&patch_list, ctx)
@@ -1433,12 +1433,12 @@ mod test {
         assert_eq!(result_listview.len(), 6);
 
         // Verify sizes: positions 0,3,4,5 have data, positions 1,2 are null
-        assert_eq!(result_listview.size_at(0), 1); // [1]
-        assert_eq!(result_listview.size_at(1), 0); // null
-        assert_eq!(result_listview.size_at(2), 0); // null
-        assert_eq!(result_listview.size_at(3), 1); // [2]
-        assert_eq!(result_listview.size_at(4), 1); // [1]
-        assert_eq!(result_listview.size_at(5), 1); // [2]
+        assert_eq!(result_listview.size_at(0, &mut ctx), 1); // [1]
+        assert_eq!(result_listview.size_at(1, &mut ctx), 0); // null
+        assert_eq!(result_listview.size_at(2, &mut ctx), 0); // null
+        assert_eq!(result_listview.size_at(3, &mut ctx), 1); // [2]
+        assert_eq!(result_listview.size_at(4, &mut ctx), 1); // [1]
+        assert_eq!(result_listview.size_at(5, &mut ctx), 1); // [2]
 
         // Verify actual values
         let elements_array = result_listview
@@ -1447,16 +1447,16 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)?;
         let elements_slice = elements_array.as_slice::<i32>();
 
-        let list0_offset = result_listview.offset_at(0);
+        let list0_offset = result_listview.offset_at(0, &mut ctx);
         assert_eq!(elements_slice[list0_offset], 1);
 
-        let list3_offset = result_listview.offset_at(3);
+        let list3_offset = result_listview.offset_at(3, &mut ctx);
         assert_eq!(elements_slice[list3_offset], 2);
 
-        let list4_offset = result_listview.offset_at(4);
+        let list4_offset = result_listview.offset_at(4, &mut ctx);
         assert_eq!(elements_slice[list4_offset], 1);
 
-        let list5_offset = result_listview.offset_at(5);
+        let list5_offset = result_listview.offset_at(5, &mut ctx);
         assert_eq!(elements_slice[list5_offset], 2);
 
         Ok(())
@@ -1496,12 +1496,12 @@ mod test {
         assert_eq!(result_listview.len(), 6);
 
         // Verify sizes: positions 0,3,4,5 have data (from the sliced lists), positions 1,2 are null
-        assert_eq!(result_listview.size_at(0), 1); // [1] - from slice index 0 (original index 2)
-        assert_eq!(result_listview.size_at(1), 0); // null
-        assert_eq!(result_listview.size_at(2), 0); // null
-        assert_eq!(result_listview.size_at(3), 1); // [2] - from slice index 3 (original index 5)
-        assert_eq!(result_listview.size_at(4), 1); // [1] - extra element beyond original slice
-        assert_eq!(result_listview.size_at(5), 1); // [2] - extra element beyond original slice
+        assert_eq!(result_listview.size_at(0, &mut ctx), 1); // [1] - from slice index 0 (original index 2)
+        assert_eq!(result_listview.size_at(1, &mut ctx), 0); // null
+        assert_eq!(result_listview.size_at(2, &mut ctx), 0); // null
+        assert_eq!(result_listview.size_at(3, &mut ctx), 1); // [2] - from slice index 3 (original index 5)
+        assert_eq!(result_listview.size_at(4, &mut ctx), 1); // [1] - extra element beyond original slice
+        assert_eq!(result_listview.size_at(5, &mut ctx), 1); // [2] - extra element beyond original slice
 
         // Verify actual values
         let elements_array = result_listview
@@ -1511,10 +1511,10 @@ mod test {
             .unwrap();
         let elements_slice = elements_array.as_slice::<i32>();
 
-        let list0_offset = result_listview.offset_at(0);
+        let list0_offset = result_listview.offset_at(0, &mut ctx);
         assert_eq!(elements_slice[list0_offset], 1);
 
-        let list3_offset = result_listview.offset_at(3);
+        let list3_offset = result_listview.offset_at(3, &mut ctx);
         assert_eq!(elements_slice[list3_offset], 2);
     }
 
@@ -1542,12 +1542,12 @@ mod test {
         assert_eq!(result_listview.len(), 6);
 
         // Verify sizes: positions 0,3,4,5 have sparse data, positions 1,2 have fill values
-        assert_eq!(result_listview.size_at(0), 1); // [1] from sparse
-        assert_eq!(result_listview.size_at(1), 4); // [5,6,7,8] fill value
-        assert_eq!(result_listview.size_at(2), 4); // [5,6,7,8] fill value
-        assert_eq!(result_listview.size_at(3), 1); // [2] from sparse
-        assert_eq!(result_listview.size_at(4), 1); // [1] from sparse
-        assert_eq!(result_listview.size_at(5), 1); // [2] from sparse
+        assert_eq!(result_listview.size_at(0, &mut ctx), 1); // [1] from sparse
+        assert_eq!(result_listview.size_at(1, &mut ctx), 4); // [5,6,7,8] fill value
+        assert_eq!(result_listview.size_at(2, &mut ctx), 4); // [5,6,7,8] fill value
+        assert_eq!(result_listview.size_at(3, &mut ctx), 1); // [2] from sparse
+        assert_eq!(result_listview.size_at(4, &mut ctx), 1); // [1] from sparse
+        assert_eq!(result_listview.size_at(5, &mut ctx), 1); // [2] from sparse
 
         // Verify actual values
         let elements_array = result_listview
@@ -1557,35 +1557,35 @@ mod test {
         let elements_slice = elements_array.as_slice::<i32>();
 
         // List 0: [1]
-        let list0_offset = result_listview.offset_at(0) as usize;
+        let list0_offset = result_listview.offset_at(0, &mut ctx) as usize;
         assert_eq!(elements_slice[list0_offset], 1);
 
         // List 1: [5,6,7,8]
-        let list1_offset = result_listview.offset_at(1) as usize;
-        let list1_size = result_listview.size_at(1) as usize;
+        let list1_offset = result_listview.offset_at(1, &mut ctx) as usize;
+        let list1_size = result_listview.size_at(1, &mut ctx) as usize;
         assert_eq!(
             &elements_slice[list1_offset..list1_offset + list1_size],
             &[5, 6, 7, 8]
         );
 
         // List 2: [5,6,7,8]
-        let list2_offset = result_listview.offset_at(2) as usize;
-        let list2_size = result_listview.size_at(2) as usize;
+        let list2_offset = result_listview.offset_at(2, &mut ctx) as usize;
+        let list2_size = result_listview.size_at(2, &mut ctx) as usize;
         assert_eq!(
             &elements_slice[list2_offset..list2_offset + list2_size],
             &[5, 6, 7, 8]
         );
 
         // List 3: [2]
-        let list3_offset = result_listview.offset_at(3) as usize;
+        let list3_offset = result_listview.offset_at(3, &mut ctx) as usize;
         assert_eq!(elements_slice[list3_offset], 2);
 
         // List 4: [1]
-        let list4_offset = result_listview.offset_at(4) as usize;
+        let list4_offset = result_listview.offset_at(4, &mut ctx) as usize;
         assert_eq!(elements_slice[list4_offset], 1);
 
         // List 5: [2]
-        let list5_offset = result_listview.offset_at(5) as usize;
+        let list5_offset = result_listview.offset_at(5, &mut ctx) as usize;
         assert_eq!(elements_slice[list5_offset], 2);
         Ok(())
     }
@@ -1631,18 +1631,24 @@ mod test {
         let fill_elements = PrimitiveArray::from_iter(fill);
         for index in [0, 9, 11, 19, 21, 9_999] {
             assert_arrays_eq!(
-                actual.list_elements_at(index).vortex_expect("fill list"),
+                actual
+                    .list_elements_at(index, &mut ctx)
+                    .vortex_expect("fill list"),
                 fill_elements,
                 &mut ctx
             );
         }
         assert_arrays_eq!(
-            actual.list_elements_at(10).vortex_expect("patch list"),
+            actual
+                .list_elements_at(10, &mut ctx)
+                .vortex_expect("patch list"),
             PrimitiveArray::from_iter([1i32]),
             &mut ctx
         );
         assert_arrays_eq!(
-            actual.list_elements_at(20).vortex_expect("patch list"),
+            actual
+                .list_elements_at(20, &mut ctx)
+                .vortex_expect("patch list"),
             PrimitiveArray::from_iter([2i32]),
             &mut ctx
         );
@@ -1669,6 +1675,7 @@ mod test {
             PrimitiveArray::from_iter(0..patches_u32).into_array(),
             PrimitiveArray::from_iter(std::iter::repeat_n(1u32, PATCHES)).into_array(),
             Validity::AllValid,
+            &mut ctx,
         )
         .into_array();
 
@@ -1735,6 +1742,7 @@ mod test {
             buffer![0u8, 2, 2, 5, 7, 9, 11].into_array(),
             buffer![2u8, 0, 3, 2, 2, 2, 2].into_array(),
             Validity::from_iter([true, false, true, true, true, true, true]),
+            &mut ctx,
         );
         assert_arrays_eq!(actual, expected, &mut ctx);
 
@@ -1999,7 +2007,8 @@ mod test {
         let mut ctx = SESSION.create_execution_ctx();
         let elements = buffer![1i32, 2, 1, 2].into_array();
         let offsets = buffer![0u8, 1, 2, 3, 4].into_array();
-        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+        let lists =
+            ListArray::try_new(elements, offsets, Validity::AllValid, &mut ctx)?.into_array();
 
         let indices = buffer![0u8, 1u8, 2u8, 3u8].into_array();
         let fill_value = Scalar::from(Some(vec![42i32; 252])); // 252 + 4 elements = 256 > u8::MAX
@@ -2012,6 +2021,7 @@ mod test {
             expected_elements.freeze().into_array(),
             buffer![0u32, 1, 2, 3, 4, 256].into_array(),
             Validity::AllValid,
+            &mut ctx,
         )?
         .into_array();
 
@@ -2093,9 +2103,9 @@ mod test {
         assert_eq!(result_listview.len(), 10);
 
         // Helper to get list values at an index
-        let get_list_values = |idx: usize| -> Vec<i32> {
-            let offset = result_listview.offset_at(idx);
-            let size = result_listview.size_at(idx);
+        let mut get_list_values = |idx: usize| -> Vec<i32> {
+            let offset = result_listview.offset_at(idx, &mut ctx);
+            let size = result_listview.size_at(idx, &mut ctx);
             if size == 0 {
                 vec![] // null/empty list
             } else {
@@ -2183,9 +2193,9 @@ mod test {
         assert_eq!(result_listview.len(), 5);
 
         // Helper to get list values at an index
-        let get_list_values = |idx: usize| -> Vec<i32> {
-            let offset = result_listview.offset_at(idx);
-            let size = result_listview.size_at(idx);
+        let mut get_list_values = |idx: usize| -> Vec<i32> {
+            let offset = result_listview.offset_at(idx, &mut ctx);
+            let size = result_listview.size_at(idx, &mut ctx);
             if size == 0 {
                 vec![] // null/empty list
             } else {

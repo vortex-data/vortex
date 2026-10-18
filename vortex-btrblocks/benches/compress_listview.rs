@@ -62,6 +62,7 @@ mod benchmarks {
     /// Wrap `elements` into a `ListViewArray` driven by per-entry `counts`.
     /// When `zctl`, offsets are sorted/non-overlapping. Otherwise, adjacent entries overlap by 1.
     fn wrap_listview(elements: ArrayRef, counts: &[usize], zctl: bool) -> ListViewArray {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut offsets = buffer_mut![0u32; counts.len()];
         let mut sizes = buffer_mut![0u32; counts.len()];
         let mut offset = 0u32;
@@ -87,6 +88,7 @@ mod benchmarks {
             offsets.freeze().into_array(),
             sizes.freeze().into_array(),
             Validity::NonNullable,
+            &mut ctx,
         );
         if zctl {
             lv = unsafe { lv.with_zero_copy_to_list(true) };

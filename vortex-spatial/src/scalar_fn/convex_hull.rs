@@ -232,6 +232,7 @@ mod tests {
             points,
             PrimitiveArray::from_iter([0_u32, 5, 8]).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
 

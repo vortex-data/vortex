@@ -9,6 +9,7 @@ use vortex_buffer::buffer;
 use vortex_session::VortexSession;
 
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -32,10 +33,11 @@ pub fn create_basic_listview() -> ListViewArray {
 /// Creates a sparse ListView with two overlap regions
 /// `[[0,1,2], [1,2], [18, 19], [19]]` over 20 elements.
 pub fn create_sparse_overlapping_listview() -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![0i32..20].into_array();
     let offsets = buffer![0u32, 1, 18, 19].into_array();
     let sizes = buffer![3u32, 2, 2, 1].into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable)
+    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)
 }
 
 /// Creates a nullable ListView: [[10,20], null, [50]]
@@ -75,16 +77,18 @@ pub fn create_empty_elements_listview() -> ListViewArray {
 /// Creates a ListView with overlapping lists and out-of-order offsets
 /// Lists: [[5,6,7], [2,3], [8,9], [0,1], [1,2,3,4]]
 pub fn create_overlapping_listview() -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
     let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable)
+    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)
 }
 
 /// Creates a large ListView for performance testing
 pub fn create_large_listview() -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = PrimitiveArray::from_iter(0i32..1000).into_array();
     let offsets = buffer![0u32, 100, 200, 300, 400, 500, 600, 700, 800, 900].into_array();
     let sizes = buffer![50u32, 50, 50, 50, 50, 50, 50, 50, 50, 50].into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable)
+    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)
 }

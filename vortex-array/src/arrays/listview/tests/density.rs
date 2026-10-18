@@ -171,7 +171,7 @@ fn referenced_bounds_non_zero_copy() -> VortexResult<()> {
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     let offsets = buffer![5u32, 2].into_array();
     let sizes = buffer![2u32, 2].into_array();
-    let lv = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+    let lv = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
     assert!(!lv.is_zero_copy_to_list());
     assert_eq!(lv.referenced_element_bounds(&mut ctx)?, (2, 7));
     Ok(())

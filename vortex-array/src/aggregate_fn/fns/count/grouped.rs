@@ -143,6 +143,7 @@ mod tests {
     }
 
     fn listview(elements: ArrayRef, ranges: &[(usize, usize)]) -> VortexResult<ArrayRef> {
+        let mut ctx = array_session().create_execution_ctx();
         let offsets = PrimitiveArray::from_iter(ranges.iter().map(|&(o, _)| o as i32));
         let sizes = PrimitiveArray::from_iter(ranges.iter().map(|&(_, s)| s as i32));
         Ok(ListViewArray::try_new(
@@ -150,6 +151,7 @@ mod tests {
             offsets.into_array(),
             sizes.into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array())
     }

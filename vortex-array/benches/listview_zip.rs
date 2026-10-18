@@ -73,6 +73,7 @@ fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
 /// `LEN` single-element lists: `list[i] = [base + i]`. When `nullable`, every 7th list is null
 /// (list-level validity backed by a `BoolArray`), exercising the `zip_validity` path.
 fn list_view(base: i64, nullable: bool) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut elements = BufferMut::<i64>::with_capacity(LEN);
     elements.extend((0..LEN as i64).map(|i| base + i));
     let offsets: BufferMut<u64> = (0..LEN as u64).collect();
@@ -89,6 +90,7 @@ fn list_view(base: i64, nullable: bool) -> ArrayRef {
         offsets.freeze().into_array(),
         sizes.freeze().into_array(),
         validity,
+        &mut ctx,
     )
     .unwrap()
     .into_array()

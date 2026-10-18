@@ -524,6 +524,7 @@ mod tests {
             uuid_array(&session)?,
             PrimitiveArray::from_iter([0i32, 1, 2]).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
 

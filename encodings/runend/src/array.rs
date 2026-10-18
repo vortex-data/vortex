@@ -779,6 +779,7 @@ mod tests {
             VarBinViewArray::from_iter_str(["a", "b", "c", "d", "e", "f"]).into_array(),
             buffer![0u32, 2, 3, 6].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap()
         .into_array();
@@ -792,6 +793,7 @@ mod tests {
             .into_array(),
             buffer![0u32, 2, 4, 5, 6, 7, 10, 13, 16, 19, 22].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap()
         .into_array();
@@ -805,6 +807,7 @@ mod tests {
             buffer![1i64, 2, 3, 4, 5, 6].into_array(),
             buffer![0u32, 2, 3, 6].into_array(),
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         )?
         .into_array();
         let arr = RunEnd::try_new(buffer![2u32, 5, 6].into_array(), values, &mut ctx)?;
@@ -824,6 +827,7 @@ mod tests {
             buffer![1i64, 2, 1, 2, 3, 3, 3, 4, 5, 6].into_array(),
             buffer![0u32, 2, 4, 5, 6, 7, 10].into_array(),
             Validity::from_iter([true, true, false, false, false, true]),
+            &mut ctx,
         )?
         .into_array();
         assert_arrays_eq!(arr.into_array(), expected, &mut ctx);

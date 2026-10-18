@@ -742,13 +742,13 @@ mod tests {
 
         // Check first list: [1, 2, 3].
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3]),
             &mut ctx
         );
 
         // Check empty list.
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(1, &mut ctx).unwrap().len(), 0);
 
         // Check null list.
         assert!(
@@ -761,7 +761,7 @@ mod tests {
 
         // Check last list: [4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(3).unwrap(),
+            listview.list_elements_at(3, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([4i32, 5]),
             &mut ctx
         );
@@ -807,14 +807,14 @@ mod tests {
 
         // Verify first list: [1, 2].
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([1i32, 2]),
             &mut ctx
         );
 
         // Verify second list: [3, 4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(1).unwrap(),
+            listview.list_elements_at(1, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([3i32, 4, 5]),
             &mut ctx
         );
@@ -843,7 +843,7 @@ mod tests {
         // Verify the values: [0], [10], [20], [30], [40].
         for i in 0..5i32 {
             assert_arrays_eq!(
-                listview2.list_elements_at(i as usize).unwrap(),
+                listview2.list_elements_at(i as usize, &mut ctx).unwrap(),
                 PrimitiveArray::from_iter([i * 10]),
                 &mut ctx
             );
@@ -881,8 +881,8 @@ mod tests {
         assert_eq!(listview.len(), 5);
 
         // First two are empty lists (from append_zeros).
-        assert_eq!(listview.list_elements_at(0).unwrap().len(), 0);
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(0, &mut ctx).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(1, &mut ctx).unwrap().len(), 0);
 
         // Next two are nulls.
         assert!(
@@ -902,7 +902,7 @@ mod tests {
 
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
-            listview.list_elements_at(4).unwrap(),
+            listview.list_elements_at(4, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([10i32, 20]),
             &mut ctx
         );
@@ -962,14 +962,14 @@ mod tests {
         // Check the extended data.
         // First list: [0] (initial data).
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([0i32]),
             &mut ctx
         );
 
         // Second list: [1, 2, 3] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(1).unwrap(),
+            listview.list_elements_at(1, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3]),
             &mut ctx
         );
@@ -985,7 +985,7 @@ mod tests {
 
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(3).unwrap(),
+            listview.list_elements_at(3, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([4i32, 5]),
             &mut ctx
         );
@@ -1145,7 +1145,7 @@ mod tests {
         assert!(!listview.is_zero_copy_to_list());
 
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([10i32, 20]),
             &mut ctx
         );
@@ -1157,9 +1157,9 @@ mod tests {
                 .unwrap()
         );
         // List 1 is null, so the builder no longer rewrites its size to zero.
-        assert_eq!(listview.size_at(1), source.size_at(1));
+        assert_eq!(listview.size_at(1, &mut ctx), source.size_at(1, &mut ctx));
         assert_arrays_eq!(
-            listview.list_elements_at(2).unwrap(),
+            listview.list_elements_at(2, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([10i32]),
             &mut ctx
         );
