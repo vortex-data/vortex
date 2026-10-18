@@ -50,6 +50,7 @@ const FIXED_SIZE_LIST_ARGS: &[(usize, usize, u32)] = &[
 ];
 
 fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let patch_indices: Buffer<u32> = (0..len).step_by(patch_stride).map(|i| i as u32).collect();
     let n_patches = patch_indices.len();
 
@@ -70,12 +71,19 @@ fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayR
         NonNullable,
     );
 
-    Sparse::try_new(patch_indices.into_array(), patch_values, len, fill_value)
-        .vortex_expect("sparse list input should be valid")
-        .into_array()
+    Sparse::try_new(
+        patch_indices.into_array(),
+        patch_values,
+        len,
+        fill_value,
+        &mut ctx,
+    )
+    .vortex_expect("sparse list input should be valid")
+    .into_array()
 }
 
 fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let patch_indices: Buffer<u32> = (0..len).step_by(patch_stride).map(|i| i as u32).collect();
     let n_patches = patch_indices.len();
 
@@ -91,9 +99,15 @@ fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) 
         NonNullable,
     );
 
-    Sparse::try_new(patch_indices.into_array(), patch_values, len, fill_value)
-        .vortex_expect("sparse fixed-size-list input should be valid")
-        .into_array()
+    Sparse::try_new(
+        patch_indices.into_array(),
+        patch_values,
+        len,
+        fill_value,
+        &mut ctx,
+    )
+    .vortex_expect("sparse fixed-size-list input should be valid")
+    .into_array()
 }
 
 #[divan::bench(args = LIST_ARGS)]

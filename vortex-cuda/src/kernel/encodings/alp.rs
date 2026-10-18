@@ -186,6 +186,7 @@ mod tests {
             PrimitiveArray::new(buffer![0u32, 4u32], Validity::NonNullable).into_array(),
             PrimitiveArray::new(buffer![0.0f32, 999f32], Validity::NonNullable).into_array(),
             Some(PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array()),
+            cuda_ctx.execution_ctx(),
         )?;
 
         let alp_array = ALP::try_new(
@@ -399,6 +400,7 @@ mod tests {
             PrimitiveArray::new(patch_indices, Validity::NonNullable).into_array(),
             PrimitiveArray::new(patch_values, Validity::NonNullable).into_array(),
             Some(PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array()),
+            cuda_ctx.execution_ctx(),
         )?;
 
         let alp_array = ALP::try_new(

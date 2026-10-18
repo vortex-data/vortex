@@ -58,6 +58,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// fill value 1. When `constant` is true every patch also equals 1, so the whole array
 /// is constant (the worst case for `is_constant`: it must scan all patches to confirm).
 fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let stride = LEN / num_patches;
     let indices: Buffer<u32> = (0..num_patches).map(|i| (i * stride) as u32).collect();
     let values: Buffer<i32> = (0..num_patches)
@@ -68,6 +69,7 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
         values.into_array(),
         LEN,
         Scalar::from(1i32),
+        &mut ctx,
     )
     .vortex_expect("valid sparse")
     .into_array()
@@ -76,6 +78,7 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
 /// Build a sparse `i32` array of `LEN` with a null fill and `num_patches` nullable patches
 /// (every third patch null), so `null_count` does real `O(P)` work over the patch validity.
 fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let stride = LEN / num_patches;
     let indices: Buffer<u32> = (0..num_patches).map(|i| (i * stride) as u32).collect();
     let values = PrimitiveArray::from_option_iter(
@@ -83,9 +86,15 @@ fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
     )
     .into_array();
     let nullable = DType::Primitive(PType::I32, Nullability::Nullable);
-    Sparse::try_new(indices.into_array(), values, LEN, Scalar::null(nullable))
-        .vortex_expect("valid sparse")
-        .into_array()
+    Sparse::try_new(
+        indices.into_array(),
+        values,
+        LEN,
+        Scalar::null(nullable),
+        &mut ctx,
+    )
+    .vortex_expect("valid sparse")
+    .into_array()
 }
 
 #[divan::bench]

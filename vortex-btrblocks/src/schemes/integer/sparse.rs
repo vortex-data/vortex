@@ -204,6 +204,7 @@ impl Scheme for SparseScheme {
                 compressed_values,
                 sparse.len(),
                 sparse.fill_scalar().clone(),
+                exec_ctx,
             )
             .map(|a| a.into_array())
         } else {

@@ -147,6 +147,7 @@ mod tests {
             buffer![10i32, 20].into_array(),
             5,
             Scalar::from(1i32),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         // 10 + 1 + 20 + 1 + 1 = 33
         33i64,
@@ -157,6 +158,7 @@ mod tests {
             buffer![7i32, 8].into_array(),
             10,
             Scalar::from(0i32),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         15i64,
     )]
@@ -176,6 +178,7 @@ mod tests {
                 vortex_array::dtype::PType::I64,
                 vortex_array::dtype::Nullability::Nullable,
             )),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         16i64,
     )]
@@ -186,11 +189,13 @@ mod tests {
 
     #[test]
     fn sum_v2_kernel_nonempty() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = Sparse::try_new(
             buffer![0u64, 2].into_array(),
             buffer![10i32, 20].into_array(),
             5,
             Scalar::from(1i32),
+            &mut ctx,
         )?;
         let result = check_v2(array)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(33));
@@ -199,12 +204,14 @@ mod tests {
 
     #[test]
     fn sum_v2_kernel_all_null() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = Sparse::try_new(
             buffer![0u64, 3].into_array(),
             vortex_array::arrays::PrimitiveArray::from_option_iter([None::<i32>, None])
                 .into_array(),
             6,
             Scalar::null_native::<i32>(),
+            &mut ctx,
         )?;
         assert!(check_v2(array)?.is_null());
         Ok(())
@@ -212,11 +219,13 @@ mod tests {
 
     #[test]
     fn sum_v2_kernel_preserves_options() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = Sparse::try_new(
             buffer![0u64].into_array(),
             buffer![1.0f64].into_array(),
             3,
             Scalar::from(f64::NAN),
+            &mut ctx,
         )?
         .into_array();
         let result = run_v2_kernel(&array, NumericalAggregateOpts::include_nans())?;

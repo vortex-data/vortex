@@ -43,6 +43,7 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
@@ -244,6 +245,7 @@ mod test {
 
     #[test]
     fn scalar_at_invalid_patches() {
+        let mut ctx = array_session().create_execution_ctx();
         let packed_array = BitPacked::try_new(
             BufferHandle::new_host(ByteBuffer::copy_from_aligned(
                 [0u8; 128],
@@ -258,6 +260,7 @@ mod test {
                     buffer![1u32].into_array(),
                     PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                     None,
+                    &mut ctx,
                 )
                 .unwrap(),
             ),

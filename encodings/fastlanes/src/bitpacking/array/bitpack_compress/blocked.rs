@@ -254,13 +254,18 @@ where
     if indices.is_empty() {
         return Ok(None);
     }
-    Ok(Some(Patches::new(
-        values.len(),
-        0,
-        indices.into_array(),
-        PrimitiveArray::new(patch_values, patch_validity).into_array(),
-        Some(chunk_offsets.into_array()),
-    )?))
+    // SAFETY: the indices are collected in increasing order from positions in `values`, with one
+    // patch value each.
+    Ok(Some(unsafe {
+        Patches::new_unchecked(
+            values.len(),
+            0,
+            indices.into_array(),
+            PrimitiveArray::new(patch_values, patch_validity).into_array(),
+            Some(chunk_offsets.into_array()),
+            Some(0),
+        )
+    }))
 }
 
 /// Byte boundaries of blocks packed at `widths`, in the narrowest unsigned type that holds them.

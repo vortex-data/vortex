@@ -114,16 +114,18 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
+    let mut ctx = SESSION.create_execution_ctx();
     let indices = (0..len)
         .filter(|_| rng.random_bool(sparsity))
         .map(|x| x as u64)
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
-    Patches::new(len, 0, indices.into_array(), values, None).unwrap()
+    Patches::new(len, 0, indices.into_array(), values, None, &mut ctx).unwrap()
 }
 
 fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
+    let mut ctx = SESSION.create_execution_ctx();
     let patch_indices = (0..len)
         .filter(|_| rng.random_bool(sparsity))
         .map(|x| x as u64)
@@ -146,6 +148,7 @@ fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Pa
         Buffer::from(patch_indices).into_array(),
         values,
         Some(Buffer::from(chunk_offsets).into_array()),
+        &mut ctx,
     )
     .unwrap()
 }

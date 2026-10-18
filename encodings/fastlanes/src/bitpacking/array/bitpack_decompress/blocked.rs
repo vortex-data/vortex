@@ -458,6 +458,7 @@ mod tests {
             PrimitiveArray::from_iter(indices.map(|i| i + 113)).into_array(),
             PrimitiveArray::new(buffer![999u32; 6], Validity::AllValid).into_array(),
             None,
+            &mut ctx,
         )?;
         let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
             vortex_bail!("expected block offsets");
