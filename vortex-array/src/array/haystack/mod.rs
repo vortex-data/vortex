@@ -25,6 +25,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::arrays::DecimalArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::decimal::converted_buffer;
@@ -191,14 +192,33 @@ impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
         needles: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
-        let needles = needles
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?
-            .reinterpret_cast(T::PTYPE);
-        let bits = self.0.contains(needles.as_slice::<T>(), ctx.allocator());
-        Ok((bits, needles.validity()?))
+        if needles.len() <= NEEDLE_BATCH_LEN || needles.is::<Primitive>() {
+            let needles = needles
+                .clone()
+                .execute::<PrimitiveArray>(ctx)?
+                .reinterpret_cast(T::PTYPE);
+            let bits = self.0.contains(needles.as_slice::<T>(), ctx.allocator());
+            return Ok((bits, needles.validity()?));
+        }
+
+        // Decoding a long compressed array in batches keeps each batch of needles in the cache
+        // between decoding and looking it up, instead of writing out the whole array first.
+        let len = needles.len();
+        let mut bits = BitBufferMut::with_capacity_in(len, ctx.allocator().clone());
+        for start in (0..len).step_by(NEEDLE_BATCH_LEN) {
+            let end = (start + NEEDLE_BATCH_LEN).min(len);
+            let batch = needles
+                .execute_slice(start..end, ctx)?
+                .execute::<PrimitiveArray>(ctx)?
+                .reinterpret_cast(T::PTYPE);
+            bits.append_buffer(&self.0.contains(batch.as_slice::<T>(), ctx.allocator()));
+        }
+        Ok((bits.freeze(), needles.validity()?))
     }
 }
+
+/// Needles beyond this many are decoded and looked up a batch of this many at a time.
+const NEEDLE_BATCH_LEN: usize = 8192;
 
 /// The unscaled values of decimals, as the narrowest type that holds every value of their
 /// precision.
