@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod all_invalid;
+mod bitpacked;
 mod bool;
 mod cache;
 mod canonical;
@@ -279,6 +280,12 @@ fn new_array_exporter_with_flatten(
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
+
+    // Exporting the values of a reusable dictionary this way gave wrong results in TPC-DS q66
+    // and q72, so dictionary values, which are flattened, keep the canonical path.
+    if !flatten && let Some(exporter) = bitpacked::try_new_exporter(&array, ctx)? {
+        return Ok(exporter);
+    }
 
     canonical::new_exporter(array, cache, ctx)
 }
