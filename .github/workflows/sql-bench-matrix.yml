@@ -101,6 +101,9 @@ jobs:
     timeout-minutes: 120
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+      # Keeps mimalloc from returning freed memory to the OS between scans, whose decode
+      # buffers would otherwise fault their pages in again.
+      MIMALLOC_PURGE_DELAY: "-1"
       # Makes python output nicer
       COLUMNS: 120
     strategy:
