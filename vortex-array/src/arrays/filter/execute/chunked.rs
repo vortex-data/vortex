@@ -428,6 +428,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_mask::Mask;
 
     use super::ChunkDecoder;
