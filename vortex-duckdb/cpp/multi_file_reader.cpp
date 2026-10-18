@@ -8,6 +8,7 @@
 #include "vortex.h"
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/storage/table/column_segment.hpp"
 
@@ -49,6 +50,21 @@ static bool IsBloomFilter(const TableFilter &filter) {
     }
     return filter.filter_type == TableFilterType::OPTIONAL_FILTER &&
            filter.Cast<OptionalFilter>().child_filter->filter_type == TableFilterType::BLOOM_FILTER;
+}
+
+// Collects the bloom filters of a column's filter. DuckDB combines the filters
+// that joins push into one column, such as the range and the bloom filter of
+// the same join keys, under a conjunction.
+static void CollectBloomFilters(const TableFilter &filter, vector<const TableFilter *> &out) {
+    if (IsBloomFilter(filter)) {
+        out.push_back(&filter);
+        return;
+    }
+    if (filter.filter_type == TableFilterType::CONJUNCTION_AND) {
+        for (const auto &child : filter.Cast<ConjunctionAndFilter>().child_filters) {
+            CollectBloomFilters(*child, out);
+        }
+    }
 }
 
 // Keeps the rows of a scanned chunk that pass the bloom filters hash joins
@@ -228,7 +244,9 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     result->ffi_global_state = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_global_state));
     if (input.filters) {
         for (const auto &[column_idx, filter] : input.filters->filters) {
-            if (!IsBloomFilter(*filter)) {
+            vector<const TableFilter *> blooms;
+            CollectBloomFilters(*filter, blooms);
+            if (blooms.empty()) {
                 continue;
             }
             // Scanned chunks hold the projected columns when DuckDB prunes
@@ -242,7 +260,9 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
                 }
                 chunk_idx = NumericCast<idx_t>(found - projection_ids);
             }
-            result->bloom_filters.emplace_back(chunk_idx, filter.get());
+            for (const auto *bloom : blooms) {
+                result->bloom_filters.emplace_back(chunk_idx, bloom);
+            }
         }
     }
     return result;
@@ -310,8 +330,8 @@ unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFile
 }
 
 optional_idx VortexReaderInterface::MaxThreads(const MultiFileBindData &data,
-                                              const MultiFileGlobalState &,
-                                              FileExpandResult expand_result) {
+                                               const MultiFileGlobalState &,
+                                               FileExpandResult expand_result) {
     // Threads take files in turn when there are several.
     if (expand_result == FileExpandResult::MULTIPLE_FILES) {
         return optional_idx();
