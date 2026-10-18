@@ -26,6 +26,7 @@ use vortex::error::vortex_panic;
 use vortex::expr::BoundExpression;
 use vortex::expr::bound_and_collect;
 use vortex::file::Footer;
+use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
@@ -115,23 +116,27 @@ pub unsafe fn enable_mmap_local_files() {
     MMAP_LOCAL_FILES.store(true, Ordering::Relaxed);
 }
 
-/// A memory map of a local file, with the length and modification time it had when mapped.
+/// A memory map of a local file, with the length and modification time it had when mapped, and
+/// the layout reader and scan file of the file once a scan has opened it.
 struct MappedFile {
     len: u64,
     modified: SystemTime,
-    reader: Arc<dyn VortexReadAt>,
+    source: Arc<dyn VortexReadAt>,
+    opened: OnceLock<(LayoutReaderRef, ScanFile)>,
 }
 
 /// The maps of the local files scanned so far, by path.
 ///
 /// Each query opens the files it scans again. Reusing their maps saves unmapping a file after
-/// every query and faulting its pages into a fresh map in the next one.
-static MAPPED_FILES: LazyLock<Mutex<HashMap<String, MappedFile>>> =
+/// every query and faulting its pages into a fresh map in the next one, and reusing their layout
+/// readers saves decoding the footer and the zone maps of the file again. The maps and readers of
+/// every file scanned stay cached for the life of the process.
+static MAPPED_FILES: LazyLock<Mutex<HashMap<String, Arc<MappedFile>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// A reader of a memory map of the local file at `path`, reusing the map of an earlier scan
-/// while the file keeps its length and modification time.
-fn map_local_file(path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+/// A memory map of the local file at `path`, reusing the map of an earlier scan while the file
+/// keeps its length and modification time.
+fn map_local_file(path: &str) -> VortexResult<Arc<MappedFile>> {
     let metadata = std::fs::metadata(path)?;
     let len = metadata.len();
     let modified = metadata.modified()?;
@@ -140,19 +145,18 @@ fn map_local_file(path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         && file.len == len
         && file.modified == modified
     {
-        return Ok(Arc::clone(&file.reader));
+        return Ok(Arc::clone(file));
     }
     // SAFETY: `enable_mmap_local_files` requires that scanned files do not change during a scan.
-    let reader: Arc<dyn VortexReadAt> = Arc::new(unsafe { MmapReadAt::open(path) }?);
-    files.insert(
-        path.to_owned(),
-        MappedFile {
-            len,
-            modified,
-            reader: Arc::clone(&reader),
-        },
-    );
-    Ok(reader)
+    let source: Arc<dyn VortexReadAt> = Arc::new(unsafe { MmapReadAt::open(path) }?);
+    let file = Arc::new(MappedFile {
+        len,
+        modified,
+        source,
+        opened: OnceLock::new(),
+    });
+    files.insert(path.to_owned(), Arc::clone(&file));
+    Ok(file)
 }
 
 fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
@@ -214,20 +218,33 @@ impl OpenFileReader {
         // Reads of mapped files are cheap to issue late, so their splits are built by the
         // threads that scan them instead of all up front during reader initialization.
         let lazy_splits = url.scheme() == "file" && MMAP_LOCAL_FILES.load(Ordering::Relaxed);
-        let source: Arc<dyn VortexReadAt> = if lazy_splits {
+        let open = |file: VortexFile| -> VortexResult<(LayoutReaderRef, ScanFile)> {
+            let mut scan_file = file.scan_file();
+            scan_file.cache.get_or_insert_default();
+            Ok((file.layout_reader()?, scan_file))
+        };
+        let (reader, scan_file) = if lazy_splits {
             // Mapping a local file takes a few system calls, so it is done here instead of
             // handing it to a blocking thread, which takes longer than the calls themselves.
-            map_local_file(url.path())?
+            let mapped = map_local_file(url.path())?;
+            match mapped.opened.get() {
+                Some(opened) => opened.clone(),
+                None => {
+                    let source = Arc::clone(&mapped.source);
+                    let file = open_cached(&SESSION, Some(&path), source, None, &|options| options)
+                        .await?;
+                    let opened = open(file)?;
+                    mapped.opened.get_or_init(|| opened).clone()
+                }
+            }
         } else {
             let (fs, fs_path) = resolve_filesystem(&url)?;
-            fs.open_read(&fs_path).await?
+            let source = fs.open_read(&fs_path).await?;
+            open(open_cached(&SESSION, Some(&path), source, None, &|options| options).await?)?
         };
-        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
-        let mut scan_file = file.scan_file();
-        scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
-                reader: file.layout_reader()?,
+                reader,
                 scan_file,
                 v2: OnceLock::new(),
                 cache: ConversionCache::default(),
