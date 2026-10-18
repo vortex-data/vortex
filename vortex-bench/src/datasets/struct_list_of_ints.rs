@@ -111,6 +111,7 @@ impl Dataset for StructListOfInts {
                             elements.into_array(),
                             offsets.into_array(),
                             Validity::AllValid,
+                            _ctx,
                         )?
                         .into_array())
                     })

@@ -199,6 +199,7 @@ fn collect_list_rows(
         offsets,
         sizes,
         validity,
+        ctx,
     )?;
     // SAFETY: the views were either forwarded unchanged or rebuilt as a gapless, non-overlapping
     // running sum over the same elements, so the flag still holds. Forwarding it matters:
@@ -352,10 +353,12 @@ mod tests {
         offsets: &[u32],
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
+        let mut ctx = array_session().create_execution_ctx();
         Ok(ListArray::try_new(
             elements,
             PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
             validity,
+            &mut ctx,
         )?
         .into_array())
     }
@@ -386,6 +389,7 @@ mod tests {
     /// alone, which only holds after `MakeExact` reorders the elements.
     #[test]
     fn collects_out_of_order_list_views() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let points = nullable_point_column(vec![
             Some((0.0, 4.0)),
             None,
@@ -397,6 +401,7 @@ mod tests {
             PrimitiveArray::from_iter([2u32, 0]).into_array(),
             PrimitiveArray::from_iter([2u32, 2]).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?;
         assert!(
             !views.is_zero_copy_to_list(),

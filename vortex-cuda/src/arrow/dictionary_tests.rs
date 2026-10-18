@@ -331,6 +331,7 @@ async fn test_decode_non_contiguous_dictionary_list_view() -> VortexResult<()> {
         PrimitiveArray::from_iter([2i32, 0]).into_array(),
         PrimitiveArray::from_iter([2i32, 2]).into_array(),
         Validity::NonNullable,
+        ctx.execution_ctx(),
     )
     .into_array();
     let expected = expected.take(PrimitiveArray::from_iter([2u32, 3, 0, 1]).into_array())?;

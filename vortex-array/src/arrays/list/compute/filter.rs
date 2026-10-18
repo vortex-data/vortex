@@ -196,7 +196,7 @@ impl FilterKernel for List {
                 .slice(element_range)?
                 .filter(element_mask)?
         } else {
-            array.sliced_elements()?.filter(element_mask)?
+            array.sliced_elements(ctx)?.filter(element_mask)?
         };
 
         // SAFETY: new_offsets are monotonically increasing starting from 0 with length

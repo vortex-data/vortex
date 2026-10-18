@@ -403,6 +403,7 @@ fn struct_mixed() -> VortexResult<ArrayRef> {
 
 /// Variable-length lists of run-heavy ints: pins the list offsets/elements path.
 fn list_of_int_runs() -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut rng = StdRng::seed_from_u64(118);
     let elements = int_runs();
     let mut offsets: Vec<i32> = Vec::with_capacity(N / 4 + 1);
@@ -413,7 +414,13 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
         offsets.push(offset);
     }
     let offsets = PrimitiveArray::new(Buffer::copy_from(&offsets), Validity::NonNullable);
-    Ok(ListArray::try_new(elements, offsets.into_array(), Validity::NonNullable)?.into_array())
+    Ok(ListArray::try_new(
+        elements,
+        offsets.into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array())
 }
 
 /// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on

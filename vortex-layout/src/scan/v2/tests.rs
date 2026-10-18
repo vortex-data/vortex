@@ -16,6 +16,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -69,6 +70,7 @@ const CHUNKS: usize = 4;
 /// A table chunk of `CHUNK_ROWS` rows starting at row `start`: an integer, a nullable string and a
 /// list column.
 fn table_chunk(start: usize) -> VortexResult<ArrayRef> {
+    let mut ctx = array_session().create_execution_ctx();
     let rows = start..start + CHUNK_ROWS;
     let ints = Buffer::from_iter(
         rows.clone()
@@ -84,6 +86,7 @@ fn table_chunk(start: usize) -> VortexResult<ArrayRef> {
         elements.into_array(),
         offsets.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?;
     Ok(StructArray::from_fields(&[
         ("ints", ints.into_array()),

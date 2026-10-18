@@ -70,10 +70,12 @@ fn list_scalar(elements: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scal
 }
 
 fn nested_needles() -> ArrayRef {
+    let mut ctx = array_session().create_execution_ctx();
     ListArray::try_new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), None, Some(9)]).into_array(),
         buffer![0u32, 2, 2, 4, 5].into_array(),
         Validity::from(BitBuffer::from_iter([true, false, true, true])),
+        &mut ctx,
     )
     .unwrap()
     .into_array()

@@ -62,6 +62,7 @@ fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayR
         patch_offsets.into_array(),
         patch_sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
 

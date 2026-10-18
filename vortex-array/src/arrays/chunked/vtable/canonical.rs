@@ -581,6 +581,7 @@ mod tests {
             buffer![1, 2, 3, 4].into_array(),
             buffer![0, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 
@@ -588,6 +589,7 @@ mod tests {
             buffer![5, 6].into_array(),
             buffer![0, 2].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 
@@ -668,12 +670,14 @@ mod tests {
             buffer![1, 2, 3, 4].into_array(),
             buffer![0, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
         let l2 = ListArray::try_new(
             buffer![5, 6].into_array(),
             buffer![0, 2].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 

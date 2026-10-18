@@ -20,6 +20,7 @@ use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -151,7 +152,7 @@ impl VTable for List {
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ListMetadata::decode(metadata)?;
         let validity = if children.len() == 2 {
@@ -178,7 +179,12 @@ impl VTable for List {
             len + 1,
         )?;
 
-        let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
+        let data = ListData::try_build(
+            elements.clone(),
+            offsets.clone(),
+            validity.clone(),
+            &mut session.create_execution_ctx(),
+        )?;
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         Ok(ArrayParts::new(
             self.clone(),

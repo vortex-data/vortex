@@ -56,11 +56,12 @@ const MASK_SETUPS: &[MaskSetup] = &[
 ];
 
 fn primitive_list(width: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let element_count = LIST_LENGTH * width;
     let elements = PrimitiveArray::from_iter(0..element_count as u32).into_array();
     let offsets =
         Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
+    ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
         .unwrap()
         .into_array()
 }

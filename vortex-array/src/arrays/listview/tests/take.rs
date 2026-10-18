@@ -47,7 +47,8 @@ fn test_take_preserves_unreferenced_elements() {
     let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
     let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+    let listview =
+        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
@@ -66,8 +67,8 @@ fn test_take_preserves_unreferenced_elements() {
     );
 
     // Verify offsets are preserved.
-    assert_eq!(result_list.offset_at(0), 2); // List 1
-    assert_eq!(result_list.offset_at(1), 0); // List 3
+    assert_eq!(result_list.offset_at(0, &mut ctx), 2); // List 1
+    assert_eq!(result_list.offset_at(1, &mut ctx), 0); // List 3
 }
 
 #[test]
@@ -79,7 +80,8 @@ fn test_take_with_gaps() {
     let offsets = buffer![0u32, 6, 10, 1, 7].into_array();
     let sizes = buffer![3u32, 3, 2, 2, 2].into_array();
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+    let listview =
+        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
     let result = listview.take(indices).unwrap();
@@ -96,7 +98,7 @@ fn test_take_with_gaps() {
 
     // Verify the lists still read correctly despite gaps.
     assert_arrays_eq!(
-        result_list.list_elements_at(0).unwrap(),
+        result_list.list_elements_at(0, &mut ctx).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9]),
         &mut ctx
     );
@@ -104,6 +106,7 @@ fn test_take_with_gaps() {
 
 #[test]
 fn test_take_constant_arrays() {
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test with ConstantArray for offsets/sizes.
     let elements = buffer![100i32, 200, 300, 400, 500, 600, 700, 800].into_array();
 
@@ -116,6 +119,7 @@ fn test_take_constant_arrays() {
         constant_offsets,
         varying_sizes,
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
 
@@ -126,12 +130,12 @@ fn test_take_constant_arrays() {
         .unwrap();
 
     assert_eq!(result_list.len(), 3);
-    assert_eq!(result_list.offset_at(0), 2); // All offsets are 2
-    assert_eq!(result_list.offset_at(1), 2);
-    assert_eq!(result_list.offset_at(2), 2);
-    assert_eq!(result_list.size_at(0), 4); // Sizes: 4, 1, 3
-    assert_eq!(result_list.size_at(1), 1);
-    assert_eq!(result_list.size_at(2), 3);
+    assert_eq!(result_list.offset_at(0, &mut ctx), 2); // All offsets are 2
+    assert_eq!(result_list.offset_at(1, &mut ctx), 2);
+    assert_eq!(result_list.offset_at(2, &mut ctx), 2);
+    assert_eq!(result_list.size_at(0, &mut ctx), 4); // Sizes: 4, 1, 3
+    assert_eq!(result_list.size_at(1, &mut ctx), 1);
+    assert_eq!(result_list.size_at(2, &mut ctx), 3);
 
     // Case 2: Both constant (all lists are identical).
     let both_constant_offsets = ConstantArray::new(1u32, 3).into_array();
@@ -142,6 +146,7 @@ fn test_take_constant_arrays() {
         both_constant_offsets,
         both_constant_sizes,
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
 
@@ -152,14 +157,15 @@ fn test_take_constant_arrays() {
         .unwrap();
 
     assert_eq!(result2_list.len(), 2);
-    assert_eq!(result2_list.offset_at(0), 1);
-    assert_eq!(result2_list.offset_at(1), 1);
-    assert_eq!(result2_list.size_at(0), 3);
-    assert_eq!(result2_list.size_at(1), 3);
+    assert_eq!(result2_list.offset_at(0, &mut ctx), 1);
+    assert_eq!(result2_list.offset_at(1, &mut ctx), 1);
+    assert_eq!(result2_list.size_at(0, &mut ctx), 3);
+    assert_eq!(result2_list.size_at(1, &mut ctx), 3);
 }
 
 #[test]
 fn test_take_extreme_offsets() {
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test with very large offsets to demonstrate
     // that we keep unreferenced elements.
     let elements = PrimitiveArray::from_iter(0i32..10000).into_array();
@@ -168,7 +174,8 @@ fn test_take_extreme_offsets() {
     let offsets = buffer![0u32, 4999, 9995, 2500, 7500].into_array();
     let sizes = buffer![5u32, 2, 5, 3, 4].into_array();
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+    let listview =
+        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();
@@ -180,14 +187,14 @@ fn test_take_extreme_offsets() {
     assert_eq!(result_list.len(), 2);
 
     // Verify offsets are preserved.
-    assert_eq!(result_list.offset_at(0), 4999);
-    assert_eq!(result_list.offset_at(1), 7500);
+    assert_eq!(result_list.offset_at(0, &mut ctx), 4999);
+    assert_eq!(result_list.offset_at(1, &mut ctx), 7500);
 
     // Verify the entire elements array is preserved.
     assert_eq!(result_list.elements().len(), 10000);
 
     // Verify we can still read the correct values.
-    let list0 = result_list.list_elements_at(0).unwrap();
+    let list0 = result_list.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(
         list0
             .execute_scalar(0, &mut SESSION.create_execution_ctx())

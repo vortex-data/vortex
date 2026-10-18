@@ -304,6 +304,7 @@ fn merge_from_overflow_is_absorbing() -> VortexResult<()> {
 
 #[test]
 fn grouped_primitive_tracks_empty_overflow_and_null_groups() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
     let elements =
         PrimitiveArray::from_option_iter([Some(5i64), None, Some(i64::MAX), Some(1)]).into_array();
     let groups = ListViewArray::try_new(
@@ -311,6 +312,7 @@ fn grouped_primitive_tracks_empty_overflow_and_null_groups() -> VortexResult<()>
         buffer![0i32, 0, 1, 2, 0].into_array(),
         buffer![1i32, 0, 1, 2, 1].into_array(),
         Validity::from_iter([true, true, true, true, false]),
+        &mut ctx,
     )?
     .into_array();
     let mut accumulator = GroupedAccumulator::try_new(
@@ -330,12 +332,14 @@ fn grouped_primitive_tracks_empty_overflow_and_null_groups() -> VortexResult<()>
 
 #[test]
 fn grouped_bool_fallback_tracks_empty_groups() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
     let elements = BoolArray::from_iter([Some(true), Some(true), None, None]).into_array();
     let groups = ListViewArray::try_new(
         elements,
         buffer![0i32, 2, 2].into_array(),
         buffer![2i32, 0, 2].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
     let mut accumulator = GroupedAccumulator::try_new(

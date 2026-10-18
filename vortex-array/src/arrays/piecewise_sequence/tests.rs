@@ -346,6 +346,7 @@ fn list_take_consumes_constant_piecewise_lengths() -> VortexResult<()> {
         buffer![0i32, 1, 2, 3, 4, 5, 6].into_array(),
         buffer![0u32, 2, 5, 5, 7].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
     let list_indices = piecewise_indices_constant_length([1, 0], 2)?;
@@ -353,6 +354,7 @@ fn list_take_consumes_constant_piecewise_lengths() -> VortexResult<()> {
         buffer![2i32, 3, 4, 0, 1, 2, 3, 4].into_array(),
         buffer![0u32, 3, 3, 5, 8].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
     assert_arrays_eq!(list.take(list_indices)?, expected, &mut ctx);

@@ -39,6 +39,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 fn make_primitive_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let element_count = step * num_lists + list_size;
     let elements = PrimitiveArray::from_iter(0..element_count as i32).into_array();
     let offsets: Buffer<u32> = (0..num_lists).map(|i| (i * step) as u32).collect();
@@ -48,10 +49,12 @@ fn make_primitive_lv(num_lists: usize, list_size: usize, step: usize) -> ListVie
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
 }
 
 fn make_varbinview_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let element_count = step * num_lists + list_size;
     let strings: Vec<String> = (0..element_count)
         .map(|i| {
@@ -70,10 +73,12 @@ fn make_varbinview_lv(num_lists: usize, list_size: usize, step: usize) -> ListVi
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
 }
 
 fn make_struct_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let element_count = step * num_lists + list_size;
     let field_a = PrimitiveArray::from_iter(0..element_count as i32).into_array();
     let field_b = PrimitiveArray::from_iter((0..element_count).map(|i| i as f64)).into_array();
@@ -93,6 +98,7 @@ fn make_struct_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewAr
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
 }
 
@@ -101,13 +107,19 @@ fn make_nested_list_lv(
     list_size: usize,
     inner_list_size: usize,
 ) -> ListViewArray {
+    let mut ctx = SESSION.create_execution_ctx();
     let elem_count = num_lists * list_size + list_size;
     let values = PrimitiveArray::from_iter(0..(elem_count * inner_list_size) as i32).into_array();
     let inner_offsets: Buffer<u32> = (0..=elem_count)
         .map(|i| (i * inner_list_size) as u32)
         .collect();
-    let elements =
-        ListArray::new(values, inner_offsets.into_array(), Validity::NonNullable).into_array();
+    let elements = ListArray::new(
+        values,
+        inner_offsets.into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .into_array();
     let offsets: Buffer<u32> = (0..num_lists).map(|i| (i * list_size) as u32).collect();
     let sizes: Buffer<u32> = std::iter::repeat_n(list_size as u32, num_lists).collect();
     ListViewArray::new(
@@ -115,6 +127,7 @@ fn make_nested_list_lv(
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
 }
 
@@ -239,6 +252,7 @@ fn struct_large(bencher: Bencher) {
 
 #[divan::bench]
 fn fsl_large(bencher: Bencher) {
+    let mut ctx = SESSION.create_execution_ctx();
     let num_lists = 5;
     let list_size = 256;
     let fsl_count = num_lists * list_size + list_size;
@@ -252,6 +266,7 @@ fn fsl_large(bencher: Bencher) {
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     );
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))

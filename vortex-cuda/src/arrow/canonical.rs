@@ -178,7 +178,7 @@ fn rebuild_array_for_export_schema(
                 ..
             } = list.into_data_parts();
             let elements = rebuild_array_for_export_schema(elements, ctx)?;
-            return Ok(ListArray::try_new(elements, offsets, validity)?.into_array());
+            return Ok(ListArray::try_new(elements, offsets, validity, ctx)?.into_array());
         }
         Err(array) => array,
     };
@@ -2579,6 +2579,7 @@ mod tests {
             PrimitiveArray::from_iter(0i32..5).into_array(),
             PrimitiveArray::from_iter([0i32, 2, 2, 5]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )?
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2634,6 +2635,7 @@ mod tests {
             elements,
             PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )?
         .into_array();
         let dtype = chunk.dtype().clone();
@@ -2859,6 +2861,7 @@ mod tests {
             PrimitiveArray::from_iter([0i32, 2, 2]).into_array(),
             PrimitiveArray::from_iter([2i32, 0, 3]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2893,6 +2896,7 @@ mod tests {
             PrimitiveArray::from_iter([0i32, 1]).into_array(),
             PrimitiveArray::from_iter([3i32, 2]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2933,6 +2937,7 @@ mod tests {
             PrimitiveArray::from_iter([0i32, 1]).into_array(),
             PrimitiveArray::from_iter([3i32, 2]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2993,6 +2998,7 @@ mod tests {
             PrimitiveArray::from_iter([128i32, 0]).into_array(),
             PrimitiveArray::from_iter([128i32, 128]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -3048,8 +3054,14 @@ mod tests {
         let elements = primitive_i32_on_device(0..5, &mut ctx).await?;
         let offsets = integer_array_on_device(offsets_ptype, &[0, 2, 2], &mut ctx).await?;
         let sizes = integer_array_on_device(sizes_ptype, &[2, 0, 3], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
@@ -3136,6 +3148,7 @@ mod tests {
             PrimitiveArray::from_iter(0i32..5).into_array(),
             offsets,
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )?
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -3167,8 +3180,14 @@ mod tests {
         let elements = primitive_i32_on_device([10, 11, 12, 13, 14], &mut ctx).await?;
         let offsets = integer_array_on_device(offsets_ptype, &[3, 0, 2], &mut ctx).await?;
         let sizes = integer_array_on_device(sizes_ptype, &[2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         assert_eq!(exported.array.array.length, 3);
@@ -3198,8 +3217,14 @@ mod tests {
         let elements = DictArray::try_new(codes, values)?.into_array();
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
@@ -3246,8 +3271,14 @@ mod tests {
         let elements = DictArray::try_new(codes, values)?.into_array();
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
@@ -3283,8 +3314,14 @@ mod tests {
         let elements = DictArray::try_new(codes, values)?.into_array();
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let err = match array.export_device_array(&mut ctx).await {
             Ok(mut exported) => {
                 unsafe { release_exported_array(&raw mut exported.array) };
@@ -3350,8 +3387,14 @@ mod tests {
         .into_array();
         let offsets = primitive_i32_on_device([0, 1], &mut ctx).await?;
         let sizes = primitive_i32_on_device([3, 2], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let err = match array.export_device_array(&mut ctx).await {
             Ok(mut exported) => {
                 unsafe { release_exported_array(&raw mut exported.array) };
@@ -3381,8 +3424,14 @@ mod tests {
         .await?;
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let err = match array.export_device_array(&mut ctx).await {
             Ok(mut exported) => {
                 unsafe { release_exported_array(&raw mut exported.array) };

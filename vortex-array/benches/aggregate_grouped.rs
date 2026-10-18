@@ -57,6 +57,7 @@ fn total_element_count(group_sizes: &[usize]) -> usize {
 }
 
 fn contiguous_list_view(elements: ArrayRef, group_sizes: &[usize]) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut offset = 0usize;
     let offsets: Buffer<u32> = group_sizes
         .iter()
@@ -75,6 +76,7 @@ fn contiguous_list_view(elements: ArrayRef, group_sizes: &[usize]) -> ArrayRef {
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .unwrap()
     .into_array()

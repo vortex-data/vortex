@@ -50,7 +50,7 @@ fn test_basic_listview_comprehensive() {
 
     // Check individual list elements.
     assert_arrays_eq!(
-        listview.list_elements_at(0).unwrap(),
+        listview.list_elements_at(0, &mut ctx).unwrap(),
         PrimitiveArray::from_iter([1i32, 2, 3]),
         &mut ctx
     );
@@ -69,13 +69,13 @@ fn test_basic_listview_comprehensive() {
     );
 
     assert_arrays_eq!(
-        listview.list_elements_at(1).unwrap(),
+        listview.list_elements_at(1, &mut ctx).unwrap(),
         PrimitiveArray::from_iter([4i32, 5]),
         &mut ctx
     );
 
     assert_arrays_eq!(
-        listview.list_elements_at(2).unwrap(),
+        listview.list_elements_at(2, &mut ctx).unwrap(),
         PrimitiveArray::from_iter([6i32, 7, 8, 9]),
         &mut ctx
     );
@@ -90,20 +90,26 @@ fn test_out_of_order_offsets() {
     let offsets = buffer![6i32, 0, 3].into_array(); // Out-of-order offsets.
     let sizes = buffer![3i32, 3, 3].into_array();
 
-    let listview = ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
+    let listview = ListViewArray::new(
+        elements.into_array(),
+        offsets,
+        sizes,
+        Validity::NonNullable,
+        &mut ctx,
+    );
 
     assert_eq!(listview.len(), 3);
 
     // First list starts at offset 6: [7, 8, 9].
     assert_arrays_eq!(
-        listview.list_elements_at(0).unwrap(),
+        listview.list_elements_at(0, &mut ctx).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9]),
         &mut ctx
     );
 
     // Second list starts at offset 0: [1, 2, 3].
     assert_arrays_eq!(
-        listview.list_elements_at(1).unwrap(),
+        listview.list_elements_at(1, &mut ctx).unwrap(),
         PrimitiveArray::from_iter([1i32, 2, 3]),
         &mut ctx
     );
@@ -128,13 +134,14 @@ fn test_empty_listview() {
 
 #[test]
 fn test_from_list_array() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
     // Test conversion from ListArray to ListViewArray.
     // Logical lists: [[1,2], null, [5,6,7]]
     let offsets = buffer![0i64, 2, 4, 7].into_array();
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7].into_array();
     let validity = Validity::from_iter([true, false, true]);
 
-    let list_array = ListArray::try_new(elements, offsets, validity)?;
+    let list_array = ListArray::try_new(elements, offsets, validity, &mut ctx)?;
     let mut ctx = array_session().create_execution_ctx();
     let list_view = list_view_from_list(list_array, &mut ctx)?;
 
@@ -142,7 +149,7 @@ fn test_from_list_array() -> VortexResult<()> {
 
     // Check first list.
     assert_arrays_eq!(
-        list_view.list_elements_at(0)?,
+        list_view.list_elements_at(0, &mut ctx)?,
         PrimitiveArray::from_iter([1i32, 2]),
         &mut ctx
     );
@@ -154,7 +161,7 @@ fn test_from_list_array() -> VortexResult<()> {
 
     // Check third list.
     assert_arrays_eq!(
-        list_view.list_elements_at(2)?,
+        list_view.list_elements_at(2, &mut ctx)?,
         PrimitiveArray::from_iter([5i32, 6, 7]),
         &mut ctx
     );
@@ -200,18 +207,22 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         // All lists are identical [1, 2, 3] (overlapping).
         let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
         for i in 0..3 {
-            assert_arrays_eq!(listview.list_elements_at(i).unwrap(), expected, &mut ctx);
+            assert_arrays_eq!(
+                listview.list_elements_at(i, &mut ctx).unwrap(),
+                expected,
+                &mut ctx
+            );
         }
     } else if const_sizes {
         // All lists have size 3, different offsets (no overlap).
-        assert_eq!(listview.list_elements_at(0).unwrap().len(), 3);
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 3);
-        assert_eq!(listview.list_elements_at(2).unwrap().len(), 3);
+        assert_eq!(listview.list_elements_at(0, &mut ctx).unwrap().len(), 3);
+        assert_eq!(listview.list_elements_at(1, &mut ctx).unwrap().len(), 3);
+        assert_eq!(listview.list_elements_at(2, &mut ctx).unwrap().len(), 3);
     } else if const_offsets {
         // All lists start at offset 0, different sizes (overlapping).
         assert_eq!(
             listview
-                .list_elements_at(0)
+                .list_elements_at(0, &mut ctx)
                 .unwrap()
                 .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
@@ -219,7 +230,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         );
         assert_eq!(
             listview
-                .list_elements_at(1)
+                .list_elements_at(1, &mut ctx)
                 .unwrap()
                 .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
@@ -227,7 +238,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         );
         assert_eq!(
             listview
-                .list_elements_at(2)
+                .list_elements_at(2, &mut ctx)
                 .unwrap()
                 .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
@@ -265,6 +276,7 @@ fn test_validation_errors(
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut array_session().create_execution_ctx(),
     );
 
     assert!(result.is_err());
@@ -273,12 +285,13 @@ fn test_validation_errors(
 
 #[test]
 fn test_validate_nullable_offsets() {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists (invalid due to nullable offsets): [[1,2], [3], ???]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = PrimitiveArray::from_option_iter(vec![Some(0u32), Some(2), None]).into_array();
     let sizes = buffer![2u32, 1, 2].into_array();
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
+    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     assert!(result.is_err());
     assert!(
@@ -291,12 +304,13 @@ fn test_validate_nullable_offsets() {
 
 #[test]
 fn test_validate_nullable_sizes() {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists (invalid due to nullable sizes): [[1,2], ???, [2,3]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 1].into_array();
     let sizes = PrimitiveArray::from_option_iter(vec![Some(2u32), None, Some(2)]).into_array();
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
+    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     assert!(result.is_err());
     assert!(
@@ -309,13 +323,14 @@ fn test_validate_nullable_sizes() {
 
 #[test]
 fn test_validate_offset_plus_size_overflow() {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists (invalid due to overflow): would overflow, [[1], [1]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     // Create an offset + size that would overflow.
     let offsets = buffer![u32::MAX - 1, 0, 0].into_array();
     let sizes = buffer![2u32, 1, 1].into_array();
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
+    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -327,6 +342,7 @@ fn test_validate_offset_plus_size_overflow() {
 
 #[test]
 fn test_validate_invalid_validity_length() {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists (invalid due to validity length mismatch): [[1,2], [3,4], [5]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 4].into_array();
@@ -334,7 +350,7 @@ fn test_validate_invalid_validity_length() {
     // Validity has wrong length.
     let validity = Validity::Array(BoolArray::from_iter(vec![true, false]).into_array());
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, validity);
+    let result = ListViewArray::try_new(elements, offsets, sizes, validity, &mut ctx);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -346,13 +362,14 @@ fn test_validate_invalid_validity_length() {
 
 #[test]
 fn test_validate_non_integer_offsets() {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists (invalid due to float offsets): [[1,2], [3,4], [5]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     // Try to use float offsets.
     let offsets = buffer![0.0f32, 2.0, 4.0].into_array();
     let sizes = buffer![2u32, 2, 1].into_array();
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
+    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -364,24 +381,26 @@ fn test_validate_non_integer_offsets() {
 
 #[test]
 fn test_validate_different_int_types() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test that different integer types work as long as sizes type ≤ offsets type.
     // Logical lists: [[1,2], [3], [2,3]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u64, 2, 1].into_array();
     let sizes = buffer![2u32, 1, 2].into_array();
 
-    let _listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+    let _listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 }
 
 #[test]
 fn test_validate_u64_overflow() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test overflow with u64 offsets and sizes.
     // Logical lists (invalid due to u64 overflow): would overflow, [[0], [0]]
     let elements = PrimitiveArray::from_iter(0i32..100).into_array();
     let offsets = buffer![u64::MAX - 10, 0, 0].into_array();
     let sizes = buffer![20u64, 1, 1].into_array();
 
-    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable);
+    let result = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -393,13 +412,14 @@ fn test_validate_u64_overflow() {
 
 #[test]
 fn test_verify_is_zero_copy_to_list() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create a ListView that IS zero-copyable to List.
     // Logical lists: [[1,2], [3,4], [5]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0i32, 2, 4].into_array(); // Sorted, no gaps
     let sizes = buffer![2i32, 2, 1].into_array(); // No overlaps
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     // Marking as zero-copy-to-list validates the components and should succeed since offsets
     // are sorted and no overlaps exist.
@@ -410,13 +430,14 @@ fn test_verify_is_zero_copy_to_list() {
 #[test]
 #[should_panic(expected = "Zero-copy-to-list requires views to be non-overlapping and ordered")]
 fn test_verify_is_zero_copy_to_list_overlapping() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create a ListView that is NOT zero-copyable to List due to overlapping views.
     // Logical lists: [[1,2], [2,3,4], [3,4]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0i32, 1, 2].into_array(); // Sorted but overlapping
     let sizes = buffer![2i32, 3, 2].into_array(); // These cause overlaps
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx);
 
     // Validation should reject overlapping list views.
     unsafe {
@@ -427,6 +448,7 @@ fn test_verify_is_zero_copy_to_list_overlapping() {
 #[test]
 #[should_panic(expected = "Zero-copy-to-list requires views to be non-overlapping and ordered")]
 fn test_validate_monotonic_ends_with_nulls() {
+    let mut ctx = array_session().create_execution_ctx();
     // Regression test for issue #5412
     // Tests that validate_zctl catches incorrect NULL offsets
 
@@ -440,7 +462,7 @@ fn test_validate_monotonic_ends_with_nulls() {
     let sizes = buffer![2u32, 2, 0].into_array();
     let validity = Validity::from_iter(vec![true, true, false]);
 
-    let listview = ListViewArray::new(elements, offsets, sizes, validity);
+    let listview = ListViewArray::new(elements, offsets, sizes, validity, &mut ctx);
 
     // The array itself is valid (can be constructed)
     assert_eq!(listview.len(), 3);
@@ -455,6 +477,7 @@ fn test_validate_monotonic_ends_with_nulls() {
 
 #[test]
 fn test_validate_monotonic_ends_correct_nulls() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test that correctly placed NULLs pass validation
     // Elements: [1, 2, 3, 4]
     // View 0: [1, 2] at offset 0
@@ -465,7 +488,7 @@ fn test_validate_monotonic_ends_correct_nulls() {
     let sizes = buffer![2u32, 2, 0].into_array();
     let validity = Validity::from_iter(vec![true, true, false]);
 
-    let listview = ListViewArray::new(elements, offsets, sizes, validity);
+    let listview = ListViewArray::new(elements, offsets, sizes, validity, &mut ctx);
 
     // Should be valid as zero-copy-to-list - this should NOT panic
     let zctl_listview = unsafe { listview.with_zero_copy_to_list(true) };

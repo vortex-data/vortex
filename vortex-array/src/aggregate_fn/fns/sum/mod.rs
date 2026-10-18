@@ -776,7 +776,8 @@ mod tests {
         let offsets = PrimitiveArray::new(buffer![2i32, 0, 1], Validity::NonNullable).into_array();
         let sizes = PrimitiveArray::new(buffer![1i32, 1, 1], Validity::NonNullable).into_array();
         let validity = Validity::from_iter([true, false, true]);
-        let groups = ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array();
+        let groups =
+            ListViewArray::try_new(elements, offsets, sizes, validity, &mut ctx)?.into_array();
 
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let result = run_grouped_sum(&groups, &elem_dtype)?;

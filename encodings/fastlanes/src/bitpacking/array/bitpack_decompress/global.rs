@@ -302,6 +302,7 @@ mod tests {
             elements.clone().into_array(),
             offsets,
             Validity::NonNullable,
+            &mut ctx,
         )?;
 
         let mut listview_builder = ListViewBuilder::<u64, u32>::with_capacity_in(
@@ -334,6 +335,7 @@ mod tests {
             Buffer::from_iter((0..48u64).map(|i| i * 64)).into_array(),
             Buffer::from_iter(std::iter::repeat_n(64u32, 48)).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?;
         let mut list_builder = ListBuilder::<u64>::with_capacity_in(
             element_dtype,

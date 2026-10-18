@@ -20,6 +20,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::array_session;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -60,6 +61,7 @@ fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> Vorte
 
 #[test]
 fn test_default_compressor_roundtrip() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
     let integers = PrimitiveArray::from_option_iter(
         (0..2048i32).map(|i| (i % 7 != 0).then_some(1_000_000 + (i * 37) % 100)),
     );
@@ -96,6 +98,7 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         elements.into_array(),
         offsets.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
 
@@ -154,7 +157,7 @@ fn test_cuda_binary_zstd_follows_editions(
     let input = VarBinViewArray::from_iter_bin(values.iter().map(Vec::as_slice)).into_array();
 
     // The CUDA preset enables both Zstd schemes; the edition filter must choose between them.
-    let session = vortex_array::array_session();
+    let session = array_session();
     vortex_zstd::initialize(&session);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;

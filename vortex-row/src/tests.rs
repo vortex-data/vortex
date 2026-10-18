@@ -43,7 +43,7 @@ fn collect_row_bytes(array: &ListViewArray) -> Vec<Vec<u8>> {
     let nrows = array.len();
     (0..nrows)
         .map(|i| {
-            let slice = array.list_elements_at(i).unwrap();
+            let slice = array.list_elements_at(i, &mut ctx).unwrap();
             let p = slice.execute::<PrimitiveArray>(&mut ctx).unwrap();
             p.as_slice::<u8>().to_vec()
         })
@@ -623,6 +623,7 @@ fn variable_list_sort_order(
         offsets,
         sizes,
         Validity::from_iter([true, true, true, true, false, true]),
+        &mut ctx,
     );
 
     let rows = collect_row_bytes(&convert_columns(&[list.into_array()], &[field], &mut ctx)?);
@@ -642,6 +643,7 @@ fn variable_list_prefix_order_precedes_following_column() -> VortexResult<()> {
         buffer![0u32, 0].into_array(),
         buffer![1u32, 2].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
     let suffix = PrimitiveArray::from_iter([i64::MAX, i64::MIN]).into_array();
@@ -665,6 +667,7 @@ fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult
         buffer![0u32, 0].into_array(),
         buffer![1u32, 2].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
     let suffix = PrimitiveArray::from_iter([i64::MAX, i64::MIN]).into_array();
@@ -687,6 +690,7 @@ fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult
             buffer![0u32, 1].into_array(),
             buffer![1u32, 1].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .into_array();
     }
@@ -710,6 +714,7 @@ fn map_sort_order() -> VortexResult<()> {
         buffer![0u32, 0, 0, 2, 0].into_array(),
         buffer![2u32, 1, 0, 1, 2].into_array(),
         Validity::from_iter([true, true, true, true, false]),
+        &mut ctx,
     );
     let maps = MapArray::new(map_dtype, entry_lists).into_array();
 

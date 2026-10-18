@@ -381,13 +381,18 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let child_data =
                 flat_vector_to_vortex(vector.list_vector_get_child(), child_min_length)?;
 
-            ListViewArray::try_new(
-                child_data,
-                offsets.into_array(),
-                sizes.into_array(),
-                Validity::from_mask(validity, Nullability::Nullable),
-            )
-            .map(|a| a.into_array())
+            // SAFETY: the offsets and sizes are both `i64`, and the child is converted with the
+            // largest `offset + size`, so every list lies within it. The validity has one entry
+            // per list.
+            Ok(unsafe {
+                ListViewArray::new_unchecked(
+                    child_data,
+                    offsets.into_array(),
+                    sizes.into_array(),
+                    Validity::from_mask(validity, Nullability::Nullable),
+                )
+            }
+            .into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => {
             let logical_type = vector.logical_type();
@@ -753,7 +758,7 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
             &mut ctx
         );
@@ -891,7 +896,7 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
             &mut ctx
         );
@@ -943,12 +948,12 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)]),
             &mut ctx
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(1).unwrap(),
+            vortex_array.list_elements_at(1, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)]),
             &mut ctx
         );
@@ -1003,12 +1008,12 @@ mod tests {
 
         // Valid entries should work correctly.
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0).unwrap(),
+            vortex_array.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)]),
             &mut ctx
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(2).unwrap(),
+            vortex_array.list_elements_at(2, &mut ctx).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)]),
             &mut ctx
         );

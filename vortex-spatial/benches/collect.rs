@@ -47,11 +47,12 @@ fn main() {
 }
 
 fn geometry_lists(elements: ArrayRef, elements_per_row: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let offsets = PrimitiveArray::from_iter(
         (0..=ROWS).map(|row| u64::try_from(row * elements_per_row).unwrap()),
     )
     .into_array();
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
+    ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
         .unwrap()
         .into_array()
 }

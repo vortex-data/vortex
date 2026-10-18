@@ -2032,16 +2032,19 @@ async fn write_read_roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let inner = ListArray::try_new(
         buffer![1i32, 2, 3, 4, 5, 6].into_array(),
         buffer![0u32, 2, 5, 5, 6].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
     let outer = ListArray::try_new(
         inner,
         buffer![0u32, 2, 4].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )?
     .into_array();
     let st = StructArray::from_fields(&[("nested", outer)])?.into_array();
@@ -2124,6 +2127,7 @@ async fn struct_with_map_column_roundtrip() -> VortexResult<()> {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn nested_struct_list_struct_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let inner_struct = StructArray::from_fields(&[
         ("a", buffer![1i32, 2, 3, 4, 5].into_array()),
         ("b", buffer![10i32, 20, 30, 40, 50].into_array()),
@@ -2133,6 +2137,7 @@ async fn nested_struct_list_struct_roundtrip() -> VortexResult<()> {
         inner_struct,
         buffer![0u32, 2, 5, 5].into_array(),
         Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+        &mut ctx,
     )?
     .into_array();
     let st = StructArray::from_fields(&[("items", items)])?.into_array();

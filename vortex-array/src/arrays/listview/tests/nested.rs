@@ -24,6 +24,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_listview_of_listview_with_overlapping() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create elements that will be shared between inner lists.
     // Elements: [1, 2, 3, 4, 5, 6, 7, 8]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -39,8 +40,13 @@ fn test_listview_of_listview_with_overlapping() {
     let inner_offsets = buffer![0u32, 2, 1, 5, 0, 6].into_array();
     let inner_sizes = buffer![3u32, 3, 3, 3, 2, 2].into_array();
 
-    let inner_listview =
-        ListViewArray::new(elements, inner_offsets, inner_sizes, Validity::NonNullable);
+    let inner_listview = ListViewArray::new(
+        elements,
+        inner_offsets,
+        inner_sizes,
+        Validity::NonNullable,
+        &mut ctx,
+    );
 
     // Create outer ListView that groups the inner lists:
     // Logical outer lists: [inner[0..3], inner[3..6]]
@@ -62,14 +68,14 @@ fn test_listview_of_listview_with_overlapping() {
     assert_eq!(outer_listview.len(), 2);
 
     // Verify the outer structure.
-    let first_outer = outer_listview.list_elements_at(0).unwrap();
+    let first_outer = outer_listview.list_elements_at(0, &mut ctx).unwrap();
     let first_outer_lv = first_outer.as_::<ListView>();
     assert_eq!(first_outer_lv.len(), 3);
 
     // Verify overlapping data is preserved correctly.
     // inner[0] and inner[1] both contain element 3.
-    let inner0 = first_outer_lv.list_elements_at(0).unwrap();
-    let inner1 = first_outer_lv.list_elements_at(1).unwrap();
+    let inner0 = first_outer_lv.list_elements_at(0, &mut ctx).unwrap();
+    let inner1 = first_outer_lv.list_elements_at(1, &mut ctx).unwrap();
 
     // inner[0] should be [1, 2, 3].
     assert_eq!(
@@ -115,7 +121,7 @@ fn test_listview_of_listview_with_overlapping() {
     let sliced = outer_listview.slice(1..2).unwrap();
     assert_eq!(sliced.len(), 1);
     let sliced_lv = sliced.as_::<ListView>();
-    let inner_after_slice = sliced_lv.list_elements_at(0).unwrap();
+    let inner_after_slice = sliced_lv.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(inner_after_slice.len(), 3);
 }
 
@@ -125,6 +131,7 @@ fn test_listview_of_listview_with_overlapping() {
 
 #[test]
 fn test_deeply_nested_out_of_order() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create 3-level nested ListView with out-of-order offsets at each level.
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].into_array();
 
@@ -134,7 +141,13 @@ fn test_deeply_nested_out_of_order() {
     let l1_offsets = buffer![8u32, 0, 4, 12, 2, 10, 6, 14].into_array();
     let l1_sizes = buffer![2u32, 2, 2, 2, 2, 2, 2, 2].into_array();
 
-    let level1 = ListViewArray::new(elements, l1_offsets, l1_sizes, Validity::NonNullable);
+    let level1 = ListViewArray::new(
+        elements,
+        l1_offsets,
+        l1_sizes,
+        Validity::NonNullable,
+        &mut ctx,
+    );
 
     // Level 2: Group level1 lists, also out-of-order.
     // 4 lists of 2 inner lists each.
@@ -147,6 +160,7 @@ fn test_deeply_nested_out_of_order() {
         l2_offsets,
         l2_sizes,
         Validity::NonNullable,
+        &mut ctx,
     );
 
     // Level 3: Top level groups.
@@ -160,23 +174,24 @@ fn test_deeply_nested_out_of_order() {
         l3_offsets,
         l3_sizes,
         Validity::NonNullable,
+        &mut ctx,
     );
 
     assert_eq!(level3.len(), 2);
 
     // Navigate through the scrambled structure.
-    let top0 = level3.list_elements_at(0).unwrap();
+    let top0 = level3.list_elements_at(0, &mut ctx).unwrap();
     let top0_lv = top0.as_::<ListView>();
     assert_eq!(top0_lv.len(), 2);
 
     // Due to out-of-order at level3, top0 actually contains level2[2] and level2[3].
-    let mid0 = top0_lv.list_elements_at(0).unwrap();
+    let mid0 = top0_lv.list_elements_at(0, &mut ctx).unwrap();
     let mid0_lv = mid0.as_::<ListView>();
     assert_eq!(mid0_lv.len(), 2);
 
     // Verify data integrity through the scrambled offsets.
     // This should access the original elements correctly despite the scrambling.
-    let inner = mid0_lv.list_elements_at(0).unwrap();
+    let inner = mid0_lv.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(inner.len(), 2);
 
     // Test that operations work correctly with out-of-order offsets.
@@ -190,6 +205,7 @@ fn test_deeply_nested_out_of_order() {
 
 #[test]
 fn test_mixed_offset_size_types() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test with u64 offsets and u8 sizes at outer level,
     // u32 offsets and u16 sizes at inner level.
     // This tests type conversion edge cases unique to ListView.
@@ -202,8 +218,13 @@ fn test_mixed_offset_size_types() {
     let inner_offsets = buffer![0u32, 10, 20, 30, 40, 50, 100, 150, 200].into_array();
     let inner_sizes = buffer![5u16, 8, 10, 7, 15, 20, 25, 30, 50].into_array();
 
-    let inner_listview =
-        ListViewArray::new(elements, inner_offsets, inner_sizes, Validity::NonNullable);
+    let inner_listview = ListViewArray::new(
+        elements,
+        inner_offsets,
+        inner_sizes,
+        Validity::NonNullable,
+        &mut ctx,
+    );
 
     // Outer ListView with u64 offsets and u8 sizes.
     // Using small sizes that fit in u8 to test the type difference.
@@ -216,12 +237,13 @@ fn test_mixed_offset_size_types() {
         outer_offsets,
         outer_sizes,
         Validity::NonNullable,
+        &mut ctx,
     );
 
     assert_eq!(outer_listview.len(), 3);
 
     // Verify that different integer types work correctly.
-    let first_outer = outer_listview.list_elements_at(0).unwrap();
+    let first_outer = outer_listview.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(first_outer.len(), 3);
 
     // Test slicing with mixed types.
@@ -230,7 +252,7 @@ fn test_mixed_offset_size_types() {
     let sliced_lv = sliced.as_::<ListView>();
 
     // Verify the sliced data maintains correct offsets despite type differences.
-    let sliced_first = sliced_lv.list_elements_at(0).unwrap();
+    let sliced_first = sliced_lv.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(sliced_first.len(), 3);
 }
 
@@ -240,6 +262,7 @@ fn test_mixed_offset_size_types() {
 
 #[test]
 fn test_listview_zero_and_overlapping() {
+    let mut ctx = array_session().create_execution_ctx();
     // Mix of empty lists, overlapping lists, and normal lists.
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
 
@@ -256,8 +279,13 @@ fn test_listview_zero_and_overlapping() {
     let inner_offsets = buffer![0u32, 0, 3, 1, 4, 0, 0, 2].into_array();
     let inner_sizes = buffer![0u32, 3, 0, 3, 1, 0, 5, 0].into_array();
 
-    let inner_listview =
-        ListViewArray::new(elements, inner_offsets, inner_sizes, Validity::NonNullable);
+    let inner_listview = ListViewArray::new(
+        elements,
+        inner_offsets,
+        inner_sizes,
+        Validity::NonNullable,
+        &mut ctx,
+    );
 
     // Create outer lists that group these:
     // Logical lists: [inner[0..3], inner[3..6], inner[6..8]]
@@ -272,18 +300,19 @@ fn test_listview_zero_and_overlapping() {
         outer_offsets,
         outer_sizes,
         Validity::NonNullable,
+        &mut ctx,
     );
 
     assert_eq!(outer_listview.len(), 3);
 
     // Test first outer list with mixed empty/non-empty.
-    let first_outer = outer_listview.list_elements_at(0).unwrap();
+    let first_outer = outer_listview.list_elements_at(0, &mut ctx).unwrap();
     let first_outer_lv = first_outer.as_::<ListView>();
 
-    let inner0 = first_outer_lv.list_elements_at(0).unwrap();
+    let inner0 = first_outer_lv.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(inner0.len(), 0); // Empty
 
-    let inner1 = first_outer_lv.list_elements_at(1).unwrap();
+    let inner1 = first_outer_lv.list_elements_at(1, &mut ctx).unwrap();
     assert_eq!(inner1.len(), 3); // [1, 2, 3]
     assert_eq!(
         inner1
@@ -295,14 +324,14 @@ fn test_listview_zero_and_overlapping() {
         1
     );
 
-    let inner2 = first_outer_lv.list_elements_at(2).unwrap();
+    let inner2 = first_outer_lv.list_elements_at(2, &mut ctx).unwrap();
     assert_eq!(inner2.len(), 0); // Empty
 
     // Test second outer list with overlapping data.
-    let second_outer = outer_listview.list_elements_at(1).unwrap();
+    let second_outer = outer_listview.list_elements_at(1, &mut ctx).unwrap();
     let second_outer_lv = second_outer.as_::<ListView>();
 
-    let inner3 = second_outer_lv.list_elements_at(0).unwrap();
+    let inner3 = second_outer_lv.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(inner3.len(), 3); // [2, 3, 4]
     assert_eq!(
         inner3
@@ -325,6 +354,7 @@ fn test_listview_zero_and_overlapping() {
 
 #[test]
 fn test_listview_of_struct_with_nulls() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create structs with fields that could be null.
     let struct_fields = StructFields::new(
         FieldNames::from(["id", "value"].as_slice()),
@@ -370,16 +400,17 @@ fn test_listview_of_struct_with_nulls() {
         offsets,
         sizes,
         Validity::NonNullable,
+        &mut ctx,
     );
 
     assert_eq!(listview.len(), 3);
 
     // Verify first list.
-    let list0 = listview.list_elements_at(0).unwrap();
+    let list0 = listview.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(list0.len(), 2);
 
     // Verify overlapping list with null struct.
-    let list1 = listview.list_elements_at(1).unwrap();
+    let list1 = listview.list_elements_at(1, &mut ctx).unwrap();
     assert_eq!(list1.len(), 3);
 
     // The middle element (struct[2]) should be null.
