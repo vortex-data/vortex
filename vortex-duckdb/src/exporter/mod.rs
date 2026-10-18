@@ -37,6 +37,7 @@ use vortex::array::arrays::List;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::matcher::Matcher;
 use vortex::buffer::BitChunks;
 use vortex::encodings::fastlanes::RLE;
 use vortex::encodings::runend::RunEnd;
@@ -222,18 +223,21 @@ fn cached_values_dict(
     Ok(dict)
 }
 
-/// Run the kernels of lazy filters and slices, which a scan leaves over its columns, so that the
-/// encodings below them, run-end for example, can be exported as they are instead of decoded.
-fn resolve_lazy_wrappers(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    while array.is::<Filter>() || array.is::<Slice>() {
-        let stepped = array.execute::<ArrayRef>(ctx)?;
-        // Without a kernel for the child a step only makes progress below the wrapper.
-        if stepped.is::<Filter>() || stepped.is::<Slice>() {
-            return Ok(stepped);
-        }
-        array = stepped;
+/// Matches arrays that are not lazy filters or slices. A scan leaves these over its columns, and
+/// executing them lets the encodings below them, run-end for example, be exported as they are
+/// instead of decoded.
+struct NotSliceOrFilter;
+
+impl Matcher for NotSliceOrFilter {
+    type Match<'a> = &'a ArrayRef;
+
+    fn matches(array: &ArrayRef) -> bool {
+        !array.is::<Filter>() && !array.is::<Slice>()
     }
-    Ok(array)
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        Self::matches(array).then_some(array)
+    }
 }
 
 /// Create a DuckDB exporter for the given Vortex array.
@@ -243,7 +247,7 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = resolve_lazy_wrappers(array, ctx)?;
+    let array = array.execute_until::<NotSliceOrFilter>(ctx)?;
 
     let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter_with_flatten(array, cache, ctx, flatten),

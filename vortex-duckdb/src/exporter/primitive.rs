@@ -62,6 +62,9 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::validity::Validity;
+    use vortex::buffer::BitBuffer;
+    use vortex::buffer::buffer;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -111,6 +114,31 @@ mod tests {
 - FLAT INTEGER: 5 = [ 10, NULL, 30, NULL, 50]
 "#
         );
+    }
+
+    /// A validity bitmap that starts inside its first byte cannot be shared with DuckDB, so its
+    /// bits are copied from the bitmap's own offset.
+    #[test]
+    fn test_primitive_exporter_with_offset_validity() -> VortexResult<()> {
+        let validity = [true, true, true, false, true, false, false, true]
+            .into_iter()
+            .collect::<BitBuffer>()
+            .slice(3..);
+        let arr = PrimitiveArray::new(buffer![3i32, 4, 5, 6, 7], Validity::from(validity));
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        new_exporter(arr, &mut ctx)?.export(0, 5, chunk.get_vector_mut(0), &mut ctx)?;
+        chunk.set_len(5);
+
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT INTEGER: 5 = [ NULL, 4, NULL, NULL, 7]
+"#
+        );
+        Ok(())
     }
 
     /// Export a large nullable primitive array over many chunks to exercise the

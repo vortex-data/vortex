@@ -149,7 +149,7 @@ impl LayoutReader for FlatReader {
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.execute_slice(row_range.clone(), &mut ctx)?;
+                array = array.slice(row_range.clone())?;
             }
 
             let mask_density = mask.density();
@@ -195,7 +195,6 @@ impl LayoutReader for FlatReader {
         let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
-        let session = self.session.clone();
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
@@ -210,8 +209,7 @@ impl LayoutReader for FlatReader {
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array =
-                    array.execute_slice(row_range.clone(), &mut session.create_execution_ctx())?;
+                array = array.slice(row_range.clone())?;
             }
 
             // First apply the filter to the array.
