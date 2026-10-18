@@ -23,6 +23,7 @@ path = "src/lib.rs"
 crate-type = ["rlib"]
 
 [dependencies]
+allocator-api2 = { workspace = true }
 async-fs = { workspace = true }
 bitvec = { workspace = true }
 custom-labels = { workspace = true }

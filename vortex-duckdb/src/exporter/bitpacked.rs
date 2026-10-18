@@ -115,7 +115,7 @@ impl<T: UnpackType + NativePType + WrappingAdd> ColumnExporter for BitPackedExpo
         offset: usize,
         len: usize,
         vector: &mut VectorRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         assert!(self.len >= offset + len);
         let start = self.offset + offset;
@@ -137,7 +137,7 @@ impl<T: UnpackType + NativePType + WrappingAdd> ColumnExporter for BitPackedExpo
         )?;
         // The vector may still point at the memory of an array exported before, so the values
         // are unpacked into a buffer of their own that the vector then shares.
-        let mut values = BufferMut::<T>::with_capacity(len);
+        let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
         chunks.decode_into(&mut values.spare_capacity_mut()[..len]);
         // SAFETY: `decode_into` wrote all `len` values.
         unsafe { values.set_len(len) };

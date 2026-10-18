@@ -15,6 +15,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -111,7 +112,7 @@ pub fn filter_run_end_primitive<R: NativePType + AsPrimitive<u64>>(
 where
     u64: AsPrimitive<R>,
 {
-    let (ranks, retained_runs) = run_end_ranks(run_ends, offset, length, mask);
+    let (ranks, retained_runs) = run_end_ranks(run_ends, offset, length, mask, ctx.allocator());
     let values_mask = Mask::from(retained_runs);
 
     let filtered_run_ends = PrimitiveArray::new(ranks, Validity::NonNullable)
@@ -128,6 +129,7 @@ fn run_end_ranks<R: NativePType + AsPrimitive<u64>>(
     offset: u64,
     length: u64,
     mask: &BitBuffer,
+    allocator: &BufferAllocatorRef,
 ) -> (Buffer<R>, BitBuffer)
 where
     u64: AsPrimitive<R>,
@@ -138,10 +140,10 @@ where
     {
         if std::arch::is_x86_feature_detected!("popcnt") {
             // SAFETY: POPCNT support was detected above.
-            return unsafe { run_end_ranks_popcnt(run_ends, offset, length, mask) };
+            return unsafe { run_end_ranks_popcnt(run_ends, offset, length, mask, allocator) };
         }
     }
-    run_end_ranks_inline::<R, false>(run_ends, offset, length, mask)
+    run_end_ranks_inline::<R, false>(run_ends, offset, length, mask, allocator)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -151,11 +153,12 @@ unsafe fn run_end_ranks_popcnt<R: NativePType + AsPrimitive<u64>>(
     offset: u64,
     length: u64,
     mask: &BitBuffer,
+    allocator: &BufferAllocatorRef,
 ) -> (Buffer<R>, BitBuffer)
 where
     u64: AsPrimitive<R>,
 {
-    run_end_ranks_inline::<R, true>(run_ends, offset, length, mask)
+    run_end_ranks_inline::<R, true>(run_ends, offset, length, mask, allocator)
 }
 
 /// Rank loop shared by the POPCNT and portable paths.
@@ -174,12 +177,13 @@ fn run_end_ranks_inline<R: NativePType + AsPrimitive<u64>, const POPCNT: bool>(
     offset: u64,
     length: u64,
     mask: &BitBuffer,
+    allocator: &BufferAllocatorRef,
 ) -> (Buffer<R>, BitBuffer)
 where
     u64: AsPrimitive<R>,
 {
     let rank = RankDirectory::new(mask);
-    let mut ranks = BufferMut::<R>::zeroed(run_ends.len());
+    let mut ranks = BufferMut::<R>::zeroed_in(run_ends.len(), allocator.clone());
     let mut prev_rank = 0u64;
 
     let retained_runs = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
