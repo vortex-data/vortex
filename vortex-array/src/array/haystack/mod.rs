@@ -159,17 +159,25 @@ impl<T: SetInteger> IntegerSet<T> {
     /// One bit per needle, set when the needle is an element.
     fn contains(&self, needles: &[T], allocator: &BufferAllocatorRef) -> BitBuffer {
         match self {
-            Self::Bitmap { min, bitmap } => collect_bits(
-                needles,
-                // A needle below the smallest element wraps past the bitmap, so one comparison
-                // checks both bounds.
-                |needle| {
-                    needle
-                        .offset_from(*min)
-                        .is_some_and(|offset| offset < bitmap.len() && bitmap.value(offset))
-                },
-                allocator,
-            ),
+            Self::Bitmap { min, bitmap } => {
+                let bytes = bitmap.inner().as_slice();
+                let (bit_offset, len) = (bitmap.offset(), bitmap.len());
+                collect_bits(
+                    needles,
+                    // A needle below the smallest element wraps past the bitmap, so one
+                    // comparison checks both bounds. A needle outside the bitmap reads its
+                    // first bit and is masked off, so the lookup does not branch.
+                    |needle| {
+                        let offset = needle.offset_from(*min).unwrap_or(usize::MAX);
+                        let in_span = offset < len;
+                        let bit = if in_span { offset } else { 0 } + bit_offset;
+                        // SAFETY: `bit` is below the bitmap's offset plus its length.
+                        let byte = unsafe { *bytes.get_unchecked(bit / 8) };
+                        in_span & ((byte >> (bit % 8)) & 1 != 0)
+                    },
+                    allocator,
+                )
+            }
             Self::Sorted(sorted) => collect_bits(
                 needles,
                 |needle| sorted.binary_search(&needle).is_ok(),
