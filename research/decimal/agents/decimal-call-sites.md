@@ -11,10 +11,10 @@ and files named `tests.rs` count as tests.
 
 ## 1. Decimal-specific files
 
-The first column is non-test lines, the second is test lines. "Fate under the wrapper design" uses
-these labels:
+The first column is non-test lines, the second is test lines. "Fate under the leaf design" uses
+these labels. The leaf design is decision D2 and D3 in `../../decisions.md`.
 
-- **delete**: the logic becomes a rewrite to integer kernels or a shared wrapper rule.
+- **delete**: the logic becomes a call to an integer kernel through the integer view.
 - **shrink**: a smaller decimal-specific piece remains (dtype rules, rescaling, legacy wire).
 - **keep**: the logic stays, possibly moved.
 - **generalize**: the logic becomes a generic wide-integer component.
@@ -85,29 +85,29 @@ these labels:
   7637   5915  TOTAL (code, tests)
 ```
 
-| File or group | Role today | Fate under the wrapper design |
+| File or group | Role today | Fate under the leaf design |
 | --- | --- | --- |
-| `vortex-array/src/arrays/decimal/array.rs` | `DecimalData { decimal_dtype, values, values_type }`, constructors, `patch` | shrink: wrapper over one child |
-| `vortex-array/src/arrays/decimal/vtable/*` | `vortex.decimal` vtable, `DecimalMetadata { values_type }` serde | shrink: wrapper vtable plus legacy plugin |
+| `vortex-array/src/arrays/decimal/array.rs` | `DecimalData { decimal_dtype, values, values_type }`, constructors, `patch` | shrink: one buffer at the width that the precision fixes |
+| `vortex-array/src/arrays/decimal/vtable/*` | `vortex.decimal` vtable, `DecimalMetadata { values_type }` serde | shrink: a width check, and readers that convert old widths |
 | `vortex-array/src/arrays/decimal/compute/cast.rs` | decimal to decimal, integer, and f64 casts, plus `upcast_decimal_values` | shrink: rescale rules over integer casts |
-| `vortex-array/src/arrays/decimal/compute/{between,fill_null,mask,rules,fixed_width}.rs` | per-width kernels and storage-fit special cases | delete: wrapper rules plus integer kernels |
+| `vortex-array/src/arrays/decimal/compute/{between,fill_null,mask,rules,fixed_width}.rs` | per-width kernels and storage-fit special cases | delete: integer kernels through the integer view |
 | `vortex-array/src/arrays/decimal/utils.rs` | `widened_buffer`, `converted_buffer`, `narrowed_decimal` | delete: no mixed widths in canonical form |
 | `vortex-array/src/scalar_fn/fns/binary/compare/decimal.rs` | same-dtype compare with width widening | delete: storage compare |
 | `vortex-array/src/scalar_fn/fns/binary/numeric/decimal.rs` | checked arithmetic at a working width | shrink: rescale and precision check over integer ops |
 | `vortex-array/src/aggregate_fn/fns/*/decimal.rs` | sum, min/max, is_sorted, is_constant, all_non_distinct, size | delete: storage aggregates plus result wrapping |
-| `vortex-array/src/builders/decimal.rs` | `DecimalBuilder` with six buffer variants | shrink: wrapper over `PrimitiveBuilder` |
+| `vortex-array/src/builders/decimal.rs` | `DecimalBuilder` with six buffer variants | shrink: one width for each dtype, over `PrimitiveBuilder` |
 | `vortex-array/src/dtype/decimal/*` | `DecimalDType`, `DecimalType`, `NativeDecimalType`, i256 bound tables | keep `DecimalDType`, and keep `DecimalType` only for legacy metadata |
 | `vortex-array/src/scalar/typed_view/decimal/*` | `DecimalValue`, `DecimalScalar`, Arrow arithmetic rules | shrink: scalar view over a storage integer |
-| `encodings/decimal-byte-parts/src/*` | MSP plus 64-bit lower parts, v1 and v2 wire | generalize: wide-integer limb split under the wrapper |
-| `vortex-arrow/src/executor/decimal.rs` | width adaptation to Decimal32/64/128/256 | keep, reads the child |
-| `vortex-duckdb/src/exporter/decimal.rs` | width adaptation to DuckDB widths | keep, reads the child |
-| `vortex-btrblocks/src/schemes/decimal.rs` | narrow then split | generalize: wide-integer scheme for the child |
+| `encodings/decimal-byte-parts/src/*` | MSP plus 64-bit lower parts, v1 and v2 wire | keep as the compressed form. Its dtype fixes the type of its MSP (DQ4) |
+| `vortex-arrow/src/executor/decimal.rs` | width adaptation to Decimal32/64/128/256 | keep, reads the one canonical width |
+| `vortex-duckdb/src/exporter/decimal.rs` | width adaptation to DuckDB widths | keep, reads the one canonical width |
+| `vortex-btrblocks/src/schemes/decimal.rs` | narrow then split | shrink: no narrowing, which moves to `Narrow` and integer encodings |
 | `vortex-cuda/src/kernel/*decimal*` | device filter and DBP | keep or generalize to wide-integer lanes |
 
 ## 2. Uses of `DecimalType::smallest_decimal_value_type`
 
 This function is the de facto canonical width. Every site below already treats the width as a
-function of precision. The wrapper design makes that rule the contract instead of a convention.
+function of precision. The leaf design makes that rule the contract instead of a convention.
 The first `types.rs` entry is the definition, so the list holds 25 call sites.
 
 ```text
@@ -168,8 +168,8 @@ encodings/sparse/src/canonical.rs:316
 
 ## 5. Canonical dispatch sites that name `Canonical::Decimal` (non-test)
 
-Each site needs a decision when the decimal canonical form changes. With a wrapper, most of
-them reduce to "push into the child" through a shared wrapper rule.
+Each site needs a decision when the decimal canonical form changes. With one width for each
+dtype, most of them reduce to a call on the integer view.
 
 ```text
 vortex-layout/src/layouts/zoned/aggregates/bloom_filter/canonical/mod.rs:38

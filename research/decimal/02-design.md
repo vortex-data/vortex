@@ -5,115 +5,168 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 2. Design
 
+This part follows [`decisions.md`](../decisions.md), which records the decisions of the maintainer
+from 2026-10-19. "Decided" marks a settled choice. "Recommendation" marks a proposal of these notes
+that is still open.
+
 ## Goal
 
-`Decimal` behaves like an extension type over integer storage, and it stays a built-in type.
-Built-in means that every reader knows the type and that its wire tag never changes. It does not
-fix the Rust representation.
+`Decimal` stays a built-in type that behaves like a hardcoded extension type (decided, D1). Each
+decimal dtype has exactly one canonical encoding (decided, D3). Decimal kernels reuse the integer
+kernels.
 
-## The wrapper
+## The leaf
 
-A decimal array becomes a wrapper with no buffers and one child: the unscaled integers. The child
-dtype is a function of the precision, with the current canonical widths:
+A canonical decimal array is a leaf: one values buffer and validity, with no data child (decided,
+D2). `DecimalArray` and the `vortex.decimal` wire node already have this shape.
+
+The precision fixes the width of the buffer:
 
 ```rust
 impl DecimalDType {
-    /// The integer type that holds every unscaled value of this precision.
-    pub const fn storage_ptype(&self) -> PType {
+    /// The width of the values buffer for this precision.
+    pub const fn values_type(&self) -> DecimalType {
         match self.precision.get() {
-            1..=2 => PType::I8,
-            3..=4 => PType::I16,
-            5..=9 => PType::I32,
-            10..=18 => PType::I64,
-            19..=38 => PType::I128,
-            _ => PType::I256,
+            1..=2 => DecimalType::I8,
+            3..=4 => DecimalType::I16,
+            5..=9 => DecimalType::I32,
+            10..=18 => DecimalType::I64,
+            19..=38 => DecimalType::I128,
+            _ => DecimalType::I256,
         }
     }
 }
 ```
 
-The wrapper keeps three invariants:
+Recommendation (DQ1): use this mapping, which gives the smallest signed width that holds the
+digits. It already exists as `DecimalType::smallest_decimal_value_type`.
 
-1. **Type.** The child dtype is `Primitive(storage_ptype(p), nullability)`. Construction checks it,
-   and the check costs nothing for each row.
+The leaf keeps three invariants:
+
+1. **Width.** The buffer has the width of the precision. Construction checks it, and the check
+   costs nothing for each row.
 2. **Value.** Every valid unscaled value `v` satisfies `|v| <= 10^p - 1`. Imports from Arrow,
    DuckDB, FFI and Python check it. Kernels that make new values check their own results.
-3. **No data.** The wrapper owns no buffer. Validity comes from the child.
-
-A narrower physical width becomes an encoding of the child. For precision 1 to 18, the integer
-compression schemes narrow the values better than a fixed smaller width does. Examples are frame of
-reference, bit packing and dictionaries. For precision 19 and up, the child is a lazy widening of
-an `i64` array when every value fits. Otherwise the child is a split into 64-bit parts, which is
-DecimalByteParts in a general form.
+3. **Leaf.** The array has one buffer and validity, and no data child.
 
 So a kernel never receives a width that it does not expect. The `patch` panic and the "does the
 constant fit" special cases go away.
 
-## Decimal operations become integer operations
+`DecimalType` already has `I128` and `I256`. So the leaf needs no new `PType`, and this fix can
+land before the wide integers.
 
-Every decimal operation becomes an expression over the child:
+## The integer view
 
-| Operation | Rewrite onto the unscaled integers |
+The integer view is a `PrimitiveArray` over the same buffer and validity. It needs no copy.
+Decimal kernels delegate to integer kernels through it.
+
+For precision 1 to 18, the view uses `I8` to `I64`, which exist today. For precision 19 to 76, the
+view needs `I128` and `I256` (decided, D5). Until those types exist, the kernels for wide decimals
+stay decimal-specific.
+
+For extension types, `ext_storage` is the explicit way to reach the storage. For `Decimal`, the
+integer view plays that role.
+
+## `Narrow`
+
+Without a narrow form, D3 forces the full width on every column. A `Narrow` encoding solves this
+(decided, D4). It stores a `Decimal(p, s)` column as one child of dtype `Decimal(p', s)`, with
+`p' < p` and the same nullability.
+
+- `Narrow` has no buffers. Validity comes from the child.
+- It decodes by widening the child buffer to the width of `p`.
+- It needs no value check, because a legal `Decimal(p', s)` value is a legal `Decimal(p, s)` value.
+
+Recommendation (DQ2): one `Narrow` encoding for integers and decimals. Integers narrow by width
+(issue [#10020](https://github.com/vortex-data/vortex/issues/10020)), and decimals narrow by
+precision. The integer view of a decimal `Narrow` is an integer `Narrow` over the view of the
+child. So the integer `Narrow` kernels give decimals their narrow-width speed.
+
+Precision and integer width do not line up. An `i32` holds values up to 2,147,483,647, which needs
+precision 10. But 9 is the largest precision that maps to `i32`. So a writer needs value bounds to
+choose `p'`:
+
+- The compressor has them from statistics.
+- A cast that widens the precision has them from the source dtype. It returns a `Narrow` over the
+  source without a copy.
+- An old narrow buffer, read without a scan, does not have them. DecimalByteParts holds it instead,
+  as the next section describes.
+
+Recommendation (DQ3): decimal `Narrow` gets its own wire ID, unless it lands before the edition of
+PR [#10333](https://github.com/vortex-data/vortex/pull/10333) ships. That draft edition already
+defines `vortex.narrow` for integers.
+
+## DecimalByteParts
+
+DecimalByteParts (DBP) stays the compressed decimal form. Its children are integers: a signed most
+significant part (MSP), and 64-bit lower parts for wide values. The ordinary integer schemes
+compress each part.
+
+Recommendation (DQ4): the dtype of a DBP array fixes the type of its MSP. Then narrowing happens in
+only two places: `Narrow` for the precision, and integer encodings such as bit packing for the
+bits. The current narrowing step of the compressor (`narrowed_decimal`) has no job left.
+
+Readers still accept the narrow MSPs of old files. A reader wraps an old narrow MSP in an integer
+`Narrow` of the fixed type, without a copy. So the in-memory MSP always has the fixed type. An old
+narrow `vortex.decimal` leaf of up to 64 bits becomes a DBP array in the same way. Its buffer
+becomes the child of that integer `Narrow`.
+
+## Where structural encodings sit
+
+Generic structural encodings sit above the type layer (decided, X5). These notes recommend this
+list for them: `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked` and `Interleave`
+(XQ1). Decimal storage encodings, DBP and `Narrow`, sit below them.
+
+The decimal wire forms already follow this rule. A constant decimal column is a `vortex.constant`
+node with a decimal scalar, or `vortex.masked` over that node when some rows are null. Run-end and
+dictionary arrays already hold decimal values. So `Decimal` needs no plugin that translates an
+in-memory form back to the legacy wire forms.
+
+## Decimal operations as rules over the view
+
+`Decimal` implements its semantics as rewrite rules on arrays that the type owns (decided, X4).
+Each rule runs integer kernels on the view and builds a decimal result. There is no `ext_wrap`
+expression.
+
+| Operation | Rule over the integer view |
 | --- | --- |
-| `=`, `<`, hash, with the same precision and scale | The same operation |
-| `<` across scales | Rescale one side to the larger scale, then compare |
-| `x < 1.005` with scale 2 | `unscaled(x) <= 100` |
-| `+`, `-`, `*`, `/` | Widen, do a checked integer operation, then check the precision |
-| Cast to `Decimal(p2, s2)` | Rescale with an exactness check, then check the precision |
+| `=`, `<`, hash, with the same precision and scale | The same integer operation |
+| `=`, `<` across precisions or scales | None. The engine casts both sides to one dtype first (decided, X3) |
+| `+`, `-`, `*`, `/` with the same dtype | Widen, do a checked integer operation, then check the precision |
+| `+`, `-`, `*`, `/` across precisions or scales | Open (DQ6). Recommendation: accept them, with the Arrow rules for the result type |
+| Cast to `Decimal(p2, s2)` | Rescale with an exactness check, then check the precision. A wider precision with the same scale needs no copy |
 | Cast to an integer | Check the target range before truncation, then divide by `10^s` toward zero. So `127.1` fails for `i8`, as today |
 | Cast to a float | Convert to `f64`, divide by `10^s`, then narrow. Scalars and arrays use one path |
 | `sum` | Sum the integers at a wider width, then check the precision |
-| `min`, `max` | Run the storage aggregate, then wrap the result |
-| `is_sorted`, `is_constant` | Run the storage aggregate. The `Bool` result stays as it is |
+| `min`, `max`, `min_max`, `bounded_min`, `bounded_max` | Run the integer aggregate, then make a decimal of each result value |
+| `is_sorted`, `is_constant` | Run the integer aggregate. The `Bool` result stays as it is |
 
-These rewrites need two integer kernels that do not exist yet. `rescale` multiplies or divides by a
+A cast exists only where a rule for the pair of dtypes exists (decided, C1). `Decimal` ships rules
+for the common pairs above. Recommendation (CQ1): the default cast fails on a value that it cannot
+represent exactly, and lossy steps such as `trunc` are separate expressions. Under CQ1, the integer
+cast above becomes `trunc` and then a cast. The table keeps the current behavior until CQ1 is
+settled.
+
+These rules need two integer kernels that do not exist yet. `rescale` multiplies or divides by a
 power of ten with a rounding mode, and `check_range` fails on values outside a range. The unit
 casts of `Timestamp`, `Time` and `Duration` need the same kernels, because their units are powers
 of ten apart (except days). The current decimal arithmetic kernel does the operation and the
 precision check in one pass. A fused integer kernel keeps that speed.
 
-## One wrapper abstraction for `Decimal` and extension types
+## Integer lanes or FixedSizeBinary
 
-`Decimal` and `Extension` need the same structural behavior, but each one implements it separately
-today. One trait can hold the shared part:
-
-```rust
-/// A logical wrapper with no data over one storage child.
-pub trait StorageWrapper: VTable {
-    fn storage(array: ArrayView<'_, Self>) -> &ArrayRef;
-    fn storage_dtype(dtype: &DType) -> VortexResult<DType>;
-    fn rewrap(array: ArrayView<'_, Self>, storage: ArrayRef) -> VortexResult<ArrayRef>;
-    fn wrap_scalar(dtype: &DType, storage: Scalar) -> VortexResult<Scalar>;
-}
-```
-
-Generic rules then cover both types:
-
-- Slice, filter, take and mask push into the child and wrap the result again.
-- `scalar_at` wraps the scalar of the child.
-- Compression compresses the child with the ordinary schemes.
-
-The position of the wrapper relative to generic encodings, such as `Constant`, `Dict` and
-`Sparse`, is an open question (see below). The
-[extension design](../extension-types/03-design.md#physical-form-open) compares both placements.
-It recommends the wrapper on top, but no maintainer decision exists. With the wrapper on top,
-sparse, run-end, dictionary and chunked arrays work over the storage dtype. That also closes a gap
-for extension types, because a sparse array of an extension type cannot canonicalize today.
-
-Type-specific encodings, such as DecimalByteParts and `DateTimeParts`, live under the wrapper and
-see only the storage dtype. This choice does not depend on the position of the wrapper.
-
-## Integer child or FixedSizeBinary child
+D2 and D3 fix the shape of the leaf. The remaining choice is the type of the values in the buffer,
+and of the view over it.
 
 ### Options
 
-| Option | Child |
+| Option | Values in the buffer |
 | --- | --- |
-| (a) Integer child | `Primitive(I8)` to `Primitive(I256)`, with two new primitive types |
-| (b) FixedSizeBinary child | `FixedSizeBinary(n)`, a new core type |
+| (a) Integer lanes | Little-endian signed integers, as today, with an integer view up to `I256` |
+| (b) FixedSizeBinary | `FixedSizeBinary(n)` values, a new core type |
 | (c) Hybrid | Integers up to 64 bits, FixedSizeBinary above |
 | (d) Separate wide-integer family | A new dtype and canonical array for 128 and 256 bits |
-| (e) Current layout, opaque API | The current buffer, with the width fixed to the canonical width |
+| (e) Integer lanes without a view | The buffer of (a), with decimal-specific kernels |
 
 ### Byte order is not integer order
 
@@ -128,27 +181,26 @@ integer order:
 
 Byte comparison gives integer order only for big-endian bytes with the sign bit flipped. The row
 codec already uses that form. But that layout breaks zero-copy exchange with Arrow and DuckDB
-decimals, and it needs a conversion before each arithmetic operation. With either layout, a
-FixedSizeBinary child keeps every decimal kernel and adds a reinterpretation step.
+decimals, and it needs a conversion before each arithmetic operation. With either layout,
+FixedSizeBinary values keep every decimal kernel and add a reinterpretation step.
 
 ### Comparison
 
-| | (a) Integer child | (b) FixedSizeBinary child | (e) Current layout |
+| | (a) Integer lanes | (b) FixedSizeBinary | (e) No view |
 | --- | --- | --- | --- |
 | Compare, arithmetic, aggregates | Generic integer kernels | Decimal-specific kernels | Decimal-specific kernels |
-| Compression | All integer schemes up to 64 bits. Narrowing or a 64-bit split for wide values | Dictionaries and general-purpose schemes only | DecimalByteParts only |
+| Compression | `Narrow`, DecimalByteParts, and all integer schemes on its parts | Dictionaries and general-purpose schemes only | As (a) |
 | Min and max statistics | Correct | Wrong for little-endian bytes | Correct |
-| Arrow and DuckDB decimals | Zero-copy | Zero-copy | Zero-copy |
 | DuckDB `HUGEINT` | Possible | Not possible | Not possible |
 | Decimal file format | No change | Needs FixedSizeBinary first | No change |
 | Size of the change | Largest, because of the `PType` migration. The compiler finds most sites | A new core type | Smallest |
 | Duplicated logic | Lowest | High | High, about 7,600 lines stay |
 
-### Verdict: an integer child
+### Verdict: integer lanes
 
-Option (a) is the proposal, built as a separate wide-integer tier. The tier keeps the useful part of
-option (d). Wide integers opt into a small set of kernels, and they do not act like 64-bit
-integers.
+Option (a) is the proposal. The leaf keeps integer lanes, and the integer view reaches the integer
+kernels. Option (e) is the state before the wide `PType` values land. It fixes the crashes, but
+the kernels for precision 19 to 76 stay decimal-specific until then.
 
 Wide integers do not need FixedSizeBinary:
 
@@ -157,53 +209,45 @@ Wide integers do not need FixedSizeBinary:
   take and filter.
 - Compression of wide integers is a split into 64-bit parts, which DecimalByteParts already does.
 - Arrow export of decimals uses the Arrow decimal types. Arrow has no 128-bit integer type, so only
-  a top-level `I128` or `I256` column needs an export rule. `FixedSizeBinary(16)` is one option for
+  a top-level wide-integer column needs an export rule. `FixedSizeBinary(16)` is one option for
   that rule, not a prerequisite.
 
-Three findings can change the verdict:
+## Wide integers
 
-- If maintainers reject wide integers as a Vortex type, option (e) is the fallback for one release.
-  It fixes the crashes, but `Decimal` stays a separate world.
-- If benchmarks show that generic 128-bit and 256-bit kernels are clearly slower, the decimal
-  kernels stay as specializations behind the rewrites. This result is unlikely, because the current
-  decimal kernels already run on `i128` and `i256` values.
-- If Vortex needs more than 76 digits or arbitrary precision, no fixed-width child works.
-
-## The wide-integer tier
-
-- `PType` gets `I128 = 11` and `I256 = 12`. The values 13 and 14 stay reserved for `U128` and
-  `U256`, which wait until a consumer needs them.
+- `PType` gets `I128`, `I256`, `U128` and `U256` (decided, D5), for example as the values 11 to 14.
 - Two typed sub-enums split the integers. `LaneIntPType` holds the eight integer types up to 64
-  bits, and `WideIntPType` holds `I128` and `I256`. Offsets, codes, take indices and lane encodings
-  such as FastLanes accept only lane integers.
+  bits, and `WideIntPType` holds the four wide types. Offsets, codes, take indices and lane
+  encodings such as FastLanes accept only lane integers.
 - `is_int()` goes away, so each of its 53 call sites must choose between "lane integer" and "any
-  integer". Most of them guard offsets, codes or indices.
-- The dispatch macros that end in `other => panic!` retire, because a new type turns them into
-  run-time panics. Typed macros replace them.
-- The compiler drives the migration. The sub-enums and macros come first, and the removal of
-  `is_int()` comes next. Then the macros migrate one crate at a time. The two new variants come
-  last, so every exhaustive match fails to compile until it handles them.
-- The flatbuffer `PType` enum gets the two values, and old readers fail loudly on them. The
+  integer". The dispatch macros that end in `other => panic!` retire, and typed macros replace
+  them.
+- The compiler drives the migration. The four new variants come last, so every exhaustive match
+  fails to compile until it handles them.
+- The flatbuffer `PType` enum gets the four values, and old readers fail loudly on them. The
   protobuf `PType` enum stays as it is, because old readers decode an unknown value as `U8` without
   an error. A new protobuf `oneof` variant carries wide integers instead. An edition gates
   top-level wide columns.
-- Both wide types use 16-byte alignment. Two places assume that the alignment equals the byte
-  width, and they need a fix for `I256`.
+- All wide types use 16-byte alignment. Two places assume that the alignment equals the byte
+  width, and they need a fix for the 256-bit types.
+- Vortex has an `i256` type but no `u256` type. `U256` needs a new one.
 - Wide integers get no FastLanes encodings, never act as offsets or codes, and get no CUDA dynamic
   dispatch at first.
 
+Recommendation (DQ5): wide integers are user-visible columns behind an edition. They get a small
+kernel set first: compare, arithmetic, cast, sum, min, max, hash and structural operations.
+
 Top-level wide columns need a rule in each engine:
 
-| Engine | `I128` | `I256` |
-| --- | --- | --- |
-| Arrow | Error by default. Opt-in `Decimal256(39, 0)` or `FixedSizeBinary(16)` | Error by default. Opt-in `FixedSizeBinary(32)` |
-| DuckDB | `HUGEINT` | Error |
-| DataFusion | Error | Error |
-| Python | Python `int` scalars | Python `int` scalars |
+| Engine | `I128` | `U128` | `I256`, `U256` |
+| --- | --- | --- | --- |
+| Arrow | Error by default. Opt-in `Decimal256(39, 0)` or `FixedSizeBinary(16)` | Error by default. Opt-in `Decimal256(39, 0)` or `FixedSizeBinary(16)` | Error by default. Opt-in `FixedSizeBinary(32)` |
+| DuckDB | `HUGEINT` | `UHUGEINT` | Error |
+| DataFusion | Error | Error | Error |
+| Python | Python `int` scalars | Python `int` scalars | Python `int` scalars |
 
-## FixedSizeBinary on its own track
+## FixedSizeBinary
 
-FixedSizeBinary is a core type for opaque bytes of a fixed length, as RFC 0062 proposes. It refines
+FixedSizeBinary is a core type for opaque bytes of a fixed length (decided, D6). It refines
 `Binary` in the same way that `FixedSizeList` refines `List`.
 
 - **Layout.** One buffer of `len * n` bytes, validity for whole values, and an explicit length so
@@ -212,68 +256,75 @@ FixedSizeBinary is a core type for opaque bytes of a fixed length, as RFC 0062 p
   casts to and from `Binary` and `FixedSizeList<u8, n>`. No arithmetic and no integer semantics.
 - **UUID.** `Uuid` storage becomes `FixedSizeBinary(16)` in memory. Files keep the current
   `FixedSizeList` storage until an edition allows the new form. A 128-bit lane can implement UUID
-  equality and hashing, but UUID order needs a separate decision.
+  equality and hashing. Whether `Uuid` orders by its bytes is open (XQ6), with no recommendation
+  yet.
+
+Recommendation (DQ7): FixedSizeBinary appears on the wire as a new core dtype tag behind an
+edition.
 
 `Decimal`, wide integers and FixedSizeBinary share only the fixed-width structural layer. That
 layer is the right place for shared code. PR
 [#8864](https://github.com/vortex-data/vortex/pull/8864) started it.
 
-## The file format does not change
+## The file format
 
-The wrapper reads every existing decimal wire form:
+The leaf is the `vortex.decimal` wire node, so the decimal file format does not change. Readers
+handle every existing decimal wire form:
 
 | Wire node | In memory |
 | --- | --- |
-| `vortex.decimal` at the canonical width | A wrapper over the buffer, zero-copy |
-| `vortex.decimal` at a narrower width | A wrapper over a lazy widening, zero-copy |
-| `vortex.decimal` at a wider width, for example Arrow `Decimal128` data at low precision | A wrapper over a lazy checked narrowing |
+| `vortex.decimal` at the canonical width | The leaf, zero-copy |
+| `vortex.decimal` at a narrower width of up to 64 bits | DecimalByteParts with the buffer as its MSP, zero-copy |
+| `vortex.decimal` at `I128` for precision 39 to 76 | The leaf, after a widening copy |
+| `vortex.decimal` at a wider width, for example Arrow `Decimal128` data at low precision | The leaf, after a checked narrowing copy |
 | `vortex.decimal` with an unknown width | An error, not a silent `I8` |
-| DecimalByteParts v1 and v2 | DecimalByteParts at first, later a split of the wide child |
+| DecimalByteParts v1 and v2 | DecimalByteParts. An old narrow MSP becomes an integer `Narrow` |
 
-Writes produce forms that old readers understand. A flat child becomes `vortex.decimal`. A
-compressed child with a lane-integer type becomes DecimalByteParts v1, which the first core edition
-already contains. A constant child becomes a `vortex.constant` node with a decimal scalar, which is
-the form that the compressor writes today. A dictionary child becomes a dictionary of
-`vortex.decimal` values. So wide `PType` values never reach the wire for decimal columns, and
-decimal statistics keep the `Decimal` dtype.
+Writers produce forms that old readers understand. The leaf becomes `vortex.decimal` at the
+canonical width. DBP becomes DecimalByteParts v1, which the first core edition already contains,
+or v2 where an edition allows it. Decimal `Narrow` is written only where an edition allows its wire
+ID. Constant, dictionary and run-end arrays of decimals keep their current wire forms.
 
-Before the reader changes, the compatibility fixtures need narrow, wide and Arrow-style widths.
-Today they cover only `i32` and `i64`.
+So wide `PType` values never reach the wire for decimal columns, and decimal statistics keep the
+`Decimal` dtype. Before the reader changes, the compatibility fixtures need narrow, wide and
+Arrow-style widths. Today they cover only `i32` and `i64`.
 
-## Does `Decimal` become an extension type?
+## `Decimal` stays built in
 
-RFC 0062 proposes `Decimal` as a well-known extension type over signed-integer storage, with the
-old wire tag kept. The wrapper above is the array side of that proposal. Only the location of the
-Rust type is still open.
+`Decimal` stays a built-in type (decided, D1). It behaves like a hardcoded extension type:
 
-The move is not safe today, because extension types inherit storage semantics. If `Decimal`
-becomes an extension type today, a cast from `Decimal(10, 2)` to `i64` returns the unscaled
-integers, and `price < 5` compares `500` with `5`. So the move waits for the extension fixes, the
-cast hooks and the derives. After the decimal rewrites land, the move changes the API, not the
-behavior. About 270 lines in 97 files mention `DType::Decimal`.
+- It is opaque by default. Integer semantics apply only where a rule of the type says so.
+- It derives `eq` and `ord` for one precision and scale. With one width for each precision, the
+  integers on the view then give value equality and value order.
+- Its other operations are rewrite rules that the type owns.
 
-The proposal builds the wrapper with `DType::Decimal` first, and it uses `Decimal` as an
-acceptance test for the extension hooks. The decision on the move comes after the rewrites land.
+A move to an extension type adds no capability. If the built-in type and an extension type become
+identical, a later change can remove the built-in type. That step is optional.
+
+RFC 0062 proposes `Decimal` as a well-known extension type. If the optional move happens, it waits
+for the extension fixes. Today, as an extension type, a cast from `Decimal(10, 2)` to `i64` returns
+the unscaled integers, and `price < 5` compares `500` with `5`.
 
 ## Open questions
 
-- Open question: are `I128` and `I256` user-visible columns from the start, or storage only until
-  an engine needs them? DuckDB `HUGEINT` is the only current consumer.
-- Open question: is the wrapper on top of generic encodings such as `Constant` and `Dict`? The
-  extension notes recommend it, but no maintainer decision exists. Today `ExtensionConstantRule`
-  puts `Constant` above the extension wrapper, and the compressor writes a constant decimal column
-  as a `vortex.constant` node with a decimal scalar.
-- Open question: does Vortex compare and compute across different precisions and scales? The
-  alternative keeps the rule of equal dtypes, and engines coerce first.
-- Open question: does FixedSizeBinary get a new core wire tag, or an extension descriptor over
-  `FixedSizeList<u8, n>` that old readers can read?
-- Open question: are the lazy widening and narrowing nodes cast arrays, or a small dedicated
-  encoding?
-- Open question: do file reads check the decimal precision, or only imports? Zone-map minimum and
-  maximum statistics can make the check on file reads cheap.
-- Open question: what is the lower bound of a negative scale? The docs name a `MIN_SCALE` that does
-  not exist, and tests use -128. DuckDB rejects negative scales, and Arrow allows them.
-- Open question: does the canonical width keep its `I8` minimum, or match an engine? The choice
-  affects only memory, so it can change later.
-- Open question: after the rewrites land, is the move of `Decimal` into a Rust extension type worth
-  its API cost?
+The decisions file lists these questions as open. Each answer is a recommendation of these notes.
+
+| ID | Question | Recommendation |
+| --- | --- | --- |
+| DQ1 | Which width does each precision get? | The smallest signed width, as above. A wider function, such as the `I128` minimum of the Arrow export, avoids copies at Arrow import but costs memory |
+| DQ2 | Is `Narrow` one encoding for integers and decimals? | Yes |
+| DQ3 | Does decimal `Narrow` share the wire ID `vortex.narrow`? | No, unless it lands before the edition of PR #10333 ships |
+| DQ4 | Does the dtype of a DBP array fix the type of its MSP? | Yes |
+| DQ5 | Are wide integers user-visible, and which kernels come first? | User-visible behind an edition, with a small kernel set first |
+| DQ6 | Does decimal arithmetic accept different precisions and scales? | Yes, with the Arrow rules. Comparisons keep the rule of equal dtypes |
+| DQ7 | How does FixedSizeBinary appear on the wire? | A new core dtype tag behind an edition |
+| CQ1 | What does the default cast do with a value that it cannot represent exactly? | It returns an error |
+
+These notes add three smaller open questions:
+
+- What is the lower bound of a negative scale? The docs name a `MIN_SCALE` that does not exist,
+  and tests use -128. DuckDB rejects negative scales, and Arrow allows them.
+- When DBP decodes an old narrow MSP, does it compute value bounds and return a decimal `Narrow`,
+  or does it always widen?
+- Do file reads check the decimal precision, or trust the file? Recommendation XQ3 for extension
+  values suggests trust, with checks only for what memory safety needs.

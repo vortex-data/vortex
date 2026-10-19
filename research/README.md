@@ -11,3 +11,6 @@ merged.
 
 Each summary document links to the agent documents. The agent documents hold file and line
 references, reproductions, fix sketches and file lists.
+
+[`decisions.md`](decisions.md) records the decisions that the maintainer made while reviewing these
+notes, and the questions that stay open. The other documents follow it.

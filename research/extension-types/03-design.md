@@ -5,6 +5,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 3. Design
 
+This part follows [`../decisions.md`](../decisions.md), which records the decisions of the
+maintainer. IDs such as X4 and XQ1 refer to that file.
+
 ## Goal
 
 Extension types behave like Rust newtypes. Structural operations always work. A semantic operation
@@ -15,13 +18,13 @@ value without that opt-in.
 ## Rules
 
 1. A semantic operation on an extension type is rejected unless the type or a type-aware function
-   opts in.
+   opts in (X1).
 2. Structural operations are always allowed.
-3. One place decides how generic operations treat extension values: the binder. It runs when an
-   expression, a scalar function array or an aggregate is bound.
-4. Below the binder, the kernels of generic semantic operations, statistics and pruning see
-   storage dtypes only. A function that declares an extension type can see that type. Whether
-   generic encodings carry extension dtypes depends on the physical form (open, see below).
+3. Two kinds of rules decide how generic operations treat extension values: the derive rules of the
+   core and the rules that each type owns. Every node meets a typing check when code builds it, and
+   the rules run on every path.
+4. After the rules run, the kernels of generic semantic operations, statistics and pruning see
+   storage dtypes only. A function that declares an extension type can see that type.
 5. The extension type owns every conversion that changes meaning. There are no implicit casts.
 6. An unknown extension type supports structural operations and `ext_storage` only.
 
@@ -35,7 +38,7 @@ value without that opt-in.
 | Opaque, kernels per extension ID | Look up `(function, extension ID)` before the generic kernel | Computes results, but statistics and pruning learn nothing |
 | Type-owned encodings | Each extension type gets its own array encoding | Mixes logical type and encoding, and generic encodings still carry the type |
 | Full dtype plugin | The type defines its own arrays, scalars and compute | The most power and the most work, and storage becomes optional |
-| **Opaque, bind-time rewrite** | The binder rewrites semantic operations into storage expressions | **Proposed** |
+| **Opaque, rewrite rules** | Derive rules and rules that the type owns rewrite semantic operations into storage operations | **Chosen (X1, X4)** |
 
 The deciding property is the number of places that must understand extension semantics. With
 flags, every consumer must read the flag correctly. Today, three groups of consumers give three
@@ -45,31 +48,37 @@ different answers to "is this type ordered?" (EXT-A1, EXT-B4):
 - `is_sorted` and `vortex-row` treat no extension type as ordered.
 - DuckDB pushdown treats every extension type except `Uuid` as ordered.
 
-With bind-time rewrites, only the binder needs to understand extension semantics.
+With rewrite rules, only the rules need to understand extension semantics. Unlike kernels, rules
+also rewrite predicates, so statistics and pruning keep working on storage.
 
 ## Proposal
 
-### Bind-time rewrite
+### Typing and rewrite rules
 
-When an operation is bound and an operand has an extension type, the binder asks the extension type
-how to answer. The answer is a rewrite into an expression over storage, or a rejection:
+A call with an extension operand passes two steps:
+
+1. Typing checks the call when code builds the node. It accepts four kinds of calls. They are
+   structural calls, calls of a type-aware function, calls that a derive covers, and calls that a
+   rule of the type covers. Everything else is an error.
+2. Rewrite rules replace an accepted semantic call with operations on storage.
 
 ```text
 ts_ms < lit(Timestamp(ms) 1500)  =>  ext_storage(ts_ms) < 1500i64
-min(ts_ms)                       =>  ext_wrap(min(ext_storage(ts_ms)), Timestamp(ms))
-cast(ts_ms, Timestamp(ns))       =>  ext_wrap(checked_mul(ext_storage(ts_ms), 1_000_000),
-                                              Timestamp(ns))
+min(ts_ms)                       =>  min(ext_storage(ts_ms)), and the rule builds a Timestamp(ms)
+                                     scalar from the result
+cast(ts_ms, Timestamp(ns))       =>  Extension(Timestamp(ns),
+                                               checked_mul(ext_storage(ts_ms), 1_000_000))
 json_a = json_b                  =>  rejected, because Json derives no equality
 ```
 
-The scalar path and the array path then evaluate the same expression, so the results of EXT-P1
-cannot differ. Pushdown, pruning and compression keep working, because the rewritten expression is
-an ordinary storage expression.
+The rules run in the optimizer and in the executor, so the row path and the array path apply the
+same rewrite. A missing rule gives an error, never a wrong result. Pushdown, pruning and
+compression keep working, because the rewritten operations are ordinary storage operations.
 
 ### Derives for one dtype
 
 A derive says that a semantic operation on values of one extension dtype is the same operation on
-their storage values. It is a property of one dtype:
+their storage values. It is a property of one dtype (X2):
 
 ```rust
 /// Storage behavior that values of `dtype` inherit, like `#[derive]` on a newtype.
@@ -80,101 +89,116 @@ fn derives(dtype: &ExtDType<Self>) -> Derives {
 }
 ```
 
-`Derives` has two flags. `EQ` means that storage equality is value equality, which also makes the
-storage hash valid. `ORD` means that storage order is value order.
+`Derives` has two flags. `eq` means that storage equality is value equality, which also makes the
+storage hash valid. `ord` means that storage order is value order.
 
 A derive applies only when every operand in a derived position has the same extension dtype:
 
 - A comparison needs two such operands, and `between` needs three.
 - A unary aggregate, such as `min` or `is_sorted`, reads the flags of its one input.
 - A struct or list that holds extension values inherits a flag only if every nested extension
-  type declares it.
+  type declares it. The derive rule then removes every extension layer at every depth, so the
+  kernel sees only storage (X6).
 
 So `ts < 5i64` stays rejected, because only one side is an extension.
 
 | Type | Derives |
 | --- | --- |
-| `Timestamp` | `EQ`, `ORD` |
-| `Date`, `Time` | `EQ`, `ORD` |
-| `Decimal`, if it follows this design | `EQ`, `ORD` |
-| `Uuid` | `EQ`, plus `ORD` if byte order is the chosen order |
-| `Vector`, `FixedShapeTensor` | `EQ` |
+| `Timestamp` | `eq`, `ord` |
+| `Date`, `Time` | `eq`, `ord` |
+| `Decimal`, which stays built-in but follows the same rules (D1) | `eq`, `ord` |
+| `Uuid` | `eq`, plus `ord` if byte order is the chosen order |
+| `Vector`, `FixedShapeTensor` | `eq` |
 | `Json`, WKB, native geometry | None |
 | Unknown type | None |
 
 ### Operations across dtypes
 
 Two dtypes with different metadata are different dtypes, for example `Timestamp(ms)` and
-`Timestamp(ns)`. A derive never applies across them, and the binder rejects such an operation by
-default. A type can support one only through a rule that the type owns:
-
-- A compatibility rule: the two dtypes compare by storage as they are. An example is two zoned
-  timestamps with one unit.
-- A coercion: a cast hook of the type converts one operand first.
-- A rewrite of the whole call: for example, a comparison of two decimals with different scales
-  rescales one side first.
+`Timestamp(ns)`. A derive never applies across them, and Vortex rejects such an operation (X3).
+An engine converts the operands to one dtype first, as its planner already does for SQL. A user of
+the Rust or Python API writes an explicit cast.
 
 ### Function declarations
 
 Each function declares how it uses an operand that contains an extension type:
 
 - Structural: it moves or selects values, for example `fill_null` or `case_when`.
-- Derive: it needs `EQ` or `ORD`, for example `=` or `<`.
+- Derive: it needs `eq` or `ord`, for example `=` or `<`.
 - Type-aware: it implements the semantics of named extension types itself, for example
   `replace_time_zone` for `Timestamp`.
-- Nothing: the default. The binder must rewrite or reject the call.
+- Nothing: the default. A rule of the type covers the call, or typing rejects it.
 
-Only the function owner declares. The binder never infers a declaration from the input types that a
+Only the function owner declares. Typing never infers a declaration from the input types that a
 function accepts, because `Binary` accepts extension operands today.
 
-### Casts
+An aggregate with a derive also declares whether its result is a value of its input, a bound on its
+input, or neither (XQ5, open). Only a value is wrapped again. For example, `min` returns a value,
+and `bounded_max` over `Utf8` storage returns a truncated bound, which stays a storage value.
 
-The extension type owns its casts. The binder tries the cast hook of the source type, then the cast
-hook of the target type, then rejects the cast. The hooks return expressions, not closures, so the
-result can be pushed down and evaluated in the same way on both paths. This is the design in issue
-[#8570](https://github.com/vortex-data/vortex/issues/8570), with expressions in place of closures.
+### Rules that the type owns
 
-Two explicit expressions cover everything else:
+A type implements its own semantics as rewrite rules on arrays (X4). The rules are registered with
+the type, together with its compression scheme and the other parts of the type. Cast rules convert
+the type to another dtype, or another dtype into the type. Call rules cover other functions and
+aggregates, such as `sum` over a decimal-like type.
+
+A cast exists only if a rule covers it (C1). This is the design of issue
+[#8570](https://github.com/vortex-data/vortex/issues/8570), with rules in place of closures.
+
+No `ext_wrap` expression exists. A rule that produces extension values builds the extension array
+itself. It uses `ExtensionArray::new_unchecked` when legal input gives legal output, and
+`ExtensionArray::try_new` otherwise. So no user expression can build a wrapper without a check.
+
+Two explicit expressions remain:
 
 - `ext_storage(x)` reads the storage. It exists today. It never checks values.
-- `ext_wrap(x, dtype, mode)` builds an extension value from storage. It is new. A checked wrap
-  validates the values. An unchecked wrap skips the check, and its result stays unvalidated.
+- `ext_storage_deep(x)` removes every extension layer at every depth. It is new. The derive rules
+  use it for operands that hold nested extension values, for example in a comparison of
+  `struct{ts: Timestamp}` values.
 
-A simplification can remove a wrap only if it keeps every error. `ext_storage(ext_wrap(y))`
-simplifies to `y` only for an unchecked wrap. With a checked wrap, `y = 0` under a type that rejects
-zero fails before the simplification and succeeds after it.
+Where the rules live is open (XQ2). These notes recommend a method on `ExtVTable`, so that the
+rules travel with the dtype and need no session lookup. The existing session registry for array
+kernels is keyed by encoding, and every extension array has the same encoding id. Also, 83 plain
+`.optimize()` calls outside tests never consult that registry.
 
 ### Scalar identity
 
 `Scalar` implements `PartialEq`, `Eq` and `Hash` as identity: the same dtype and the same stored
 value. These traits serve Rust code, such as maps and tests, not SQL semantics. `PartialOrd`
 returns `Equal` for identical scalars, and an order only for ordered dtypes. An extension dtype is
-ordered only if it declares `ORD`. This keeps the Rust rule that `==` and `partial_cmp` agree.
-Expression comparisons follow the binder, not these traits.
+ordered only if it declares `ord`. This keeps the Rust rule that `==` and `partial_cmp` agree.
+Expression comparisons follow the derive rules, not these traits.
 
-### Physical form (open)
+### Physical form
 
-Opacity does not decide where the wrapper sits relative to generic encodings such as `Constant`,
-`Dict` and `Chunked`. The binder works with either placement.
+A rewrite rule pulls generic structural arrays, such as `Constant` and `Dict`, out from under the
+extension wrapper (X5). Code that looks for a constant or a dictionary then finds it at the top,
+without any knowledge of extension types.
 
-| | Wrapper on top | Generic encodings on top |
-| --- | --- | --- |
-| Shapes of one column | One | Several, as today |
-| Current code | The compressor uses it for non-constant columns, unless a type-specific encoding such as `DateTimeParts` wins | The compressor and `ExtensionConstantRule` use it for constants |
-| Main cost | Reverse `ExtensionConstantRule`, and look through the wrapper wherever code looks for constants | Push `ext_storage` through `Masked` and `Sparse`, and keep extension code in each generic encoding |
-| Wire | No new form for extension columns. `Decimal` translates on write | Memory and wire forms match |
+Which arrays the rule pulls out is open (XQ1). These notes recommend this split:
 
-These notes recommend the wrapper on top, after the binder lands. No maintainer decision exists.
-[`agents/design-notes.md`](agents/design-notes.md), section 6, has the full comparison.
+- Above the wrapper: `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked` and `Interleave`.
+- Below the wrapper: the canonical storage, storage encodings such as BitPacked or FSST, and slices,
+  filters and scalar functions that wait to run.
+- A canonical extension array is a wrapper over canonical storage. So a canonical array never hides
+  a pending computation or a compressed child.
+
+Each structural encoding gets one method that rebuilds it with its value children passed through a
+function. That method moves the wrapper, pushes `ext_storage` down, and decodes a structural
+encoding that holds extension values. `RunEnd` and `Sparse`, which fail on extension values today,
+get support from the same method.
 
 Type-specific encodings are a separate question. `DateTimeParts` moves under the wrapper as an
 `i64` encoding, so its compare kernel works on storage. The compressor chooses it from the
 extension metadata.
 
+[`agents/design-notes.md`](agents/design-notes.md), section 6, has the details.
+
 ### Statistics
 
-Zone maps and file statistics store storage statistics for extension columns. The rewrites in the
-binder produce predicates on `ext_storage(col)`, and pruning uses the storage statistics for them.
+Zone maps and file statistics store storage statistics for extension columns. The derive rules
+produce predicates on `ext_storage(col)`, and pruning uses the storage statistics for them.
 `vortex-spatial` already prunes in this way, by hand.
 
 ### Validation
@@ -183,15 +207,27 @@ Three kinds of validation exist:
 
 - Dtype validation checks the metadata and the storage dtype, once for each dtype.
 - Storage-shape validation checks that storage has the storage dtype, for arrays and scalars.
-- Value validation (`validate_array`) checks each value, at trust boundaries.
+- Value validation (`validate_array`) checks that each non-null value is a legal value of the
+  type.
 
-Each extension array is validated or unvalidated. Only a successful value check makes an array
-validated, and structural operations keep that state. File reads without a value check give
-unvalidated arrays. A read of a row from an unvalidated array checks the value, and returns an
-error for an invalid value. Reads never panic.
+Every extension array that Vortex builds holds only legal values (X7). `ExtensionArray::try_new`
+checks the values in one batch with `validate_array`. Today it checks only the storage dtype, which
+is a bug (EXT-V1). Kernels that keep legal values use a new `ExtensionArray::new_unchecked`, so they
+pay nothing.
 
-The default `validate_array` checks each value with the existing scalar check of the type. It
-skips rows under a null parent, because builders pad those rows.
+The default `validate_array` applies the existing scalar check of the type to each value. A type
+can override it with a faster check, for example a range check on the minimum and maximum of a
+`Timestamp` column.
+
+Two questions stay open:
+
+- Do file reads check values (XQ3)? These notes recommend that decoding checks only what memory
+  safety needs, as it already does for UTF-8, and trusts the rest. A strict read mode checks values.
+  Because files are trusted, building a scalar from an array always checks the value and returns an
+  error for an illegal one. No read panics.
+- Which values can sit in null slots (XQ4)? These notes recommend any value. A child that leaves
+  its parent is masked with the validity of the parent. This keeps Arrow imports free of copies,
+  and it also allows a storage encoding to store nulls as a reserved value.
 
 ### Nullability
 
@@ -208,35 +244,39 @@ plugins like the Arrow registry. Then a new extension type does not need code in
 
 ## Costs and risks
 
-- Binding must be mandatory. The array API builds scalar function arrays directly, so the rewrite
-  must happen when such an array is built, not in an optional optimizer pass. Aggregates that code
-  binds directly, such as zone-map statistics, need the binder too.
+- Typing must cover every path that builds a node. The types enforce it: `BoundExpression` loses
+  its public variants, and `Cast::new` becomes fallible in the same step as typing. The design
+  accepts these API changes for correctness (X8).
+- The rules must run on every path: the static optimizer, the session-aware optimizer, and the
+  executor. A test checks that all paths give the same result.
 - `DateTimeParts` changes from a `Timestamp` encoding to an `i64` encoding. That is a file format
   change for the encoding, and it needs an edition.
+- Old readers cannot decode `RunEnd` and `Sparse` over extension values. So writers keep the old
+  shape of those two until an edition allows the new one.
 - Engines must send extension literals for extension columns. Today the lone-extension compare rule
   can hide literals that have the storage type.
-- After binding, plans show storage operations, so plans are harder to read.
+- After the rules run, plans show storage operations, so plans are harder to read.
 - The new scalar order must land with or after the change that rejects `min` and `max` without
-  `ORD`. Otherwise `min` and `max` can panic, for example in zone maps of `Json` columns. This
-  risk comes from reading the code, not from a run.
+  `ord`. Otherwise `min` and `max` can panic, for example on a chunked `Json` column. This risk
+  comes from reading the code, not from a run.
 
 ## Open questions
 
-- Open question: where does binding happen for the array API? One option is a rewrite when the
-  array is built, with hooks on `ExtVTable`, so no session is necessary. The other option is a
-  mandatory rewrite pass that also covers the row path.
-- Open question: can a crate register a rewrite or a declaration for a function and a type that it
-  does not own?
-- Open question: is the wrapper on top of generic encodings? These notes recommend it. The
-  alternative keeps generic encodings above the wrapper, as `ExtensionConstantRule` does for
-  constants today.
-- Open question: does Vortex coerce operations across dtypes or metadata, or do engines coerce
-  first? Rust and the built-in `Decimal` reject such operations today. SQL coerces them.
-- Open question: are `EQ` and `ORD` enough? A refinement over a storage dtype can need a third flag
-  that allows comparisons with plain storage values.
-- Open question: do file reads check values by default?
-- Open question: existing files store min and max for extension columns as extension scalars.
-  Readers can convert them to storage values, but the switch needs a compatibility decision.
-- Open question: is the nullability contract enough, or does nullability move onto the extension
-  dtype?
-- Open question: does `Uuid` order by bytes, or have no order?
+The full list with recommendations is in [`../decisions.md`](../decisions.md). The questions for
+extension types are:
+
+- XQ1: which arrays the rule of X5 pulls out, and whether canonical form requires canonical storage.
+- XQ2: where the rules of a type live. A related question is whether a crate can register a rule
+  for a function and a type that it does not own.
+- XQ3: whether file reads check values.
+- XQ4: which values can sit in null slots.
+- XQ5: how an aggregate declares its result.
+- XQ6: whether `Uuid` orders by bytes, or has no order.
+
+Older questions also stay open:
+
+- Are `eq` and `ord` enough? A refinement over a storage dtype can need a third flag that allows
+  comparisons with plain storage values.
+- Existing files store min and max for extension columns as extension scalars. Readers can convert
+  them to storage values, but the switch needs a compatibility decision.
+- Is the nullability contract enough, or does nullability move onto the extension dtype?

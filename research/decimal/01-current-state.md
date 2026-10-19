@@ -5,8 +5,8 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 1. Current state of `Decimal`
 
-All statements are for `develop` at `5fc5cb8`. Sections 2 and 3 of
-[`agents/report.md`](agents/report.md) give file and line references for each one.
+All statements are for `develop` at `5fc5cb8`. Section 2 of [`agents/report.md`](agents/report.md)
+gives file and line references for each one.
 
 ## How it works
 
@@ -66,6 +66,8 @@ compares or hashes. With one storage width for each precision, a value has exact
 within one precision and scale. Then storage equality and storage hashing are value equality and
 value hashing.
 
-Other pairs need a rewrite. `1.0` at scale 1 is stored as `10`, and `1.00` at scale 2 is stored as
-`100`. So a comparison across scales rescales one side first. Two precisions with the same scale
-can have different storage widths, so their comparison widens one side first.
+Other pairs are different dtypes. `1.0` at scale 1 is stored as `10`, and `1.00` at scale 2 is
+stored as `100`. So a comparison across scales must rescale one side first. Two precisions with
+the same scale can have different storage widths, so their comparison must widen one side first.
+Under decision X3 in [`decisions.md`](../decisions.md), the engine does this step with a cast to a
+common dtype. Vortex then compares only equal dtypes.

@@ -15,7 +15,7 @@ fits in a small PR with a regression test. Finding IDs refer to
 | U2 | Give compare one type rule | EXT-P1, EXT-Q1, EXT-Q3 | `ts < 1500` fails when it is built |
 | U3 | Return errors from reads | EXT-V1 | No panic when a row is read |
 | U4 | Make nullability changes infallible | EXT-N1 | No panic in `take`, `mask` or `min_max` |
-| U5 | Fix the built-in temporal validation | EXT-V4, EXT-V5 | A malformed dtype returns an error |
+| U5 | Fix the built-in temporal validation | EXT-V4, EXT-V5, EXT-V8 | A malformed dtype or an out-of-range value returns an error |
 | U6 | Check the storage dtype of arrays and scalars | EXT-V2, EXT-V7 | An array or a scalar with the wrong storage is rejected |
 | U7 | Stop invalid zero values | EXT-V3 | No invalid scalars |
 | U8 | Fix `Debug for ExtDTypeRef` | EXT-R1 | Correct debug output |
@@ -62,15 +62,22 @@ A test for each engine confirms the other cases.
 
 ## U3. Errors from reads
 
-- Row reads of an extension array and `ExtensionConstantRule` build the extension scalar with
-  `try_new` and return its error (`vortex-array/src/arrays/extension/vtable/operations.rs:29`,
-  `vortex-array/src/arrays/extension/compute/rules.rs:39`).
+- Row reads of an extension array build the extension scalar with `try_new` and return its error
+  (`vortex-array/src/arrays/extension/vtable/operations.rs:29`).
+- `ExtensionConstantRule` builds the extension scalar with `try_new`
+  (`vortex-array/src/arrays/extension/compute/rules.rs:39`). If the check fails, the rule returns
+  `Ok(None)`. The array stays `Extension(Constant)`, and a read of a row returns the error. A rule
+  that returns the error makes optimization fail, so `ext_storage` and structural operations on
+  the array also fail.
 - `Scalar::extension_ref` gets a fallible variant, and read paths use it.
 
 ## U4. Nullability changes cannot fail
 
 - `ExtDType::try_with_vtable` validates the dtype with both nullabilities. After that,
   `with_nullability` cannot fail and does not validate again.
+- `with_nullability` builds the new dtype directly. Today it calls `try_with_vtable`
+  (`vortex-array/src/dtype/extension/typed.rs:91-98`). With the first change, that call validates
+  both nullabilities on every nullability change.
 - The documentation of `ExtVTable::validate_dtype` states that its result must not depend on
   nullability.
 
@@ -83,6 +90,9 @@ when the dtype is built is the better place.
   (`vortex-array/src/extension/datetime/date.rs:104`, `time.rs:105`).
 - `Timestamp::validate_dtype` rejects the `Days` unit and unknown time zones
   (`vortex-array/src/extension/datetime/timestamp.rs:198-204`).
+- `Timestamp::unpack_native` uses the `try_` setters of `jiff::Span` and returns their error
+  (`vortex-array/src/extension/datetime/timestamp.rs:214-229`). Today an out-of-range value
+  panics (EXT-V8).
 
 ## U6. Storage checks for arrays and scalars
 
@@ -91,9 +101,11 @@ when the dtype is built is the better place.
 - Scalar validation checks that an extension value matches the storage dtype, before it calls the
   check of the type (`vortex-array/src/scalar/validate.rs:100`, `:294`). This fixes EXT-V7.
 - `Scalar::try_new` converts the `U64` form of an `F16` value to `F16`
-  (`vortex-array/src/scalar/scalar_impl.rs:73`, `vortex-array/src/scalar/validate.rs:147-157`).
-  Then `==` stays symmetric for `F16` scalars (probe R10). This case is not specific to extension
-  types.
+  (`vortex-array/src/scalar/scalar_impl.rs:73`). Validation then rejects the `U64` form. Today the
+  fast path accepts it (`vortex-array/src/scalar/validate.rs:46-50`), and so does the detailed
+  check (`:147-157`). The proto decoder already converts the old form
+  (`vortex-array/src/scalar/proto.rs:343`), so only direct construction makes the `U64` form. Then
+  `==` stays symmetric for `F16` scalars (probe R10). This case is not specific to extension types.
 
 ## U7. Zero values
 

@@ -59,6 +59,7 @@ Terms:
 | EXT-V5 | `Timestamp` accepts dtypes that reject every value | S2 | code |
 | EXT-V6 | Eight extension types never check values | S3 | code |
 | EXT-V7 | Extension scalars skip the storage dtype check | S2 | probe |
+| EXT-V8 | The `Timestamp` value check panics on out-of-range values | S2 | code |
 | EXT-N1 | A nullability change can panic | S2 | probe |
 | EXT-S1 | A constant extension column has two shapes | S3 | code |
 | EXT-S2 | Some encodings carry the extension dtype themselves | S3 | code |
@@ -102,8 +103,8 @@ Terms:
 - **Expected:** One answer per expression, whatever the encoding and the read path. The type
   system RFC draft (`vortex-data/rfcs#55`) states this as a rule for every operation.
 - **Fix:** Give cast and compare one rule. Short term, make both implementations reject the cases
-  in EXT-C1, EXT-C2 and EXT-Q1. Long term, rewrite semantic operations at bind time so that both
-  paths evaluate the same expression (see `design-notes.md`).
+  in EXT-C1, EXT-C2 and EXT-Q1. Long term, rewrite semantic operations into storage operations
+  with rules that both paths apply (see `design-notes.md`).
 - **Regression test:** Add a helper that evaluates an expression three ways: on the array path, on
   the row path, and with constant-encoded inputs. The helper asserts equal values or an error in all
   three. Run it for every case in the table above.
@@ -123,7 +124,7 @@ Terms:
   `vx.scalar(v, dtype=ext)` (`vortex-python/src/scalar/factory.rs:106`).
 - **Expected:** An error, unless the source and target are the same extension dtype with a
   different nullability. A conversion that changes meaning must go through a cast that the
-  extension type owns (issue #8570), or through explicit `ext_storage` and a future `ext_wrap`.
+  extension type owns (issue #8570), or through an explicit `ext_storage`.
 - **Fix:** Remove the wrap. Keep only the nullability case.
 - **Regression test:** The three cases above must return an error on the row path, the array path,
   and with constant inputs.
@@ -198,7 +199,7 @@ Terms:
 - **Impact:** The result is wrong for any type whose storage order or storage equality differs from
   its value order or value equality. Examples in the repository: JSON (key order and whitespace),
   WKB geometry (two encodings of one geometry), vectors and tensors (no natural order).
-- **Fix:** See `design-notes.md` (derives for one dtype that the binder reads).
+- **Fix:** See `design-notes.md` (derives for one dtype, which typing and the derive rules read).
 
 ### EXT-Q3: `DateTimeParts` compare kernel trusts its operand types
 
@@ -245,8 +246,9 @@ Terms:
 ### EXT-A2: Zone maps fall back to storage statistics
 
 - **Locations:**
-  - `vortex-layout/src/layouts/zoned/schema.rs:112-121`: when a statistic rejects the extension
-    dtype, the stats schema uses the storage dtype (comment at line 114).
+  - `vortex-layout/src/layouts/zoned/schema.rs:177-188`: when an aggregate rejects the extension
+    dtype, `aggregate_state_dtype` uses the storage dtype. `legacy_stats_table_dtype` does the
+    same for old files (lines 112-121).
   - `vortex-layout/src/layouts/zoned/writer.rs:217-231`: bounded min and max apply only to
     top-level `Utf8` and `Binary`. An extension over `Utf8` or `Binary` (JSON, WKB) stores exact,
     unbounded bounds.
@@ -270,9 +272,10 @@ Terms:
   Scalar` [L2]. `ext_storage` over `NonZero [0, 1]` returns `[0, 1]` on the array path and panics
   on the row path [R9]. The row path reads the child as an extension scalar
   (`vortex-array/src/arrays/scalar_fn/vtable/operations.rs:35-39`).
-- **Fix:** Return an error from these read paths. Make the row path of `ext_storage` read the
-  storage without a value check. Add value validation at trust boundaries (`design-notes.md`,
-  "Validation and trust").
+- **Fix:** Return an error from these read paths (U3). Make `ExtensionArray::try_new` check values
+  with a batch `validate_array`, and add `ExtensionArray::new_unchecked` for kernels
+  (`design-notes.md`, section 8). Make the row path of `ext_storage` read the storage without a
+  value check (phase 2).
 
 ### EXT-V2: `Extension::validate` never checks the storage dtype
 
@@ -338,7 +341,10 @@ Terms:
   - `vortex-array/src/dtype/extension/erased.rs:107-109`: `validate_storage_value` calls only the
     `validate_scalar_value` of the type.
   - `vortex-array/src/scalar/validate.rs:46-50`: a primitive dtype requires a value of the same
-    `PType`. Extension storage never gets this check.
+    `PType`, except the `U64` form of an `F16` value. `Scalar::try_new` does not apply this check
+    to extension storage.
+  - `vortex-array/src/scalar/constructor.rs:256`: `Scalar::extension_ref` asserts the storage
+    dtype. So the gap is a raw `ScalarValue` passed to `Scalar::new` or `Scalar::try_new`.
   - `vortex-array/src/extension/datetime/timestamp.rs:211`: `Timestamp` casts any primitive value
     to `i64` before it checks the range.
   - `vortex-array/src/scalar/typed_view/primitive/pvalue.rs:122-160`: `PValue` equality and order
@@ -349,12 +355,25 @@ Terms:
   `I64(5)` `i`. Then `i == f` panics with `upcast`, and `f == i` returns `false`. So `==` is not
   symmetric. `i.partial_cmp(&f)` also panics.
 - **Related primitive case** [R10]: a valid `F16` scalar can hold a `U64` value, for compatibility
-  with an old serialized form (`vortex-array/src/scalar/validate.rs:147-157`). `==` between the
-  `U64` form and the `F16` form of one value panics in one direction and returns `false` in the
-  other.
+  with an old serialized form (`vortex-array/src/scalar/validate.rs:46-50`, `:147-157`). `==`
+  between the `U64` form and the `F16` form of one value panics in one direction and returns
+  `false` in the other. The proto decoder already converts the old form
+  (`vortex-array/src/scalar/proto.rs:343`), so only direct construction makes the `U64` form.
 - **Reach:** Not measured. The probe builds the scalars with `Scalar::try_new` directly.
 - **Fix:** Check that an extension value matches the storage dtype before the check of the type.
   U6 covers it. Convert the `U64` form of an `F16` value to `F16` when the scalar is built.
+
+### EXT-V8: The `Timestamp` value check panics on out-of-range values
+
+- **Location:** `vortex-array/src/extension/datetime/timestamp.rs:214-229`: `unpack_native` builds
+  a `jiff::Span` with `seconds`, `milliseconds`, `microseconds` or `nanoseconds`. These setters
+  call `expect` on their `try_` versions, so they panic on a value outside the range of a `Span`.
+  For seconds, the limit is 631,107,417,600.
+- **Expected:** An error. `Scalar::try_new` and the value check of an array must not panic on
+  illegal data, for example an Arrow `timestamp[s]` column that holds `i64::MAX`.
+- **Status:** code. Nothing ran.
+- **Fix:** Use `Span::try_seconds` and the other `try_` setters, and return their error. U5
+  covers it.
 
 ### EXT-N1: A nullability change can panic
 
@@ -381,8 +400,8 @@ Terms:
   `TODO(connor): This is maybe incorrect unless this is a refinement type?`.
 - **Impact:** Kernels and extension crates must handle both shapes. `vortex-tensor` handles both by
   hand. The same choice exists for `Dict` and `Chunked`.
-- **Fix:** Choose one physical form. `design-notes.md`, section 6, compares the two options. The
-  choice is open.
+- **Fix:** A rewrite rule pulls structural arrays such as `Constant` and `Dict` out from under the
+  wrapper (decision X5 in `../../decisions.md`). `design-notes.md`, section 6, has the details.
 
 ### EXT-S2: Some encodings carry the extension dtype themselves
 
@@ -595,7 +614,7 @@ any extension type.
 | `vortex-array/src/scalar/typed_view/extension/mod.rs:87-96` | Storage cast of a scalar, exact storage target only | Semantic (EXT-C2) |
 | `vortex-array/src/scalar/cast.rs:56-61` | Storage cast and wrap | Semantic (EXT-C1) |
 | `vortex-array/src/scalar/scalar_value.rs:90-95`, `builders/extension.rs:110` | Storage zero | Semantic (EXT-V3) |
-| `vortex-layout/src/layouts/zoned/schema.rs:112-121` | Storage stats dtype | Semantic (EXT-A2) |
+| `vortex-layout/src/layouts/zoned/schema.rs:112-121`, `:177-188` | Storage stats dtype | Semantic (EXT-A2) |
 | `vortex-arrow/src/executor/{primitive,byte_view,struct_}.rs` | Storage export through cast | Semantic (EXT-B2) |
 | `vortex-datafusion/src/convert/scalars.rs:138-145`, `schema.rs:105` | Storage conversion | Semantic (EXT-B1) |
 | `vortex-python/src/scalar/into_py.rs:93-95` | Storage value | Semantic (EXT-B3) |

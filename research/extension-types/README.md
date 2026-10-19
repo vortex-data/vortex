@@ -20,13 +20,16 @@ That causes wrong results, panics, and code paths that disagree with each other.
 - On `develop`, the same cast or comparison can return a correct value, a wrong value, or an error.
   The outcome depends on the encoding of the input, and on whether one row or the whole array is
   read.
-- The proposal: extension types are opaque by default. Semantics are decided once, when an operation
-  is bound, by a rewrite into storage operations. The kernels of generic operations, statistics
-  and pruning see only storage.
+- The proposal: extension types are opaque by default. A typing check rejects every semantic
+  operation that no declaration covers. Rewrite rules turn the allowed ones into storage
+  operations. The kernels of generic operations, statistics and pruning see only storage.
 - Each extension dtype declares the storage behavior that it inherits, such as equality and order.
-  Operations across dtypes need explicit rules, and the design does not assume that they exist.
-- The position of the wrapper relative to generic encodings is a separate decision, and it is
-  open.
+  Each type also owns rewrite rules for its own operations, such as casts. Engines convert
+  operands of different dtypes before Vortex sees them.
+- A rewrite rule keeps generic structural arrays such as `Constant` and `Dict` above the extension
+  wrapper. So code finds them without any knowledge of extension types.
+- [`../decisions.md`](../decisions.md) records which of these points are decided and which are
+  still open.
 - Some fixes are urgent, because they cause wrong results or panics. They cover implicit casts
   through storage, comparisons against raw storage, storage checks, and panics on reads and on
   nullability changes.
