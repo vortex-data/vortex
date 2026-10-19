@@ -35,7 +35,10 @@ impl DynAggregateKernel for SequenceIsSortedKernel {
             return Ok(None);
         };
 
-        // A single element is strictly sorted whatever the multiplier.
+        // One-element batches are always (strict) sorted. Keep this here even though
+        // `is_sorted` also short-circuits on len <= 1: Accumulator dispatches this kernel
+        // per chunk without that outer check, so a one-row Sequence chunk with a negative
+        // multiplier would otherwise poison a larger ChunkedArray.
         let result = if array.len() <= 1 {
             true
         } else {
@@ -70,8 +73,13 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
     use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -101,6 +109,28 @@ mod tests {
 
         let expected = IsSorted::make_partial(&array, true, strict, &mut ctx)?;
         assert_eq!(result, Some(expected));
+        Ok(())
+    }
+
+    #[rstest]
+    fn singleton_chunk_keeps_chunked_array_sorted(
+        #[values(-1i64, 0)] multiplier: i64,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The Chunked accumulator hands each chunk to this kernel directly, without going through
+        // `is_sorted`, so the one-row first chunk must not report unsorted.
+        let chunked = ChunkedArray::try_new(
+            [
+                Sequence::try_new_typed(5i64, multiplier, Nullability::NonNullable, 1)?
+                    .into_array(),
+                Sequence::try_new_typed(10i64, 1, Nullability::NonNullable, 3)?.into_array(),
+            ],
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        assert!(is_sorted(&chunked, &mut ctx)?);
+        assert!(is_strict_sorted(&chunked, &mut ctx)?);
         Ok(())
     }
 }
