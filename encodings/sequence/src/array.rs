@@ -456,15 +456,20 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    fn stats(multiplier: PValue) -> StatsSet {
-        // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
-        // and strictly sorted iff multiplier > 0.
-        let (is_sorted, is_strict_sorted) = match_each_pvalue!(
-            multiplier,
-            uint: |v| { (true, v > 0) },
-            int: |v| { (v >= 0, v > 0) },
-            float: |_v| { unreachable!("float multiplier not supported") }
-        );
+    fn stats(multiplier: PValue, length: usize) -> StatsSet {
+        // A sequence A[i] = base + i * multiplier with at least two elements is sorted iff
+        // multiplier >= 0, and strictly sorted iff multiplier > 0. A single element has no
+        // adjacent pair to compare, so it is strictly sorted whatever the multiplier.
+        let (is_sorted, is_strict_sorted) = if length <= 1 {
+            (true, true)
+        } else {
+            match_each_pvalue!(
+                multiplier,
+                uint: |v| { (true, v > 0) },
+                int: |v| { (v >= 0, v > 0) },
+                float: |_v| { unreachable!("float multiplier not supported") }
+            )
+        };
 
         // SAFETY: we don't have duplicate stats.
         unsafe {
@@ -495,7 +500,7 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let (base, multiplier) = SequenceData::normalize(base, multiplier, ptype)
             .vortex_expect("SequenceArray parts must be representable in the output ptype");
-        let stats = Self::stats(multiplier);
+        let stats = Self::stats(multiplier, length);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(
@@ -519,7 +524,7 @@ impl Sequence {
     ) -> VortexResult<SequenceArray> {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
-        let stats = Self::stats(data.multiplier());
+        let stats = Self::stats(data.multiplier(), length);
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(
                 Sequence,
@@ -542,7 +547,7 @@ impl Sequence {
         let ptype = T::PTYPE;
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
-        let stats = Self::stats(data.multiplier());
+        let stats = Self::stats(data.multiplier(), length);
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(
                 Sequence,
@@ -684,6 +689,67 @@ mod tests {
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
         assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
+        Ok(())
+    }
+
+    #[rstest]
+    fn singleton_is_strict_sorted(#[values(-1i64, 0, 3)] multiplier: i64) -> VortexResult<()> {
+        let typed = Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 1)?;
+        let untyped = Sequence::try_new(
+            PValue::from(10i64),
+            PValue::from(multiplier),
+            PType::I64,
+            Nullability::NonNullable,
+            1,
+        )?;
+        let sliced = Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 4)?
+            .into_array()
+            .slice(1..2)?;
+        assert!(sliced.is::<Sequence>());
+
+        for array in [typed.into_array(), untyped.into_array(), sliced] {
+            for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+                let value = array
+                    .statistics()
+                    .with_typed_stats_set(|s| s.get_as::<bool>(stat));
+                assert_eq!(value, StatPrecision::Exact(true));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn decode_keeps_singleton_sorted_over_stale_hints() -> VortexResult<()> {
+        let array = Sequence::try_new_typed(10i64, -1, Nullability::NonNullable, 1)?.into_array();
+        // Older writers stored the multiplier-only answer for one-row sequences.
+        array
+            .statistics()
+            .set(Stat::IsSorted, StatPrecision::Exact(false.into()));
+        array
+            .statistics()
+            .set(Stat::IsStrictSorted, StatPrecision::Exact(false.into()));
+
+        let dtype = array.dtype().clone();
+        let ctx = ArrayContext::empty();
+        let serialized = array.serialize(&ctx, &SESSION, &SerializeOptions::default())?;
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+
+        let decoded = SerializedArray::try_from(concat.freeze())?.decode(
+            &dtype,
+            1,
+            &ReadContext::new(ctx.to_ids()),
+            &SESSION,
+        )?;
+
+        for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+            let value = decoded
+                .statistics()
+                .with_typed_stats_set(|s| s.get_as::<bool>(stat));
+            assert_eq!(value, StatPrecision::Exact(true));
+        }
         Ok(())
     }
 
