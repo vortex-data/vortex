@@ -41,6 +41,7 @@ use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReader as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
@@ -69,6 +70,7 @@ use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
 use crate::table_function::Split;
 use crate::table_function::convert_result;
+use crate::table_function::max_split_rows;
 
 // See src/table_function.rs for definition of table function state machine.
 // Duckdb's inner state machine, called by table function state machine, is
@@ -507,6 +509,10 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_projection(global.projection.clone())
         .with_some_filter(file.unsatisfied_filter(filter)?)
         .with_selection(filter.row_selection.clone());
+    let builder = match max_split_rows(file.reader().row_count()) {
+        Some(max_rows) => builder.with_split_by(SplitBy::LayoutSubSplitting { max_rows }),
+        None => builder,
+    };
     let scan = builder.prepare()?;
     let mut splits: Vec<Split> = if file.lazy_splits {
         scan.execute_lazy(filter.row_range.clone())?

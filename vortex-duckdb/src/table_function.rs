@@ -31,6 +31,7 @@ use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::layout::scan::repeated_scan::LazySplit;
+use vortex::layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::Between;
@@ -716,14 +717,31 @@ fn try_push_projection_aggregate(
 const DEFAULT_SELECTIVITY: f64 = 0.2;
 /// Rows of a file that one thread scans, about one split.
 const ROWS_PER_SCAN_THREAD: u64 = 1 << 16;
+/// Files with at least this many rows are scanned in at least [`SPLITS_PER_FILE`] splits.
+const MIN_ROWS_TO_SPLIT_EVENLY: u64 = 200_000;
+/// The number of splits that files of a few hundred thousand rows are scanned in.
+const SPLITS_PER_FILE: u64 = 16;
+/// The fewest rows of a split of a file that is split evenly.
+const MIN_SPLIT_ROWS: u64 = 1 << 14;
+
+/// The most rows of a split of a file of `row_count` rows, or `None` to split it by its layout.
+///
+/// A table of a few hundred thousand rows on the probe side of a join can fan out to millions of
+/// rows, and the join and aggregation above the scan run on as many threads as the scan has
+/// splits. Splitting such a file by its layout leaves it a few splits. Smaller files keep their
+/// layout splits, as more splits of a table that only builds a hash table cost more than they
+/// gain.
+pub fn max_split_rows(row_count: u64) -> Option<u64> {
+    (row_count >= MIN_ROWS_TO_SPLIT_EVENLY)
+        .then(|| (row_count / SPLITS_PER_FILE).clamp(MIN_SPLIT_ROWS, DEFAULT_MAX_SPLIT_ROWS))
+}
 
 /// The number of threads worth scanning a single file with. More threads than splits only wait
 /// for work, which costs a thread per scan of a small dimension table.
 pub fn max_threads(bind_data: &BindState) -> u64 {
-    bind_data
-        .first_file_row_count
-        .div_ceil(ROWS_PER_SCAN_THREAD)
-        .max(1)
+    let row_count = bind_data.first_file_row_count;
+    let rows_per_thread = max_split_rows(row_count).unwrap_or(ROWS_PER_SCAN_THREAD);
+    row_count.div_ceil(rows_per_thread).max(1)
 }
 
 pub fn cardinality(bind_data: &BindState, file_count: u64) -> Cardinality {
@@ -830,6 +848,7 @@ mod tests {
     use vortex::expr::in_list;
     use vortex::expr::is_null;
     use vortex::expr::lit;
+    use vortex::expr::not;
     use vortex::expr::or;
     use vortex::scalar_fn::fns::between::BetweenOptions;
     use vortex::scalar_fn::fns::between::StrictComparison;
@@ -851,5 +870,28 @@ mod tests {
     #[case::two_columns(gt(col("a"), col("b")), false)]
     fn table_filter_like(#[case] expr: Expression, #[case] expected: bool) {
         assert_eq!(is_table_filter_like(&expr), expected);
+    }
+
+    #[rstest]
+    #[case::in_list(in_list(col("a"), lit(vec![1, 3])), true)]
+    #[case::not_in_list(not(in_list(col("a"), lit(vec![1, 3]))), true)]
+    #[case::disjunction(or(eq(col("a"), lit(1)), gt(col("b"), lit(2))), true)]
+    #[case::two_columns(or(gt(col("a"), col("b")), eq(col("a"), lit(1))), false)]
+    #[case::comparison(gt(col("a"), lit(1)), false)]
+    fn cheap_residual(#[case] expr: Expression, #[case] expected: bool) {
+        assert_eq!(is_cheap_residual(&expr), expected);
+    }
+
+    #[rstest]
+    // Small dimension tables keep their layout splits.
+    #[case(73_049, None)]
+    #[case(199_999, None)]
+    // customer_address at SF10 splits into 16.
+    #[case(250_000, Some(16_384))]
+    #[case(1_000_000, Some(62_500))]
+    // Fact tables keep splits of the scan's default size.
+    #[case(28_800_991, Some(DEFAULT_MAX_SPLIT_ROWS))]
+    fn splits_mid_size_files_evenly(#[case] row_count: u64, #[case] expected: Option<u64>) {
+        assert_eq!(max_split_rows(row_count), expected);
     }
 }
