@@ -15,6 +15,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -151,16 +152,10 @@ impl LayoutReader for FileStatsLayoutReader {
             if mask.all_false() {
                 return Ok(mask);
             }
-            let satisfied = {
-                let mut entry = cache
-                    .entry(ExactBoundExpr(expr.clone()))
-                    .or_insert_with(|| CachedProof::new(&expr));
-                entry
-                    .evaluate(|| {
-                        is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session)
-                    })
-                    .unwrap_or(false)
-            };
+            let satisfied = evaluate_cached(&cache, &expr, || {
+                is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session)
+            })
+            .unwrap_or(false);
             if satisfied {
                 Ok(mask)
             } else {
@@ -193,10 +188,27 @@ fn is_falsified_cached(
     session: &VortexSession,
     expr: &BoundExpression,
 ) -> VortexResult<bool> {
-    let mut entry = cache
+    evaluate_cached(cache, expr, || {
+        is_falsified_by_file_stats(expr, child.row_count(), file_stats, session)
+    })
+}
+
+/// Evaluates `proof` through the cached proof of `expr`.
+///
+/// A hit probes the cache with the borrowed expression; only a miss clones it into a key.
+fn evaluate_cached(
+    cache: &DashMap<ExactBoundExpr, CachedProof>,
+    expr: &BoundExpression,
+    proof: impl FnOnce() -> VortexResult<bool>,
+) -> VortexResult<bool> {
+    if let Some(mut entry) = cache.get_mut(expr as &dyn ExactKey) {
+        return entry.evaluate(proof);
+    }
+
+    cache
         .entry(ExactBoundExpr(expr.clone()))
-        .or_insert_with(|| CachedProof::new(expr));
-    entry.evaluate(|| is_falsified_by_file_stats(expr, child.row_count(), file_stats, session))
+        .or_insert_with(|| CachedProof::new(expr))
+        .evaluate(proof)
 }
 
 struct CachedProof {
