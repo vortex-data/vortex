@@ -19,6 +19,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
@@ -200,16 +201,16 @@ impl LayoutReader for FileStatsLayoutReader {
             if mask.all_false() {
                 return Ok(mask);
             }
-            let satisfied = {
-                let mut entry = cache
+            let proof =
+                || is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session);
+            let satisfied = match cache.get_mut(&expr as &dyn ExactKey) {
+                Some(mut entry) => entry.evaluate(proof),
+                None => cache
                     .entry(ExactBoundExpr(expr.clone()))
-                    .or_insert_with(|| CachedProof::new(&expr));
-                entry
-                    .evaluate(|| {
-                        is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session)
-                    })
-                    .unwrap_or(false)
-            };
+                    .or_insert_with(|| CachedProof::new(&expr))
+                    .evaluate(proof),
+            }
+            .unwrap_or(false);
             if satisfied {
                 Ok(mask)
             } else {
@@ -242,10 +243,15 @@ fn is_falsified_cached(
     session: &VortexSession,
     expr: &BoundExpression,
 ) -> VortexResult<bool> {
+    let proof = || is_falsified_by_file_stats(expr, child.row_count(), file_stats, session);
+    // Probe with the borrowed expression, so that a hit clones no key.
+    if let Some(mut entry) = cache.get_mut(expr as &dyn ExactKey) {
+        return entry.evaluate(proof);
+    }
     let mut entry = cache
         .entry(ExactBoundExpr(expr.clone()))
         .or_insert_with(|| CachedProof::new(expr));
-    entry.evaluate(|| is_falsified_by_file_stats(expr, child.row_count(), file_stats, session))
+    entry.evaluate(proof)
 }
 
 struct CachedProof {
