@@ -11,8 +11,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use vortex::VortexSessionDefault;
-use vortex::array::memory::MemorySessionExt;
-use vortex::buffer::BufferAllocatorRef;
 use vortex::cloud::Registry;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
@@ -23,11 +21,9 @@ use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-use crate::buffer_pool::BufferPool;
 use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
 
-mod buffer_pool;
 mod column_statistics;
 mod convert;
 pub mod duckdb;
@@ -64,8 +60,7 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default()
-        .with_handle(RUNTIME.handle())
-        .with_allocator(BufferAllocatorRef::new(BufferPool::default()));
+        .with_handle(RUNTIME.handle());
     session
         .enable_edition(CORE_2026_08_3)
         .vortex_expect("DuckDB-supported draft core edition is registered");
