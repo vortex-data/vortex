@@ -1036,7 +1036,7 @@ mod tests {
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )?
         .into_array();
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = vortex_session::VortexSession::empty().create_execution_ctx();
 
         assert!(chunked.slice(1..5)?.is::<Slice>());
         let sliced = chunked.execute_slice(1..5, &mut ctx)?;

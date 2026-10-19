@@ -306,7 +306,7 @@ fn test_primitive_integers(
 /// batch at a time.
 #[test]
 fn test_compressed_needles_in_batches() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let set = PreparedSetData::try_new(list_scalar(
         &buffer![3i64, 9000, 20_001].into_array(),
         &mut ctx,
@@ -604,7 +604,7 @@ fn test_dictionary_needles_with_null_codes(
     #[case] set: Scalar,
     #[case] expected: [Option<bool>; 4],
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let needles = DictArray::try_new(
         PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(0)]).into_array(),
         buffer![2i32, 3].into_array(),
@@ -633,7 +633,7 @@ fn empty_i32_set() -> Scalar {
 
 #[test]
 fn test_constant_list_over_dictionary_needles() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let needles = DictArray::try_new(
         buffer![0u8, 1, 0, 2, 1].into_array(),
         PrimitiveArray::from_option_iter([Some(2i32), Some(3), None]).into_array(),

@@ -21,6 +21,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -146,22 +147,21 @@ impl DictReader {
         })
     }
 
-    fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
+    fn values_eval(&self, expr: &BoundExpression) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
 
-        let key = ExactBoundExpr(expr.clone());
-
         // Check cache first with read-only lock
-        if let Some(fut) = self.values_evals.get(&key) {
+        if let Some(fut) = self.values_evals.get(expr as &dyn ExactKey) {
             return fut.clone();
         }
 
         self.values_evals
-            .entry(key)
+            .entry(ExactBoundExpr(expr.clone()))
             .or_insert_with(|| {
+                let expr = expr.clone();
                 self.values_array_uncanonical()
                     .map(move |array| {
                         let array = array?.apply_bound(&expr)?;
@@ -260,7 +260,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallibility and strictness annotations
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_eval(expr);
 
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression

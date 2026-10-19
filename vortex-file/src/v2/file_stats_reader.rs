@@ -19,6 +19,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
@@ -82,15 +83,17 @@ impl FileStatsLayoutReader {
     /// Unlike [`LayoutReader::pruning_evaluation`], this never consults the statistics of the
     /// file's zones, so it costs the same however many rows the file holds.
     pub fn prunes_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
-        let key = ExactBoundExpr(expr.clone());
-
         // Check cache first with read-only lock.
-        if let Some(pruned) = self.prune_cache.get(&key).map(|pruned| *pruned) {
+        if let Some(pruned) = self
+            .prune_cache
+            .get(expr as &dyn ExactKey)
+            .map(|pruned| *pruned)
+        {
             return Ok(pruned);
         }
         // Evaluate under the entry lock, so that splits which start together evaluate the
         // expression once rather than each falsifying it again.
-        match self.prune_cache.entry(key) {
+        match self.prune_cache.entry(ExactBoundExpr(expr.clone())) {
             Entry::Occupied(entry) => Ok(*entry.get()),
             Entry::Vacant(entry) => Ok(*entry.insert(self.evaluate_file_stats(expr)?)),
         }

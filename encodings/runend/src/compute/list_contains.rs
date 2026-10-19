@@ -54,9 +54,10 @@ impl ListContainsElementReduce for RunEnd {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
@@ -68,12 +69,19 @@ mod tests {
     use vortex_array::scalar_fn::fns::list_contains::ListContains;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::RunEnd;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn constant_list_is_looked_up_once_per_run() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let needles = RunEnd::try_new(
             buffer![2u32, 5, 6].into_array(),
             buffer![1i32, 2, 3].into_array(),

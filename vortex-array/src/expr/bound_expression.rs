@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -61,9 +62,37 @@ pub enum BoundExpression {
 #[derive(Clone, Debug)]
 pub struct ExactBoundExpr(pub BoundExpression);
 
-impl PartialEq for ExactBoundExpr {
+/// A bound expression compared by shared tree identity, as [`ExactBoundExpr`] compares it.
+///
+/// Maps keyed by [`ExactBoundExpr`] can be probed with `expr as &dyn ExactKey` for a borrowed
+/// [`BoundExpression`], which spares cloning the expression for every lookup. Clones touch
+/// reference counts that every scan thread shares.
+pub trait ExactKey {
+    /// The expression that identifies this key.
+    fn bound_expr(&self) -> &BoundExpression;
+}
+
+impl ExactKey for ExactBoundExpr {
+    fn bound_expr(&self) -> &BoundExpression {
+        &self.0
+    }
+}
+
+impl ExactKey for BoundExpression {
+    fn bound_expr(&self) -> &BoundExpression {
+        self
+    }
+}
+
+impl<'a> Borrow<dyn ExactKey + 'a> for ExactBoundExpr {
+    fn borrow(&self) -> &(dyn ExactKey + 'a) {
+        self
+    }
+}
+
+impl PartialEq for dyn ExactKey + '_ {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
+        match (self.bound_expr(), other.bound_expr()) {
             (
                 BoundExpression::Root { dtype: lhs_dtype },
                 BoundExpression::Root { dtype: rhs_dtype },
@@ -80,8 +109,8 @@ impl PartialEq for ExactBoundExpr {
                     children: rhs_children,
                 },
             ) => {
-                lhs_fn == rhs_fn
-                    && Arc::ptr_eq(lhs_children, rhs_children)
+                Arc::ptr_eq(lhs_children, rhs_children)
+                    && lhs_fn == rhs_fn
                     && lhs_dtype == rhs_dtype
             }
             _ => false,
@@ -89,24 +118,34 @@ impl PartialEq for ExactBoundExpr {
     }
 }
 
+impl Eq for dyn ExactKey + '_ {}
+
+impl Hash for dyn ExactKey + '_ {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Equal keys share their children, so the identity of the children is enough to hash.
+        // Omitting the function's options and the potentially lazy dtype keeps identity-keyed
+        // cache lookups from hashing literal lists or deserializing an entire schema.
+        match self.bound_expr() {
+            BoundExpression::Root { .. } => state.write_u8(0),
+            BoundExpression::Scalar { children, .. } => {
+                state.write_u8(1);
+                Arc::as_ptr(children).hash(state);
+            }
+        }
+    }
+}
+
+impl PartialEq for ExactBoundExpr {
+    fn eq(&self, other: &Self) -> bool {
+        (self as &dyn ExactKey) == (other as &dyn ExactKey)
+    }
+}
+
 impl Eq for ExactBoundExpr {}
 
 impl Hash for ExactBoundExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // DType differences are resolved by equality. Omitting the potentially lazy dtype keeps
-        // identity-keyed cache lookups from deserializing an entire schema just to compute a hash.
-        match &self.0 {
-            BoundExpression::Root { .. } => state.write_u8(0),
-            BoundExpression::Scalar {
-                scalar_fn,
-                children,
-                ..
-            } => {
-                state.write_u8(1);
-                scalar_fn.hash(state);
-                Arc::as_ptr(children).hash(state);
-            }
-        }
+        (self as &dyn ExactKey).hash(state);
     }
 }
 
