@@ -84,7 +84,10 @@ impl PruningState {
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: &BoundExpression) -> Option<SharedPruningResult> {
+    pub(super) fn pruning_mask_future(
+        &self,
+        expr: &BoundExpression,
+    ) -> Option<SharedPruningResult> {
         if let Some(result) = self.pruning_result.get(expr as &dyn ExactKey) {
             return result.value().clone();
         }
