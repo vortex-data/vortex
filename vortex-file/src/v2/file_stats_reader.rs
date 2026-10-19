@@ -77,6 +77,25 @@ impl FileStatsLayoutReader {
         )
     }
 
+    /// Returns `true` if file-level statistics prove that `expr` matches no row of the file.
+    ///
+    /// Unlike [`LayoutReader::pruning_evaluation`], this never consults the statistics of the
+    /// file's zones, so it costs the same however many rows the file holds.
+    pub fn prunes_file(&self, expr: &BoundExpression) -> VortexResult<bool> {
+        let key = ExactBoundExpr(expr.clone());
+
+        // Check cache first with read-only lock.
+        if let Some(pruned) = self.prune_cache.get(&key).map(|pruned| *pruned) {
+            return Ok(pruned);
+        }
+        // Evaluate under the entry lock, so that splits which start together evaluate the
+        // expression once rather than each falsifying it again.
+        match self.prune_cache.entry(key) {
+            Entry::Occupied(entry) => Ok(*entry.get()),
+            Entry::Vacant(entry) => Ok(*entry.insert(self.evaluate_file_stats(expr)?)),
+        }
+    }
+
     /// Returns the file-level statistics used by this reader.
     pub fn file_stats(&self) -> &FileStatistics {
         &self.file_stats
@@ -152,21 +171,7 @@ impl LayoutReader for FileStatsLayoutReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        let key = ExactBoundExpr(expr.clone());
-
-        // Check cache first with read-only lock.
-        let cached = self.prune_cache.get(&key).map(|pruned| *pruned);
-        let pruned = match cached {
-            Some(pruned) => pruned,
-            // Evaluate under the entry lock, so that splits which start together evaluate the
-            // expression once rather than each falsifying it again.
-            None => match self.prune_cache.entry(key) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(self.evaluate_file_stats(expr)?),
-            },
-        };
-
-        if pruned {
+        if self.prunes_file(expr)? {
             Ok(MaskFuture::ready(Mask::new_false(mask.len())))
         } else {
             self.child.pruning_evaluation(row_range, expr, mask)

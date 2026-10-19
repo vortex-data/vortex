@@ -314,6 +314,16 @@ impl OpenFileReader {
         let Some(filter) = &filter.filter else {
             return Ok(false);
         };
+        // Splits prune their own rows with the zone maps, so only the file-level statistics
+        // decide here. Pruning the whole file with the zone maps builds a mask of every row
+        // before the scan can start.
+        if let Some(file_stats) = self
+            .reader()
+            .as_any()
+            .downcast_ref::<FileStatsLayoutReader>()
+        {
+            return file_stats.prunes_file(filter);
+        }
         let row_count = self.reader().row_count();
         let row_range = 0..row_count;
         let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
