@@ -15,6 +15,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -102,15 +103,16 @@ impl LayoutReader for FileStatsLayoutReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        let key = ExactBoundExpr(expr.clone());
-
         // Check cache first with read-only lock.
-        let cached = self.prune_cache.get(&key).map(|pruned| *pruned);
+        let cached = self
+            .prune_cache
+            .get(expr as &dyn ExactKey)
+            .map(|pruned| *pruned);
         let pruned = match cached {
             Some(pruned) => pruned,
             // Evaluate under the entry lock, so that splits which start together evaluate the
             // expression once rather than each falsifying it again.
-            None => match self.prune_cache.entry(key) {
+            None => match self.prune_cache.entry(ExactBoundExpr(expr.clone())) {
                 Entry::Occupied(entry) => *entry.get(),
                 Entry::Vacant(entry) => *entry.insert(self.evaluate_file_stats(expr)?),
             },
