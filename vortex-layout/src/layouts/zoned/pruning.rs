@@ -20,6 +20,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
@@ -83,16 +84,15 @@ impl PruningState {
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        let key = ExactBoundExpr(expr.clone());
-
-        if let Some(result) = self.pruning_result.get(&key) {
+    pub(super) fn pruning_mask_future(&self, expr: &BoundExpression) -> Option<SharedPruningResult> {
+        if let Some(result) = self.pruning_result.get(expr as &dyn ExactKey) {
             return result.value().clone();
         }
 
         self.pruning_result
-            .entry(key)
+            .entry(ExactBoundExpr(expr.clone()))
             .or_insert_with(|| {
+                let expr = expr.clone();
                 let dynamic_updates = DynamicExprUpdates::new(&expr);
                 match self.pruning_predicate(expr.clone()) {
                     None => {
