@@ -9,6 +9,9 @@ This file is the detailed catalog behind `../02-current-problems.md`. Each findi
 the human documents use. All paths are relative to the repository root. All line numbers are for
 `develop` at commit `5fc5cb8` (2026-10-17).
 
+This catalog covers current code only. Problems in the proposed design appear as design rationale
+in `design-notes.md`.
+
 ## Conventions
 
 Severity:
@@ -22,8 +25,8 @@ Severity:
 
 Status:
 
-- **probe** means that the throwaway test in `probe.rs` reproduced the behavior. The probe ran
-  against `vortex-array` in a debug build.
+- **probe** means that a throwaway test reproduced the behavior. `probe.rs` ran against
+  `vortex-array`, and `probe_followup.rs` ran in `vortex-btrblocks`. Both ran in debug builds.
 - **code** means that the behavior follows directly from the cited code. Nothing ran.
 - **lead** means that the code suggests a problem, but the problem is not confirmed. A lead names
   the check that confirms or rejects it.
@@ -46,7 +49,7 @@ Terms:
 | EXT-C3 | Same-type extension cast hides the storage error | S3 | code |
 | EXT-Q1 | Compare skips the type check when one side is an extension | S1 | probe |
 | EXT-Q2 | Every extension type gets storage equality and order, with no override | S1 | probe |
-| EXT-Q3 | `DateTimeParts` compare kernel trusts its operand types | S2 | lead |
+| EXT-Q3 | `DateTimeParts` compare kernel trusts its operand types | S1 | probe |
 | EXT-A1 | Ordering-based operations disagree about extension types | S3 | probe |
 | EXT-A2 | Zone maps fall back to storage statistics | S3 | code |
 | EXT-V1 | Arrays are never value-checked, and reads panic on bad values | S2 | probe |
@@ -55,6 +58,7 @@ Terms:
 | EXT-V4 | `Date` and `Time` panic on non-primitive storage | S2 | code |
 | EXT-V5 | `Timestamp` accepts dtypes that reject every value | S2 | code |
 | EXT-V6 | Eight extension types never check values | S3 | code |
+| EXT-V7 | Extension scalars skip the storage dtype check | S2 | probe |
 | EXT-N1 | A nullability change can panic | S2 | probe |
 | EXT-S1 | A constant extension column has two shapes | S3 | code |
 | EXT-S2 | Some encodings carry the extension dtype themselves | S3 | code |
@@ -189,9 +193,9 @@ Terms:
 - **Impact:** The result is wrong for any type whose storage order or storage equality differs from
   its value order or value equality. Examples in the repository: JSON (key order and whitespace),
   WKB geometry (two encodings of one geometry), vectors and tensors (no natural order).
-- **Fix:** See `design-notes.md` (pairwise derives that the binder reads).
+- **Fix:** See `design-notes.md` (derives for one dtype that the binder reads).
 
-### EXT-Q3: `DateTimeParts` compare kernel trusts its operand types (lead)
+### EXT-Q3: `DateTimeParts` compare kernel trusts its operand types
 
 - **Locations:**
   - `encodings/datetime-parts/src/compute/compare.rs:24-61`: the kernel calls
@@ -201,16 +205,18 @@ Terms:
     the kernel of the encoding without checking that the operand dtypes match.
   - `vortex-array/src/scalar/downcast.rs:161-164`: `Scalar::as_extension` panics if the scalar is
     not an extension.
-- **Suspected behavior:** A `DateTimeParts`-encoded timestamp column compared with an `i64`
-  constant panics in `as_extension()`. EXT-Q1 lets that expression through. A comparison with a
-  timestamp constant in a different unit compares sub-second parts in different units.
-- **Counter-evidence:** `vortex-file/src/tests.rs:2369` and `:2410` assert that a unit mismatch
-  returns an error in a file scan. The tests do not show which layer raises the error. Zone-map
-  pruning can raise it before the kernel runs.
-- **Check:** Build a `DateTimePartsArray` directly, compare it with an `i64` constant, and execute
-  it on the array path. Then repeat with a timestamp constant in another unit.
+- **Observed** [R7]: the probe encodes a `Timestamp(ms)` column `[1.6 s, 1.4 s]` as
+  `DateTimeParts`. The correct answer to `< 1.5 s` is `[false, true]`.
+  - Against the `i64` constant `1500`, the array path panics with `Failed to convert scalar to
+    extension`. The row path returns `Cannot compare scalars with incompatible types`.
+  - Against a `Timestamp(ns)` constant of 1.5 s, the array path returns `[true, true]`, which is
+    wrong. The row path returns an error.
+  - Against a `Timestamp(ms)` constant of 1.5 s, the array path returns `[false, true]`.
+- **Earlier counter-evidence:** `vortex-file/src/tests.rs:2369` and `:2410` assert that a unit
+  mismatch returns an error in a file scan. The probe shows that the kernel itself raises no
+  error. So another layer raises it in those tests. This catalog does not identify that layer.
 - **Fix:** Make `CompareExecuteAdaptor` require equal dtypes (ignoring nullability) before it calls
-  any kernel. Make the kernel check the unit.
+  any kernel. Make the kernel check the unit. U2 covers both.
 
 ### EXT-A1: Ordering-based operations disagree about extension types
 
@@ -256,9 +262,12 @@ Terms:
     `vortex_expect` if the value is invalid. `Scalar::extension::<V>` (line 243) also panics.
 - **Observed:** With a `NonZero` test type, `ExtensionArray::new(non_zero, [0])` succeeds [L3].
   `append_zeros(1)` succeeds [L1]. Reading the row panics with `unable to construct an extension
-  Scalar` [L2].
-- **Fix:** Return an error from these read paths. Add value validation at trust boundaries
-  (`design-notes.md`, "Validation").
+  Scalar` [L2]. `ext_storage` over `NonZero [0, 1]` returns `[0, 1]` on the array path and panics
+  on the row path [R9]. The row path reads the child as an extension scalar
+  (`vortex-array/src/arrays/scalar_fn/vtable/operations.rs:35-39`).
+- **Fix:** Return an error from these read paths. Make the row path of `ext_storage` read the
+  storage without a value check. Add value validation at trust boundaries (`design-notes.md`,
+  "Validation and trust").
 
 ### EXT-V2: `Extension::validate` never checks the storage dtype
 
@@ -316,6 +325,32 @@ Terms:
 - **Impact:** These types check nothing at the value level, and `Display` shows raw storage. This is
   allowed by the trait, but it means that "scalars are checked" is not true for these types.
 
+### EXT-V7: Extension scalars skip the storage dtype check
+
+- **Locations:**
+  - `vortex-array/src/scalar/validate.rs:100` and `:294`: for an extension dtype, scalar validation
+    calls only `validate_storage_value`.
+  - `vortex-array/src/dtype/extension/erased.rs:107-109`: `validate_storage_value` calls only the
+    `validate_scalar_value` of the type.
+  - `vortex-array/src/scalar/validate.rs:46-50`: a primitive dtype requires a value of the same
+    `PType`. Extension storage never gets this check.
+  - `vortex-array/src/extension/datetime/timestamp.rs:211`: `Timestamp` casts any primitive value
+    to `i64` before it checks the range.
+  - `vortex-array/src/scalar/typed_view/primitive/pvalue.rs:122-160`: `PValue` equality and order
+    upcast the other value with `vortex_expect`. The upcast of a float to an integer fails
+    (`pvalue.rs:197-203`, `:397-418`).
+- **Observed** [R2]: `Scalar::try_new(Timestamp(ms), F64(5.0))` succeeds and displays as
+  `1970-01-01T00:00:00.005Z`. Call that scalar `f`, and call the `Timestamp(ms)` scalar with
+  `I64(5)` `i`. Then `i == f` panics with `upcast`, and `f == i` returns `false`. So `==` is not
+  symmetric. `i.partial_cmp(&f)` also panics.
+- **Related primitive case** [R10]: a valid `F16` scalar can hold a `U64` value, for compatibility
+  with an old serialized form (`vortex-array/src/scalar/validate.rs:147-157`). `==` between the
+  `U64` form and the `F16` form of one value panics in one direction and returns `false` in the
+  other.
+- **Reach:** Not measured. The probe builds the scalars with `Scalar::try_new` directly.
+- **Fix:** Check that an extension value matches the storage dtype before the check of the type.
+  U6 covers it. Convert the `U64` form of an `F16` value to `F16` when the scalar is built.
+
 ### EXT-N1: A nullability change can panic
 
 - **Locations:**
@@ -341,7 +376,8 @@ Terms:
   `TODO(connor): This is maybe incorrect unless this is a refinement type?`.
 - **Impact:** Kernels and extension crates must handle both shapes. `vortex-tensor` handles both by
   hand. The same choice exists for `Dict` and `Chunked`.
-- **Fix:** Choose one normal form (see `design-notes.md`, "Normal form").
+- **Fix:** Choose one physical form. `design-notes.md`, section 6, compares the two options. The
+  choice is open.
 
 ### EXT-S2: Some encodings carry the extension dtype themselves
 
@@ -486,6 +522,50 @@ build of `vortex-array`. "Row" means `execute_scalar` per row on the lazy result
 | O | `try_from_parts(Timestamp(ms), utf8 storage)` | call | succeeds |
 | P | `Timestamp(ms) + Timestamp(ms)` | build | `incompatible types for arithmetic operation` |
 | Q | `Scalar::is_zero(Timestamp(ms)=0)` | call | `Some(true)` |
+
+### Follow-up probes
+
+`probe_followup.rs` ran in a debug build of `vortex-btrblocks`, on `5fc5cb8`. It reuses `NonZero`
+and `Opaque`. Its session registers the `DateTimeParts` and `Sparse` encodings. R8 uses a cascading
+compressor with the integer dictionary scheme only. With the default schemes, `TemporalScheme` can
+also write `DateTimeParts` at the top of a `Timestamp` column
+(`vortex-btrblocks/src/schemes/temporal.rs:45-56`).
+
+| Probe | Expression | Path | Result |
+| --- | --- | --- | --- |
+| R1 | `cast(Decimal(10, 2) [1.00, 2.50], f32)` | array | `No CastKernel to cast canonical array vortex.decimal from decimal(10,2) to f32` |
+| R1 | same | row | `[1f32, 2.5f32]` |
+| R1 | `cast(Decimal(10, 2) 1.00, f32)` on a scalar | scalar | `1f32` |
+| R2 | `Opaque(1).partial_cmp(Opaque(2))` | call | `Some(Less)` |
+| R2 | `Opaque(1) == Opaque(1)`, then `partial_cmp` | call | `true`, `Some(Equal)` |
+| R2 | `Scalar::try_new(Timestamp(ms), F64(5.0))` | call | succeeds: `1970-01-01T00:00:00.005Z` |
+| R2 | `Timestamp(ms) I64(5) == Timestamp(ms) F64(5.0)` | call | panic: `upcast` |
+| R2 | `Timestamp(ms) F64(5.0) == Timestamp(ms) I64(5)` | call | `false` |
+| R2 | `Timestamp(ms) I64(5)` `partial_cmp` `F64(5.0)` | call | panic: `upcast` |
+| R3 | `NaN == NaN`, then `-0.0 == +0.0`, on scalars | call | `true`, `false` |
+| R3 | `[NaN, -0.0] = [NaN, +0.0]` | array | `[true, false]` |
+| R3 | `FixedSizeList<f32, 2>`: `[[NaN, -0.0], [NaN, 1.0]] = [[NaN, +0.0], [NaN, 1.0]]` | array | `[false, true]` |
+| R4 | `Scalar::try_new(NonZero, 0u64)` | call | `zero is not a valid NonZero value` |
+| R5 | `Extension(Constant(1000i64))`: tree, then `as_constant()` | call | `vortex.ext` over `vortex.constant`, `None` |
+| R5 | same, after `optimize()` | call | `vortex.constant(vortex.timestamp[ms](i64))`, `Some(1970-01-01T00:00:01Z)` |
+| R6 | `ext_storage(Extension(Dict))`, one step | call | `vortex.dict(i64)` |
+| R6 | `ext_storage(Dict(codes, Extension(values)))` | call | The lazy tree pushes `ext_storage` into the values. One step gives `vortex.dict(i64)` |
+| R6 | `ext_storage(Chunked[Extension, Extension])` | call | The lazy tree pushes `ext_storage` into each chunk |
+| R6 | `ext_storage(Masked(Extension))`, one step | call | No pushdown. One step decodes to `vortex.primitive(i64?)` |
+| R6 | `ext_storage(Sparse)` with extension values, one step | call | `Sparse canonicalization does not support Extension arrays yet` |
+| R7 | `DateTimeParts` of `Timestamp(ms) [1.6 s, 1.4 s]` `< 1500i64` | array | panic: `Failed to convert scalar to extension` |
+| R7 | same | row | `Cannot compare scalars with incompatible types` |
+| R7 | same column `< Timestamp(ns)` 1.5 s | array | `[true, true]`, which is wrong. Expected: `[false, true]` |
+| R7 | same | row | `Cannot compare scalars with incompatible types` |
+| R7 | same column `< Timestamp(ms)` 1.5 s, the control | array | `[false, true]` |
+| R8 | Compress a constant `Timestamp(ms)` column | call | `vortex.constant(vortex.timestamp[ms](i64))` |
+| R8 | Compress a low-cardinality `Opaque` column | call | `vortex.ext` over `vortex.dict(i64)` |
+| R8 | Compress a constant `Timestamp(ms)` column with some nulls | call | `vortex.masked` over `vortex.constant(vortex.timestamp[ms](i64?))` |
+| R9 | `ext_storage(NonZero [0, 1])` | array | `[0u64, 1u64]` |
+| R9 | same | row | panic: ``unable to construct an extension `Scalar` `` |
+| R10 | `Scalar::try_new(F16, U64 bits of 1.0)` | call | succeeds: `1f16` |
+| R10 | `U64` form `==` `F16` form of 1.0 | call | panic: `upcast` |
+| R10 | `F16` form `==` `U64` form of 1.0 | call | `false` |
 
 ## Appendix B: where storage semantics are applied
 

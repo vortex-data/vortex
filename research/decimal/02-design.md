@@ -91,14 +91,16 @@ Generic rules then cover both types:
 - Slice, filter, take and mask push into the child and wrap the result again.
 - `scalar_at` wraps the scalar of the child.
 - Compression compresses the child with the ordinary schemes.
-- Sparse, run-end, dictionary and chunked arrays work over the storage dtype. Today a sparse array
-  of an extension type cannot canonicalize at all, so this rule also closes a gap for extension
-  types.
 
-The wrapper stays on top of generic encodings, as in the
-[extension design](../extension-types/03-design.md#one-normal-form). Type-specific encodings, such
-as DecimalByteParts and `DateTimeParts`, live under the wrapper and see only the storage dtype. The
-position of the wrapper is still an open question (see below).
+The position of the wrapper relative to generic encodings, such as `Constant`, `Dict` and
+`Sparse`, is an open question (see below). The
+[extension design](../extension-types/03-design.md#physical-form-open) compares both placements.
+It recommends the wrapper on top, but no maintainer decision exists. With the wrapper on top,
+sparse, run-end, dictionary and chunked arrays work over the storage dtype. That also closes a gap
+for extension types, because a sparse array of an extension type cannot canonicalize today.
+
+Type-specific encodings, such as DecimalByteParts and `DateTimeParts`, live under the wrapper and
+see only the storage dtype. This choice does not depend on the position of the wrapper.
 
 ## Integer child or FixedSizeBinary child
 
@@ -212,8 +214,8 @@ FixedSizeBinary is a core type for opaque bytes of a fixed length, as RFC 0062 p
   equality and hashing, but UUID order needs a separate decision.
 
 `Decimal`, wide integers and FixedSizeBinary share only the fixed-width structural layer. That
-layer is the right place for shared code. PR [#8864](https://github.com/vortex-data/vortex/pull/8864)
-started it.
+layer is the right place for shared code. PR
+[#8864](https://github.com/vortex-data/vortex/pull/8864) started it.
 
 ## The file format does not change
 
@@ -229,9 +231,10 @@ The wrapper reads every existing decimal wire form:
 
 Writes produce forms that old readers understand. A flat child becomes `vortex.decimal`. A
 compressed child with a lane-integer type becomes DecimalByteParts v1, which the first core edition
-already contains. A dictionary child becomes a dictionary of `vortex.decimal` values. So wide
-`PType` values never reach the wire for decimal columns, and decimal statistics keep the `Decimal`
-dtype.
+already contains. A constant child becomes a `vortex.constant` node with a decimal scalar, which is
+the form that the compressor writes today. A dictionary child becomes a dictionary of
+`vortex.decimal` values. So wide `PType` values never reach the wire for decimal columns, and
+decimal statistics keep the `Decimal` dtype.
 
 Before the reader changes, the compatibility fixtures need narrow, wide and Arrow-style widths.
 Today they cover only `i32` and `i64`.
@@ -255,9 +258,10 @@ acceptance test for the extension hooks. The decision on the move comes after th
 
 - Open question: are `I128` and `I256` user-visible columns from the start, or storage only until
   an engine needs them? DuckDB `HUGEINT` is the only current consumer.
-- Open question: is the wrapper always on top of generic encodings such as `Constant` and `Dict`?
-  This design and the extension design say yes. Today `ExtensionConstantRule` puts `Constant`
-  above the extension wrapper, and the old decimal wire form puts `Dict` above `vortex.decimal`.
+- Open question: is the wrapper on top of generic encodings such as `Constant` and `Dict`? The
+  extension notes recommend it, but no maintainer decision exists. Today `ExtensionConstantRule`
+  puts `Constant` above the extension wrapper, and the compressor writes a constant decimal column
+  as a `vortex.constant` node with a decimal scalar.
 - Open question: does Vortex compare and compute across different precisions and scales? The
   alternative keeps the rule of equal dtypes, and engines coerce first.
 - Open question: does FixedSizeBinary get a new core wire tag, or an extension descriptor over

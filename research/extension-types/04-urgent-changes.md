@@ -16,7 +16,7 @@ fits in a small PR with a regression test. Finding IDs refer to
 | U3 | Return errors from reads | EXT-V1 | No panic when a row is read |
 | U4 | Make nullability changes infallible | EXT-N1 | No panic in `take`, `mask` or `min_max` |
 | U5 | Fix the built-in temporal validation | EXT-V4, EXT-V5 | A malformed dtype returns an error |
-| U6 | Make `Extension::validate` check the storage | EXT-V2 | An array with the wrong storage is rejected |
+| U6 | Check the storage dtype of arrays and scalars | EXT-V2, EXT-V7 | An array or a scalar with the wrong storage is rejected |
 | U7 | Stop invalid zero values | EXT-V3 | No invalid scalars |
 | U8 | Fix `Debug for ExtDTypeRef` | EXT-R1 | Correct debug output |
 
@@ -46,7 +46,11 @@ Visible changes: `cast(Timestamp, i64)` returns an error, and `ext_storage` repl
 - Remove the lone-extension case in `compare_arrays`
   (`vortex-array/src/scalar_fn/fns/binary/compare/mod.rs:177-193`).
 - `CompareExecuteAdaptor` checks that the operand dtypes match before it calls an encoding kernel
-  (`compare/mod.rs:73-121`). This also closes the `DateTimeParts` lead (EXT-Q3).
+  (`compare/mod.rs:73-121`). With the stricter `return_dtype`, this also fixes the `DateTimeParts`
+  compare (EXT-Q3).
+- The `DateTimeParts` compare kernel checks that the constant has the dtype of the column,
+  including the time unit, before it splits the constant
+  (`encodings/datetime-parts/src/compute/compare.rs:31-52`).
 
 Coupling: an engine converter that sends a storage-typed literal for an extension column must send
 an extension literal. DuckDB and DataFusion already convert temporal literals to extension scalars.
@@ -76,10 +80,16 @@ when the dtype is built is the better place.
 - `Timestamp::validate_dtype` rejects the `Days` unit and unknown time zones
   (`vortex-array/src/extension/datetime/timestamp.rs:198-204`).
 
-## U6. `Extension::validate`
+## U6. Storage checks for arrays and scalars
 
-- Compare the dtype of the storage child with `ext_dtype.storage_dtype()`
+- `Extension::validate` compares the dtype of the storage child with `ext_dtype.storage_dtype()`
   (`vortex-array/src/arrays/extension/vtable/mod.rs:96-123`).
+- Scalar validation checks that an extension value matches the storage dtype, before it calls the
+  check of the type (`vortex-array/src/scalar/validate.rs:100`, `:294`). This fixes EXT-V7.
+- `Scalar::try_new` converts the `U64` form of an `F16` value to `F16`
+  (`vortex-array/src/scalar/scalar_impl.rs:73`, `vortex-array/src/scalar/validate.rs:147-157`).
+  Then `==` stays symmetric for `F16` scalars (probe R10). This case is not specific to extension
+  types.
 
 ## U7. Zero values
 

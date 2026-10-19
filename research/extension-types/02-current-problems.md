@@ -7,8 +7,8 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 All findings are for `develop` at `5fc5cb8`. Each ID refers to an entry in
 [`agents/findings.md`](agents/findings.md), which has file and line references, reproductions and
-fix sketches. "Confirmed" means that a throwaway test ([`agents/probe.rs`](agents/probe.rs))
-reproduced the behavior.
+fix sketches. "Confirmed" means that a throwaway test ([`agents/probe.rs`](agents/probe.rs) or
+[`agents/probe_followup.rs`](agents/probe_followup.rs)) reproduced the behavior.
 
 ## Results depend on the encoding and the read path (EXT-P1)
 
@@ -42,6 +42,10 @@ implementation.
   compare by storage. This happens in the compare kernel, the nested comparator and `ExtScalar`. A
   test type with no ordering still supports `<`. The built-in kernel runs first, and the registry
   cannot override it, so an extension type has no way to replace it.
+- **`DateTimeParts` compare (EXT-Q3).** The kernel calls `as_extension()` on its constant operand
+  before it checks the type, and it does not compare time units. Confirmed: against an `i64`
+  constant, the array path panics. Against a `Timestamp(ns)` constant, a `Timestamp(ms)` column
+  gets a wrong result.
 - **Engine boundaries (EXT-B1 to EXT-B5).** DataFusion converts non-temporal extension scalars to
   storage scalars. Arrow export to a storage-like target type exports storage through the cast
   fallback. Python `as_py()` returns the storage value. DuckDB decides aggregate pushdown from the
@@ -51,6 +55,10 @@ implementation.
 
 - **Arrays are never value-checked (EXT-V1).** `ExtensionArray::new` and `ExtensionBuilder` accept
   values that the type rejects. Reading such a row panics. Confirmed with a type that rejects zero.
+  `ext_storage` over the same array returns the zero on the array path and panics on the row path.
+- **Scalars skip the storage check (EXT-V7).** An extension scalar can hold a value of another
+  storage type, for example a `Timestamp` with an `f64` value. Then `==` panics in one direction
+  and returns `false` in the other. Confirmed.
 - **Nullability changes can panic (EXT-N1).** `ExtDType::with_nullability` validates the type again
   and panics if validation fails. A type that accepts only non-nullable storage panics in `take`
   with nullable indices. Confirmed.
@@ -59,12 +67,9 @@ implementation.
 - **Built-in temporal types (EXT-V4, EXT-V5).** `Date` and `Time` panic on non-primitive storage, so
   a malformed file panics instead of returning an error. `Timestamp` accepts the `Days` unit and
   unknown time zones, and then rejects every value.
-- **Array validation is a no-op (EXT-V2).** `Extension::validate` compares the dtype with itself.
-  It accepts `Utf8` storage under a `Timestamp` dtype. Confirmed.
-- **Lead: `DateTimeParts` compare (EXT-Q3).** The kernel calls `as_extension()` on its constant
-  operand before it checks the type, and it does not compare time units. The compare adaptor does
-  not check operand types. A `DateTimeParts` column compared with an `i64` constant can panic. This
-  needs a direct test.
+- **Arrays skip the storage dtype check (EXT-V2).** `Extension::validate` checks the length, but
+  it compares the dtype with itself. It accepts `Utf8` storage under a `Timestamp` dtype.
+  Confirmed.
 
 ## Disagreements
 

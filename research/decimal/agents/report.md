@@ -28,9 +28,11 @@ Conventions:
 - "Lane integer" means U8 to U64 and I8 to I64. "Wide integer" means I128 and I256.
 - Issue and pull request numbers refer to `vortex-data/vortex` on GitHub. Section 10 links
   each one.
-- No claim in this report comes from running Rust code. The claims come from reading code, RFC
-  drafts, issues, and pull requests. Appendix A holds the one script that was run. Section 10
-  lists what is not verified.
+- Two claims come from running Rust code, with probes R1 and R6 in
+  `../../extension-types/agents/probe_followup.rs`. They are the cast in section 1.1 and the
+  pushdown rules in section 3.3. The other claims come from reading code, RFC drafts, issues, and
+  pull requests. Appendix A holds the one Python script that ran. Section 10 lists what is not
+  verified.
 
 ## 1. Summary
 
@@ -53,7 +55,8 @@ dtype therefore has up to six physical forms. That single fact explains most of 
 - The scalar path and the array path disagree. A decimal scalar casts to `f32` and `f16`
   (`vortex-array/src/scalar/typed_view/decimal/scalar.rs:111-115`). The array kernel only handles
   `f64` (`vortex-array/src/arrays/decimal/compute/cast.rs:104`), so the array cast fails with
-  "No CastKernel" (`vortex-array/src/scalar_fn/fns/cast/mod.rs:143`).
+  "No CastKernel" (`vortex-array/src/scalar_fn/fns/cast/mod.rs:143`). Probe R1 confirms it: the
+  array path fails, and the row path returns `[1f32, 2.5f32]` for `Decimal(10, 2) [1.00, 2.50]`.
 
 ### 1.2 Recommendation in short
 
@@ -73,9 +76,9 @@ dtype therefore has up to six physical forms. That single fact explains most of 
 5. Treat FixedSizeBinary as an independent type for opaque bytes (UUID, hashes). It shares the
    fixed-width structural layer with Primitive, but it never carries integer semantics. Decimal
    does not depend on it, and wide integers do not depend on it.
-6. Move Decimal to a well-known extension in the Rust API (RFC 0062) only after the extension
-   opacity fixes, cast hooks, and pairwise derives land. The array-level wrapper design is the
-   same either way, so the early work carries over.
+6. Move Decimal to a well-known extension in the Rust API (RFC 0062) only after the extension work
+   lands. That work is the opacity fixes, the cast hooks, and derives for one dtype. The
+   array-level wrapper design is the same either way, so the early work carries over.
 
 Section 7 gives the dependency graph. Section 8 gives the recommended order of work.
 
@@ -475,26 +478,33 @@ Generic rules then cover both:
 | Behavior | Extension today | Decimal today | Shared rule |
 | --- | --- | --- | --- |
 | slice, filter, take, mask | Pushdown rules (`arrays/extension/compute/rules.rs:48-79`) | Buffer kernels through `FixedWidthArray` | Push into the child and rewrap |
-| Constant child | `ExtensionConstantRule` (`rules.rs:28-46`) turns `Ext(Constant(s))` into `Constant(ext s)` | `Constant(decimal scalar)` | The wrapper stays on top: `Constant(wrapper s)` becomes `Wrapper(Constant(storage s))` |
+| Constant child | `ExtensionConstantRule` (`rules.rs:28-46`) turns `Ext(Constant(s))` into `Constant(ext s)` | `Constant(decimal scalar)` | Open. With the wrapper on top, `Constant(wrapper s)` becomes `Wrapper(Constant(storage s))` |
 | scalar_at | Wraps the storage scalar | Reads the buffer at the stored width | `wrap_scalar(child.scalar_at(i))` |
 | Validity | From the child | Validity slot | From the child |
 | Compression | Compress storage and rewrap (`vortex-compressor/src/compressor/cascade.rs:175-205`) | `DecimalScheme` | Compress the child with ordinary schemes and rewrap |
-| Sparse, run-end, dictionary, chunked | Sparse bails (`encodings/sparse/src/canonical.rs:361`) | Dedicated decimal paths | The wrapper stays on top: `Dict(codes, Wrapper(v))` becomes `Wrapper(Dict(codes, v))`, so the structural encoding sees only storage |
+| Sparse, run-end, dictionary, chunked | Sparse bails (`encodings/sparse/src/canonical.rs:361`) | Dedicated decimal paths | Open. With the wrapper on top, `Dict(codes, Wrapper(v))` becomes `Wrapper(Dict(codes, v))`, so the structural encoding sees only storage |
 
-The last row fixes a real gap for extensions as a side effect: a sparse array of an extension
-type currently cannot canonicalize at all.
+With the wrapper on top, the last row also closes a gap for extensions: a sparse array of an
+extension type cannot canonicalize today.
 
-This normal form is the one in part 3 of the extension notes, and it reverses
-`ExtensionConstantRule`. It is still an open question (section 9). The alternative keeps generic
-encodings above the wrapper, as the current code does for constants. Then each generic encoding
-needs a pushdown rule for `ext_storage`, or a fallback that executes it. Old wire forms that put
-the wrapper lower, such as `Dict(codes, vortex.decimal)`, come from the plugin at write time
-(section 3.5).
+The position of the wrapper is open (section 9, question 13). Section 6 of
+`../../extension-types/agents/design-notes.md` compares both placements. It recommends the wrapper
+on top, and no maintainer decision exists. The wrapper on top reverses `ExtensionConstantRule`.
+The alternative keeps generic encodings above the wrapper, as the current code does for constants.
+Then `Masked` and `Sparse` need a pushdown rule for `ext_storage`. Existing rules already push it
+into dictionary values and chunks (probe R6 in the extension notes).
+
+On the wire, `vortex.decimal` is a leaf with one buffer. So a generic encoding of decimal data sits
+above it. For example, the compressor writes a constant decimal column as a `vortex.constant` node
+with a decimal scalar (`vortex-compressor/src/compressor/cascade.rs:272-273`,
+`vortex-compressor/src/compressor/constant/mod.rs:80-86`). With the wrapper on top in memory, the
+plugin writes these older shapes (section 3.5).
 
 Type-specific encodings move under the wrapper and see only the storage dtype. For decimals that
 means DBP stops carrying `DType::Decimal`. It becomes an encoding of `Primitive(I128)` or
-`Primitive(I256)` (node N14). The same normal form applies to DateTimeParts under temporal
-wrappers, which today carries the extension dtype (`encodings/datetime-parts/src/array.rs:294-305`).
+`Primitive(I256)` (node N14). The same rule applies to DateTimeParts under temporal wrappers,
+which today carries the extension dtype (`encodings/datetime-parts/src/array.rs:294-305`). This
+choice does not depend on the position of the wrapper relative to generic encodings.
 
 ### 3.4 Decimal semantics as storage rewrites
 
@@ -503,8 +513,8 @@ dtype, the rewrites below are exact.
 
 | Operation on `Decimal(p, s)` | Rewrite onto the unscaled child | Notes |
 | --- | --- | --- |
-| Compare, same `(p, s)` | `compare(unscaled(a), unscaled(b))` | Valid because the unscaled value is unique within one `(p, s)` |
-| Compare across `(p1, s1)` and `(p2, s2)` | Rescale both to `s = max(s1, s2)` at a width that holds `max(p1 - s1, p2 - s2) + s` digits, then compare | Pairwise derive. Rejected today (`scalar_fn/fns/binary/mod.rs:162-168`) |
+| Compare, same `(p, s)` | `compare(unscaled(a), unscaled(b))` | A derive for one dtype. Valid because the unscaled value is unique within one `(p, s)` |
+| Compare across `(p1, s1)` and `(p2, s2)` | Rescale both to `s = max(s1, s2)` at a width that holds `max(p1 - s1, p2 - s2) + s` digits, then compare | A rewrite that the type owns, not a derive. Rejected today (`scalar_fn/fns/binary/mod.rs:162-168`) |
 | Compare with a constant that has more fractional digits than `s` | Fold the constant and adjust the operator. `x < 1.005` at `s = 2` becomes `unscaled <= 100` | Needs floor and ceiling rounding |
 | Add, subtract | Widen to the result width, rescale to the larger scale, checked operation, precision check | Arrow rules (`scalar/typed_view/decimal/arithmetic.rs:49-101`) |
 | Multiply | Widen, checked multiply, precision check | Result scale `s1 + s2` |
@@ -557,8 +567,8 @@ Two points matter for the design:
 
 - **Temporal types need the same kernels.** Timestamp, Time, and Duration units are powers of
   ten apart, except Days. A Timestamp cast from milliseconds to nanoseconds (issue #8570) is
-  `rescale(delta = 6)`. A Duration comparison across units (PR #10467) is the same pairwise
-  rescale as a decimal comparison across scales. One kernel family serves both.
+  `rescale(delta = 6)`. A Duration comparison across units (PR #10467) needs the same rescale as
+  a decimal comparison across scales. One kernel family serves both.
 - **Fusion keeps performance.** The current decimal arithmetic kernel checks the operation and
   the precision bound in one pass (`numeric/decimal.rs`, `DecimalOpConstants`). A chain of
   separate array operations makes several passes. So generalize the fused kernel from
@@ -590,8 +600,11 @@ Writing:
 | `Decimal { widen(flat Primitive(I_v)) }` | `vortex.decimal`, `values_type = v` | Yes, same bytes as today |
 | `Decimal { compressed child with a lane-integer ptype }` | `vortex.decimal_byte_parts` v1 with the child as MSP | Yes, core 2025.05 |
 | `Decimal { WideIntParts }` | `vortex.decimal_byte_parts.v2` | Only when an edition allows v2 |
-| `Decimal { Dict, RunEnd, Chunked, ... }` | Push the wrapper below the structural encoding, for example `Dict(codes, Decimal { values })` | Yes |
+| `Decimal { Constant, Dict, RunEnd, Chunked, ... }` | Push the wrapper below the generic encoding, for example `vortex.constant` with a decimal scalar, or `Dict(codes, Decimal { values })` | Yes |
 | Any other child | Execute the child to a flat array and write `vortex.decimal` | Yes |
+
+The fifth row applies only if the wrapper sits above generic encodings in memory. With generic
+encodings above the wrapper, the memory form already has the wire shape.
 
 Consequences:
 
@@ -660,7 +673,7 @@ question is only where the Rust type lives:
 | --- | --- | --- |
 | Array | `DecimalArray` wrapper | `ExtensionArray` with the decimal ext dtype |
 | Shared machinery | Through `StorageWrapper` | Directly |
-| Semantics | Decimal-owned rewrites | `ExtVTable` hooks: cast (#8570), pairwise derives, validation |
+| Semantics | Decimal-owned rewrites | `ExtVTable` hooks: cast (#8570), derives for one dtype, rewrites, validation |
 | API change | Small | 269 lines in 97 files mention `DType::Decimal` |
 | Wire | Unchanged | Tag translation in both directions, recursively |
 | Risk | Low | High until extension semantics are opaque by default |
@@ -1032,11 +1045,11 @@ must come first. **urgent** means a correctness bug that exists today.
 
 | Id | Node | Kind | Notes |
 | --- | --- | --- | --- |
-| N1 | Extension opacity fixes | impl, urgent | Stop storage casts, storage-and-wrap scalar casts, lone-side storage compares, storage zero values |
-| N2 | Bind-time rewrite infrastructure | research, then impl | `ext_storage` and `ext_wrap` style nodes, rewrites keyed by function and type ids |
-| N3 | Pairwise derives | impl | Eq, Ord, Hash as rewrites that see both operand dtypes |
+| N1 | Extension opacity fixes | impl, urgent | The urgent changes U1 to U8 of the extension notes: storage casts, lone-side storage compares, errors from reads, nullability, temporal validation, storage checks, zero values, debug output |
+| N2 | Bind-time rewrite infrastructure | research, then impl | `ext_storage` and `ext_wrap` nodes, extension declarations on functions, type-owned rewrites, and rules across dtypes |
+| N3 | Derives for one dtype | impl | `EQ` and `ORD` declared on one dtype. The binder applies them when every operand in a derived position has that dtype. Operations across dtypes use rewrites (N2) |
 | N4 | Cast hooks (#8570) | impl | `cast_to` and `cast_from` on `ExtVTable`, bound `CastFn` |
-| N5 | Array validation at trust boundaries | impl | `validate_array`: decimal precision, UTF-8, FixedSizeBinary length |
+| N5 | Array validation at trust boundaries | impl | `validate_array` and validated or unvalidated arrays: decimal precision, UTF-8, FixedSizeBinary length |
 | N6 | Nullability restructure | research, optional | Remove nullability duplication between wrapper and storage dtypes |
 | N7 | Fixed-width structural layer | impl | Extend `FixedWidthArray` (PR #8864) to run-end, sparse, dict, constant, and builders, keyed by record width |
 | N8 | Scaled-integer kernels | impl | `rescale`, `check_range`, fused scaled arithmetic and compare |
@@ -1077,7 +1090,7 @@ flowchart TD
     N1["N1 Extension opacity fixes"]:::urgent
     N11["N11 Decimal storage at least canonical width"]:::urgent
     N2["N2 Bind-time rewrite infrastructure"]:::research
-    N3["N3 Pairwise derives"]:::impl
+    N3["N3 Derives for one dtype"]:::impl
     N4["N4 Cast hooks #8570"]:::impl
     N5["N5 Array validation"]:::impl
     N6["N6 Nullability restructure"]:::research
@@ -1150,17 +1163,21 @@ but it is cheaper, safer, or faster with it.
 1. N1 to N15: as an extension on `develop`, Decimal inherits storage casts and lone-side storage
    compares (`arrays/extension/compute/cast.rs:17-22`,
    `scalar_fn/fns/binary/compare/mod.rs:177-194`).
-2. N1 to N21: without N1, `Duration(ms)` and `Duration(ns)` compare and cast raw `i64` storage.
-   New types must not ship with a known leak that users can come to depend on.
+2. N1 to N21: without N1, a `Duration` cast across units reinterprets the storage on the row path
+   (EXT-C1). A comparison with a raw `i64` literal compares storage (EXT-Q1). New types must not
+   ship with a known leak that users can come to depend on.
 3. N1 to N18 (soft): after N1, a UUID column no longer compares with a storage literal. The
    engine literal paths then change once, before the storage changes. PR #9886 shows the
    current workaround.
-4. N2 to N3: pairwise derives are rewrites over both operands.
+4. N2 to N3: the binder applies a derive as a rewrite onto `ext_storage`.
 5. N2 to N13 (soft): expression-level rewrites let zone maps and compressed integer kernels
    evaluate decimal predicates on the integer child.
-6. N3 to N15: decimal comparison across scales is a pairwise rescale.
-7. N3 to N21 (soft): Duration comparison across units is the same pairwise rescale. Until N3
-   lands, a comparison across units is rejected, which is correct but limited.
+6. N3 to N15: after N1 and N2, a decimal extension type without derives loses compare, hash,
+   `min`, `max` and sort within one `(p, s)`. A comparison across scales is a rewrite that the
+   type owns (N2), not a derive.
+7. N3 to N21 (soft): `Duration` declares `EQ` and `ORD` for one unit. Before N3, the shared storage
+   compare kernel gives the same answer for one unit. A comparison across units needs a
+   type-owned rewrite in both cases.
 8. N4 to N15: rescaling casts and casts to and from integers and floats must be type-owned.
 9. N4 to N21: unit conversions are casts.
 10. N8 to N4 (soft): Timestamp, Time, and Duration unit casts are powers of ten, except Days.
@@ -1229,15 +1246,12 @@ U8) and phases (0 to 6). This table maps them onto the graph.
 
 | Extension research item | Node here |
 | --- | --- |
-| U1 one cast rule, U2 one compare rule, U7 zero values | N1 |
-| U3 errors from reads | Not a separate node. It belongs with N1 |
-| U4 infallible nullability changes | Not a separate node. It removes the panic in the rebuild that edge 34 describes |
-| U5 temporal validation, U6 `Extension::validate` checks the storage | N5 |
-| U8 debug output | Not in this graph |
+| U1 to U8, the urgent changes | N1, in wave 0. U5 and U6 are dtype and storage checks, not the value validation of N5 |
+| U4 infallible nullability changes | Part of N1. It also removes the panic in the rebuild that edge 34 describes |
 | Phase 1, contract and conformance harness | Not a separate node. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
 | Phase 2, binder and derives | N2 and N3 |
 | Phase 3, casts | N4 |
-| Phase 4, normal form and storage statistics | The shared rules of section 3.3, used by N12. DateTimeParts under the wrapper is the temporal twin of N14 |
+| Phase 4, physical form and storage statistics | The shared rules of section 3.3, used by N12. The position of the wrapper is open (section 9). DateTimeParts under the wrapper is the temporal twin of N14 |
 | Phase 5, validation and nullability | N5 and N6 |
 | Phase 6, authoring helpers and engine export plugins | N23 |
 
@@ -1293,7 +1307,7 @@ Wave 0, small and independent:
    (`vortex-array/src/arrays/decimal/compute/mod.rs:82-86`).
 3. Add `DecimalDType::storage_type()`, returning `DecimalType` until N9 lands, and route the 25
    `smallest_decimal_value_type` calls through it so that the width function has one owner.
-4. N1: the extension opacity fixes.
+4. N1: the urgent extension changes U1 to U8.
 
 Wave 1, foundations:
 
@@ -1301,8 +1315,10 @@ Wave 1, foundations:
 6. N8: `vortex.int.rescale`, `vortex.int.check_range`, and the fused scaled kernels. Use them for
    the Timestamp unit casts of N4.
 7. N4: cast hooks (#8570). Land N21 (Duration first, then Interval) on top of N1 and N4.
-8. N2, then N3: settle the rewrite design, then add pairwise derives. This is phase 2 of the
-   extension notes. Use the decimal rewrites of section 3.4 as acceptance tests.
+8. N2, then N3: settle the rewrite design, then add derives for one dtype. This is phase 2 of the
+   extension notes. Use the decimal rewrites of section 3.4 as acceptance tests. A checked
+   `ext_wrap` in N2 calls the default `validate_array`, which phase 1 of the extension notes adds.
+   N5 adds the rest later.
 9. N23: plugin registries for DuckDB and DataFusion type mapping.
 
 Wave 2, new types:
@@ -1340,7 +1356,8 @@ Wave 4, API unification:
 7. Does Vortex implement decimal arithmetic and comparison across different `(p, s)` pairs? The
    alternative keeps the rule of equal dtypes, and engines coerce first.
 8. Do file reads check decimal precision, or only external imports? Zone-map minimum and maximum
-   statistics can make the file check cheap.
+   statistics can make the file check cheap. The extension notes leave the same question open for
+   value checks on file reads.
 9. What is the lower bound of a negative scale? The docs name a `MIN_SCALE` that does not exist
    (`vortex-array/src/dtype/decimal/mod.rs:47`). Tests use -128. DuckDB rejects negative scales,
    and Arrow allows them.
@@ -1351,9 +1368,10 @@ Wave 4, API unification:
     in Arrow, or normalized as in DuckDB. The other is the edition membership of
     `vortex.duration` and `vortex.interval`.
 12. When do `U128` and `U256` become worth adding?
-13. Is the wrapper always on top of generic encodings (`Constant`, `Dict`, `Chunked`, `Sparse`)?
-    Section 3.3 says yes, like part 3 of the extension notes. The alternative keeps generic
-    encodings above the wrapper, as `ExtensionConstantRule` does today.
+13. Is the wrapper on top of generic encodings (`Constant`, `Dict`, `Chunked`, `Masked`,
+    `Sparse`)? The extension notes recommend it (`design-notes.md`, section 6), but no maintainer
+    decision exists. The alternative keeps generic encodings above the wrapper, as
+    `ExtensionConstantRule` does today.
 
 ## 10. Evidence log and limits
 
@@ -1396,17 +1414,25 @@ Verified outside the repository:
 - arrow-buffer 59.3.0 `i256` layout and order (`src/bigint/mod.rs:59-66`, `:171-183`).
 - Byte order against integer order, with the script in appendix A.
 
+Verified with a run: `../../extension-types/agents/probe_followup.rs` ran in a debug build of
+`vortex-btrblocks` on `5fc5cb8`.
+
+- Probe R1 checks the decimal to `f32` cast of section 1.1. The array path fails with `No
+  CastKernel to cast canonical array vortex.decimal from decimal(10,2) to f32`. The row path
+  returns `[1f32, 2.5f32]`, and the scalar cast returns `1f32`.
+- Probe R6 checks the pushdown rules of section 3.3. Existing rules push `ext_storage` into
+  dictionary values and chunks. `ext_storage` decodes a `Masked` input and fails on a `Sparse`
+  input with extension values.
+
 A script checked that every `file:line` reference in this report points at an existing range, and
 the first line of each range was reviewed. The external crate references above were checked by
 hand. A second review checked the main claims of sections 1 and 2 by hand again.
 
-Not verified, because building or running Rust code was out of scope:
+Not verified, because no run covered them:
 
 - Any performance statement, including the cost of 128-bit and 256-bit kernels and the effect of
   rewrites on fused arithmetic.
 - The exact set of compile errors from the PType migration. The counts are a `grep` proxy.
-- The array cast failure for decimal to `f32`. It comes from reading the dispatch code, not from
-  a run.
 - The alignment of `i128` on targets other than x86_64 and aarch64, for example wasm32.
 - Whether the fuzzer reports in issue #5820 that end in a null decimal sum come from narrow
   storage. This report does not rely on that.

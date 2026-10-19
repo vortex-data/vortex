@@ -14,7 +14,7 @@ of [`agents/report.md`](agents/report.md), which gives a reason for each edge. T
 | --- | --- | --- |
 | N1 | Extension opacity fixes ([part 4](../extension-types/04-urgent-changes.md) of the extension notes) | Urgent |
 | N2 | Bind-time rewrites for extension types | Research, then implementation |
-| N3 | Pairwise derives | Implementation |
+| N3 | Derives for one dtype | Implementation |
 | N4 | Cast hooks for extension types ([#8570](https://github.com/vortex-data/vortex/issues/8570)) | Implementation |
 | N5 | Array validation where data enters | Implementation |
 | N6 | Nullability on the extension dtype | Research, optional |
@@ -50,7 +50,7 @@ flowchart TD
     subgraph EXT["Extension types"]
         N1["N1 Opacity fixes"]
         N2["N2 Bind-time rewrites"]
-        N3["N3 Pairwise derives"]
+        N3["N3 Derives for one dtype"]
         N4["N4 Cast hooks"]
     end
     subgraph DEC["Decimal"]
@@ -146,9 +146,9 @@ the built-in wrapper owns its rewrites. Only the move to an extension type (N15)
   extension notes adds a decimal-like extension type over `i64`, and that type can run the same
   tests against the built-in `Decimal`.
 - The fixed-width structural kernels (N7) serve wide integers and FixedSizeBinary.
-- The wrapper normal form and the `StorageWrapper` rules serve `Decimal` and every extension type.
-  `DateTimeParts` under the `Timestamp` wrapper is the temporal twin of DecimalByteParts under the
-  `Decimal` wrapper.
+- The `StorageWrapper` rules serve `Decimal` and every extension type. So does the open decision
+  on the position of the wrapper relative to generic encodings. `DateTimeParts` under the
+  `Timestamp` wrapper is the temporal twin of DecimalByteParts under the `Decimal` wrapper.
 
 ## Risks
 

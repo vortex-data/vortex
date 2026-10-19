@@ -39,6 +39,7 @@ physical forms, and `Decimal` duplicates much of `Primitive`. These notes propos
 
 ## Evidence
 
-The notes come from reading `develop` at `5fc5cb8`, RFC drafts, issues and pull requests. No Rust
-code was built or run for this part. One short Python script checked byte order. Section 10 of the
-report lists the claims that are not verified, which include every performance claim.
+The notes come from reading `develop` at `5fc5cb8`, RFC drafts, issues and pull requests. One
+throwaway Rust test confirmed the `f32` cast disagreement (probe R1 in the extension notes). One
+short Python script checked byte order. Section 10 of the report lists the claims that are not
+verified, which include every performance claim.
