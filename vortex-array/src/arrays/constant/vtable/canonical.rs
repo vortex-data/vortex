@@ -10,7 +10,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -131,6 +130,7 @@ pub(crate) fn constant_canonicalize(
                 value,
                 array.dtype(),
                 array.len(),
+                ctx.allocator(),
             ))
         }
         DType::Binary(_) => {
@@ -139,6 +139,7 @@ pub(crate) fn constant_canonicalize(
                 value,
                 array.dtype(),
                 array.len(),
+                ctx.allocator(),
             ))
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(
@@ -224,10 +225,11 @@ fn constant_canonical_byte_view(
     scalar_bytes: Option<ByteBuffer>,
     dtype: &DType,
     len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> VarBinViewArray {
     match scalar_bytes {
         None => {
-            let views = buffer![BinaryView::empty_view(); len];
+            let views = Buffer::full_in(BinaryView::empty_view(), len, allocator.clone());
 
             // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
             unsafe {
@@ -250,7 +252,7 @@ fn constant_canonical_byte_view(
             }
 
             // Clone our constant view `len` times.
-            let views = buffer![view; len];
+            let views = Buffer::full_in(view, len, allocator.clone());
 
             // SAFETY: all the views are identical and point to a constant value.
             unsafe {
