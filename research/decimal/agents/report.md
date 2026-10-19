@@ -187,7 +187,7 @@ factory picks the canonical width (`vortex-array/src/builders/mod.rs:412-416`).
 | Operation | Location | Behavior |
 | --- | --- | --- |
 | Cast, nullability only | `arrays/decimal/compute/cast.rs:45-80` | Reduce rule, same decimal dtype |
-| Cast to integer | `cast.rs:97-103`, `:172-196` | Truncate toward zero, range checked |
+| Cast to integer | `cast.rs:97-103`, `:172-196` | Truncate toward zero. A value outside the target range fails before truncation |
 | Cast to float | `cast.rs:104-107`, `:198-245` | `f64` only, one rounding step |
 | Cast decimal to decimal | `cast.rs:108-170`, plan at `:348` | Zero-copy when the scale is equal, the precision widens, and the width already fits. Otherwise rescale, exact scale-down only |
 | Integer to decimal | `arrays/primitive/compute/cast.rs:87-89`, `:127-173` | Floats rejected. Zero-copy when the width equals the canonical width and the scale is 0 |
@@ -520,11 +520,12 @@ dtype, the rewrites below are exact.
 | Multiply | Widen, checked multiply, precision check | Result scale `s1 + s2` |
 | Divide | Multiply the dividend by `10^k`, checked divide toward zero, precision check | As today |
 | Cast to `Decimal(p2, s2)` | Rescale with exactness, integer width cast, precision check | Replaces `DecimalCastPlan` |
-| Cast to an integer | Divide by `10^s` toward zero, then range-checked integer cast | Replaces `DecimalToIntegerCast` |
+| Cast to an integer | For a positive scale, `check_range` on the unscaled values with the bounds `MIN · 10^s` and `MAX · 10^s` of the target, then divide by `10^s` toward zero. For a negative scale, a checked multiply. Then narrow | Replaces `DecimalToIntegerCast` and keeps its rule: a value outside the range fails before truncation, so `127.1` fails for `i8` (`scalar/typed_view/decimal/integer_cast.rs:14-53`, test `cast_decimal_to_integer_bounds`) |
 | Cast to a float | Integer to `f64`, divide by `10^s`, then narrow to `f32` or `f16` | One path for scalars and arrays |
 | Cast from an integer | Widen, multiply by `10^s`, precision check | Replaces `cast_to_decimal` |
 | Sum | Integer sum with accumulator `storage_ptype(min(p + 10, 76))`, precision check | `sum_decimal_dtype` (`aggregate_fn/fns/sum/mod.rs:81-86`) |
-| Min, max, is_sorted, is_constant | Storage aggregate, then wrap | Matches `min_max/extension.rs:17-35` |
+| Min, max | Storage aggregate, then wrap the result | Matches `min_max/extension.rs:17-35` |
+| is_sorted, is_constant | Storage aggregate. The `Bool` result stays as it is | Valid within one `(p, s)` |
 | Hash, group by, distinct, join keys | Storage hash and equality | Valid within one `(p, s)` |
 | Zone-map pruning | Rewrite the predicate onto storage statistics | Old files keep decimal-typed statistics, which hold the same integers |
 | IN list | Storage set over rescaled needles | Replaces `haystack/mod.rs:118-125` |

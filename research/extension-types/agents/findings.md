@@ -133,6 +133,10 @@ Terms:
 - **Location:** `vortex-array/src/arrays/extension/compute/cast.rs:18-22`.
 - **Mechanism:** If the target is not the same extension dtype (ignoring nullability), the kernel
   returns `storage_array().cast(target)`.
+- **Scalar path:** `ExtScalar::cast` accepts the exact storage dtype as a target, ignoring
+  nullability (`vortex-array/src/scalar/typed_view/extension/mod.rs:87-96`). `Scalar::cast` sends
+  extension sources there (`vortex-array/src/scalar/cast.rs:84`). So a constant `Timestamp(ms)`
+  casts to `i64`, even if the kernel stops doing it.
 - **Observed:** `Timestamp(ms)` casts to `i64`, `f64` and `u8` [E1, E2, E3, E1'].
 - **History:** PR #7469 added this behavior. Issue #7504 decided to remove it, and was closed as a
   duplicate of #8570, which is still open. The conformance suite says the opposite of the kernel:
@@ -143,9 +147,10 @@ Terms:
   they receive an extension array, they export its storage through this fallback (EXT-B2). Removing
   the fallback without changing these callers turns a silent export into an error.
 - **Expected:** An error, unless the extension type defines the cast.
-- **Fix:** Remove the fallback. Callers that intend to read storage must call `ext_storage`.
-- **Regression test:** Casting `Timestamp(ms)` to `i64` returns an error on both paths.
-  `ext_storage` on the same input returns the `i64` storage.
+- **Fix:** Remove the fallback in the kernel and the storage target case in `ExtScalar::cast`.
+  Callers that intend to read storage must call `ext_storage`.
+- **Regression test:** Casting `Timestamp(ms)` to `i64` returns an error on the row path, the
+  array path, and with constant inputs. `ext_storage` on the same input returns the `i64` storage.
 
 ### EXT-C3: Same-type extension cast hides the storage error
 
@@ -587,6 +592,7 @@ any extension type.
 | `vortex-array/src/scalar/typed_view/extension/mod.rs:107-137` | Storage eq, order, hash | Semantic (EXT-Q2) |
 | `vortex-array/src/aggregate_fn/fns/min_max/extension.rs` | Storage min and max | Semantic (EXT-A1) |
 | `vortex-array/src/arrays/extension/compute/cast.rs:18-22` | Storage cast | Semantic (EXT-C2) |
+| `vortex-array/src/scalar/typed_view/extension/mod.rs:87-96` | Storage cast of a scalar, exact storage target only | Semantic (EXT-C2) |
 | `vortex-array/src/scalar/cast.rs:56-61` | Storage cast and wrap | Semantic (EXT-C1) |
 | `vortex-array/src/scalar/scalar_value.rs:90-95`, `builders/extension.rs:110` | Storage zero | Semantic (EXT-V3) |
 | `vortex-layout/src/layouts/zoned/schema.rs:112-121` | Storage stats dtype | Semantic (EXT-A2) |

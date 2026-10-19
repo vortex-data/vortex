@@ -669,7 +669,7 @@ in one zone is an inference from the code, not a run.
 
 | Phase | Files |
 | --- | --- |
-| 0, U1 | `vortex-array/src/scalar/cast.rs`, `vortex-array/src/arrays/extension/compute/cast.rs`, `vortex-arrow/src/executor/{primitive,byte_view,struct_}.rs` |
+| 0, U1 | `vortex-array/src/scalar/cast.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-array/src/arrays/extension/compute/cast.rs`, `vortex-arrow/src/executor/{primitive,byte_view,struct_}.rs` |
 | 0, U2 | `vortex-array/src/scalar_fn/fns/binary/mod.rs`, `vortex-array/src/scalar_fn/fns/binary/compare/mod.rs`, `encodings/datetime-parts/src/compute/compare.rs` |
 | 0, U3 | `vortex-array/src/arrays/extension/vtable/operations.rs`, `vortex-array/src/arrays/extension/compute/rules.rs`, `vortex-array/src/scalar/constructor.rs` |
 | 0, U4 | `vortex-array/src/dtype/extension/typed.rs`, `vortex-array/src/dtype/extension/vtable.rs` |

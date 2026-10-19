@@ -60,10 +60,11 @@ Every decimal operation becomes an expression over the child:
 | `x < 1.005` with scale 2 | `unscaled(x) <= 100` |
 | `+`, `-`, `*`, `/` | Widen, do a checked integer operation, then check the precision |
 | Cast to `Decimal(p2, s2)` | Rescale with an exactness check, then check the precision |
-| Cast to an integer | Divide by `10^s` toward zero, then do a range-checked integer cast |
+| Cast to an integer | Check the target range before truncation, then divide by `10^s` toward zero. So `127.1` fails for `i8`, as today |
 | Cast to a float | Convert to `f64`, divide by `10^s`, then narrow. Scalars and arrays use one path |
 | `sum` | Sum the integers at a wider width, then check the precision |
-| `min`, `max`, `is_sorted` | Run the storage aggregate, then wrap the result |
+| `min`, `max` | Run the storage aggregate, then wrap the result |
+| `is_sorted`, `is_constant` | Run the storage aggregate. The `Bool` result stays as it is |
 
 These rewrites need two integer kernels that do not exist yet. `rescale` multiplies or divides by a
 power of ten with a rounding mode, and `check_range` fails on values outside a range. The unit

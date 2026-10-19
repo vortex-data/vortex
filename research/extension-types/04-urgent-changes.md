@@ -32,6 +32,10 @@ must be errors. The table in EXT-P1 lists the first cases.
   Keep only casts between one extension dtype and the same dtype with another nullability.
 - Remove the storage fallback in the extension cast kernel
   (`vortex-array/src/arrays/extension/compute/cast.rs:18-22`).
+- Remove the storage target case in `ExtScalar::cast`
+  (`vortex-array/src/scalar/typed_view/extension/mod.rs:87-96`). `Scalar::cast` sends extension
+  sources there (`vortex-array/src/scalar/cast.rs:84`). Without this change, constants and the row
+  path still cast `Timestamp(ms)` to `i64` after the array path stops.
 - Return the storage error instead of "no `CastKernel`" (EXT-C3).
 - Change the Arrow exporters that call `array.cast(target)` (EXT-B2). An exporter that exports
   storage on purpose calls `ext_storage`. Every other exporter returns an error.

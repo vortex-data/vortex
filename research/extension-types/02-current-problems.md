@@ -31,9 +31,10 @@ implementation.
 
 - **Casts reinterpret storage (EXT-C1, EXT-C2).** A scalar cast into an extension type casts to the
   storage dtype and wraps the result. The source type plays no part. An array cast out of an
-  extension type returns the storage cast, so `Timestamp(ms)` casts to `i64`, `f64` and `u8`. Issue
-  [#7504](https://github.com/vortex-data/vortex/issues/7504) decided to remove the second behavior,
-  but it is still on `develop`.
+  extension type returns the storage cast, so `Timestamp(ms)` casts to `i64`, `f64` and `u8`. A
+  scalar cast out of an extension type accepts the exact storage dtype as a target. Issue
+  [#7504](https://github.com/vortex-data/vortex/issues/7504) decided to remove the array cast out of
+  an extension type, but it is still on `develop`.
 - **Comparisons against raw storage (EXT-Q1).** The compare type check is skipped when either side
   is an extension. A lone extension side then compares its storage, so `ts < 1500` compares raw
   `i64` values. `between` checks types strictly, so `ts BETWEEN 0 AND 1500` fails while
