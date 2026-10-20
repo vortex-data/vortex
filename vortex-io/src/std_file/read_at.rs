@@ -125,16 +125,89 @@ impl VortexReadAt for FileReadAt {
         let handle = self.handle.clone();
         let allocator = read_allocator(self.allocator.clone());
         async move {
+            let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+            // SAFETY: the bytes are read before the buffer is frozen, by read_cached_at up to
+            // `cached` and by read_exact_at from there on.
+            unsafe { buffer.set_len(length) };
+            // Bytes in the page cache are copied right away: handing the read to a blocking
+            // thread costs more than the copy. Only the bytes that must come from the disk wait.
+            let cached = read_cached_at(&file, buffer.as_mut_slice(), offset);
+            if cached == length {
+                return Ok(BufferHandle::new_host(buffer.freeze()));
+            }
             handle
                 .spawn_blocking(move || {
-                    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
-                    // SAFETY: read_exact_at initializes every byte before the buffer is frozen.
-                    unsafe { buffer.set_len(length) };
-                    read_exact_at(&file, buffer.as_mut_slice(), offset)?;
+                    read_exact_at(
+                        &file,
+                        &mut buffer.as_mut_slice()[cached..],
+                        offset + cached as u64,
+                    )?;
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })
                 .await
         }
         .boxed()
+    }
+}
+
+/// Reads the start of `buffer` from `file` at `offset` as far as the page cache holds it,
+/// without waiting for the disk, and returns the number of bytes read.
+#[cfg(target_os = "linux")]
+fn read_cached_at(file: &File, buffer: &mut [u8], offset: u64) -> usize {
+    use std::io::IoSliceMut;
+
+    use rustix::io::Errno;
+    use rustix::io::ReadWriteFlags;
+
+    let mut read = 0;
+    while read < buffer.len() {
+        let mut slices = [IoSliceMut::new(&mut buffer[read..])];
+        match rustix::io::preadv2(
+            file,
+            &mut slices,
+            offset + read as u64,
+            ReadWriteFlags::NOWAIT,
+        ) {
+            // The end of the file is left for read_exact_at to report.
+            Ok(0) => break,
+            Ok(len) => read += len,
+            Err(Errno::INTR) => {}
+            // `EAGAIN` when the next page is not cached, or `EOPNOTSUPP` when the file system
+            // cannot read without waiting.
+            Err(_) => break,
+        }
+    }
+    read
+}
+
+/// Platforms without non-blocking reads of cached bytes read everything on a blocking thread.
+#[cfg(not(target_os = "linux"))]
+fn read_cached_at(_file: &File, _buffer: &mut [u8], _offset: u64) -> usize {
+    0
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::runtime::BlockingRuntime;
+    use crate::runtime::current::CurrentThreadRuntime;
+
+    #[test]
+    fn read_past_the_end_fails() -> VortexResult<()> {
+        let directory = tempdir()?;
+        let path = directory.path().join("read.vortex");
+        std::fs::write(&path, [7u8; 16])?;
+
+        let runtime = CurrentThreadRuntime::new();
+        let reader = FileReadAt::open(&path, runtime.handle())?;
+        // The cached bytes are read without waiting, and the rest hits the end of the file.
+        let result = runtime.block_on(reader.read_at(8, 16, Alignment::none()));
+        assert!(result.is_err());
+        let buffer = runtime.block_on(reader.read_at(8, 8, Alignment::none()))?;
+        assert_eq!(buffer.into_host_sync().as_slice(), &[7u8; 8]);
+        Ok(())
     }
 }
