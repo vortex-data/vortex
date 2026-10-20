@@ -328,6 +328,7 @@ impl FileSegmentSource {
             concurrency,
             metrics.clone(),
         )
+        .with_readahead(reader.readahead())
         .boxed();
 
         let drive_fut = ReadDriver::new(reader, stream, concurrency, metrics).collect::<()>();

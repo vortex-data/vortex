@@ -13,6 +13,7 @@ use tracing::trace;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::read::ReadRequest;
@@ -36,6 +37,9 @@ pin_project! {
         coalesce_window: Option<CoalesceConfig>,
         // Maximum physical reads returned by one stream item.
         batch_size: usize,
+        // How many bytes of registered requests may be read before they are polled, see
+        // `with_readahead`.
+        readahead: usize,
         state: State,
     }
 }
@@ -59,8 +63,20 @@ impl<S> IoRequestStream<S> {
             inner_done: false,
             coalesce_window,
             batch_size,
+            readahead: 0,
             state: State::new(metrics, coalesced_buffer_alignment),
         }
+    }
+
+    /// Lets up to `readahead` bytes of registered requests be read before they are polled, in the
+    /// order they were registered, while no polled request waits.
+    ///
+    /// Readers poll the reads of a split only as they decode it, so with sources whose reads take
+    /// a while they wait for every read in turn. Reading ahead uses the time that no polled read
+    /// waits for, at the cost of reads whose requests may be dropped unpolled.
+    pub(crate) fn with_readahead(mut self, readahead: usize) -> Self {
+        self.readahead = readahead;
+        self
     }
 }
 
@@ -88,6 +104,10 @@ where
                     break;
                 }
             }
+        }
+
+        if this.state.polled_requests.is_empty() {
+            this.state.read_ahead(*this.readahead);
         }
 
         // Emit a partial batch immediately so the downstream driver can fill free I/O slots.
@@ -126,6 +146,11 @@ struct State {
     // Spatial index - allows us to find nearby requests for coalescing sorted by offset.
     requests_by_offset: BTreeSet<(u64, RequestId)>,
 
+    // The lengths of requests that were made eligible before they were polled, until they are
+    // polled or dropped, and their sum.
+    read_ahead: HashMap<RequestId, usize>,
+    read_ahead_bytes: usize,
+
     // Metrics for tracking I/O request patterns
     metrics: RequestMetrics,
     coalesced_buffer_alignment: Alignment,
@@ -137,6 +162,8 @@ impl State {
             requests: BTreeMap::new(),
             polled_requests: BTreeMap::new(),
             requests_by_offset: BTreeSet::new(),
+            read_ahead: HashMap::new(),
+            read_ahead_bytes: 0,
             metrics,
             coalesced_buffer_alignment,
         }
@@ -155,6 +182,7 @@ impl State {
                 self.requests.insert(req.id, req);
             }
             ReadEvent::Polled(req_id) => {
+                self.claim_read_ahead(req_id);
                 if let Some(req) = self.requests.remove(&req_id) {
                     if req.callback.is_canceled() {
                         self.requests_by_offset.remove(&(req.offset, req_id));
@@ -165,6 +193,7 @@ impl State {
                 }
             }
             ReadEvent::Dropped(req_id) => {
+                self.claim_read_ahead(req_id);
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
                     trace!(?req, "ReadRequest dropped before poll");
@@ -174,6 +203,29 @@ impl State {
                     trace!(?req, "ReadRequest dropped after poll");
                 }
             }
+        }
+    }
+
+    /// Makes the earliest registered requests eligible until `readahead` bytes are read ahead.
+    fn read_ahead(&mut self, readahead: usize) {
+        while self.read_ahead_bytes < readahead {
+            let Some((req_id, req)) = self.requests.pop_first() else {
+                return;
+            };
+            if req.callback.is_canceled() {
+                self.requests_by_offset.remove(&(req.offset, req_id));
+                continue;
+            }
+            self.read_ahead.insert(req_id, req.length);
+            self.read_ahead_bytes += req.length;
+            self.polled_requests.insert(req_id, req);
+        }
+    }
+
+    /// Stops counting a request that was read ahead once it is polled or dropped.
+    fn claim_read_ahead(&mut self, req_id: RequestId) {
+        if let Some(length) = self.read_ahead.remove(&req_id) {
+            self.read_ahead_bytes -= length;
         }
     }
 
@@ -335,6 +387,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use futures::FutureExt;
     use futures::StreamExt;
     use futures::channel::mpsc;
     use futures::channel::oneshot;
@@ -402,6 +455,73 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].offset(), 100);
         assert_eq!(outputs[0].len(), 50);
+    }
+
+    /// A stream that reads ahead `readahead` bytes, with the sender of its events.
+    fn readahead_stream(
+        readahead: usize,
+    ) -> (
+        mpsc::UnboundedSender<ReadEvent>,
+        IoRequestStream<mpsc::UnboundedReceiver<ReadEvent>>,
+    ) {
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let (sender, receiver) = mpsc::unbounded();
+        let stream = IoRequestStream::new(receiver, None, Alignment::none(), 1024, metrics)
+            .with_readahead(readahead);
+        (sender, stream)
+    }
+
+    /// The offsets of the reads that `stream` emits before it would wait.
+    fn emitted_offsets(
+        stream: &mut IoRequestStream<mpsc::UnboundedReceiver<ReadEvent>>,
+    ) -> Vec<u64> {
+        let mut offsets = Vec::new();
+        while let Some(Some(batch)) = stream.next().now_or_never() {
+            offsets.extend(batch.iter().map(|request| request.offset()));
+        }
+        offsets
+    }
+
+    /// Registers four 10 byte requests 100 bytes apart, returning their receivers.
+    fn register_four(
+        sender: &mpsc::UnboundedSender<ReadEvent>,
+    ) -> Vec<oneshot::Receiver<VortexResult<BufferHandle>>> {
+        (0..4)
+            .map(|id| {
+                let (request, recv) = create_request(id, id as u64 * 100, 10);
+                assert!(sender.unbounded_send(ReadEvent::Request(request)).is_ok());
+                recv
+            })
+            .collect()
+    }
+
+    #[rstest::rstest]
+    #[case(0, &[])]
+    #[case(10, &[0])]
+    #[case(25, &[0, 100, 200])]
+    #[case(1000, &[0, 100, 200, 300])]
+    fn test_readahead_reads_registered_requests_within_budget(
+        #[case] readahead: usize,
+        #[case] expected: &[u64],
+    ) {
+        let (sender, mut stream) = readahead_stream(readahead);
+        let _receivers = register_four(&sender);
+        assert_eq!(emitted_offsets(&mut stream), expected);
+    }
+
+    #[test]
+    fn test_polling_a_read_ahead_request_frees_its_budget() {
+        let (sender, mut stream) = readahead_stream(10);
+        let _receivers = register_four(&sender);
+        assert_eq!(emitted_offsets(&mut stream), [0]);
+        // The budget is spent until the request that was read ahead is polled.
+        assert!(emitted_offsets(&mut stream).is_empty());
+        assert!(sender.unbounded_send(ReadEvent::Polled(0)).is_ok());
+        assert_eq!(emitted_offsets(&mut stream), [100]);
+        // Dropping it frees the budget too.
+        assert!(sender.unbounded_send(ReadEvent::Dropped(1)).is_ok());
+        assert_eq!(emitted_offsets(&mut stream), [200]);
     }
 
     #[tokio::test]
