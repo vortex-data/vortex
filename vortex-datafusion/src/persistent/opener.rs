@@ -34,7 +34,6 @@ use datafusion_physical_expr::utils::conjunction_opt;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
-use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use datafusion_physical_plan::filter::batch_filter;
 use datafusion_physical_plan::limit::LimitStream;
 use datafusion_physical_plan::metrics::BaselineMetrics;
@@ -72,6 +71,8 @@ use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
 use crate::convert::dynamic_filter::DataFusionDynamicFilter;
+use crate::convert::dynamic_filter::DynamicFilterConversions;
+use crate::convert::dynamic_filter::drop_unselective_ranges;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -133,6 +134,8 @@ pub(crate) struct VortexOpener {
     pub scan_v2: bool,
     /// When the scan skips dynamic filter conjuncts that keep most rows.
     pub optional_filter_backoff: Option<OptionalFilterBackoff>,
+    /// Conversions of the dynamic filters, shared by the openers of the scan.
+    pub dynamic_filter_conversions: Arc<DynamicFilterConversions>,
 }
 
 impl FileOpener for VortexOpener {
@@ -172,6 +175,7 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let scan_v2 = self.scan_v2;
         let optional_filter_backoff = self.optional_filter_backoff;
+        let dynamic_filter_conversions = Arc::clone(&self.dynamic_filter_conversions);
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -353,34 +357,48 @@ impl FileOpener for VortexOpener {
             // Dynamic filters only discard rows that cannot contribute to the result, so
             // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals,
             // and the scan can skip conjuncts that keep most rows.
-            for dynamic_filter in dynamic_filters {
-                let dynamic_filter = expr_adapter.rewrite(dynamic_filter)?;
+            for predicate in dynamic_filters {
+                let adapted = expr_adapter.rewrite(Arc::clone(&predicate))?;
                 if matches!(
-                    DynamicFilterTracking::classify(&dynamic_filter),
+                    DynamicFilterTracking::classify(&adapted),
                     DynamicFilterTracking::AllComplete
                 ) {
                     // A complete filter, such as the bounds of a hash join whose build side has
                     // finished, does not change again. Its snapshot keeps every kernel of the
-                    // scan, and bounds the file statistics prove every row satisfies are dropped.
-                    let snapshot =
-                        simplifier.simplify(snapshot_physical_expr(dynamic_filter)?)?;
-                    for expr in split_conjunction(&snapshot) {
-                        if let Some(expr) = expr_converter.try_convert(expr, &this_file_schema)?
-                            && !vxf.is_satisfied(&expr).unwrap_or(false)
-                        {
-                            native_filters.push(optional(expr));
+                    // scan. Bounds that the file statistics prove for every row without nulls
+                    // would at most remove those nulls, which is not worth evaluating.
+                    let conjuncts = dynamic_filter_conversions.conjuncts(
+                        &predicate,
+                        &adapted,
+                        expr_converter.as_ref(),
+                        &this_file_schema,
+                    )?;
+                    let conjuncts = conjuncts
+                        .iter()
+                        .filter(|expr| !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false))
+                        .cloned();
+                    // The scan would skip ranges that keep most rows after sampling them, so
+                    // ranges whose statistics predict that are dropped up front.
+                    let conjuncts = match optional_filter_backoff {
+                        Some(backoff) => {
+                            drop_unselective_ranges(conjuncts, &vxf, backoff.max_selectivity)
                         }
-                    }
+                        None => conjuncts.collect(),
+                    };
+                    // One marker over the whole conjunction lets the scan merge its range
+                    // comparisons into betweens.
+                    native_filters.extend(and_collect(conjuncts).map(optional));
                 } else {
                     // A filter that can still change, such as a TopK threshold, is read again
                     // by the scan each time it changes.
                     native_filters.extend(
-                        DataFusionDynamicFilter::expressions(
-                            dynamic_filter,
+                        and_collect(DataFusionDynamicFilter::expressions(
+                            predicate,
+                            adapted,
+                            Arc::clone(&dynamic_filter_conversions),
                             Arc::clone(&expr_converter),
                             Arc::clone(&this_file_schema),
-                        )
-                        .into_iter()
+                        ))
                         .map(optional),
                     );
                 }
@@ -1146,6 +1164,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         }
     }
 
@@ -1555,6 +1574,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -1646,6 +1666,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         let stream = opener.open(file)?.await?;
@@ -1828,6 +1849,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -1892,6 +1914,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         }
     }
 
@@ -2107,6 +2130,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

@@ -44,6 +44,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
+use crate::convert::dynamic_filter::DynamicFilterConversions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::reader::DefaultVortexReaderFactory;
@@ -208,6 +209,8 @@ pub struct VortexSource {
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
     file_schemas: Arc<DashMap<Path, SchemaRef>>,
+    /// Conversions of the dynamic filters, shared by every partition and file of one scan.
+    dynamic_filter_conversions: Arc<DynamicFilterConversions>,
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -243,6 +246,7 @@ impl VortexSource {
             segment_sources: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
+            dynamic_filter_conversions: Default::default(),
             expression_converter,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -369,6 +373,7 @@ impl VortexSource {
             segment_sources: Arc::clone(&self.segment_sources),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
+            dynamic_filter_conversions: Arc::clone(&self.dynamic_filter_conversions),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
