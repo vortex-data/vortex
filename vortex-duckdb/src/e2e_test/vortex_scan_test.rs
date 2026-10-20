@@ -578,6 +578,32 @@ fn test_first_query_plans_with_multi_file_statistics() -> Result<()> {
 }
 
 #[test]
+fn test_filtered_aggregate_over_scan() -> Result<()> {
+    let file = RUNTIME.block_on(write_vortex_file(
+        [
+            ("a", buffer![1i32, 2, 3, 4].into_array()),
+            ("b", buffer![10i32, 20, 30, 40].into_array()),
+        ]
+        .into_iter(),
+    ));
+    let path = file.path().display();
+    let conn = database_connection();
+    for (query, expected) in [
+        (format!("SELECT max(a) FROM '{path}' WHERE a <> 4"), 3i32),
+        (format!("SELECT min(a) FROM '{path}' WHERE b > 15"), 2),
+        (format!("SELECT max(b) FROM '{path}' WHERE a < 3"), 20),
+    ] {
+        let result = conn.query(&query)?;
+        let chunk = result.into_iter().next().unwrap();
+        let value = chunk
+            .get_vector(0)
+            .as_slice_with_len::<i32>(chunk.len().as_())[0];
+        assert_eq!(value, expected, "{query}");
+    }
+    Ok(())
+}
+
+#[test]
 fn test_multi_file_statistics_keep_overflow_checks() -> Result<()> {
     let (_tempdir, _files, glob) =
         write_two_number_files(buffer![1i32, 2, 3], buffer![i32::MAX - 1, i32::MAX]);
