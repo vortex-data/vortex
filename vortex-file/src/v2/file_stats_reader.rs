@@ -14,8 +14,8 @@ use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::ExactKey;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -44,8 +44,8 @@ pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
     session: VortexSession,
-    prune_cache: Arc<DashMap<ExactBoundExpr, CachedProof>>,
-    satisfaction_cache: Arc<DashMap<ExactBoundExpr, CachedProof>>,
+    prune_cache: Arc<DashMap<WeakBoundExprKey, CachedProof>>,
+    satisfaction_cache: Arc<DashMap<WeakBoundExprKey, CachedProof>>,
 }
 
 impl FileStatsLayoutReader {
@@ -182,7 +182,7 @@ impl LayoutReader for FileStatsLayoutReader {
 
 /// Returns whether file statistics falsify `expr`, with a cache for each dynamic producer version.
 fn is_falsified_cached(
-    cache: &DashMap<ExactBoundExpr, CachedProof>,
+    cache: &DashMap<WeakBoundExprKey, CachedProof>,
     child: &LayoutReaderRef,
     file_stats: &FileStatistics,
     session: &VortexSession,
@@ -195,9 +195,10 @@ fn is_falsified_cached(
 
 /// Evaluates `proof` through the cached proof of `expr`.
 ///
-/// A hit probes the cache with the borrowed expression; only a miss clones it into a key.
+/// A hit probes the cache with the borrowed expression. A miss first drops the entries of
+/// expressions that no scan holds any more, then inserts a key for `expr`.
 fn evaluate_cached(
-    cache: &DashMap<ExactBoundExpr, CachedProof>,
+    cache: &DashMap<WeakBoundExprKey, CachedProof>,
     expr: &BoundExpression,
     proof: impl FnOnce() -> VortexResult<bool>,
 ) -> VortexResult<bool> {
@@ -205,8 +206,10 @@ fn evaluate_cached(
         return entry.evaluate(proof);
     }
 
+    cache.retain(|key, _| key.is_live());
+
     cache
-        .entry(ExactBoundExpr(expr.clone()))
+        .entry(WeakBoundExprKey::new(expr))
         .or_insert_with(|| CachedProof::new(expr))
         .evaluate(proof)
 }
@@ -408,6 +411,48 @@ mod tests {
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn prune_cache_drops_expressions_no_scan_holds() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = PrimitiveArray::from_iter([1i32, 5]);
+            let struct_array = StructArray::from_fields([("col", values.into_array())].as_slice())?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let reader = FileStatsLayoutReader::new(child, test_file_stats(1, 5), session);
+
+            // A reader that outlives its scans sees a new expression from every scan.
+            for _ in 0..3 {
+                let expr = gt(get_item("col", root()), lit(10i32)).bind(reader.dtype())?;
+                for _ in 0..2 {
+                    let result = reader
+                        .pruning_evaluation(&(0..2), &expr, Mask::new_true(2))?
+                        .await?;
+                    assert_eq!(result, Mask::new_false(2));
+                }
+            }
+            assert_eq!(reader.prune_cache.len(), 1);
 
             Ok(())
         })
