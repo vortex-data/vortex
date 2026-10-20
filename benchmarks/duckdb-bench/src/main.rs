@@ -106,6 +106,10 @@ struct Args {
     /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H).
     #[arg(long, action = clap::ArgAction::Set)]
     scan_v2: Option<bool>,
+
+    /// Read local Vortex files with system calls instead of memory maps of them.
+    #[arg(long, default_value_t = false)]
+    no_mmap: bool,
 }
 
 #[global_allocator]
@@ -124,8 +128,10 @@ fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    // SAFETY: benchmark data files are not modified while queries run.
-    unsafe { vortex_duckdb::enable_mmap_local_files() };
+    if !args.no_mmap {
+        // SAFETY: benchmark data files are not modified while queries run.
+        unsafe { vortex_duckdb::enable_mmap_local_files() };
+    }
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
