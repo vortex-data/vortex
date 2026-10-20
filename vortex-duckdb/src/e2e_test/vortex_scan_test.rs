@@ -565,6 +565,19 @@ fn test_multi_file_statistics_prune_filters() -> Result<()> {
 }
 
 #[test]
+fn test_first_query_plans_with_multi_file_statistics() -> Result<()> {
+    let (_tempdir, _files, glob) = write_two_number_files(buffer![1i32, 2, 3], buffer![4i32, 5, 6]);
+    let conn = database_connection();
+    // No scan has opened the files, so planning reads their footers.
+    let plan = explain(
+        &conn,
+        &format!("SELECT numbers FROM '{glob}' WHERE numbers > 6"),
+    )?;
+    assert!(plan.contains("EMPTY_RESULT"), "{plan}");
+    Ok(())
+}
+
+#[test]
 fn test_multi_file_statistics_keep_overflow_checks() -> Result<()> {
     let (_tempdir, _files, glob) =
         write_two_number_files(buffer![1i32, 2, 3], buffer![i32::MAX - 1, i32::MAX]);

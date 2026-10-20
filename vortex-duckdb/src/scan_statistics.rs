@@ -31,6 +31,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
+use crate::file_reader::cache_local_footer;
 
 /// The statistics of each column of a set of files.
 pub struct MergedStatistics {
@@ -103,14 +104,24 @@ static CACHE: LazyLock<Mutex<HashMap<Vec<String>, CachedStatistics>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The statistics of the columns of the files at `paths`, if the footers of all of them are
-/// cached and have statistics.
+/// cached or local, and have statistics.
+///
+/// The footers of local files that no scan has opened yet are read here, so that the first query
+/// over a set of files plans with their statistics too. Reading the footers of remote files would
+/// cost requests that planning should not make.
 pub fn merged_statistics(paths: &[&str]) -> Option<Arc<MergedStatistics>> {
     let session = SESSION
         .get_opt::<MultiFileSession>()
         .vortex_expect("MultiFileSession not found");
     let footers = paths
         .iter()
-        .map(|path| session.get_footer(path))
+        .map(|path| {
+            session.get_footer(path).or_else(|| {
+                // A file that fails to open plans without statistics, and its scan reports why.
+                cache_local_footer(path).ok()?;
+                session.get_footer(path)
+            })
+        })
         .collect::<Option<Vec<_>>>()?;
     let files = footers
         .iter()
