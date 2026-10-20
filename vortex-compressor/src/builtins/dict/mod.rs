@@ -4,10 +4,10 @@
 //! Dictionary encoding schemes for binary, integer, float, and string arrays.
 
 mod binary;
+mod bytes_candidate;
 mod float;
 mod integer;
 mod string;
-mod string_candidate;
 
 pub use binary::BinaryDictScheme;
 pub use float::FloatDictScheme;
