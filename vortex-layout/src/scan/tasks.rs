@@ -50,11 +50,18 @@ pub(crate) fn split_exec(ctx: &TaskContext, read_mask: RowMask) -> VortexResult<
     let projection =
         ctx.reader
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+    let filter = Arc::clone(filter);
     Ok(async move {
-        if filter_mask.await?.all_false() {
+        let mask = filter_mask.await?;
+        if mask.all_false() {
             return Ok(None);
         }
-        projection.await.map(Some)
+        #[cfg(not(target_arch = "wasm32"))]
+        let start = std::time::Instant::now();
+        let array = projection.await?;
+        #[cfg(not(target_arch = "wasm32"))]
+        filter.report_projection_cost(mask.true_count(), start.elapsed());
+        Ok(Some(array))
     }
     .boxed())
 }
@@ -124,6 +131,11 @@ fn build_filter_mask(
             if !filter.should_evaluate(idx, mask.true_count()) {
                 continue;
             }
+            if filter.wait_for_first_measurement(idx).await
+                && !filter.should_evaluate(idx, mask.true_count())
+            {
+                continue;
+            }
 
             // If the dynamic expression has changed since pruning, re-run the pruning.
             // Store the dynamic update once to avoid TOCTOU race condition.
@@ -140,6 +152,8 @@ fn build_filter_mask(
                 mask = mask.bitand(&conjunct_mask);
             }
             if mask.all_false() {
+                // Pruning removed every row, so the conjunct evaluated none.
+                filter.report_evaluation(idx, 0, 0);
                 return Ok(mask);
             }
 

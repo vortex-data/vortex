@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bit_vec::BitVec;
@@ -21,6 +22,13 @@ use vortex_error::vortex_panic;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
+
+/// The projection time per row a scan assumes before it measures one. Decoding a few primitive
+/// columns costs tens of nanoseconds a row.
+const DEFAULT_PROJECTION_NANOS_PER_ROW: f64 = 50.0;
+
+/// The fewest rows over which a conjunct is measured before it can back off for its cost.
+const MIN_COST_SAMPLE_ROWS: u64 = 8 * 1024;
 
 /// The smallest fraction of removed rows used to rank a conjunct, so that one that removes no
 /// rows ranks last without dividing by zero.
@@ -108,7 +116,16 @@ struct OptionalConjunct {
     skip_rows: u64,
     /// The dynamic version of the conjunct when the skip started.
     skipped_version: Option<u64>,
+    /// Whether a split measured the conjunct.
+    measured: bool,
+    /// Whether a split is measuring the conjunct for the first time.
+    measuring: bool,
 }
+
+/// Concurrent splits of a scan reach a conjunct together, so the first measurement of an optional
+/// conjunct is made by one split while the others wait for it, rather than all of them paying for
+/// a conjunct that costs more than it saves.
+type FirstMeasurement = Arc<async_lock::OnceCell<()>>;
 
 /// A [`FilterExpr`] splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
@@ -120,10 +137,14 @@ pub struct FilterExpr {
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// The evaluation time and input rows of each conjunct, to order costly conjuncts last.
     conjunct_cost: Vec<Mutex<ConjunctCost>>,
+    /// The projection time and projected rows, the work a conjunct saves for each row it removes.
+    projection_cost: Mutex<ConjunctCost>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
     dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
     /// The skip state of each optional conjunct, if the scan skips optional conjuncts.
     optional_conjuncts: Vec<Option<Mutex<OptionalConjunct>>>,
+    /// Set once each optional conjunct has its first measurement.
+    first_measurements: Vec<Option<FirstMeasurement>>,
     /// When to skip optional conjuncts, or `None` to always evaluate them.
     optional_backoff: Option<OptionalFilterBackoff>,
     /// The preferred ordering of conjuncts.
@@ -169,10 +190,16 @@ impl FilterExpr {
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
         let optional_conjuncts = optional
-            .into_iter()
-            .map(|optional| {
+            .iter()
+            .map(|&optional| {
                 (optional && optional_backoff.is_some())
                     .then(|| Mutex::new(OptionalConjunct::default()))
+            })
+            .collect();
+        let first_measurements = optional
+            .iter()
+            .map(|&optional| {
+                (optional && optional_backoff.is_some()).then(FirstMeasurement::default)
             })
             .collect();
 
@@ -184,8 +211,10 @@ impl FilterExpr {
             conjunct_cost: iter::repeat_with(|| Mutex::new(ConjunctCost::default()))
                 .take(num_conjuncts)
                 .collect(),
+            projection_cost: Mutex::new(ConjunctCost::default()),
             dynamic_conjuncts,
             optional_conjuncts,
+            first_measurements,
             optional_backoff,
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
@@ -236,6 +265,30 @@ impl FilterExpr {
         false
     }
 
+    /// Wait for the first measurement of an optional conjunct that another split is making. The
+    /// first split to ask makes the measurement and does not wait. Returns whether it waited, after
+    /// which the caller decides again whether to evaluate the conjunct.
+    pub async fn wait_for_first_measurement(&self, conjunct_idx: usize) -> bool {
+        let (Some(state), Some(first_measurement)) = (
+            &self.optional_conjuncts[conjunct_idx],
+            &self.first_measurements[conjunct_idx],
+        ) else {
+            return false;
+        };
+        {
+            let mut state = state.lock();
+            if state.measured {
+                return false;
+            }
+            if !state.measuring {
+                state.measuring = true;
+                return false;
+            }
+        }
+        first_measurement.wait().await;
+        true
+    }
+
     /// Whether the scan prunes the zones of the conjunct: not when it skips the conjunct, nor for
     /// an optional conjunct of a scan too small to prune.
     pub fn should_prune(&self, conjunct_idx: usize) -> bool {
@@ -269,7 +322,8 @@ impl FilterExpr {
     }
 
     /// Report that the conjunct kept `output_rows` of `input_rows` evaluated rows. An optional
-    /// conjunct that kept too many rows over a full sample is skipped for the backoff rows.
+    /// conjunct that kept too many rows over a full sample, or that costs more than the projection
+    /// it saves, is skipped for the backoff rows.
     pub fn report_evaluation(&self, conjunct_idx: usize, input_rows: usize, output_rows: usize) {
         let (Some(state), Some(backoff)) = (
             &self.optional_conjuncts[conjunct_idx],
@@ -278,19 +332,51 @@ impl FilterExpr {
             return;
         };
         let mut state = state.lock();
+        if !state.measured {
+            state.measured = true;
+            state.measuring = false;
+            if let Some(first_measurement) = &self.first_measurements[conjunct_idx] {
+                // Only the measuring split sets the cell, so this never waits.
+                let _ = first_measurement.set_blocking(());
+            }
+        }
         state.sampled_rows += input_rows as u64;
         state.kept_rows += output_rows as u64;
-        if state.sampled_rows < backoff.sample_rows {
+        // A costly conjunct is judged on a small sample, as the sample alone can cost more than
+        // the whole scan saves.
+        if state.sampled_rows < backoff.sample_rows.min(MIN_COST_SAMPLE_ROWS) {
             return;
         }
 
         let selectivity = state.kept_rows as f64 / state.sampled_rows as f64;
+        // A conjunct pays when it costs less per row than the projection it saves for the rows it
+        // removes. The hash table lookup of a join can cost more than a hundred nanoseconds a row.
+        // The projection runs after the filter, so the first decisions of a scan use an estimate.
+        let projection = *self.projection_cost.lock();
+        let projection_per_row = if projection.rows == 0 {
+            DEFAULT_PROJECTION_NANOS_PER_ROW
+        } else {
+            projection.per_row()
+        };
+        let cost_per_row = self.conjunct_cost[conjunct_idx].lock().per_row();
+        let costs_more_than_it_saves = cost_per_row > (1.0 - selectivity) * projection_per_row;
+        if !costs_more_than_it_saves && state.sampled_rows < backoff.sample_rows {
+            return;
+        }
+        tracing::trace!(
+            conjunct = %self.conjuncts[conjunct_idx],
+            selectivity,
+            cost_per_row,
+            projection_per_row,
+            "measured optional filter conjunct"
+        );
         state.sampled_rows = 0;
         state.kept_rows = 0;
-        if selectivity > backoff.max_selectivity {
+        if selectivity > backoff.max_selectivity || costs_more_than_it_saves {
             tracing::debug!(
                 conjunct = %self.conjuncts[conjunct_idx],
                 selectivity,
+                cost_per_row,
                 backoff_rows = backoff.backoff_rows,
                 "skipping optional filter conjunct"
             );
@@ -314,6 +400,13 @@ impl FilterExpr {
         let mut cost = self.conjunct_cost[conjunct_idx].lock();
         cost.nanos += elapsed.as_nanos();
         cost.rows += input_rows as u64;
+    }
+
+    /// Report that projecting `rows` selected rows took `elapsed`.
+    pub fn report_projection_cost(&self, rows: usize, elapsed: Duration) {
+        let mut cost = self.projection_cost.lock();
+        cost.nanos += elapsed.as_nanos();
+        cost.rows += rows as u64;
     }
 
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
@@ -398,6 +491,8 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use futures::FutureExt;
+    use futures::executor::block_on;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -545,6 +640,33 @@ mod tests {
         assert_eq!(backoff.for_scan_rows(0).sample_rows, 1);
         assert!(!backoff.for_scan_rows(10_000).prune_zones);
         assert!(backoff.for_scan_rows(100_000).prune_zones);
+    }
+
+    #[test]
+    fn optional_conjunct_that_costs_more_than_it_saves_backs_off() -> VortexResult<()> {
+        let filter = optional_filter(&DType::Bool(Nullability::Nullable))?;
+        // Projecting a row costs 10ns, evaluating the conjunct 100ns, so removing half the rows
+        // saves 5ns a row for a cost of 100ns.
+        filter.report_projection_cost(1000, Duration::from_micros(10));
+        filter.report_cost(1, 100, Duration::from_micros(10));
+        filter.report_evaluation(1, 100, 50);
+        assert!(filter.is_skipped(1));
+        Ok(())
+    }
+
+    #[test]
+    fn concurrent_splits_wait_for_the_first_measurement() -> VortexResult<()> {
+        let filter = optional_filter(&DType::Bool(Nullability::Nullable))?;
+        // The first split measures without waiting.
+        assert!(!block_on(filter.wait_for_first_measurement(1)));
+        // A concurrent split waits until the first one reports.
+        let mut waiting = Box::pin(filter.wait_for_first_measurement(1));
+        assert!((&mut waiting).now_or_never().is_none());
+        filter.report_evaluation(1, 50, 5);
+        assert!(block_on(waiting));
+        // Later splits do not wait.
+        assert!(!block_on(filter.wait_for_first_measurement(1)));
+        Ok(())
     }
 
     #[test]
