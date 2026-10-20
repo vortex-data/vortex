@@ -191,6 +191,43 @@ fn resolve_object_store(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
+/// The layout reader of an opened file, and the file as the V2 executor reads it, with a cache
+/// that every scan of the file shares.
+fn scan_parts(file: &VortexFile) -> VortexResult<(LayoutReaderRef, ScanFile)> {
+    let mut scan_file = file.scan_file();
+    scan_file.cache.get_or_insert_default();
+    Ok((file.layout_reader()?, scan_file))
+}
+
+/// The layout reader and scan file of the local file at `file_path`, which DuckDB names `path`,
+/// reusing those of an earlier scan.
+async fn local_scan_parts(
+    path: &str,
+    file_path: &str,
+) -> VortexResult<(LayoutReaderRef, ScanFile)> {
+    // Opening a local file takes a few system calls, so it is done here instead of handing it to
+    // a blocking thread, which takes longer than the calls themselves.
+    let file = open_local_file(file_path)?;
+    if let Some(opened) = file.opened.get() {
+        return Ok(opened.clone());
+    }
+    let source = Arc::clone(&file.source);
+    let vortex_file = open_cached(&SESSION, Some(path), source, None, &|options| options).await?;
+    let opened = scan_parts(&vortex_file)?;
+    Ok(file.opened.get_or_init(|| opened).clone())
+}
+
+/// Reads the footer of the file at `path` into the footer cache unless a scan has, if the file
+/// is local. The scan of the file opens it anyway and reuses what this opened.
+pub(crate) fn cache_local_footer(path: &str) -> VortexResult<()> {
+    let url = parse_uri_or_path(path)?;
+    if url.scheme() != "file" {
+        return Ok(());
+    }
+    RUNTIME.block_on(local_scan_parts(path, url.path()))?;
+    Ok(())
+}
+
 pub struct OpenFileReader {
     /// The layout reader and conversion cache of the file. `None` after the file is skipped or
     /// all its splits are taken.
@@ -225,30 +262,14 @@ impl OpenFileReader {
         // Reads of mapped files are cheap to issue late, so their splits are built by the
         // threads that scan them instead of all up front during reader initialization.
         let lazy_splits = local && MMAP_LOCAL_FILES.load(Ordering::Relaxed);
-        let open = |file: VortexFile| -> VortexResult<(LayoutReaderRef, ScanFile)> {
-            let mut scan_file = file.scan_file();
-            scan_file.cache.get_or_insert_default();
-            Ok((file.layout_reader()?, scan_file))
-        };
         let (reader, scan_file) = if local {
-            // Opening a local file takes a few system calls, so it is done here instead of
-            // handing it to a blocking thread, which takes longer than the calls themselves.
-            let file = open_local_file(url.path())?;
-            match file.opened.get() {
-                Some(opened) => opened.clone(),
-                None => {
-                    let source = Arc::clone(&file.source);
-                    let vortex_file =
-                        open_cached(&SESSION, Some(&path), source, None, &|options| options)
-                            .await?;
-                    let opened = open(vortex_file)?;
-                    file.opened.get_or_init(|| opened).clone()
-                }
-            }
+            local_scan_parts(&path, url.path()).await?
         } else {
             let (fs, fs_path) = resolve_object_store(&url)?;
             let source = fs.open_read(&fs_path).await?;
-            open(open_cached(&SESSION, Some(&path), source, None, &|options| options).await?)?
+            scan_parts(
+                &open_cached(&SESSION, Some(&path), source, None, &|options| options).await?,
+            )?
         };
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
