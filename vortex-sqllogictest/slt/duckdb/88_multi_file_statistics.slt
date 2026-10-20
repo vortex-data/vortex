@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# Statistics merged from the footers of several files prune filters that no file can match.
+
+statement ok
+COPY (SELECT * FROM (VALUES (1), (2), (3)) t(numbers)) TO '${WORK_DIR}/multi_stats_a.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (4), (5), (6)) t(numbers)) TO '${WORK_DIR}/multi_stats_b.vortex';
+
+# Caches every footer.
+query I
+SELECT sum(numbers) FROM '${WORK_DIR}/multi_stats_*.vortex';
+----
+21
+
+query TT
+EXPLAIN SELECT numbers FROM '${WORK_DIR}/multi_stats_*.vortex' WHERE numbers > 6;
+----
+<REGEX>:.*EMPTY_RESULT.*
+
+query TT
+EXPLAIN SELECT numbers FROM '${WORK_DIR}/multi_stats_*.vortex' WHERE numbers > 5;
+----
+<!REGEX>:EMPTY_RESULT
+
+# The statistics of the second file say that adding one overflows, so DuckDB keeps its overflow
+# checks.
+
+statement ok
+COPY (SELECT * FROM (VALUES (1), (2), (3)) t(numbers)) TO '${WORK_DIR}/multi_overflow_a.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (2147483646), (2147483647)) t(numbers)) TO '${WORK_DIR}/multi_overflow_b.vortex';
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/multi_overflow_*.vortex';
+----
+5
+
+statement error Overflow
+SELECT numbers + 1 FROM '${WORK_DIR}/multi_overflow_*.vortex';
