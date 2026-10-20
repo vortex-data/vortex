@@ -98,6 +98,11 @@ fn build_filter_mask(
                 return Ok(mask);
             }
 
+            // A skipped optional conjunct keeps most rows, so its zones are not worth pruning.
+            if filter.is_skipped(idx) {
+                continue;
+            }
+
             // Store the latest version of the dynamic expression prior to pruning.
             // We will re-run the pruning later if the version has changed in the meantime.
             dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
@@ -117,6 +122,9 @@ fn build_filter_mask(
             }
 
             let conjunct = &filter.conjuncts()[idx];
+            if !filter.should_evaluate(idx, mask.true_count()) {
+                continue;
+            }
 
             // If the dynamic expression has changed since pruning, re-run the pruning.
             // Store the dynamic update once to avoid TOCTOU race condition.
@@ -136,9 +144,6 @@ fn build_filter_mask(
             }
 
             let input_true_count = mask.true_count();
-            if !filter.should_evaluate(idx, input_true_count) {
-                continue;
-            }
             let conjunct_mask = reader
                 .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
                 .await?;
