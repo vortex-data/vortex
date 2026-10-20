@@ -78,6 +78,7 @@ use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
+use crate::convert::df_predicate::saves_decoding;
 use crate::convert::dynamic_filter::DataFusionDynamicFilter;
 use crate::convert::dynamic_filter::DynamicFilterConversions;
 use crate::convert::dynamic_filter::drop_unselective_ranges;
@@ -412,6 +413,13 @@ impl FileOpener for VortexOpener {
                                 has_selectivity_estimate(expr, &vxf)
                                     || !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false)
                             });
+                            let projected = projection
+                                .column_indices()
+                                .into_iter()
+                                .map(|idx| this_file_schema.field(idx).name().as_str())
+                                .collect::<Vec<_>>();
+                            let conjuncts =
+                                conjuncts.filter(|expr| saves_decoding(expr, &projected));
                             // One marker over the whole conjunction lets the scan merge its range
                             // comparisons into betweens.
                             Ok(and_collect(conjuncts).map(optional))
