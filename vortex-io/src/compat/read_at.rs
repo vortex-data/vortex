@@ -27,6 +27,10 @@ impl<R: VortexReadAt> VortexReadAt for Compat<R> {
         self.inner().coalesce_config()
     }
 
+    fn readahead(&self) -> usize {
+        self.inner().readahead()
+    }
+
     fn concurrency(&self) -> usize {
         self.inner().concurrency()
     }

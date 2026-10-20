@@ -96,6 +96,16 @@ pub trait VortexReadAt: Send + Sync + 'static {
         None
     }
 
+    /// How many bytes of the reads that a scan has registered may be read before the scan waits
+    /// for them.
+    ///
+    /// A scan registers the reads of a split before it decodes the split, and waits for each read
+    /// as it gets to it. Reading ahead overlaps the reads with decoding, but reads data that a scan
+    /// may drop without using, so it suits sources whose reads cost little more than their bytes.
+    fn readahead(&self) -> usize {
+        0
+    }
+
     /// Maximum number of concurrent I/O requests for that should be pulled from this source.
     ///
     /// This value is used to control how many [`VortexReadAt::read_at`] calls can
@@ -149,6 +159,10 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.as_ref().coalesce_config()
+    }
+
+    fn readahead(&self) -> usize {
+        self.as_ref().readahead()
     }
 
     fn concurrency(&self) -> usize {
@@ -345,6 +359,10 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.read.coalesce_config()
+    }
+
+    fn readahead(&self) -> usize {
+        self.read.readahead()
     }
 
     fn concurrency(&self) -> usize {
