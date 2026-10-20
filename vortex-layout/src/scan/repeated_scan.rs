@@ -37,6 +37,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
+use crate::scan::filter::OptionalFilterBackoff;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::splits::Splits;
@@ -54,6 +55,8 @@ pub struct RepeatedScan<A> {
     layout_reader: LayoutReaderRef,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
+    /// When to skip optional filter conjuncts that keep most rows.
+    optional_filter_backoff: Option<OptionalFilterBackoff>,
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
@@ -132,6 +135,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         layout_reader: LayoutReaderRef,
         projection: BoundExpression,
         filter: Option<BoundExpression>,
+        optional_filter_backoff: Option<OptionalFilterBackoff>,
         ordered: bool,
         row_range: Option<Range<u64>>,
         selection: Selection,
@@ -146,6 +150,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             layout_reader,
             projection,
             filter,
+            optional_filter_backoff,
             ordered,
             row_range,
             selection,
@@ -159,10 +164,14 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
     fn task_context(&self) -> Arc<TaskContext> {
         Arc::new(TaskContext {
-            filter: self
-                .filter
-                .clone()
-                .map(|filter| Arc::new(FilterExpr::new(filter))),
+            filter: self.filter.clone().map(|filter| {
+                // A skipped conjunct keeps rows the caller removes again, which must not count
+                // towards a limit.
+                let backoff = self
+                    .optional_filter_backoff
+                    .filter(|_| self.limit.is_none());
+                Arc::new(FilterExpr::new(filter, backoff))
+            }),
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
         })

@@ -19,4 +19,6 @@ pub mod v2;
 /// A heuristic for an ideal split size.
 ///
 /// We don't actually know if this is right, but it is probably a good estimate.
+pub use filter::OptionalFilterBackoff;
+
 const IDEAL_SPLIT_SIZE: u64 = 100_000;

@@ -36,6 +36,7 @@ use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::scan::OptionalFilterBackoff;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::repeated_scan::RepeatedScan;
@@ -58,6 +59,8 @@ pub struct ScanBuilder<A> {
     layout_reader: LayoutReaderRef,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
+    /// When to skip optional filter conjuncts that keep most rows.
+    optional_filter_backoff: Option<OptionalFilterBackoff>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
@@ -91,6 +94,7 @@ impl ScanBuilder<ArrayRef> {
             layout_reader,
             projection,
             filter: None,
+            optional_filter_backoff: Some(OptionalFilterBackoff::default()),
             ordered: true,
             row_range: None,
             selection: Default::default(),
@@ -139,6 +143,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Add or clear a filter expression bound against the reader dtype.
     pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
+        self
+    }
+
+    /// Configure when the scan skips optional filter conjuncts that keep most of their input rows,
+    /// or pass `None` to always evaluate them. See [`OptionalFilterBackoff`].
+    pub fn with_optional_filter_backoff(mut self, backoff: Option<OptionalFilterBackoff>) -> Self {
+        self.optional_filter_backoff = backoff;
         self
     }
 
@@ -287,6 +298,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             layout_reader: self.layout_reader,
             projection: self.projection,
             filter: self.filter,
+            optional_filter_backoff: self.optional_filter_backoff,
             ordered: self.ordered,
             row_range: self.row_range,
             selection: self.selection,
@@ -352,6 +364,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             layout_reader,
             bound_projection,
             bound_filter,
+            self.optional_filter_backoff,
             self.ordered,
             self.row_range,
             self.selection,

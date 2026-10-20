@@ -136,13 +136,18 @@ fn build_filter_mask(
             }
 
             let input_true_count = mask.true_count();
+            if !filter.should_evaluate(idx, input_true_count) {
+                continue;
+            }
             let conjunct_mask = reader
                 .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
                 .await?;
+            let output_true_count = conjunct_mask.true_count();
             filter.report_selectivity(
                 idx,
-                conditional_selectivity(input_true_count, conjunct_mask.true_count()),
+                conditional_selectivity(input_true_count, output_true_count),
             );
+            filter.report_evaluation(idx, input_true_count, output_true_count);
 
             // Filter evaluations return a mask already intersected with the input mask.
             mask = conjunct_mask;
