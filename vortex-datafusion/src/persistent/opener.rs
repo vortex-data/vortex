@@ -33,8 +33,8 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr::utils::conjunction_opt;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
-use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
+use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use datafusion_physical_plan::filter::batch_filter;
 use datafusion_physical_plan::limit::LimitStream;
 use datafusion_physical_plan::metrics::BaselineMetrics;
@@ -47,6 +47,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
@@ -68,6 +69,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
+use crate::convert::dynamic_filter::DataFusionDynamicFilter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -197,17 +199,18 @@ impl FileOpener for VortexOpener {
         }
 
         // Dynamic filters (hash join build-side bounds, TopK thresholds) are only reported to
-        // DataFusion as unsupported, so they are not part of `filter`. They are snapshotted when
-        // the file is opened, which for a hash join probe side happens after the build side has
-        // published its bounds, and pushed into the scan for zone pruning and filtering.
-        let dynamic_filter = file_pruning_predicate.as_ref().and_then(|predicate| {
-            conjunction_opt(
+        // DataFusion as unsupported, so they are not part of `filter`. They are pushed into the
+        // scan for zone pruning and filtering.
+        let dynamic_filters = file_pruning_predicate
+            .as_ref()
+            .map(|predicate| {
                 split_conjunction(predicate)
                     .into_iter()
                     .filter(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter())
-                    .cloned(),
-            )
-        });
+                    .cloned()
+                    .collect_vec()
+            })
+            .unwrap_or_default();
 
         Ok(async move {
             // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
@@ -342,19 +345,34 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
-            if let Some(dynamic_filter) = dynamic_filter {
-                let snapshot = simplifier.simplify(
-                    expr_adapter.rewrite(snapshot_physical_expr(dynamic_filter)?)?,
-                )?;
-                // Dynamic filters only discard rows that cannot contribute to the result, so
-                // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals,
-                // and so are bounds the file statistics prove every row satisfies.
-                for expr in split_conjunction(&snapshot) {
-                    if let Some(expr) = expr_converter.try_convert(expr, &this_file_schema)?
-                        && !vxf.is_satisfied(&expr).unwrap_or(false)
-                    {
-                        native_filters.push(expr);
+            // Dynamic filters only discard rows that cannot contribute to the result, so
+            // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals.
+            for dynamic_filter in dynamic_filters {
+                let dynamic_filter = expr_adapter.rewrite(dynamic_filter)?;
+                if matches!(
+                    DynamicFilterTracking::classify(&dynamic_filter),
+                    DynamicFilterTracking::AllComplete
+                ) {
+                    // A complete filter, such as the bounds of a hash join whose build side has
+                    // finished, does not change again. Its snapshot keeps every kernel of the
+                    // scan, and bounds the file statistics prove every row satisfies are dropped.
+                    let snapshot =
+                        simplifier.simplify(snapshot_physical_expr(dynamic_filter)?)?;
+                    for expr in split_conjunction(&snapshot) {
+                        if let Some(expr) = expr_converter.try_convert(expr, &this_file_schema)?
+                            && !vxf.is_satisfied(&expr).unwrap_or(false)
+                        {
+                            native_filters.push(expr);
+                        }
                     }
+                } else {
+                    // A filter that can still change, such as a TopK threshold, is read again
+                    // by the scan each time it changes.
+                    native_filters.push(DataFusionDynamicFilter::expression(
+                        dynamic_filter,
+                        Arc::clone(&expr_converter),
+                        Arc::clone(&this_file_schema),
+                    ));
                 }
             }
             let residual_filter = conjunction_opt(residual_filters);
@@ -825,6 +843,7 @@ mod tests {
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use futures::TryStreamExt;
     use insta::assert_snapshot;
@@ -2341,6 +2360,61 @@ mod tests {
             .try_collect::<Vec<_>>()
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::updated_after_open(false)]
+    #[case::complete_before_open(true)]
+    #[tokio::test]
+    async fn test_dynamic_filter_is_pushed_into_the_scan(
+        #[case] complete_before_open: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let schema = batch.schema();
+
+        let column: PhysicalExprRef = Arc::new(df_expr::Column::new("a", 0));
+        let dynamic_filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let bound: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            column,
+            Operator::GtEq,
+            df_expr::lit(7i32),
+        ));
+        if complete_before_open {
+            dynamic_filter.update(Arc::clone(&bound))?;
+            dynamic_filter.mark_complete();
+        }
+
+        let mut opener = make_test_opener(
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
+            ProjectionExprs::from_indices(&[0], &schema),
+        );
+        opener.file_pruning_predicate = Some(Arc::clone(&dynamic_filter) as PhysicalExprRef);
+
+        let stream = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?;
+        // A filter that is not complete when the file opens is read again by the scan.
+        if !complete_before_open {
+            dynamic_filter.update(bound)?;
+        }
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        assert_batches_eq!(
+            [
+                "+---+", //
+                "| a |", "+---+", "| 7 |", "| 8 |", "| 9 |", "+---+",
+            ],
+            &data
+        );
         Ok(())
     }
 }
