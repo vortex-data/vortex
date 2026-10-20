@@ -125,16 +125,25 @@ impl VortexReadAt for FileReadAt {
         let handle = self.handle.clone();
         let allocator = read_allocator(self.allocator.clone());
         async move {
-            let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
-            // SAFETY: the bytes are read before the buffer is frozen, by read_cached_at up to
-            // `cached` and by read_exact_at from there on.
-            unsafe { buffer.set_len(length) };
-            // Bytes in the page cache are copied right away: handing the read to a blocking
-            // thread costs more than the copy. Only the bytes that must come from the disk wait.
-            let cached = read_cached_at(&file, buffer.as_mut_slice(), offset);
+            // Bytes in the page cache are copied without waiting for a blocking thread, which
+            // costs more than the copy. The copy runs as a task of its own, so that the threads
+            // waiting for reads share the copies of a file, instead of the thread that drives
+            // the reads of the file making every copy while the others wait.
+            let cached_file = Arc::clone(&file);
+            let (mut buffer, cached) = handle
+                .spawn_cpu(move || {
+                    let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
+                    // SAFETY: the bytes are read before the buffer is frozen, by read_cached_at
+                    // up to `cached` and by read_exact_at from there on.
+                    unsafe { buffer.set_len(length) };
+                    let cached = read_cached_at(&cached_file, buffer.as_mut_slice(), offset);
+                    (buffer, cached)
+                })
+                .await;
             if cached == length {
                 return Ok(BufferHandle::new_host(buffer.freeze()));
             }
+            // Only the bytes that must come from the disk wait for a blocking thread.
             handle
                 .spawn_blocking(move || {
                     read_exact_at(
