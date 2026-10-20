@@ -24,6 +24,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
@@ -31,6 +32,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
 
 /// A source of a predicate that can change while a query runs, such as the build-side bounds of
@@ -223,6 +225,31 @@ impl Hash for DynamicExpressionOptions {
     }
 }
 
+/// Whether `expr` is a dynamic expression whose current predicate is the literal `true`, such as
+/// a filter of an engine that has no value yet. A scan can skip such a predicate for free.
+pub fn is_currently_true(expr: &BoundExpression) -> bool {
+    let Some(options) = expr.as_opt::<DynamicExpression>() else {
+        return false;
+    };
+    let scope = DType::Struct(
+        StructFields::new(
+            (0..expr.children().len())
+                .map(input_field_name)
+                .collect::<FieldNames>(),
+            expr.children()
+                .iter()
+                .map(|child| child.dtype().clone())
+                .collect(),
+        ),
+        Nullability::NonNullable,
+    );
+    options.current(&scope).is_ok_and(|predicate| {
+        predicate
+            .as_opt::<Literal>()
+            .is_some_and(|value| value.as_bool_opt().and_then(|value| value.value()) == Some(true))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicU64;
@@ -235,6 +262,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::PType;
     use crate::expr::col;
     use crate::expr::dynamic_expression;
     use crate::expr::get_item;
@@ -293,4 +321,23 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn is_currently_true_follows_the_source() -> VortexResult<()> {
+        let threshold = Arc::new(Threshold::default());
+        let scope = DType::Struct(
+            StructFields::new(
+                FieldNames::from(vec!["a"]),
+                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let expr = dynamic_expression(threshold.clone(), [col("a")]).bind(&scope)?;
+        assert!(is_currently_true(&expr));
+
+        threshold.set(6);
+        assert!(!is_currently_true(&expr));
+        Ok(())
+    }
+
 }
