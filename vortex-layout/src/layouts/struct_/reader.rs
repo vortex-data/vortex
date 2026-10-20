@@ -21,8 +21,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::ExactKey;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::is_not_null;
 use vortex_array::expr::bound::mask;
@@ -98,7 +98,7 @@ pub struct StructReader {
     expanded_root_expr: BoundExpression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
+    partitioned_expr_cache: DashMap<WeakBoundExprKey, Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -207,19 +207,22 @@ impl StructReader {
         // only for as long as it takes to insert an empty cell.
         let cell = match self.partitioned_expr_cache.get(expr as &dyn ExactKey) {
             Some(entry) => Arc::clone(entry.value()),
-            None => Arc::clone(
-                self.partitioned_expr_cache
-                    .entry(ExactBoundExpr(expr.clone()))
-                    .or_insert_with(|| Arc::new(OnceLock::new()))
-                    .value(),
-            ),
+            None => {
+                self.partitioned_expr_cache.retain(|key, _| key.is_live());
+                Arc::clone(
+                    self.partitioned_expr_cache
+                        .entry(WeakBoundExprKey::new(expr))
+                        .or_insert_with(|| Arc::new(OnceLock::new()))
+                        .value(),
+                )
+            }
         };
         // All map guards are dropped here, so partitioning runs outside any shard lock.
         // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
 
         if cell.get().is_none() {
             // Cache the bound trees themselves: rebinding would create fresh child identity and
-            // defeat downstream `ExactBoundExpr` caches on every split.
+            // defeat downstream identity-keyed caches on every split.
             let result = self.compute_partitioned_expr(expr)?;
             cell.get_or_init(|| result);
         }
