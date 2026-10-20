@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::zero;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
@@ -15,8 +13,7 @@ use crate::Sequence;
 
 /// Sequence-specific is_sorted kernel.
 ///
-/// A sequence `A[i] = base + i * multiplier` with at least two elements is sorted iff
-/// multiplier >= 0, and strict sorted iff multiplier > 0.
+/// See [`Sequence::is_sorted`] for when a sequence is (strictly) sorted.
 #[derive(Debug)]
 pub(crate) struct SequenceIsSortedKernel;
 
@@ -35,24 +32,9 @@ impl DynAggregateKernel for SequenceIsSortedKernel {
             return Ok(None);
         };
 
-        // One-element batches are always (strict) sorted. Keep this here even though
-        // `is_sorted` also short-circuits on len <= 1: Accumulator dispatches this kernel
-        // per chunk without that outer check, so a one-row Sequence chunk with a negative
-        // multiplier would otherwise poison a larger ChunkedArray.
-        let result = if array.len() <= 1 {
-            true
-        } else {
-            let m = array.multiplier();
-            match_each_native_ptype!(m.ptype(), |P| {
-                m.cast::<P>().map(|x| {
-                    if options.strict {
-                        x > zero::<P>()
-                    } else {
-                        x >= zero::<P>()
-                    }
-                })
-            })?
-        };
+        // `is_sorted` short-circuits on len <= 1, but the Chunked accumulator dispatches this
+        // kernel per chunk without that outer check, so the length has to be considered here too.
+        let result = Sequence::is_sorted(array.multiplier(), array.len(), options.strict);
 
         Ok(Some(IsSorted::make_partial(
             batch,

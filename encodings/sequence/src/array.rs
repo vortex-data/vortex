@@ -456,20 +456,27 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
+    /// Whether a sequence `A[i] = base + i * multiplier` of `length` elements is sorted, or
+    /// strictly sorted when `strict` is set.
+    ///
+    /// With at least two elements it is sorted iff multiplier >= 0, and strictly sorted iff
+    /// multiplier > 0. Zero or one elements have no adjacent pair to compare, so they are
+    /// strictly sorted whatever the multiplier.
+    pub(crate) fn is_sorted(multiplier: PValue, length: usize, strict: bool) -> bool {
+        if length <= 1 {
+            return true;
+        }
+        match_each_pvalue!(
+            multiplier,
+            uint: |v| { !strict || v > 0 },
+            int: |v| { if strict { v > 0 } else { v >= 0 } },
+            float: |_v| { unreachable!("float multiplier not supported") }
+        )
+    }
+
     fn stats(multiplier: PValue, length: usize) -> StatsSet {
-        // A sequence A[i] = base + i * multiplier with at least two elements is sorted iff
-        // multiplier >= 0, and strictly sorted iff multiplier > 0. A single element has no
-        // adjacent pair to compare, so it is strictly sorted whatever the multiplier.
-        let (is_sorted, is_strict_sorted) = if length <= 1 {
-            (true, true)
-        } else {
-            match_each_pvalue!(
-                multiplier,
-                uint: |v| { (true, v > 0) },
-                int: |v| { (v >= 0, v > 0) },
-                float: |_v| { unreachable!("float multiplier not supported") }
-            )
-        };
+        let is_sorted = Self::is_sorted(multiplier, length, false);
+        let is_strict_sorted = Self::is_sorted(multiplier, length, true);
 
         // SAFETY: we don't have duplicate stats.
         unsafe {
