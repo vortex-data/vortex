@@ -98,8 +98,7 @@ fn build_filter_mask(
                 return Ok(mask);
             }
 
-            // A skipped optional conjunct keeps most rows, so its zones are not worth pruning.
-            if filter.is_skipped(idx) {
+            if !filter.should_prune(idx) {
                 continue;
             }
 
@@ -131,6 +130,7 @@ fn build_filter_mask(
             let current_version = filter.dynamic_updates(idx).map(|du| du.version());
             if let Some(dv) = current_version
                 && dynamic_versions[idx].is_none_or(|v| v < dv)
+                && filter.should_prune(idx)
             {
                 // The dynamic expression has changed, re-run the pruning.
                 dynamic_versions[idx] = Some(dv);
