@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 pub use kernel::*;
+use memchr::memmem::Finder;
 use pattern::LikePattern;
 use prost::Message;
 use vortex_buffer::BitBuffer;
@@ -355,6 +356,9 @@ fn eval_pattern(
             },
             allocator.clone(),
         ),
+        LikePattern::Contains(finder, needle_len) if searches_buffers(haystack) => {
+            contains_in_buffers(haystack, finder, *needle_len, negated, allocator)
+        }
         LikePattern::Contains(finder, needle_len) => BitBuffer::collect_bool_in(
             len,
             |i| {
@@ -371,6 +375,83 @@ fn eval_pattern(
             allocator.clone(),
         ),
     }
+}
+
+/// Whether to search for a substring through the data buffers of `haystack` rather than value
+/// by value: the values outside the views must follow each other in their buffers in row order,
+/// and fill at least half of the bytes between the first and the last of them.
+fn searches_buffers(haystack: &ResolvedViews<'_>) -> bool {
+    let mut value_bytes = 0usize;
+    // The start of the first value and the end of the last value in each buffer.
+    let mut spans = vec![(usize::MAX, 0usize); haystack.buffers().len()];
+    for view in haystack.views() {
+        if view.is_inlined() {
+            continue;
+        }
+        let view = view.as_view();
+        let range = view.as_range();
+        let (start, end) = &mut spans[view.buffer_index as usize];
+        if *start == usize::MAX {
+            *start = range.start;
+        } else if range.start < *end {
+            return false;
+        }
+        *end = range.end;
+        value_bytes += range.len();
+    }
+    let span_bytes: usize = spans
+        .iter()
+        .filter(|(start, _)| *start != usize::MAX)
+        .map(|(start, end)| end - start)
+        .sum();
+    value_bytes > 0 && 2 * value_bytes >= span_bytes
+}
+
+/// Evaluate a `%needle%` pattern by searching the data buffers of `haystack` once.
+///
+/// Starting a substring search costs more than searching a short value, so searching each value
+/// on its own spends most of its time starting searches. Values that follow each other in a
+/// buffer, as decoding lays them out, share one search instead: the first match at or after a
+/// value's start tells whether the value holds the needle, and serves every later value that
+/// starts before it. See [`searches_buffers`] for when the values are laid out that way.
+fn contains_in_buffers(
+    haystack: &ResolvedViews<'_>,
+    finder: &Finder<'static>,
+    needle_len: usize,
+    negated: bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    // For each buffer, the offset that its last search started at and the first match at or after
+    // that offset, or `usize::MAX` without one.
+    let mut searches = vec![(usize::MAX, usize::MAX); haystack.buffers().len()];
+    BitBuffer::collect_bool_in(
+        haystack.len(),
+        |i| {
+            let view = &haystack.views()[i];
+            let len = view.len() as usize;
+            let matched = if len < needle_len {
+                false
+            } else if view.is_inlined() {
+                finder.find(view.as_inlined().value()).is_some()
+            } else {
+                let view = view.as_view();
+                let buffer = haystack.buffers()[view.buffer_index as usize];
+                let (search_start, next_match) = &mut searches[view.buffer_index as usize];
+                let start = view.offset as usize;
+                // A search from `search_start` finds the first match at or after `start` too while
+                // `start` lies between the two.
+                if start < *search_start || start > *next_match {
+                    *search_start = start;
+                    *next_match = finder
+                        .find(&buffer[start..])
+                        .map_or(usize::MAX, |position| start + position);
+                }
+                *next_match != usize::MAX && *next_match + needle_len <= start + len
+            };
+            matched != negated
+        },
+        allocator.clone(),
+    )
 }
 
 /// Whether every value in `haystack` is ASCII. Validity is not consulted.
@@ -423,6 +504,8 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -443,11 +526,70 @@ mod tests {
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
     use crate::scalar_fn::fns::like::is_ascii;
+    use crate::scalar_fn::fns::like::searches_buffers;
     use crate::scalar_fn::fns::like::suffix_bytes_unchecked;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     const LONG: &str = "a value far too long to live inside its own view";
+
+    /// Values that a search through their buffer must tell apart: the needle at the start, at
+    /// the end, inline, across two values, and not at all.
+    const SEARCHED: [&str; 7] = [
+        "http://www.google.com/search",
+        "a long value that ends in goo",
+        "gle starts this long value",
+        "short google",
+        "a long value that ends with google",
+        "a long value without the needle",
+        "google",
+    ];
+
+    fn search(values: crate::ArrayRef, negated: bool) -> crate::ArrayRef {
+        let len = values.len();
+        let options = LikeOptions {
+            negated,
+            ..Default::default()
+        };
+        run_like(
+            values,
+            ConstantArray::new("%google%", len).into_array(),
+            options,
+        )
+    }
+
+    #[rstest]
+    fn contains_searches_buffers(#[values(false, true)] negated: bool) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = VarBinViewArray::from_iter_str(SEARCHED);
+        assert!(searches_buffers(&values.resolved_views()));
+        let expected = SEARCHED.map(|value| value.contains("google") != negated);
+        assert_arrays_eq!(
+            search(values.into_array(), negated),
+            BoolArray::from_iter(expected),
+            &mut ctx
+        );
+    }
+
+    #[rstest]
+    fn contains_searches_values_out_of_order(
+        #[values(false, true)] negated: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let reversed = VarBinViewArray::from_iter_str(SEARCHED)
+            .into_array()
+            .take(buffer![6u32, 5, 4, 3, 2, 1, 0].into_array())?
+            .execute::<VarBinViewArray>(&mut ctx)?;
+        assert!(!searches_buffers(&reversed.resolved_views()));
+        let mut expected = SEARCHED.map(|value| value.contains("google") != negated);
+        expected.reverse();
+        assert_arrays_eq!(
+            search(reversed.into_array(), negated),
+            BoolArray::from_iter(expected),
+            &mut ctx
+        );
+        Ok(())
+    }
 
     fn run_like(
         array: crate::ArrayRef,
