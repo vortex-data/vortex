@@ -5,9 +5,14 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 
 use arrow_schema::SchemaRef;
+use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -28,32 +33,131 @@ use vortex::expr::dynamic_expression;
 use vortex::expr::get_item;
 use vortex::expr::lit;
 use vortex::expr::root;
+use vortex::expr::stats::Stat;
+use vortex::file::VortexFile;
+use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::ExpressionConverter;
+
+/// Conversions of DataFusion dynamic filters to Vortex conjuncts, shared by the openers of a scan.
+///
+/// Every partition of every file reads the same dynamic filters, and converting a filter can be
+/// costly, such as the IN list of a hash join with thousands of keys. A filter is converted once
+/// for each file schema and only again when its generation changes. Openers that need the same
+/// conversion at the same time wait for one of them to convert.
+#[derive(Default)]
+pub(crate) struct DynamicFilterConversions {
+    conversions: DashMap<(usize, SchemaKey), Arc<Mutex<Option<Conversion>>>>,
+}
+
+/// The Vortex conjuncts of a dynamic filter as of a generation.
+struct Conversion {
+    /// The filter of the key, kept so that its address is not reused.
+    _predicate: Arc<dyn PhysicalExpr>,
+    generation: u64,
+    conjuncts: Arc<[Expression]>,
+}
+
+/// A file schema compared by value, as files and partitions that open at the same time hold
+/// separate copies of equal schemas.
+#[derive(Clone)]
+struct SchemaKey(SchemaRef);
+
+impl PartialEq for SchemaKey {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+
+impl Eq for SchemaKey {}
+
+impl Hash for SchemaKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.fields().hash(state);
+    }
+}
+
+impl DynamicFilterConversions {
+    /// The Vortex conjuncts of the current value of `adapted`, which is `predicate` adapted to
+    /// `schema`. Conjuncts that Vortex cannot evaluate are dropped: a dynamic filter only discards
+    /// rows that cannot contribute to the result.
+    pub(crate) fn conjuncts(
+        &self,
+        predicate: &Arc<dyn PhysicalExpr>,
+        adapted: &Arc<dyn PhysicalExpr>,
+        converter: &dyn ExpressionConverter,
+        schema: &SchemaRef,
+    ) -> DFResult<Arc<[Expression]>> {
+        let key = (
+            Arc::as_ptr(predicate).cast::<()>().addr(),
+            SchemaKey(Arc::clone(schema)),
+        );
+        let conversion = Arc::clone(self.conversions.entry(key).or_default().value());
+        // A conversion is stored whole, so one that a panic interrupted left no partial state.
+        let mut conversion = conversion.lock().unwrap_or_else(PoisonError::into_inner);
+
+        // A generation read before the snapshot is at most older than the snapshot, which only
+        // makes the next lookup convert again.
+        let generation = snapshot_generation(adapted);
+        if let Some(conversion) = conversion.as_ref()
+            && conversion.generation == generation
+        {
+            return Ok(Arc::clone(&conversion.conjuncts));
+        }
+
+        let snapshot = PhysicalExprSimplifier::new(schema)
+            .simplify(snapshot_physical_expr(Arc::clone(adapted))?)?;
+        let conjuncts: Arc<[Expression]> = split_conjunction(&snapshot)
+            .into_iter()
+            .filter_map(|conjunct| match converter.try_convert(conjunct, schema) {
+                Ok(Some(converted)) => Some(converted),
+                Ok(None) => {
+                    tracing::debug!(%conjunct, "dropping unsupported dynamic filter conjunct");
+                    None
+                }
+                Err(err) => {
+                    tracing::debug!(%conjunct, %err, "dropping dynamic filter conjunct");
+                    None
+                }
+            })
+            .collect();
+        *conversion = Some(Conversion {
+            _predicate: Arc::clone(predicate),
+            generation,
+            conjuncts: Arc::clone(&conjuncts),
+        });
+        Ok(conjuncts)
+    }
+}
 
 /// A DataFusion predicate with dynamic filters, as the source of a Vortex dynamic expression.
 ///
 /// The columns of the predicate become the inputs of the dynamic expression, so the scan reads
 /// them before the dynamic filters have their first value. Each new generation of the dynamic
-/// filters is converted again. A dynamic filter only discards rows that cannot contribute to the
-/// result, so conjuncts that Vortex cannot evaluate are dropped.
+/// filters is converted again.
 pub(crate) struct DataFusionDynamicFilter {
+    /// The predicate as the scan received it, which keys the shared conversions.
     predicate: Arc<dyn PhysicalExpr>,
+    /// The predicate adapted to the file schema.
+    adapted: Arc<dyn PhysicalExpr>,
     columns: Vec<FieldName>,
     /// Whether this source holds only the bounds that the predicate implies on its one column.
     bounds_only: bool,
+    conversions: Arc<DynamicFilterConversions>,
     converter: Arc<dyn ExpressionConverter>,
     schema: SchemaRef,
 }
 
 impl DataFusionDynamicFilter {
-    /// Create Vortex dynamic expressions for a predicate adapted to `schema`.
+    /// Create Vortex dynamic expressions for `predicate`, adapted to `schema` as `adapted`.
     ///
     /// For a predicate over several columns, such as the threshold of a TopK over several sort
     /// keys, `a < x OR (a = x AND b < y)`, there is first one expression for each column with the
@@ -61,52 +165,43 @@ impl DataFusionDynamicFilter {
     /// conjuncts first, so the full predicate only sees the rows they keep.
     pub(crate) fn expressions(
         predicate: Arc<dyn PhysicalExpr>,
+        adapted: Arc<dyn PhysicalExpr>,
+        conversions: Arc<DynamicFilterConversions>,
         converter: Arc<dyn ExpressionConverter>,
         schema: SchemaRef,
     ) -> Vec<Expression> {
-        let columns = collect_columns(&predicate)
+        let columns = collect_columns(&adapted)
             .into_iter()
             .sorted_by_key(|column| column.index())
             .map(|column| FieldName::from(column.name()))
             .collect::<Vec<_>>();
 
+        let source = |columns: Vec<FieldName>, bounds_only: bool| Self {
+            predicate: Arc::clone(&predicate),
+            adapted: Arc::clone(&adapted),
+            columns,
+            bounds_only,
+            conversions: Arc::clone(&conversions),
+            converter: Arc::clone(&converter),
+            schema: Arc::clone(&schema),
+        };
         let mut expressions = Vec::with_capacity(columns.len() + 1);
         if columns.len() > 1 {
             for column in &columns {
-                expressions.push(Self::expression(
-                    Arc::clone(&predicate),
-                    vec![column.clone()],
-                    true,
-                    Arc::clone(&converter),
-                    Arc::clone(&schema),
-                ));
+                expressions.push(source(vec![column.clone()], true).into_expression());
             }
         }
-        expressions.push(Self::expression(
-            predicate, columns, false, converter, schema,
-        ));
+        expressions.push(source(columns, false).into_expression());
         expressions
     }
 
-    fn expression(
-        predicate: Arc<dyn PhysicalExpr>,
-        columns: Vec<FieldName>,
-        bounds_only: bool,
-        converter: Arc<dyn ExpressionConverter>,
-        schema: SchemaRef,
-    ) -> Expression {
-        let inputs = columns
+    fn into_expression(self) -> Expression {
+        let inputs = self
+            .columns
             .iter()
             .map(|column| get_item(column.clone(), root()))
             .collect::<Vec<_>>();
-        let source = Self {
-            predicate,
-            columns,
-            bounds_only,
-            converter,
-            schema,
-        };
-        dynamic_expression(Arc::new(source), inputs)
+        dynamic_expression(Arc::new(self), inputs)
     }
 
     /// Replace the column references of `expr` by the inputs of the dynamic expression. Returns
@@ -134,34 +229,28 @@ impl DataFusionDynamicFilter {
 
 impl DynamicExpressionSource for DataFusionDynamicFilter {
     fn generation(&self) -> u64 {
-        snapshot_generation(&self.predicate)
+        snapshot_generation(&self.adapted)
     }
 
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
-        let snapshot = snapshot_physical_expr(Arc::clone(&self.predicate))
-            .and_then(|snapshot| PhysicalExprSimplifier::new(&self.schema).simplify(snapshot))
-            .map_err(|err| vortex_err!("Failed to snapshot dynamic filter {self}: {err}"))?;
-
-        let conjuncts = split_conjunction(&snapshot)
-            .into_iter()
-            .filter_map(
-                |conjunct| match self.converter.try_convert(conjunct, &self.schema) {
-                    Ok(Some(converted)) => Some(converted),
-                    Ok(None) => {
-                        tracing::debug!(%conjunct, "dropping unsupported dynamic filter conjunct");
-                        None
-                    }
-                    Err(err) => {
-                        tracing::debug!(%conjunct, %err, "dropping dynamic filter conjunct");
-                        None
-                    }
-                },
+        let conjuncts = self
+            .conversions
+            .conjuncts(
+                &self.predicate,
+                &self.adapted,
+                self.converter.as_ref(),
+                &self.schema,
             )
+            .map_err(|err| vortex_err!("Failed to convert dynamic filter {self}: {err}"))?;
+
+        let column = get_item(self.columns[0].clone(), root());
+        let conjuncts = conjuncts
+            .iter()
             .filter_map(|conjunct| {
                 if self.bounds_only {
-                    implied_bound(&conjunct, &get_item(self.columns[0].clone(), root()))
+                    implied_bound(conjunct, &column)
                 } else {
-                    Some(conjunct)
+                    Some(conjunct.clone())
                 }
             })
             .filter_map(|conjunct| self.read_inputs(&conjunct)?.bind(scope).ok())
@@ -171,6 +260,85 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
         tracing::debug!(filter = %self, %predicate, "converted dynamic filter");
         Ok(predicate)
     }
+}
+
+/// Drop the range comparisons on each column whose combined range covers more than
+/// `max_selectivity` of the values between the column's minimum and maximum in `file`.
+///
+/// The estimate assumes values spread evenly between the minimum and maximum. A hash join
+/// publishes the range of its build-side keys, which often covers most of a probe-side column,
+/// and evaluating such a range in the scan costs more than the few rows it removes.
+pub(crate) fn drop_unselective_ranges(
+    conjuncts: impl IntoIterator<Item = Expression>,
+    file: &VortexFile,
+    max_selectivity: f64,
+) -> Vec<Expression> {
+    let conjuncts = conjuncts.into_iter().collect::<Vec<_>>();
+    let mut ranges: HashMap<FieldName, (f64, f64)> = HashMap::default();
+    for (column, lower, upper) in conjuncts.iter().filter_map(range_comparison) {
+        let range = ranges
+            .entry(column)
+            .or_insert((f64::NEG_INFINITY, f64::INFINITY));
+        range.0 = range.0.max(lower);
+        range.1 = range.1.min(upper);
+    }
+    let unselective = ranges
+        .into_iter()
+        .filter(|(column, (lower, upper))| {
+            range_selectivity(file, column, *lower, *upper)
+                .is_some_and(|selectivity| selectivity > max_selectivity)
+        })
+        .map(|(column, _)| column)
+        .collect::<Vec<_>>();
+
+    conjuncts
+        .into_iter()
+        .filter(|conjunct| {
+            range_comparison(conjunct).is_none_or(|(column, ..)| !unselective.contains(&column))
+        })
+        .collect()
+}
+
+/// The column and the numeric range that `expr` keeps, if it compares a column with a number.
+fn range_comparison(expr: &Expression) -> Option<(FieldName, f64, f64)> {
+    let operator = *expr.as_opt::<Binary>()?;
+    let column = expr.child(0);
+    if !column.child(0).is_root() {
+        return None;
+    }
+    let column = column.as_opt::<GetItem>()?.clone();
+    let value = expr
+        .child(1)
+        .as_opt::<Literal>()?
+        .as_primitive_opt()?
+        .as_opt::<f64>()
+        .flatten()?;
+    let (lower, upper) = match operator {
+        Operator::Eq => (value, value),
+        Operator::Gt | Operator::Gte => (value, f64::INFINITY),
+        Operator::Lt | Operator::Lte => (f64::NEG_INFINITY, value),
+        _ => return None,
+    };
+    Some((column, lower, upper))
+}
+
+/// The fraction of the values between the minimum and maximum of `column` that lie in
+/// `lower..=upper`.
+fn range_selectivity(file: &VortexFile, column: &FieldName, lower: f64, upper: f64) -> Option<f64> {
+    let field_idx = file.dtype().as_struct_fields_opt()?.find(column)?;
+    let (stats, dtype) = file.file_stats()?.get(field_idx);
+    let stat = |stat: Stat| {
+        Scalar::try_new(dtype.clone(), Some(stats.get(stat).as_exact()?))
+            .ok()?
+            .as_primitive_opt()?
+            .as_opt::<f64>()
+            .flatten()
+    };
+    let (min, max) = (stat(Stat::Min)?, stat(Stat::Max)?);
+    if max <= min {
+        return None;
+    }
+    Some(((upper.min(max) - lower.max(min)) / (max - min)).clamp(0.0, 1.0))
 }
 
 /// A bound on `column` that `expr` implies, as a comparison of `column` with a literal.
@@ -236,14 +404,14 @@ impl Display for DataFusionDynamicFilter {
         if self.bounds_only {
             write!(f, "bounds({}) of ", self.columns[0])?;
         }
-        Display::fmt(&self.predicate, f)
+        Display::fmt(&self.adapted, f)
     }
 }
 
 impl Debug for DataFusionDynamicFilter {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataFusionDynamicFilter")
-            .field("predicate", &self.predicate)
+            .field("predicate", &self.adapted)
             .field("columns", &self.columns)
             .field("bounds_only", &self.bounds_only)
             .finish()
@@ -252,7 +420,17 @@ impl Debug for DataFusionDynamicFilter {
 
 #[cfg(test)]
 mod tests {
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+    use datafusion_expr::Operator as DFOperator;
+    use datafusion_physical_expr::expressions as df_expr;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::buffer::ByteBufferMut;
     use vortex::expr::and;
     use vortex::expr::eq;
     use vortex::expr::gt;
@@ -260,8 +438,12 @@ mod tests {
     use vortex::expr::lt;
     use vortex::expr::lt_eq;
     use vortex::expr::or;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::session::VortexSession;
 
     use super::*;
+    use crate::convert::DefaultExpressionConverter;
 
     fn col(name: &str) -> Expression {
         get_item(name, root())
@@ -291,5 +473,57 @@ mod tests {
     #[case::other_column(or(lt(col("a"), lit(5)), lt(col("b"), lit(9))), None)]
     fn test_implied_bound(#[case] expr: Expression, #[case] expected: Option<Expression>) {
         assert_eq!(implied_bound(&expr, &col("a")), expected);
+    }
+
+    #[test]
+    fn test_conversion_is_reused_until_the_generation_changes() -> DFResult<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let column: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Column::new("a", 0));
+        let filter = Arc::new(df_expr::DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let predicate: Arc<dyn PhysicalExpr> = Arc::clone(&filter) as _;
+        let conversions = DynamicFilterConversions::default();
+        let converter = DefaultExpressionConverter::default();
+
+        let first = conversions.conjuncts(&predicate, &predicate, &converter, &schema)?;
+        let again = conversions.conjuncts(&predicate, &predicate, &converter, &schema)?;
+        assert!(Arc::ptr_eq(&first, &again));
+
+        filter.update(Arc::new(df_expr::BinaryExpr::new(
+            column,
+            DFOperator::GtEq,
+            df_expr::lit(7i32),
+        )))?;
+        let updated = conversions.conjuncts(&predicate, &predicate, &converter, &schema)?;
+        assert_eq!(updated.as_ref(), [gt_eq(col("a"), lit(7i32))].as_slice());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::wide_range(vec![gt_eq(col("a"), lit(1i32)), lt_eq(col("a"), lit(99i32))], 0)]
+    #[case::narrow_range(vec![gt_eq(col("a"), lit(10i32)), lt_eq(col("a"), lit(30i32))], 2)]
+    #[case::other_conjunct(vec![gt_eq(col("a"), lit(1i32)), eq(col("b"), lit(1i32))], 1)]
+    #[tokio::test]
+    async fn test_drop_unselective_ranges(
+        #[case] conjuncts: Vec<Expression>,
+        #[case] kept: usize,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let values = StructArray::from_fields(&[
+            ("a", PrimitiveArray::from_iter(0i32..100).into_array()),
+            ("b", PrimitiveArray::from_iter(0i32..100).into_array()),
+        ])?;
+        let mut buf = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut buf, values.into_array().to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(buf)?;
+
+        let kept_conjuncts = drop_unselective_ranges(conjuncts, &file, 0.75);
+        assert_eq!(kept_conjuncts.len(), kept);
+        Ok(())
     }
 }
