@@ -104,6 +104,10 @@ struct Args {
     /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     scan_v1: bool,
+
+    /// Read local Vortex files with system calls instead of memory maps of them.
+    #[arg(long, default_value_t = false)]
+    no_mmap: bool,
 }
 
 #[global_allocator]
@@ -118,8 +122,10 @@ fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    // SAFETY: benchmark data files are not modified while queries run.
-    unsafe { vortex_duckdb::enable_mmap_local_files() };
+    if !args.no_mmap {
+        // SAFETY: benchmark data files are not modified while queries run.
+        unsafe { vortex_duckdb::enable_mmap_local_files() };
+    }
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
