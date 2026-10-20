@@ -35,6 +35,10 @@ impl<T: VortexReadAt + Clone> VortexReadAt for CopyDeviceReadAt<T> {
         self.read.coalesce_config()
     }
 
+    fn readahead(&self) -> usize {
+        self.read.readahead()
+    }
+
     fn concurrency(&self) -> usize {
         self.read.concurrency()
     }

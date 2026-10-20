@@ -61,6 +61,10 @@ pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_CONCURRENCY: usize = 32;
 
+/// The bytes of registered reads of a local file that are read before a scan waits for them.
+/// Copying bytes out of the page cache takes long enough that a scan otherwise waits for each.
+pub const DEFAULT_READAHEAD: usize = 256 << 20;
+
 /// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
 pub struct FileReadAt {
     uri: Arc<str>,
@@ -104,6 +108,10 @@ impl VortexReadAt for FileReadAt {
 
     fn concurrency(&self) -> usize {
         DEFAULT_CONCURRENCY
+    }
+
+    fn readahead(&self) -> usize {
+        DEFAULT_READAHEAD
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
