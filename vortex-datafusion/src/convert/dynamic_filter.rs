@@ -8,8 +8,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::PoisonError;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
@@ -55,14 +53,13 @@ use crate::convert::ExpressionConverter;
 ///
 /// Every partition of every file reads the same dynamic filters, and converting a filter can be
 /// costly, such as the IN list of a hash join with thousands of keys. A filter is converted once
-/// for each file schema and only again when its generation changes. Openers that need the same
-/// conversion at the same time wait for one of them to convert.
+/// for each file schema and only again when its generation changes.
 #[derive(Default)]
 pub(crate) struct DynamicFilterConversions {
     /// Each filter adapted to a file schema, with the filter of the key kept so that its address
     /// is not reused.
     adapted: DashMap<(usize, SchemaKey), (Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>,
-    conversions: DashMap<(usize, SchemaKey), Arc<Mutex<Option<Conversion>>>>,
+    conversions: DashMap<(usize, SchemaKey), Arc<Conversion>>,
     /// Filters seen complete, which never change again.
     complete: DashMap<usize, Arc<dyn PhysicalExpr>>,
     /// The conjunction pushed into each file for each complete filter.
@@ -168,19 +165,17 @@ impl DynamicFilterConversions {
             Arc::as_ptr(predicate).cast::<()>().addr(),
             SchemaKey(Arc::clone(schema)),
         );
-        let conversion = Arc::clone(self.conversions.entry(key).or_default().value());
-        // A conversion is stored whole, so one that a panic interrupted left no partial state.
-        let mut conversion = conversion.lock().unwrap_or_else(PoisonError::into_inner);
-
         // A generation read before the snapshot is at most older than the snapshot, which only
         // makes the next lookup convert again.
         let generation = snapshot_generation(adapted);
-        if let Some(conversion) = conversion.as_ref()
+        if let Some(conversion) = self.conversions.get(&key)
             && conversion.generation == generation
         {
             return Ok(Arc::clone(&conversion.conjuncts));
         }
 
+        // Openers that miss convert concurrently rather than wait on each other: a wait would
+        // block their worker threads, and converting costs microseconds.
         let snapshot = PhysicalExprSimplifier::new(schema)
             .simplify(snapshot_physical_expr(Arc::clone(adapted))?)?;
         let conjuncts: Arc<[Expression]> = split_conjunction(&snapshot)
@@ -197,11 +192,14 @@ impl DynamicFilterConversions {
                 }
             })
             .collect();
-        *conversion = Some(Conversion {
-            _predicate: Arc::clone(predicate),
-            generation,
-            conjuncts: Arc::clone(&conjuncts),
-        });
+        self.conversions.insert(
+            key,
+            Arc::new(Conversion {
+                _predicate: Arc::clone(predicate),
+                generation,
+                conjuncts: Arc::clone(&conjuncts),
+            }),
+        );
         Ok(conjuncts)
     }
 }
