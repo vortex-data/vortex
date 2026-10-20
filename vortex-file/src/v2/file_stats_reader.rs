@@ -18,11 +18,11 @@ use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::ExactKey;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -52,8 +52,8 @@ pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
     session: VortexSession,
-    prune_cache: Arc<DashMap<ExactBoundExpr, CachedProof>>,
-    satisfaction_cache: Arc<DashMap<ExactBoundExpr, CachedProof>>,
+    prune_cache: Arc<DashMap<WeakBoundExprKey, CachedProof>>,
+    satisfaction_cache: Arc<DashMap<WeakBoundExprKey, CachedProof>>,
 }
 
 impl FileStatsLayoutReader {
@@ -201,15 +201,9 @@ impl LayoutReader for FileStatsLayoutReader {
             if mask.all_false() {
                 return Ok(mask);
             }
-            let proof =
-                || is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session);
-            let satisfied = match cache.get_mut(&expr as &dyn ExactKey) {
-                Some(mut entry) => entry.evaluate(proof),
-                None => cache
-                    .entry(ExactBoundExpr(expr.clone()))
-                    .or_insert_with(|| CachedProof::new(&expr))
-                    .evaluate(proof),
-            }
+            let satisfied = evaluate_cached(&cache, &expr, || {
+                is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session)
+            })
             .unwrap_or(false);
             if satisfied {
                 Ok(mask)
@@ -237,21 +231,35 @@ impl LayoutReader for FileStatsLayoutReader {
 
 /// Returns whether file statistics falsify `expr`, with a cache for each dynamic producer version.
 fn is_falsified_cached(
-    cache: &DashMap<ExactBoundExpr, CachedProof>,
+    cache: &DashMap<WeakBoundExprKey, CachedProof>,
     child: &LayoutReaderRef,
     file_stats: &FileStatistics,
     session: &VortexSession,
     expr: &BoundExpression,
 ) -> VortexResult<bool> {
-    let proof = || is_falsified_by_file_stats(expr, child.row_count(), file_stats, session);
+    evaluate_cached(cache, expr, || {
+        is_falsified_by_file_stats(expr, child.row_count(), file_stats, session)
+    })
+}
+
+/// Evaluates `proof` of `expr` through its cache entry, inserted on a miss.
+///
+/// A reader can outlive many scans, each binding its own expressions, so a miss first drops the
+/// entries of expressions no scan holds anymore.
+fn evaluate_cached(
+    cache: &DashMap<WeakBoundExprKey, CachedProof>,
+    expr: &BoundExpression,
+    proof: impl FnOnce() -> VortexResult<bool>,
+) -> VortexResult<bool> {
     // Probe with the borrowed expression, so that a hit clones no key.
     if let Some(mut entry) = cache.get_mut(expr as &dyn ExactKey) {
         return entry.evaluate(proof);
     }
-    let mut entry = cache
-        .entry(ExactBoundExpr(expr.clone()))
-        .or_insert_with(|| CachedProof::new(expr));
-    entry.evaluate(proof)
+    cache.retain(|key, _| key.is_live());
+    cache
+        .entry(WeakBoundExprKey::new(expr))
+        .or_insert_with(|| CachedProof::new(expr))
+        .evaluate(proof)
 }
 
 struct CachedProof {
@@ -415,6 +423,42 @@ mod tests {
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
             Arc::from([FieldPath::from_name("col")]),
         )
+    }
+
+    #[test]
+    fn prune_cache_drops_expressions_no_scan_holds() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = PrimitiveArray::from_iter([1i32, 5]);
+            let struct_array = StructArray::from_fields([("col", values.into_array())].as_slice())?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let child = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let reader = FileStatsLayoutReader::new(child, test_file_stats(1, 5), session.clone());
+
+            // A reader that outlives its scans sees a new expression from every scan.
+            for _ in 0..3 {
+                let expr = gt(get_item("col", root()), lit(10i32)).bind(reader.dtype())?;
+                assert!(reader.can_prune_file(&expr)?);
+                assert!(reader.can_prune_file(&expr)?);
+            }
+            assert_eq!(reader.prune_cache.len(), 1);
+            Ok(())
+        })
     }
 
     #[test]

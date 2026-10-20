@@ -22,6 +22,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::ExactKey;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -55,7 +56,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExactBoundExpr, SharedArrayFuture>,
+    values_evals: DashMap<WeakBoundExprKey, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -158,8 +159,9 @@ impl DictReader {
             return fut.clone();
         }
 
+        self.values_evals.retain(|key, _| key.is_live());
         self.values_evals
-            .entry(ExactBoundExpr(expr.clone()))
+            .entry(WeakBoundExprKey::new(expr))
             .or_insert_with(|| {
                 let expr = expr.clone();
                 self.values_array_uncanonical()
