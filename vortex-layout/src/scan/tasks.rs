@@ -144,9 +144,13 @@ fn build_filter_mask(
             }
 
             let input_true_count = mask.true_count();
+            #[cfg(not(target_arch = "wasm32"))]
+            let start = std::time::Instant::now();
             let conjunct_mask = reader
                 .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
                 .await?;
+            #[cfg(not(target_arch = "wasm32"))]
+            filter.report_cost(idx, input_true_count, start.elapsed());
             let output_true_count = conjunct_mask.true_count();
             filter.report_selectivity(
                 idx,
