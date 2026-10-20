@@ -247,8 +247,10 @@ extensions_options! {
         /// Enabled by default.
         pub optional_filter_backoff: bool, default = true
         /// The largest fraction of its input rows that a dynamic filter conjunct can keep and
-        /// still be evaluated by the scan. DuckDB uses the same 75% threshold.
-        pub optional_filter_max_selectivity: f64, default = 0.75
+        /// still be evaluated by the scan. DuckDB uses 75%, but in a Vortex scan a filter that
+        /// keeps more than half of the rows makes the projection through its mask cost more than
+        /// it saves.
+        pub optional_filter_max_selectivity: f64, default = 0.5
         /// The number of input rows for which the scan skips a dynamic filter conjunct that
         /// keeps too many rows.
         pub optional_filter_backoff_rows: usize, default = 1024 * 1024
