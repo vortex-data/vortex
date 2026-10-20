@@ -31,6 +31,7 @@ mod exporter;
 mod ffi;
 mod file_reader;
 mod projection;
+mod scan_statistics;
 mod scan_v2;
 mod table_function;
 
