@@ -91,6 +91,22 @@ impl DataFusionPredicate {
     }
 }
 
+/// Whether evaluating `expr` in a scan that outputs `projected` columns can pay off. A predicate
+/// that DataFusion evaluates costs about as much as the join it comes from, so it only pays when
+/// the rows it removes save decoding columns it does not read.
+pub(crate) fn saves_decoding(expr: &Expression, projected: &[&str]) -> bool {
+    let Some(options) = expr.as_opt::<DataFusionPredicate>() else {
+        return true;
+    };
+    projected.iter().any(|column| {
+        options
+            .schema
+            .fields()
+            .iter()
+            .all(|field| field.name() != column)
+    })
+}
+
 impl ScalarFnVTable for DataFusionPredicate {
     type Options = DataFusionPredicateOptions;
 
@@ -225,6 +241,25 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(false), Some(false)]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_pays_off_only_when_other_columns_are_decoded() -> VortexResult<()> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Int32, true),
+        ]));
+        let predicate: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("b", 1)),
+            Operator::IsNotDistinctFrom,
+            df_expr::lit(3i32),
+        ));
+        let expr = DataFusionPredicate::expression(&predicate, &schema)
+            .ok_or_else(|| vortex_err!("predicate reads a column"))?;
+
+        assert!(saves_decoding(&expr, &["a", "b"]));
+        assert!(!saves_decoding(&expr, &["b"]));
         Ok(())
     }
 }
