@@ -43,3 +43,17 @@ SELECT count(*) FROM '${WORK_DIR}/multi_overflow_*.vortex';
 
 statement error Overflow
 SELECT numbers + 1 FROM '${WORK_DIR}/multi_overflow_*.vortex';
+
+# A first query over files no scan has opened plans with their statistics too, as planning reads
+# the footers of local files.
+
+statement ok
+COPY (SELECT * FROM (VALUES (1), (2), (3)) t(numbers)) TO '${WORK_DIR}/multi_first_a.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (4), (5), (6)) t(numbers)) TO '${WORK_DIR}/multi_first_b.vortex';
+
+query TT
+EXPLAIN SELECT numbers FROM '${WORK_DIR}/multi_first_*.vortex' WHERE numbers > 6;
+----
+<REGEX>:.*EMPTY_RESULT.*
