@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
@@ -64,23 +65,56 @@ pub struct ExactBoundExpr(pub BoundExpression);
 
 /// A bound expression compared by shared tree identity, as [`ExactBoundExpr`] compares it.
 ///
-/// Maps keyed by [`ExactBoundExpr`] can be probed with `expr as &dyn ExactKey` for a borrowed
-/// [`BoundExpression`], which spares cloning the expression for every lookup. Clones touch
-/// reference counts that every scan thread shares.
+/// Maps keyed by [`ExactBoundExpr`] or [`WeakBoundExprKey`] can be probed with
+/// `expr as &dyn ExactKey` for a borrowed [`BoundExpression`], which spares cloning the
+/// expression for every lookup. Clones touch reference counts that every scan thread shares.
 pub trait ExactKey {
-    /// The expression that identifies this key.
-    fn bound_expr(&self) -> &BoundExpression;
+    /// The identity of the expression that this key stands for.
+    fn identity(&self) -> ExactIdentity<'_>;
+}
+
+/// What identifies a bound expression to an [`ExactKey`]: the dtype of a root, or the function,
+/// dtype and shared children of a scalar node.
+pub enum ExactIdentity<'a> {
+    /// A root of the given dtype.
+    Root(&'a DType),
+    /// A scalar node, identified by the address of its shared children.
+    Scalar {
+        /// The address of the shared children of the node.
+        children: *const Vec<BoundExpression>,
+        /// The scalar function of the node.
+        scalar_fn: &'a ScalarFnRef,
+        /// The dtype of the node.
+        dtype: &'a DType,
+    },
+}
+
+impl BoundExpression {
+    fn exact_identity(&self) -> ExactIdentity<'_> {
+        match self {
+            BoundExpression::Root { dtype } => ExactIdentity::Root(dtype),
+            BoundExpression::Scalar {
+                dtype,
+                scalar_fn,
+                children,
+            } => ExactIdentity::Scalar {
+                children: Arc::as_ptr(children),
+                scalar_fn,
+                dtype,
+            },
+        }
+    }
 }
 
 impl ExactKey for ExactBoundExpr {
-    fn bound_expr(&self) -> &BoundExpression {
-        &self.0
+    fn identity(&self) -> ExactIdentity<'_> {
+        self.0.exact_identity()
     }
 }
 
 impl ExactKey for BoundExpression {
-    fn bound_expr(&self) -> &BoundExpression {
-        self
+    fn identity(&self) -> ExactIdentity<'_> {
+        self.exact_identity()
     }
 }
 
@@ -92,24 +126,23 @@ impl<'a> Borrow<dyn ExactKey + 'a> for ExactBoundExpr {
 
 impl PartialEq for dyn ExactKey + '_ {
     fn eq(&self, other: &Self) -> bool {
-        match (self.bound_expr(), other.bound_expr()) {
+        match (self.identity(), other.identity()) {
+            (ExactIdentity::Root(lhs_dtype), ExactIdentity::Root(rhs_dtype)) => {
+                lhs_dtype == rhs_dtype
+            }
             (
-                BoundExpression::Root { dtype: lhs_dtype },
-                BoundExpression::Root { dtype: rhs_dtype },
-            ) => lhs_dtype == rhs_dtype,
-            (
-                BoundExpression::Scalar {
-                    dtype: lhs_dtype,
-                    scalar_fn: lhs_fn,
+                ExactIdentity::Scalar {
                     children: lhs_children,
+                    scalar_fn: lhs_fn,
+                    dtype: lhs_dtype,
                 },
-                BoundExpression::Scalar {
-                    dtype: rhs_dtype,
-                    scalar_fn: rhs_fn,
+                ExactIdentity::Scalar {
                     children: rhs_children,
+                    scalar_fn: rhs_fn,
+                    dtype: rhs_dtype,
                 },
             ) => {
-                Arc::ptr_eq(lhs_children, rhs_children)
+                std::ptr::eq(lhs_children, rhs_children)
                     && lhs_fn == rhs_fn
                     && lhs_dtype == rhs_dtype
             }
@@ -125,13 +158,99 @@ impl Hash for dyn ExactKey + '_ {
         // Equal keys share their children, so the identity of the children is enough to hash.
         // Omitting the function's options and the potentially lazy dtype keeps identity-keyed
         // cache lookups from hashing literal lists or deserializing an entire schema.
-        match self.bound_expr() {
-            BoundExpression::Root { .. } => state.write_u8(0),
-            BoundExpression::Scalar { children, .. } => {
+        match self.identity() {
+            ExactIdentity::Root(_) => state.write_u8(0),
+            ExactIdentity::Scalar { children, .. } => {
                 state.write_u8(1);
-                Arc::as_ptr(children).hash(state);
+                children.hash(state);
             }
         }
+    }
+}
+
+/// A key that identifies a bound expression as [`ExactBoundExpr`] does, without keeping the
+/// expression alive.
+///
+/// Caches that outlive the scans they serve, such as those of layout readers reused across
+/// queries, key their entries by it. A key can only be looked up while something else holds its
+/// expression, so [`Self::is_live`] tells which entries can still be hit, and the caches drop the
+/// others. The weak reference keeps the allocation of the children, so no later expression can
+/// reuse their address and match a stale key.
+#[derive(Clone, Debug)]
+pub enum WeakBoundExprKey {
+    /// A root of the given dtype.
+    Root(DType),
+    /// A scalar node, identified by its shared children.
+    Scalar {
+        /// The shared children of the node.
+        children: Weak<Vec<BoundExpression>>,
+        /// The scalar function of the node.
+        scalar_fn: ScalarFnRef,
+        /// The dtype of the node.
+        dtype: DType,
+    },
+}
+
+impl WeakBoundExprKey {
+    /// The key of `expr`.
+    pub fn new(expr: &BoundExpression) -> Self {
+        match expr {
+            BoundExpression::Root { dtype } => Self::Root(dtype.clone()),
+            BoundExpression::Scalar {
+                dtype,
+                scalar_fn,
+                children,
+            } => Self::Scalar {
+                children: Arc::downgrade(children),
+                scalar_fn: scalar_fn.clone(),
+                dtype: dtype.clone(),
+            },
+        }
+    }
+
+    /// Whether the expression of this key is still alive, so that a lookup can still hit it.
+    pub fn is_live(&self) -> bool {
+        match self {
+            Self::Root(_) => true,
+            Self::Scalar { children, .. } => children.strong_count() > 0,
+        }
+    }
+}
+
+impl ExactKey for WeakBoundExprKey {
+    fn identity(&self) -> ExactIdentity<'_> {
+        match self {
+            Self::Root(dtype) => ExactIdentity::Root(dtype),
+            Self::Scalar {
+                children,
+                scalar_fn,
+                dtype,
+            } => ExactIdentity::Scalar {
+                children: children.as_ptr(),
+                scalar_fn,
+                dtype,
+            },
+        }
+    }
+}
+
+impl<'a> Borrow<dyn ExactKey + 'a> for WeakBoundExprKey {
+    fn borrow(&self) -> &(dyn ExactKey + 'a) {
+        self
+    }
+}
+
+impl PartialEq for WeakBoundExprKey {
+    fn eq(&self, other: &Self) -> bool {
+        (self as &dyn ExactKey) == (other as &dyn ExactKey)
+    }
+}
+
+impl Eq for WeakBoundExprKey {}
+
+impl Hash for WeakBoundExprKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self as &dyn ExactKey).hash(state);
     }
 }
 
@@ -521,6 +640,27 @@ mod tests {
         assert_eq!(bound, independently_bound);
         assert_eq!(ExactBoundExpr(bound.clone()), ExactBoundExpr(bound.clone()));
         assert_ne!(ExactBoundExpr(bound), ExactBoundExpr(independently_bound));
+        Ok(())
+    }
+
+    #[test]
+    fn weak_keys_match_only_their_live_expression() -> VortexResult<()> {
+        let expr = eq(col("a"), lit(1_i32));
+        let bound = expr.bind_scope(&scope())?;
+        let independently_bound = expr.bind_scope(&scope())?;
+        let key = WeakBoundExprKey::new(&bound);
+
+        assert!(key.is_live());
+        assert!((&key as &dyn ExactKey) == (&bound as &dyn ExactKey));
+        assert!((&key as &dyn ExactKey) != (&independently_bound as &dyn ExactKey));
+        // A clone shares the children, so it is the same expression to the key.
+        let clone = bound.clone();
+        assert_eq!(key, WeakBoundExprKey::new(&clone));
+
+        drop(bound);
+        assert!(key.is_live());
+        drop(clone);
+        assert!(!key.is_live());
         Ok(())
     }
 

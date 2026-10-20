@@ -18,8 +18,8 @@ use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::ExactKey;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
@@ -51,7 +51,7 @@ pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
     session: VortexSession,
-    prune_cache: DashMap<ExactBoundExpr, bool>,
+    prune_cache: DashMap<WeakBoundExprKey, bool>,
 }
 
 impl FileStatsLayoutReader {
@@ -91,9 +91,10 @@ impl FileStatsLayoutReader {
         {
             return Ok(pruned);
         }
+        self.prune_cache.retain(|key, _| key.is_live());
         // Evaluate under the entry lock, so that splits which start together evaluate the
         // expression once rather than each falsifying it again.
-        match self.prune_cache.entry(ExactBoundExpr(expr.clone())) {
+        match self.prune_cache.entry(WeakBoundExprKey::new(expr)) {
             Entry::Occupied(entry) => Ok(*entry.get()),
             Entry::Vacant(entry) => Ok(*entry.insert(self.evaluate_file_stats(expr)?)),
         }
@@ -289,6 +290,42 @@ mod tests {
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
             Arc::from([FieldPath::from_name("col")]),
         )
+    }
+
+    #[test]
+    fn prune_cache_drops_expressions_no_scan_holds() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = PrimitiveArray::from_iter([1i32, 5]);
+            let struct_array = StructArray::from_fields([("col", values.into_array())].as_slice())?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let reader = FileStatsLayoutReader::new(child, test_file_stats(1, 5), SESSION.clone());
+
+            // A reader that outlives its scans sees a new expression from every scan.
+            for _ in 0..3 {
+                let expr = gt(get_item("col", root()), lit(10i32)).bind(reader.dtype())?;
+                assert!(reader.prunes_file(&expr)?);
+                assert!(reader.prunes_file(&expr)?);
+            }
+            assert_eq!(reader.prune_cache.len(), 1);
+            Ok(())
+        })
     }
 
     #[test]
