@@ -89,6 +89,10 @@ pub(crate) fn sample_count_approx_one_percent(len: usize) -> u32 {
 }
 
 /// Materializes a compact canonical sample.
+///
+/// A canonicalized string sample still references the source array's data buffers, so its size
+/// would count payload the sample does not use and inflate every scheme's estimated ratio.
+/// Compacting measures only the sampled values.
 fn materialize_sample(
     array: &ArrayRef,
     sample_count: u32,

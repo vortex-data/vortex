@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Regression tests for bounded string dictionary selection.
+//! Regression tests for bounded variable-width dictionary selection.
 
 #![cfg(test)]
 #![allow(clippy::tests_outside_test_module)]
@@ -17,6 +17,8 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::schemes::binary::BinaryDictScheme;
+use vortex_btrblocks::schemes::binary::VarBinScheme;
 use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_error::VortexResult;
@@ -119,6 +121,37 @@ fn test_sample_fallback_can_select_dict() -> VortexResult<()> {
         .build();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut ctx)?;
+
+    assert!(
+        compressed.is::<Dict>(),
+        "expected Dict, got {}",
+        compressed.encoding_id()
+    );
+    assert_arrays_eq!(&array, &compressed, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_binary_dict_compressed_with_more_values_than_sample() -> VortexResult<()> {
+    let distinct_values = (0u32..4096)
+        .map(|value| {
+            format!(
+                "binary-value-{:08x}-{value:08x}",
+                value.wrapping_mul(0x9e37_79b9)
+            )
+        })
+        .collect::<Vec<_>>();
+    let values = (0..65_536)
+        .map(|index| Some(distinct_values[index % distinct_values.len()].as_bytes()))
+        .collect::<Vec<_>>();
+    let array =
+        VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&BinaryDictScheme)
+        .with_new_scheme(&VarBinScheme)
+        .build()
+        .compress(&array, &mut ctx)?;
 
     assert!(
         compressed.is::<Dict>(),
