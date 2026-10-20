@@ -36,6 +36,7 @@ use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
+use vortex::layout::scan::OptionalFilterBackoff;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -379,6 +380,13 @@ impl VortexSource {
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
             partitions: base_config.file_groups.len(),
+            optional_filter_backoff: self.options.optional_filter_backoff.then(|| {
+                OptionalFilterBackoff {
+                    max_selectivity: self.options.optional_filter_max_selectivity,
+                    backoff_rows: self.options.optional_filter_backoff_rows as u64,
+                    ..Default::default()
+                }
+            }),
         };
 
         Ok(opener)
