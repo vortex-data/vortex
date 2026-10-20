@@ -11,6 +11,7 @@ use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex_array::scalar_fn::fns::dynamic_expression::is_currently_true;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::optional::Optional;
 use vortex_error::VortexExpect;
@@ -51,10 +52,12 @@ impl OptionalFilterBackoff {
 }
 
 impl Default for OptionalFilterBackoff {
-    /// DuckDB disables optional filters that keep more than 75% of their input rows.
+    /// DuckDB disables optional filters that keep more than 75% of their input rows. In a Vortex
+    /// scan, a filter that keeps more than half of the rows makes the projection of the other
+    /// columns through its mask cost more than the rows it removes save, as in TPC-DS q79.
     fn default() -> Self {
         Self {
-            max_selectivity: 0.75,
+            max_selectivity: 0.5,
             sample_rows: 64 * 1024,
             backoff_rows: 1024 * 1024,
         }
@@ -168,6 +171,12 @@ impl FilterExpr {
     /// Whether to evaluate the conjunct over the next `input_rows` rows. Only an optional conjunct
     /// that keeps too many rows is skipped; the skipped rows count towards its backoff.
     pub fn should_evaluate(&self, conjunct_idx: usize, input_rows: usize) -> bool {
+        // A dynamic conjunct without a value yet keeps every row.
+        if self.dynamic_conjuncts[conjunct_idx].is_some()
+            && is_currently_true(&self.conjuncts[conjunct_idx])
+        {
+            return false;
+        }
         let Some(state) = &self.optional_conjuncts[conjunct_idx] else {
             return true;
         };
@@ -189,9 +198,15 @@ impl FilterExpr {
         false
     }
 
-    /// Whether the conjunct is an optional conjunct that the scan currently skips. Unlike
+    /// Whether the scan currently skips the conjunct: a dynamic conjunct without a value yet, or
+    /// an optional conjunct in its backoff. Unlike
     /// [`Self::should_evaluate`], this does not count rows towards the backoff.
     pub fn is_skipped(&self, conjunct_idx: usize) -> bool {
+        if self.dynamic_conjuncts[conjunct_idx].is_some()
+            && is_currently_true(&self.conjuncts[conjunct_idx])
+        {
+            return true;
+        }
         let Some(state) = &self.optional_conjuncts[conjunct_idx] else {
             return false;
         };
