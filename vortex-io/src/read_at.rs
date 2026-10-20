@@ -68,8 +68,11 @@ impl CoalesceConfig {
     }
 
     /// Configuration appropriate for local filesystem access.
+    ///
+    /// Local reads cost little per request, so only gaps of a couple of pages are read through.
+    /// Wider gaps mostly copy the segments of columns that a scan does not read.
     pub const fn file() -> Self {
-        Self::new(1 << 20, 4 << 20) // 1MB distance, 4MB max
+        Self::new(8 * 1024, 1 << 20) // 8KB distance, 1MB max
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
@@ -439,8 +442,8 @@ mod tests {
     #[test]
     fn test_coalesce_config_file() {
         let config = CoalesceConfig::file();
-        assert_eq!(config.distance, 1 << 20); // 1MB
-        assert_eq!(config.max_size, 4 << 20); // 4MB
+        assert_eq!(config.distance, 8 * 1024); // 8KB
+        assert_eq!(config.max_size, 1 << 20); // 1MB
     }
 
     #[test]
