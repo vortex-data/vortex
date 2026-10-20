@@ -38,7 +38,14 @@ pub struct OptionalFilterBackoff {
     pub sample_rows: u64,
     /// The number of input rows for which a conjunct that keeps too many rows is skipped.
     pub backoff_rows: u64,
+    /// Whether to prune the zones of optional conjuncts.
+    pub prune_zones: bool,
 }
+
+/// The fewest rows of a scan for which the zones of an optional conjunct are worth pruning. A
+/// scan of a few zones reads the zone map for little: the file statistics already decided whether
+/// the whole file is pruned.
+const MIN_ZONE_PRUNING_ROWS: u64 = 16 * 1024;
 
 impl OptionalFilterBackoff {
     /// The backoff for a scan of `scan_rows` rows. An engine can split a file into many small
@@ -46,6 +53,7 @@ impl OptionalFilterBackoff {
     pub fn for_scan_rows(self, scan_rows: u64) -> Self {
         Self {
             sample_rows: self.sample_rows.min((scan_rows / 4).max(1)),
+            prune_zones: self.prune_zones && scan_rows >= MIN_ZONE_PRUNING_ROWS,
             ..self
         }
     }
@@ -60,6 +68,7 @@ impl Default for OptionalFilterBackoff {
             max_selectivity: 0.5,
             sample_rows: 64 * 1024,
             backoff_rows: 1024 * 1024,
+            prune_zones: true,
         }
     }
 }
@@ -196,6 +205,18 @@ impl FilterExpr {
 
         state.skip_rows = state.skip_rows.saturating_sub(input_rows as u64);
         false
+    }
+
+    /// Whether the scan prunes the zones of the conjunct: not when it skips the conjunct, nor for
+    /// an optional conjunct of a scan too small to prune.
+    pub fn should_prune(&self, conjunct_idx: usize) -> bool {
+        if self.is_skipped(conjunct_idx) {
+            return false;
+        }
+        self.optional_conjuncts[conjunct_idx].is_none()
+            || self
+                .optional_backoff
+                .is_none_or(|backoff| backoff.prune_zones)
     }
 
     /// Whether the scan currently skips the conjunct: a dynamic conjunct without a value yet, or
@@ -394,6 +415,7 @@ mod tests {
                 max_selectivity: 0.75,
                 sample_rows: 100,
                 backoff_rows: 1000,
+                prune_zones: true,
             }),
         ))
     }
@@ -459,6 +481,8 @@ mod tests {
             backoff.sample_rows
         );
         assert_eq!(backoff.for_scan_rows(0).sample_rows, 1);
+        assert!(!backoff.for_scan_rows(10_000).prune_zones);
+        assert!(backoff.for_scan_rows(100_000).prune_zones);
     }
 
     #[test]
@@ -488,6 +512,7 @@ mod tests {
                 max_selectivity: 0.75,
                 sample_rows: 100,
                 backoff_rows: 1000,
+                prune_zones: true,
             }),
         );
 
