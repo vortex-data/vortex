@@ -48,6 +48,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::ExpressionConverter;
+use crate::convert::df_predicate::DataFusionPredicate;
 
 /// Conversions of DataFusion dynamic filters to Vortex conjuncts, shared by the openers of a scan.
 ///
@@ -182,10 +183,12 @@ impl DynamicFilterConversions {
             .into_iter()
             .filter_map(|conjunct| match converter.try_convert(conjunct, schema) {
                 Ok(Some(converted)) => Some(converted),
-                Ok(None) => {
+                // DataFusion evaluates what Vortex cannot express, such as the hash table lookup
+                // of a join, so the scan still removes the rows it rejects early.
+                Ok(None) => DataFusionPredicate::expression(conjunct, schema).or_else(|| {
                     tracing::debug!(%conjunct, "dropping unsupported dynamic filter conjunct");
                     None
-                }
+                }),
                 Err(err) => {
                     tracing::debug!(%conjunct, %err, "dropping dynamic filter conjunct");
                     None
