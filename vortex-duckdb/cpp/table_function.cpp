@@ -126,7 +126,9 @@ InsertionOrderPreservingMap<string> to_string(TableFunctionToStringInput &input)
     return result;
 }
 
-void serialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data_p, const BoundTableFunction &) {
+void serialize(Serializer &serializer,
+               const optional_ptr<FunctionData> bind_data_p,
+               const BoundTableFunction &) {
     auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
     vector<string> files;
     for (auto &file : bind_data.file_list->GetAllFiles()) {
@@ -230,6 +232,73 @@ static bool projection_expression_pushdown(ClientContext &,
     return ret;
 }
 
+/// Statistics of a column of the scanned files.
+///
+/// DuckDB only reports statistics of a scan over several files when it reads them by name, as
+/// it would have to read the metadata of every file. Vortex scans cache the footers of the files
+/// they open, so once every file was opened the statistics are merged from the footers, which
+/// lets DuckDB plan with them as it plans its own tables: drop overflow checks from arithmetic,
+/// prune filters, and pack group keys.
+static unique_ptr<BaseStatistics> scan_statistics(ClientContext &context,
+                                                  TableFunctionGetStatisticsInput &input) {
+    const MultiFileBindData &bind_data = input.bind_data->Cast<MultiFileBindData>();
+    if (bind_data.file_list->GetExpandResult() != FileExpandResult::MULTIPLE_FILES ||
+        bind_data.file_options.union_by_name || !bind_data.file_options.column_statistics.IsNull()) {
+        return MultiFileFunction<VortexReaderInterface>::MultiFileScanStatsExtended(context, input);
+    }
+    const ColumnIndex &column_index = input.column_index;
+    if (!bind_data.initial_reader || column_index.IsVirtualColumn() || column_index.IsPushdownExtract()) {
+        return nullptr;
+    }
+    const idx_t primary_index = column_index.GetPrimaryIndex();
+    const optional_idx file_row_number_idx = bind_data.reader_bind.file_row_number_idx;
+    if (file_row_number_idx.IsValid() && file_row_number_idx.GetIndex() == primary_index) {
+        return nullptr;
+    }
+    // A hive partitioning column overrides the file column of the same name.
+    for (const auto &hive_partitioning_index : bind_data.reader_bind.hive_partitioning_indexes) {
+        if (hive_partitioning_index.index == primary_index) {
+            return nullptr;
+        }
+    }
+
+    const VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
+    const std::lock_guard<std::mutex> guard(bind.merged_statistics_lock);
+    if (!bind.merged_statistics_loaded) {
+        const vector<OpenFileInfo> files = bind_data.file_list->GetAllFiles();
+        vector<const char *> paths;
+        vector<size_t> path_lens;
+        paths.reserve(files.size());
+        path_lens.reserve(files.size());
+        for (const OpenFileInfo &file : files) {
+            paths.push_back(file.path.data());
+            path_lens.push_back(file.path.size());
+        }
+        duckdb_vx_data raw = duckdb_scan_merged_statistics(paths.data(), path_lens.data(), files.size());
+        bind.merged_statistics.reset(reinterpret_cast<CData *>(raw));
+        bind.merged_statistics_loaded = true;
+    }
+    if (!bind.merged_statistics) {
+        return nullptr;
+    }
+
+    const string &name = bind_data.names[primary_index].GetIdentifierName();
+    duckdb_column_statistics statistics = {};
+    if (!duckdb_merged_statistics_get(bind.merged_statistics->DataPtr(),
+                                      name.data(),
+                                      name.size(),
+                                      &statistics)) {
+        return nullptr;
+    }
+    unique_ptr<BaseStatistics> result = to_duckdb_statistics(statistics);
+    // A column read as another type than the files store it as, such as one a projection was
+    // pushed into, is not described by the statistics of the files.
+    if (result && result->GetType() != bind_data.types[primary_index]) {
+        return nullptr;
+    }
+    return result;
+}
+
 duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter, const std::string &name) {
     MultiFileFunction<VortexReaderInterface> fn {Identifier(name)};
     FunctionSignature signature;
@@ -261,7 +330,7 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     };
 
     fn.get_partition_stats = get_partition_stats;
-    fn.statistics_extended = MultiFileFunction<VortexReaderInterface>::MultiFileScanStatsExtended;
+    fn.statistics_extended = scan_statistics;
     fn.get_multi_file_reader = get_multi_file_reader;
 
     // DuckDB's common-subplan optimizer shares scans whose operators serialize equally, as in

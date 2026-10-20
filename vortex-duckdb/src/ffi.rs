@@ -5,6 +5,7 @@ use std::ffi::CStr;
 use std::ffi::c_char;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
@@ -47,6 +48,8 @@ use crate::file_reader::reader_initialize;
 use crate::file_reader::reader_open;
 use crate::file_reader::reader_scan;
 use crate::file_reader::reader_try_initialize_scan;
+use crate::scan_statistics::MergedStatistics;
+use crate::scan_statistics::merged_statistics;
 use crate::table_function::BindState;
 use crate::table_function::Cardinality;
 use crate::table_function::GlobalState;
@@ -286,6 +289,61 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_statistics(
         unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
     let name = String::from_utf8_lossy(name_bytes);
     let Some(stats) = footer_get_statistics(footer, &name) else {
+        return false;
+    };
+    let stats_out = unsafe { &mut *stats_out };
+    stats_out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
+    stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
+    stats_out.max_string_length = stats.max_string_length;
+    stats_out.has_null = stats.has_null;
+    stats_out.distinct_count = stats.distinct_count;
+    stats_out.type_ = stats.logical_type.into_ptr();
+    true
+}
+
+/// The statistics of the columns of the files at the `count` paths, if the footers of all of
+/// them are cached, as a handle for [`duckdb_merged_statistics_get`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_scan_merged_statistics(
+    paths: *const *const c_char,
+    path_lens: *const usize,
+    count: usize,
+) -> cpp::duckdb_vx_data {
+    let paths = unsafe { std::slice::from_raw_parts(paths, count) };
+    let path_lens = unsafe { std::slice::from_raw_parts(path_lens, count) };
+    let Some(paths) = paths
+        .iter()
+        .zip(path_lens)
+        .map(|(&path, &len)| {
+            let path = unsafe { std::slice::from_raw_parts(path.cast::<u8>(), len) };
+            str::from_utf8(path).ok()
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return ptr::null_mut();
+    };
+    match merged_statistics(&paths) {
+        Some(merged) => Data::from(Box::new(merged)).as_ptr(),
+        None => ptr::null_mut(),
+    }
+}
+
+/// Writes the statistics of the column called `name` from the handle of
+/// [`duckdb_scan_merged_statistics`] to `stats_out`, returning false when it has none.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_merged_statistics_get(
+    merged: *const c_void,
+    name: *const c_char,
+    len: usize,
+    stats_out: *mut cpp::duckdb_column_statistics,
+) -> bool {
+    let merged =
+        unsafe { merged.cast::<Arc<MergedStatistics>>().as_ref() }.vortex_expect("null pointer");
+    let name = unsafe { std::slice::from_raw_parts(name.cast::<u8>(), len) };
+    let Some(stats) = str::from_utf8(name)
+        .ok()
+        .and_then(|name| merged.column(name))
+    else {
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };

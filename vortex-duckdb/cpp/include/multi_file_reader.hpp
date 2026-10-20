@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #pragma once
 
+#include <mutex>
+
 #include "data.hpp"
 #include "table_function.h"
 #include "duckdb/common/multi_file/multi_file_function.hpp"
@@ -22,6 +24,12 @@ struct VortexBindData final : TableFunctionData {
     bool Equals(const FunctionData &other) const override;
 
     unique_ptr<CData> ffi_bind_data;
+
+    // The statistics of the columns of a scan over several files, merged from the footers of the
+    // files, once DuckDB first asks for them. Null when not every footer is cached.
+    mutable std::mutex merged_statistics_lock;
+    mutable bool merged_statistics_loaded = false;
+    mutable unique_ptr<CData> merged_statistics;
 };
 
 struct VortexBindResult {

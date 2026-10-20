@@ -84,6 +84,17 @@ bool duckdb_footer_get_statistics(const void *footer,
                                   size_t column_name_len,
                                   duckdb_column_statistics *stats_out);
 
+extern
+duckdb_vx_data duckdb_scan_merged_statistics(const char *const *paths,
+                                             const size_t *path_lens,
+                                             size_t count);
+
+extern
+bool duckdb_merged_statistics_get(const void *merged,
+                                  const char *name,
+                                  size_t len,
+                                  duckdb_column_statistics *stats_out);
+
 extern bool duckdb_reader_initialize(const void *global, void *file, duckdb_vx_error *error);
 
 extern duckdb_logical_type duckdb_reader_bind_column_type(const void *bind, size_t index);

@@ -529,6 +529,71 @@ fn test_vortex_scan_multiple_globs() {
     assert_eq!(total_sum, 55);
 }
 
+/// Writes two files of `numbers` into a temporary directory, returning the glob of both.
+fn write_two_number_files(
+    first: impl IntoArray,
+    second: impl IntoArray,
+) -> (tempfile::TempDir, [NamedTempFile; 2], String) {
+    let (tempdir, files) = RUNTIME.block_on(async {
+        let tempdir = tempfile::tempdir().unwrap();
+        let first = write_vortex_file_to_dir(tempdir.path(), "numbers", first).await;
+        let second = write_vortex_file_to_dir(tempdir.path(), "numbers", second).await;
+        (tempdir, [first, second])
+    });
+    let glob = format!("{}/*.vortex", tempdir.path().display());
+    (tempdir, files, glob)
+}
+
+#[test]
+fn test_multi_file_statistics_prune_filters() -> Result<()> {
+    let (_tempdir, _files, glob) = write_two_number_files(buffer![1i32, 2, 3], buffer![4i32, 5, 6]);
+    let conn = database_connection();
+    // The first scan opens the files and caches their footers.
+    conn.query(&format!("SELECT SUM(numbers) FROM '{glob}'"))?;
+
+    let plan = explain(
+        &conn,
+        &format!("SELECT numbers FROM '{glob}' WHERE numbers > 6"),
+    )?;
+    assert!(plan.contains("EMPTY_RESULT"), "{plan}");
+    let plan = explain(
+        &conn,
+        &format!("SELECT numbers FROM '{glob}' WHERE numbers > 5"),
+    )?;
+    assert!(!plan.contains("EMPTY_RESULT"), "{plan}");
+    Ok(())
+}
+
+#[test]
+fn test_multi_file_statistics_keep_overflow_checks() -> Result<()> {
+    let (_tempdir, _files, glob) =
+        write_two_number_files(buffer![1i32, 2, 3], buffer![i32::MAX - 1, i32::MAX]);
+    let conn = database_connection();
+    conn.query(&format!("SELECT SUM(numbers) FROM '{glob}'"))?;
+
+    // The statistics of the second file say that adding one overflows.
+    let error = conn
+        .query(&format!("SELECT numbers + 1 FROM '{glob}'"))
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(error.contains("Overflow"), "{error}");
+    Ok(())
+}
+
+fn explain(conn: &Connection, query: &str) -> Result<String> {
+    let result = conn.query(&format!("EXPLAIN {query}"))?;
+    let mut plan = String::new();
+    for chunk in result {
+        let vector = chunk.get_vector(1);
+        let values = vector.as_slice_with_len::<duckdb_string_t>(chunk.len().as_());
+        for value in values {
+            plan.push_str(&String::from_duckdb_value(&mut value.clone()));
+        }
+    }
+    Ok(plan)
+}
+
 #[test]
 fn test_write_file() {
     let conn = database_connection();

@@ -31,6 +31,7 @@ mod exporter;
 mod ffi;
 mod file_reader;
 mod projection;
+mod scan_statistics;
 mod scan_v2;
 mod table_function;
 
@@ -59,8 +60,7 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 /// Process-wide registry, so repeated scans against the same bucket share one client.
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::default()
-        .with_handle(RUNTIME.handle());
+    let session = VortexSession::default().with_handle(RUNTIME.handle());
     session
         .enable_edition(CORE_2026_08_3)
         .vortex_expect("DuckDB-supported draft core edition is registered");
