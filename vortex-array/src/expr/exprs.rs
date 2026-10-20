@@ -58,6 +58,7 @@ use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::optional::Optional;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
@@ -1163,6 +1164,22 @@ pub fn bound_dynamic_expression(
         .vortex_expect("dynamic expressions accept any inputs")
 }
 
+// ---- Optional ----
+
+/// Marks a filter conjunct that a scan may skip, because the caller applies it again.
+///
+/// See [`Optional`] for when a predicate is optional.
+pub fn optional(predicate: Expression) -> Expression {
+    Optional.new_expr(EmptyOptions, [predicate])
+}
+
+/// Creates a bound expression that marks an optional filter conjunct.
+pub fn bound_optional(predicate: BoundExpression) -> BoundExpression {
+    Optional
+        .try_new_bound_expr(EmptyOptions, [predicate])
+        .vortex_expect("optional expressions accept any input")
+}
+
 // ---- ListContains ----
 
 /// Creates an expression that checks whether a list contains a value.
@@ -1504,6 +1521,7 @@ pub mod bound {
     pub use super::bound_not_eq as not_eq;
     pub use super::bound_not_ilike as not_ilike;
     pub use super::bound_not_like as not_like;
+    pub use super::bound_optional as optional;
     pub use super::bound_or as or;
     pub use super::bound_or_collect as or_collect;
     pub use super::bound_pack as pack;

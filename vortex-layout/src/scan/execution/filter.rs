@@ -58,7 +58,8 @@ impl FilterPlans {
         root: &PlanRef,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let expression = FilterExpr::new(find_between(expression)?);
+        // This path does not skip optional conjuncts yet, so it evaluates every one of them.
+        let expression = FilterExpr::new(find_between(expression)?, None);
         let predicates = expression
             .conjuncts()
             .iter()

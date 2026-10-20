@@ -101,6 +101,7 @@ pub use exprs::not;
 pub use exprs::not_eq;
 pub use exprs::not_ilike;
 pub use exprs::not_like;
+pub use exprs::optional;
 pub use exprs::or;
 pub use exprs::or_collect;
 pub use exprs::pack;
