@@ -364,38 +364,43 @@ impl FileOpener for VortexOpener {
                     &this_file_schema,
                     |predicate| expr_adapter.rewrite(predicate),
                 )?;
-                if matches!(
-                    DynamicFilterTracking::classify(&adapted),
-                    DynamicFilterTracking::AllComplete
-                ) {
+                if dynamic_filter_conversions.is_complete(&predicate, &adapted) {
                     // A complete filter, such as the bounds of a hash join whose build side has
-                    // finished, does not change again. Its snapshot keeps every kernel of the
-                    // scan. Bounds that the file statistics prove for every row without nulls
-                    // would at most remove those nulls, which is not worth evaluating.
-                    let conjuncts = dynamic_filter_conversions.conjuncts(
+                    // finished, does not change again, so every partition of a file shares the
+                    // conjunction pushed for it. Its snapshot keeps every kernel of the scan.
+                    let file_filter = dynamic_filter_conversions.file_filter(
                         &predicate,
-                        &adapted,
-                        expr_converter.as_ref(),
-                        &this_file_schema,
+                        &file.object_meta.location,
+                        || {
+                            let conjuncts = dynamic_filter_conversions.conjuncts(
+                                &predicate,
+                                &adapted,
+                                expr_converter.as_ref(),
+                                &this_file_schema,
+                            )?;
+                            // The scan would skip ranges that keep most rows after sampling
+                            // them, so ranges whose statistics predict that are dropped up front,
+                            // before the costlier proofs below.
+                            let conjuncts = match optional_filter_backoff {
+                                Some(backoff) => drop_unselective_ranges(
+                                    conjuncts.iter().cloned(),
+                                    &vxf,
+                                    backoff.max_selectivity,
+                                ),
+                                None => conjuncts.to_vec(),
+                            };
+                            // Bounds that the file statistics prove for every row without nulls
+                            // would at most remove those nulls, which is not worth evaluating.
+                            let conjuncts = conjuncts.into_iter().filter(|expr| {
+                                has_selectivity_estimate(expr, &vxf)
+                                    || !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false)
+                            });
+                            // One marker over the whole conjunction lets the scan merge its range
+                            // comparisons into betweens.
+                            Ok(and_collect(conjuncts).map(optional))
+                        },
                     )?;
-                    // The scan would skip ranges that keep most rows after sampling them, so
-                    // ranges whose statistics predict that are dropped up front, before the
-                    // costlier proofs below.
-                    let conjuncts = match optional_filter_backoff {
-                        Some(backoff) => drop_unselective_ranges(
-                            conjuncts.iter().cloned(),
-                            &vxf,
-                            backoff.max_selectivity,
-                        ),
-                        None => conjuncts.to_vec(),
-                    };
-                    let conjuncts = conjuncts.into_iter().filter(|expr| {
-                        has_selectivity_estimate(expr, &vxf)
-                            || !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false)
-                    });
-                    // One marker over the whole conjunction lets the scan merge its range
-                    // comparisons into betweens.
-                    native_filters.extend(and_collect(conjuncts).map(optional));
+                    native_filters.extend(file_filter);
                 } else {
                     // A filter that can still change, such as a TopK threshold, is read again
                     // by the scan each time it changes.
