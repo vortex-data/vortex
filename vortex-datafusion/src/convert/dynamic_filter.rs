@@ -13,6 +13,7 @@ use std::sync::PoisonError;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -20,6 +21,7 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::snapshot_generation;
 use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use itertools::Itertools;
+use object_store::path::Path;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
@@ -61,6 +63,10 @@ pub(crate) struct DynamicFilterConversions {
     /// is not reused.
     adapted: DashMap<(usize, SchemaKey), (Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>,
     conversions: DashMap<(usize, SchemaKey), Arc<Mutex<Option<Conversion>>>>,
+    /// Filters seen complete, which never change again.
+    complete: DashMap<usize, Arc<dyn PhysicalExpr>>,
+    /// The conjunction pushed into each file for each complete filter.
+    file_filters: DashMap<(usize, Path), Option<Expression>>,
 }
 
 /// The Vortex conjuncts of a dynamic filter as of a generation.
@@ -91,6 +97,43 @@ impl Hash for SchemaKey {
 }
 
 impl DynamicFilterConversions {
+    /// Whether `predicate`, adapted as `adapted`, holds only dynamic filters that are complete.
+    pub(crate) fn is_complete(
+        &self,
+        predicate: &Arc<dyn PhysicalExpr>,
+        adapted: &Arc<dyn PhysicalExpr>,
+    ) -> bool {
+        let key = Arc::as_ptr(predicate).cast::<()>().addr();
+        if self.complete.contains_key(&key) {
+            return true;
+        }
+        let complete = matches!(
+            DynamicFilterTracking::classify(adapted),
+            DynamicFilterTracking::AllComplete
+        );
+        if complete {
+            self.complete.insert(key, Arc::clone(predicate));
+        }
+        complete
+    }
+
+    /// The conjunction that `filter` builds for the complete `predicate` and the file at `path`,
+    /// built once for each file. The key's filter is kept alive by the completeness record.
+    pub(crate) fn file_filter(
+        &self,
+        predicate: &Arc<dyn PhysicalExpr>,
+        path: &Path,
+        filter: impl FnOnce() -> DFResult<Option<Expression>>,
+    ) -> DFResult<Option<Expression>> {
+        let key = (Arc::as_ptr(predicate).cast::<()>().addr(), path.clone());
+        if let Some(filter) = self.file_filters.get(&key) {
+            return Ok(filter.clone());
+        }
+        let filter = filter()?;
+        self.file_filters.insert(key, filter.clone());
+        Ok(filter)
+    }
+
     /// `predicate` adapted to `schema` by `adapt`, which runs once for each schema.
     pub(crate) fn adapted(
         &self,
