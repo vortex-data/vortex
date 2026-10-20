@@ -567,7 +567,9 @@ impl VortexReadAt for PooledFileReadAt {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(CoalesceConfig::file())
+        // Reads fill pooled pinned buffers rather than copying out of the page cache, so they keep
+        // coalescing across the wide gaps that `CoalesceConfig::file` used to allow.
+        Some(CoalesceConfig::new(1 << 20, 4 << 20))
     }
 
     fn concurrency(&self) -> usize {
