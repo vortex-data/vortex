@@ -73,6 +73,7 @@ use crate::VortexAccessPlan;
 use crate::convert::dynamic_filter::DataFusionDynamicFilter;
 use crate::convert::dynamic_filter::DynamicFilterConversions;
 use crate::convert::dynamic_filter::drop_unselective_ranges;
+use crate::convert::dynamic_filter::has_selectivity_estimate;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -358,7 +359,11 @@ impl FileOpener for VortexOpener {
             // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals,
             // and the scan can skip conjuncts that keep most rows.
             for predicate in dynamic_filters {
-                let adapted = expr_adapter.rewrite(Arc::clone(&predicate))?;
+                let adapted = dynamic_filter_conversions.adapted(
+                    &predicate,
+                    &this_file_schema,
+                    |predicate| expr_adapter.rewrite(predicate),
+                )?;
                 if matches!(
                     DynamicFilterTracking::classify(&adapted),
                     DynamicFilterTracking::AllComplete
@@ -373,18 +378,21 @@ impl FileOpener for VortexOpener {
                         expr_converter.as_ref(),
                         &this_file_schema,
                     )?;
-                    let conjuncts = conjuncts
-                        .iter()
-                        .filter(|expr| !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false))
-                        .cloned();
                     // The scan would skip ranges that keep most rows after sampling them, so
-                    // ranges whose statistics predict that are dropped up front.
+                    // ranges whose statistics predict that are dropped up front, before the
+                    // costlier proofs below.
                     let conjuncts = match optional_filter_backoff {
-                        Some(backoff) => {
-                            drop_unselective_ranges(conjuncts, &vxf, backoff.max_selectivity)
-                        }
-                        None => conjuncts.collect(),
+                        Some(backoff) => drop_unselective_ranges(
+                            conjuncts.iter().cloned(),
+                            &vxf,
+                            backoff.max_selectivity,
+                        ),
+                        None => conjuncts.to_vec(),
                     };
+                    let conjuncts = conjuncts.into_iter().filter(|expr| {
+                        has_selectivity_estimate(expr, &vxf)
+                            || !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false)
+                    });
                     // One marker over the whole conjunction lets the scan merge its range
                     // comparisons into betweens.
                     native_filters.extend(and_collect(conjuncts).map(optional));
@@ -398,6 +406,8 @@ impl FileOpener for VortexOpener {
                             Arc::clone(&dynamic_filter_conversions),
                             Arc::clone(&expr_converter),
                             Arc::clone(&this_file_schema),
+                            &vxf,
+                            optional_filter_backoff.map(|backoff| backoff.max_selectivity),
                         ))
                         .map(optional),
                     );
@@ -851,6 +861,7 @@ mod tests {
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
+    use datafusion::arrow::datatypes::Int32Type;
     use datafusion::arrow::datatypes::Schema;
     use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
@@ -2413,7 +2424,8 @@ mod tests {
     ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
-        let batch = make_test_batch_with_10_rows();
+        let row_count = 10;
+        let batch = record_batch!(("a", Int32, (0..row_count).map(Some).collect::<Vec<_>>()))?;
         let data_size =
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
         let schema = batch.schema();
@@ -2426,7 +2438,7 @@ mod tests {
         let bound: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
             column,
             Operator::GtEq,
-            df_expr::lit(7i32),
+            df_expr::lit(row_count - 3),
         ));
         if complete_before_open {
             dynamic_filter.update(Arc::clone(&bound))?;
@@ -2449,13 +2461,17 @@ mod tests {
         }
         let data = stream.try_collect::<Vec<_>>().await?;
 
-        assert_batches_eq!(
-            [
-                "+---+", //
-                "| a |", "+---+", "| 7 |", "| 8 |", "| 9 |", "+---+",
-            ],
-            &data
-        );
+        let values = data
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, (row_count - 3..row_count).collect::<Vec<_>>());
         Ok(())
     }
 }

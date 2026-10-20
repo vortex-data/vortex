@@ -36,10 +36,12 @@ use vortex::expr::root;
 use vortex::expr::stats::Stat;
 use vortex::file::VortexFile;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -55,6 +57,9 @@ use crate::convert::ExpressionConverter;
 /// conversion at the same time wait for one of them to convert.
 #[derive(Default)]
 pub(crate) struct DynamicFilterConversions {
+    /// Each filter adapted to a file schema, with the filter of the key kept so that its address
+    /// is not reused.
+    adapted: DashMap<(usize, SchemaKey), (Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>,
     conversions: DashMap<(usize, SchemaKey), Arc<Mutex<Option<Conversion>>>>,
 }
 
@@ -86,6 +91,26 @@ impl Hash for SchemaKey {
 }
 
 impl DynamicFilterConversions {
+    /// `predicate` adapted to `schema` by `adapt`, which runs once for each schema.
+    pub(crate) fn adapted(
+        &self,
+        predicate: &Arc<dyn PhysicalExpr>,
+        schema: &SchemaRef,
+        adapt: impl FnOnce(Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>>,
+    ) -> DFResult<Arc<dyn PhysicalExpr>> {
+        let key = (
+            Arc::as_ptr(predicate).cast::<()>().addr(),
+            SchemaKey(Arc::clone(schema)),
+        );
+        if let Some(entry) = self.adapted.get(&key) {
+            return Ok(Arc::clone(&entry.1));
+        }
+        let adapted = adapt(Arc::clone(predicate))?;
+        self.adapted
+            .insert(key, (Arc::clone(predicate), Arc::clone(&adapted)));
+        Ok(adapted)
+    }
+
     /// The Vortex conjuncts of the current value of `adapted`, which is `predicate` adapted to
     /// `schema`. Conjuncts that Vortex cannot evaluate are dropped: a dynamic filter only discards
     /// rows that cannot contribute to the result.
@@ -154,6 +179,10 @@ pub(crate) struct DataFusionDynamicFilter {
     conversions: Arc<DynamicFilterConversions>,
     converter: Arc<dyn ExpressionConverter>,
     schema: SchemaRef,
+    /// The file whose statistics predict which ranges keep most rows.
+    file: VortexFile,
+    /// The selectivity above which ranges are dropped, if the scan skips unselective conjuncts.
+    max_selectivity: Option<f64>,
 }
 
 impl DataFusionDynamicFilter {
@@ -169,6 +198,8 @@ impl DataFusionDynamicFilter {
         conversions: Arc<DynamicFilterConversions>,
         converter: Arc<dyn ExpressionConverter>,
         schema: SchemaRef,
+        file: &VortexFile,
+        max_selectivity: Option<f64>,
     ) -> Vec<Expression> {
         let columns = collect_columns(&adapted)
             .into_iter()
@@ -184,6 +215,8 @@ impl DataFusionDynamicFilter {
             conversions: Arc::clone(&conversions),
             converter: Arc::clone(&converter),
             schema: Arc::clone(&schema),
+            file: file.clone(),
+            max_selectivity,
         };
         let mut expressions = Vec::with_capacity(columns.len() + 1);
         if columns.len() > 1 {
@@ -243,14 +276,22 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
             )
             .map_err(|err| vortex_err!("Failed to convert dynamic filter {self}: {err}"))?;
 
+        // Each value can bound a range that keeps most rows of this file, such as the keys of a
+        // hash join that cover a whole column.
+        let conjuncts = match self.max_selectivity {
+            Some(max_selectivity) => {
+                drop_unselective_ranges(conjuncts.iter().cloned(), &self.file, max_selectivity)
+            }
+            None => conjuncts.to_vec(),
+        };
         let column = get_item(self.columns[0].clone(), root());
         let conjuncts = conjuncts
-            .iter()
+            .into_iter()
             .filter_map(|conjunct| {
                 if self.bounds_only {
-                    implied_bound(conjunct, &column)
+                    implied_bound(&conjunct, &column)
                 } else {
-                    Some(conjunct.clone())
+                    Some(conjunct)
                 }
             })
             .filter_map(|conjunct| self.read_inputs(&conjunct)?.bind(scope).ok())
@@ -295,24 +336,92 @@ pub(crate) fn drop_unselective_ranges(
         .into_iter()
         .filter(|conjunct| {
             range_comparison(conjunct).is_none_or(|(column, ..)| !unselective.contains(&column))
+                && in_list_selectivity(conjunct, file)
+                    .is_none_or(|selectivity| selectivity <= max_selectivity)
         })
         .collect()
 }
 
-/// The column and the numeric range that `expr` keeps, if it compares a column with a number.
-fn range_comparison(expr: &Expression) -> Option<(FieldName, f64, f64)> {
-    let operator = *expr.as_opt::<Binary>()?;
-    let column = expr.child(0);
-    if !column.child(0).is_root() {
+/// The column that `expr` reads, if it reads one top-level column.
+fn column_name(expr: &Expression) -> Option<FieldName> {
+    let field = expr.as_opt::<GetItem>()?;
+    expr.child(0).is_root().then(|| field.clone())
+}
+
+/// The value of a numeric literal.
+fn numeric_literal(expr: &Expression) -> Option<f64> {
+    let value = expr.as_opt::<Literal>()?;
+    // Viewing a scalar of another type as a primitive builds an error, which is costly.
+    if !value.dtype().is_primitive() {
         return None;
     }
-    let column = column.as_opt::<GetItem>()?.clone();
-    let value = expr
-        .child(1)
-        .as_opt::<Literal>()?
-        .as_primitive_opt()?
-        .as_opt::<f64>()
-        .flatten()?;
+    value.as_primitive_opt()?.as_opt::<f64>().flatten()
+}
+
+/// The fraction of the integers between the minimum and maximum of a column that an IN list on
+/// it holds, such as the keys of a hash join on a dense surrogate key.
+fn in_list_selectivity(expr: &Expression, file: &VortexFile) -> Option<f64> {
+    if !expr.is::<ListContains>() {
+        return None;
+    }
+    let column = column_name(expr.child(1))?;
+    let (min, max) = column_min_max(file, &column)?;
+    let list = expr.child(0).as_opt::<Literal>()?.as_list_opt()?;
+    let mut values = list
+        .elements()?
+        .iter()
+        .filter(|element| matches!(element.dtype(), DType::Primitive(ptype, _) if ptype.is_int()))
+        .filter_map(|element| element.as_primitive_opt()?.as_opt::<i64>().flatten())
+        .filter(|value| (min..=max).contains(&(*value as f64)))
+        .collect::<Vec<_>>();
+    values.sort_unstable();
+    values.dedup();
+    #[expect(clippy::cast_precision_loss, reason = "an estimate")]
+    Some((values.len() as f64 / (max - min + 1.0)).min(1.0))
+}
+
+/// The minimum and maximum of a primitive column in the file statistics.
+fn column_min_max(file: &VortexFile, column: &FieldName) -> Option<(f64, f64)> {
+    let field_idx = file.dtype().as_struct_fields_opt()?.find(column)?;
+    let (stats, dtype) = file.file_stats()?.get(field_idx);
+    if !dtype.is_primitive() {
+        return None;
+    }
+    let stat = |stat: Stat| {
+        Scalar::try_new(dtype.clone(), Some(stats.get(stat).as_exact()?))
+            .ok()?
+            .as_primitive_opt()?
+            .as_opt::<f64>()
+            .flatten()
+    };
+    Some((stat(Stat::Min)?, stat(Stat::Max)?))
+}
+
+/// Whether the file statistics give `expr` a selectivity estimate, as a numeric range or an IN
+/// list on a column with a minimum and maximum. [`drop_unselective_ranges`] already dropped such a
+/// conjunct if it keeps every row, so no proof needs to show that.
+pub(crate) fn has_selectivity_estimate(expr: &Expression, file: &VortexFile) -> bool {
+    let column = match range_comparison(expr) {
+        Some((column, ..)) => Some(column),
+        None if expr.is::<ListContains>() => column_name(expr.child(1)),
+        None => None,
+    };
+    column.is_some_and(|column| column_min_max(file, &column).is_some())
+}
+
+/// The column and the numeric range that `expr` keeps, if it compares a column with a number.
+fn range_comparison(expr: &Expression) -> Option<(FieldName, f64, f64)> {
+    if expr.is::<Between>() {
+        let column = column_name(expr.child(0))?;
+        return Some((
+            column,
+            numeric_literal(expr.child(1))?,
+            numeric_literal(expr.child(2))?,
+        ));
+    }
+    let operator = *expr.as_opt::<Binary>()?;
+    let column = column_name(expr.child(0))?;
+    let value = numeric_literal(expr.child(1))?;
     let (lower, upper) = match operator {
         Operator::Eq => (value, value),
         Operator::Gt | Operator::Gte => (value, f64::INFINITY),
@@ -325,16 +434,7 @@ fn range_comparison(expr: &Expression) -> Option<(FieldName, f64, f64)> {
 /// The fraction of the values between the minimum and maximum of `column` that lie in
 /// `lower..=upper`.
 fn range_selectivity(file: &VortexFile, column: &FieldName, lower: f64, upper: f64) -> Option<f64> {
-    let field_idx = file.dtype().as_struct_fields_opt()?.find(column)?;
-    let (stats, dtype) = file.file_stats()?.get(field_idx);
-    let stat = |stat: Stat| {
-        Scalar::try_new(dtype.clone(), Some(stats.get(stat).as_exact()?))
-            .ok()?
-            .as_primitive_opt()?
-            .as_opt::<f64>()
-            .flatten()
-    };
-    let (min, max) = (stat(Stat::Min)?, stat(Stat::Max)?);
+    let (min, max) = column_min_max(file, column)?;
     if max <= min {
         return None;
     }
@@ -445,6 +545,18 @@ mod tests {
     use super::*;
     use crate::convert::DefaultExpressionConverter;
 
+    fn in_list(value: Expression, elements: Vec<Scalar>) -> Expression {
+        vortex::expr::in_list_of(
+            value,
+            DType::Primitive(
+                vortex::dtype::PType::I32,
+                vortex::dtype::Nullability::NonNullable,
+            ),
+            elements,
+        )
+        .expect("elements are i32")
+    }
+
     fn col(name: &str) -> Expression {
         get_item(name, root())
     }
@@ -505,6 +617,13 @@ mod tests {
     #[case::wide_range(vec![gt_eq(col("a"), lit(1i32)), lt_eq(col("a"), lit(99i32))], 0)]
     #[case::narrow_range(vec![gt_eq(col("a"), lit(10i32)), lt_eq(col("a"), lit(30i32))], 2)]
     #[case::other_conjunct(vec![gt_eq(col("a"), lit(1i32)), eq(col("b"), lit(1i32))], 1)]
+    #[case::literal_on_the_left(vec![lt(lit(1i32), col("a"))], 1)]
+    #[case::dense_in_list(
+        vec![in_list(col("a"), (0i32..95).filter(|v| v % 19 != 7).map(Scalar::from).collect())],
+        0
+    )]
+    #[case::contiguous_in_list(vec![in_list(col("a"), (0i32..90).map(Scalar::from).collect())], 0)]
+    #[case::sparse_in_list(vec![in_list(col("a"), (0i32..10).map(Scalar::from).collect())], 1)]
     #[tokio::test]
     async fn test_drop_unselective_ranges(
         #[case] conjuncts: Vec<Expression>,
