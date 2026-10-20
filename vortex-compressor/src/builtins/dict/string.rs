@@ -10,21 +10,14 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::dict::DictArrayExt;
-use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::builders::dict::dict_encode;
 use vortex_error::VortexResult;
 
+use super::bytes_candidate::bytes_dictionary_estimate;
+use super::bytes_candidate::compress_bytes_dictionary;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
-use crate::builtins::dict::string_candidate::CachedStringDictionary;
-use crate::builtins::dict::string_candidate::string_dictionary_estimate;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
@@ -73,7 +66,7 @@ impl Scheme for StringDictScheme {
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        string_dictionary_estimate()
+        bytes_dictionary_estimate(&StringDictScheme)
     }
 
     fn compress(
@@ -83,52 +76,6 @@ impl Scheme for StringDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        if let Some(candidate) = data.get::<CachedStringDictionary>() {
-            return Ok(candidate.array().clone());
-        }
-
-        let dict = dict_encode(data.array(), exec_ctx)?;
-        compress_dictionary(compressor, &dict, compress_ctx, exec_ctx)
-    }
-}
-
-/// Compresses the value and code children of a dictionary candidate.
-pub(super) fn compress_dictionary(
-    compressor: &CascadingCompressor,
-    dict: &DictArray,
-    compress_ctx: CompressorContext,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // Values = child 0.
-    let compressed_values = compressor.compress_child(
-        dict.values(),
-        &compress_ctx,
-        StringDictScheme.id(),
-        0,
-        exec_ctx,
-    )?;
-
-    // Codes = child 1.
-    let narrowed_codes = dict
-        .codes()
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?
-        .into_array();
-    let compressed_codes = compressor.compress_child(
-        &narrowed_codes,
-        &compress_ctx,
-        StringDictScheme.id(),
-        1,
-        exec_ctx,
-    )?;
-
-    // SAFETY: compressing codes or values does not alter the invariants.
-    unsafe {
-        Ok(
-            DictArray::new_unchecked(compressed_codes, compressed_values)
-                .set_all_values_referenced(dict.has_all_values_referenced())
-                .into_array(),
-        )
+        compress_bytes_dictionary(&StringDictScheme, compressor, data, compress_ctx, exec_ctx)
     }
 }
