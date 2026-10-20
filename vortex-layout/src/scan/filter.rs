@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::time::Duration;
 
 use bit_vec::BitVec;
 use itertools::Itertools;
@@ -20,6 +21,10 @@ use vortex_error::vortex_panic;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
+
+/// The smallest fraction of removed rows used to rank a conjunct, so that one that removes no
+/// rows ranks last without dividing by zero.
+const MIN_REMOVED_FRACTION: f64 = 1e-6;
 
 /// When a scan skips an optional filter conjunct that keeps most of its input rows.
 ///
@@ -73,6 +78,25 @@ impl Default for OptionalFilterBackoff {
     }
 }
 
+/// The total evaluation time and input rows of a conjunct.
+#[derive(Default, Clone, Copy)]
+struct ConjunctCost {
+    nanos: u128,
+    rows: u64,
+}
+
+impl ConjunctCost {
+    /// The evaluation time per input row, or `1` before a measurement.
+    fn per_row(self) -> f64 {
+        if self.rows == 0 {
+            return 1.0;
+        }
+        #[expect(clippy::cast_precision_loss, reason = "a cost estimate")]
+        let per_row = self.nanos as f64 / self.rows as f64;
+        per_row.max(f64::MIN_POSITIVE)
+    }
+}
+
 /// The selectivity measurement and skip state of an optional conjunct.
 #[derive(Default)]
 struct OptionalConjunct {
@@ -94,6 +118,8 @@ pub struct FilterExpr {
     conjuncts: Vec<BoundExpression>,
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
+    /// The evaluation time and input rows of each conjunct, to order costly conjuncts last.
+    conjunct_cost: Vec<Mutex<ConjunctCost>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
     dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
     /// The skip state of each optional conjunct, if the scan skips optional conjuncts.
@@ -153,6 +179,9 @@ impl FilterExpr {
         Self {
             conjuncts,
             conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
+                .take(num_conjuncts)
+                .collect(),
+            conjunct_cost: iter::repeat_with(|| Mutex::new(ConjunctCost::default()))
                 .take(num_conjuncts)
                 .collect(),
             dynamic_conjuncts,
@@ -280,6 +309,13 @@ impl FilterExpr {
         read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
+    /// Report that evaluating a conjunct over `input_rows` rows took `elapsed`.
+    pub fn report_cost(&self, conjunct_idx: usize, input_rows: usize, elapsed: Duration) {
+        let mut cost = self.conjunct_cost[conjunct_idx].lock();
+        cost.nanos += elapsed.as_nanos();
+        cost.rows += input_rows as u64;
+    }
+
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
     pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
@@ -319,9 +355,20 @@ impl FilterExpr {
             return;
         };
 
+        // Conjuncts run in increasing cost per row over the fraction of rows they remove, which
+        // minimizes the expected cost of the conjunction: a costly conjunct, such as the hash
+        // table lookup of a join, runs after cheap ones have removed rows.
+        let rank = all_selectivity
+            .iter()
+            .zip(&self.conjunct_cost)
+            .map(|(&selectivity, cost)| {
+                cost.lock().per_row() / (1.0 - selectivity).max(MIN_REMOVED_FRACTION)
+            })
+            .collect::<Vec<_>>();
+
         {
             let ordering = self.ordering.read();
-            if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
+            if ordering.is_sorted_by(|&l_idx, &r_idx| rank[l_idx] <= rank[r_idx]) {
                 return;
             }
         }
@@ -329,16 +376,16 @@ impl FilterExpr {
         // Re-sort our conjuncts based on the new statistics.
         let mut ordering = self.ordering.write();
         ordering.sort_unstable_by(|&l_idx, &r_idx| {
-            all_selectivity[l_idx]
-                .partial_cmp(&all_selectivity[r_idx])
-                .vortex_expect("Can't compare selectivity values")
+            rank[l_idx]
+                .partial_cmp(&rank[r_idx])
+                .vortex_expect("Can't compare conjunct ranks")
         });
 
         tracing::trace!(
-            "Reordered conjuncts based on new selectivity {:?}",
+            "Reordered conjuncts based on new selectivity and cost {:?}",
             ordering
                 .iter()
-                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], all_selectivity[idx]))
+                .map(|&idx| format!("({}) => {}", self.conjuncts[idx], rank[idx]))
                 .join(", ")
         );
     }
@@ -349,6 +396,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicI32;
     use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -418,6 +466,20 @@ mod tests {
                 prune_zones: true,
             }),
         ))
+    }
+
+    #[test]
+    fn costly_conjuncts_are_evaluated_last() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(and(root(), not(root())).bind(&dtype)?, None);
+
+        // The first conjunct removes more rows but costs a hundred times as much per row.
+        filter.report_cost(0, 1000, Duration::from_micros(100));
+        filter.report_cost(1, 1000, Duration::from_micros(1));
+        filter.report_selectivity(0, 0.1);
+        filter.report_selectivity(1, 0.5);
+        assert_eq!(*filter.ordering.read(), vec![1, 0]);
+        Ok(())
     }
 
     #[test]
