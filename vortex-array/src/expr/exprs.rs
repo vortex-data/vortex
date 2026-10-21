@@ -55,13 +55,14 @@ use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::scalar_fn::fns::optional::Optional;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::switch::Switch;
+use crate::scalar_fn::fns::switch::SwitchState;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -1162,20 +1163,20 @@ pub fn bound_dynamic_expression(
         .vortex_expect("dynamic expressions accept any inputs")
 }
 
-// ---- Optional ----
+// ---- Switch ----
 
-/// Marks a filter conjunct that a scan may skip, because the caller applies it again.
+/// Creates a switch, initially on, over a predicate that a scan may turn off: `on ⇒ predicate`.
 ///
-/// See [`Optional`] for when a predicate is optional.
-pub fn optional(predicate: Expression) -> Expression {
-    Optional.new_expr(EmptyOptions, [predicate])
+/// See [`Switch`] for when a predicate may be turned off.
+pub fn switch(predicate: Expression) -> Expression {
+    Switch.new_expr(SwitchState::new(), [predicate])
 }
 
-/// Creates a bound expression that marks an optional filter conjunct.
-pub fn bound_optional(predicate: BoundExpression) -> BoundExpression {
-    Optional
-        .try_new_bound_expr(EmptyOptions, [predicate])
-        .vortex_expect("optional expressions accept any input")
+/// Creates a bound switch, initially on, over a predicate that a scan may turn off.
+pub fn bound_switch(predicate: BoundExpression) -> BoundExpression {
+    Switch
+        .try_new_bound_expr(SwitchState::new(), [predicate])
+        .vortex_expect("switch expressions require a boolean predicate")
 }
 
 // ---- ListContains ----
@@ -1503,7 +1504,6 @@ pub mod bound {
     pub use super::bound_not_eq as not_eq;
     pub use super::bound_not_ilike as not_ilike;
     pub use super::bound_not_like as not_like;
-    pub use super::bound_optional as optional;
     pub use super::bound_or as or;
     pub use super::bound_or_collect as or_collect;
     pub use super::bound_pack as pack;
@@ -1511,6 +1511,7 @@ pub mod bound {
     pub use super::bound_root as root;
     pub use super::bound_select as select;
     pub use super::bound_select_exclude as select_exclude;
+    pub use super::bound_switch as switch;
     pub use super::bound_variant_get as variant_get;
     pub use super::bound_zip_expr as zip_expr;
 }

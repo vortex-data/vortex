@@ -95,16 +95,20 @@ fn spread(values: ArrayRef, demand: &Mask) -> VortexResult<ArrayRef> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Constant;
     use crate::builtins::ArrayBuiltins;
     use crate::scalar_fn::fns::operators::Operator;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// The demanded rows hold the values of a full evaluation, whether the demand is sparse enough
     /// to evaluate them alone or not.
@@ -112,7 +116,7 @@ mod tests {
     #[case::sparse(64)]
     #[case::dense(2)]
     fn demanded_rows_match_full_evaluation(#[case] step: usize) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 4096;
         let values = PrimitiveArray::from_iter(0..len as u64).into_array();
         let comparison = values.binary(
@@ -137,7 +141,7 @@ mod tests {
 
     #[test]
     fn nothing_demanded_is_not_evaluated() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([1u64, 2, 3]).into_array();
         let demanded = execute_demanded(values, Some(&Mask::new_false(3)), &mut ctx)?;
         assert!(demanded.is::<Constant>());
