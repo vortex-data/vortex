@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
@@ -557,18 +558,38 @@ pub trait ExecutionArgs {
 
     /// Returns the row count of the execution scope.
     fn row_count(&self) -> usize;
+
+    /// Returns the rows whose results the caller reads, or `None` for every row.
+    ///
+    /// The results of the other rows are unspecified, so a function may compute every row, or
+    /// evaluate its inputs only for the demanded rows with
+    /// [`execute_demanded`](crate::scalar_fn::demand::execute_demanded).
+    fn demand(&self) -> Option<&Mask> {
+        None
+    }
 }
 
 /// A concrete [`ExecutionArgs`] backed by a `Vec<ArrayRef>`.
 pub struct VecExecutionArgs {
     inputs: Vec<ArrayRef>,
     row_count: usize,
+    demand: Option<Mask>,
 }
 
 impl VecExecutionArgs {
     /// Create a new `VecExecutionArgs`.
     pub fn new(inputs: Vec<ArrayRef>, row_count: usize) -> Self {
-        Self { inputs, row_count }
+        Self {
+            inputs,
+            row_count,
+            demand: None,
+        }
+    }
+
+    /// Demand the results of only the rows of `demand`.
+    pub fn with_demand(mut self, demand: Mask) -> Self {
+        self.demand = Some(demand);
+        self
     }
 }
 
@@ -589,6 +610,10 @@ impl ExecutionArgs for VecExecutionArgs {
 
     fn row_count(&self) -> usize {
         self.row_count
+    }
+
+    fn demand(&self) -> Option<&Mask> {
+        self.demand.as_ref()
     }
 }
 
