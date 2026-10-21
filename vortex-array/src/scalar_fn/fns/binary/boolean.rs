@@ -24,6 +24,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -33,6 +34,7 @@ use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::BoolScalar;
 use crate::scalar::Scalar;
+use crate::scalar_fn::demand::execute_demanded;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
@@ -114,10 +116,14 @@ pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
 ///
 /// This is the entry point for boolean operations from the binary expression.
 /// Handles constants and canonical boolean arrays directly, otherwise falls back to Arrow.
+///
+/// The right operand is evaluated only for the demanded rows that the left operand does not
+/// decide: a valid `true` decides `OR` and a valid `false` decides `AND`.
 pub(crate) fn execute_boolean(
     lhs: ArrayRef,
     rhs: ArrayRef,
     op: Operator,
+    demand: Option<&Mask>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = boolean_nullability(&lhs, &rhs);
@@ -130,17 +136,43 @@ pub(crate) fn execute_boolean(
         return Ok(result);
     }
 
-    let lhs = lhs.execute::<BoolArray>(ctx)?;
+    let lhs = execute_demanded(lhs, demand, ctx)?.execute::<BoolArray>(ctx)?;
     if let Some(result) = <Bool as BooleanKernel>::boolean(lhs.as_view(), &rhs, op, ctx)? {
         return Ok(result);
     }
 
-    let rhs = rhs.execute::<BoolArray>(ctx)?;
+    let rhs_demand = undecided_rows(&lhs, op, demand, ctx)?;
+    if rhs_demand.all_false() {
+        return lhs.into_array().cast(DType::Bool(nullable));
+    }
+    let rhs = execute_demanded(rhs, Some(&rhs_demand), ctx)?.execute::<BoolArray>(ctx)?;
     let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
     else {
         vortex_bail!("No boolean kernel for two BoolArrays");
     };
     Ok(result)
+}
+
+/// The demanded rows whose result `lhs` does not decide: every row but those holding a valid `true`
+/// for `OR` or a valid `false` for `AND`.
+fn undecided_rows(
+    lhs: &BoolArray,
+    op: Operator,
+    demand: Option<&Mask>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Mask> {
+    let values = Mask::from_buffer(lhs.to_bit_buffer());
+    let valid = lhs.validity()?.execute_mask(lhs.len(), ctx)?;
+    let decided = if op == Operator::Or {
+        &values & &valid
+    } else {
+        valid.bitand_not(&values)
+    };
+    let undecided = !decided;
+    Ok(match demand {
+        Some(demand) => &undecided & demand,
+        None => undecided,
+    })
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
@@ -759,6 +791,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFn;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -767,6 +801,38 @@ mod tests {
     use crate::scalar_fn::fns::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// The right operand is a lazy comparison, so the rows the left operand decides are not
+    /// demanded of it.
+    #[rstest]
+    #[case::or(Operator::Or)]
+    #[case::and(Operator::And)]
+    fn test_short_circuit_matches_full_evaluation(#[case] op: Operator) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 4096;
+        // Every eighth row is null, the rest mostly decide the result.
+        let decides = op == Operator::Or;
+        let lhs =
+            BoolArray::from_iter((0..len).map(|idx| {
+                (idx % 8 != 0).then_some(if idx % 16 == 1 { !decides } else { decides })
+            }))
+            .into_array();
+        let values = PrimitiveArray::from_option_iter(
+            (0..len).map(|idx| (idx % 3 != 0).then_some(idx as u64)),
+        )
+        .into_array();
+        let rhs = values.binary(
+            ConstantArray::new(Scalar::from(2000u64), len).into_array(),
+            Operator::Lt,
+        )?;
+        assert!(rhs.is::<ScalarFn>());
+
+        let expected = lhs
+            .clone()
+            .binary(rhs.clone().execute::<BoolArray>(&mut ctx)?.into_array(), op)?;
+        assert_arrays_eq!(lhs.binary(rhs, op)?, expected, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn test_kleene_truth_table() -> VortexResult<()> {

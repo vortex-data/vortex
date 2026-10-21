@@ -194,8 +194,8 @@ impl ScalarFnVTable for Binary {
             Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, ctx),
             Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, ctx),
             Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, ctx),
-            Operator::And => execute_boolean(lhs, rhs, Operator::And, ctx),
-            Operator::Or => execute_boolean(lhs, rhs, Operator::Or, ctx),
+            Operator::And => execute_boolean(lhs, rhs, Operator::And, args.demand(), ctx),
+            Operator::Or => execute_boolean(lhs, rhs, Operator::Or, args.demand(), ctx),
             Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
             Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub, ctx),
             Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),
@@ -326,24 +326,28 @@ impl ScalarFnVTable for Binary {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnExecutionResult> {
+        if matches!(op, Operator::And | Operator::Or) {
+            // `execute` evaluates the right operand only for the rows the left operand does not
+            // decide, so only the left operand is executed here. With a demand, `execute` also
+            // evaluates the left operand for the demanded rows only. A constant right operand can
+            // decide the result alone, such as `x AND false`.
+            if args.demand().is_none() && !args.input_matches(1, |array| array.is::<Constant>())? {
+                require_input!(args, 0 => AnyColumnar);
+            }
+            return self
+                .execute(op, args, ctx)
+                .map(ScalarFnExecutionResult::done);
+        }
+
         let columnar = |idx| args.input_matches(idx, AnyColumnar::matches);
-        let ready = (columnar(0)? && columnar(1)?)
-            // A constant operand can decide the result, such as `false AND x` or `x < null`, so
-            // `execute` does not need the other operand executed.
-            || match op {
-                Operator::And | Operator::Or => {
-                    let constant = |idx| args.input_matches(idx, |array| array.is::<Constant>());
-                    constant(0)? || constant(1)?
-                }
-                _ => {
-                    let null = |idx| {
-                        args.input_matches(idx, |array| {
-                            array.as_constant().is_some_and(|scalar| scalar.is_null())
-                        })
-                    };
-                    null(0)? || null(1)?
-                }
-            };
+        // A null constant operand decides the result, such as `x < null`, so `execute` does not
+        // need the other operand executed.
+        let null = |idx| {
+            args.input_matches(idx, |array| {
+                array.as_constant().is_some_and(|scalar| scalar.is_null())
+            })
+        };
+        let ready = (columnar(0)? && columnar(1)?) || null(0)? || null(1)?;
         if !ready {
             require_input!(args, 0 => AnyColumnar);
             require_input!(args, 1 => AnyColumnar);
