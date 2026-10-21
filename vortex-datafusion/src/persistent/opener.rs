@@ -53,7 +53,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::and_collect;
-use vortex::expr::optional;
+use vortex::expr::switch;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -420,12 +420,13 @@ impl FileOpener for VortexOpener {
                                 .collect::<Vec<_>>();
                             let conjuncts =
                                 conjuncts.filter(|expr| saves_decoding(expr, &projected));
-                            // One marker over the whole conjunction lets the scan merge its range
-                            // comparisons into betweens.
-                            Ok(and_collect(conjuncts).map(optional))
+                            Ok(and_collect(conjuncts))
                         },
                     )?;
-                    native_filters.extend(file_filter);
+                    // Every scan turns its own switch, as each measures the conjunction
+                    // itself. One switch over the whole conjunction lets the scan merge its
+                    // range comparisons into betweens.
+                    native_filters.extend(file_filter.map(switch));
                 } else {
                     // A filter that can still change, such as a TopK threshold, is read again
                     // by the scan each time it changes.
@@ -439,7 +440,7 @@ impl FileOpener for VortexOpener {
                             &vxf,
                             optional_filter_backoff.map(|backoff| backoff.max_selectivity),
                         ))
-                        .map(optional),
+                        .map(switch),
                     );
                 }
             }
