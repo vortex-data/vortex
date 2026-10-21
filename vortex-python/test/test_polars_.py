@@ -683,3 +683,18 @@ def test_polars_cast(tmp_path):
 def test_unsupported_exprs(expr):
     with pytest.raises(NotImplementedError):
         polars_to_vortex(expr)
+
+
+@pytest.mark.parametrize(
+    "expr, expected",
+    [
+        (pl.col("f") < float("inf"), [0, 3]),
+        (pl.col("f") > float("-inf"), [0, 1, 2]),
+        (pl.col("f") == float("nan"), [2]),
+    ],
+)
+def test_polars_non_finite_float_literal(tmp_path, expr, expected):
+    # Polars' JSON writes inf, -inf and NaN as null. Pushing that down as a null literal would
+    # silently drop every row, so the converter refuses it and Polars filters instead.
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "f": [1.0, float("inf"), float("nan"), float("-inf")]})
+    assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == expected

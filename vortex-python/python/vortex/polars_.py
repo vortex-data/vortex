@@ -226,6 +226,10 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         else:
             raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
 
+        if dtype in ("Float32", "Float64") and value is None:
+            # JSON cannot hold inf, -inf or NaN, so Polars writes all three as null, while a null
+            # float is `{"Null": "Float64"}`. Which value it was is lost.
+            raise NotImplementedError("Cannot recover a non-finite Polars float literal from its JSON form")
         return ve.literal(_LITERAL_TYPES[dtype](value), value)
 
     if "Literal" in expr:
