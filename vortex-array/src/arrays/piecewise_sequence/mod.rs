@@ -29,6 +29,7 @@ use crate::executor::ExecutionCtx;
 use crate::scalar::PValue;
 
 pub mod array;
+mod probe;
 mod vtable;
 
 #[cfg(test)]

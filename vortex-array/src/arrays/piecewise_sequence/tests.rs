@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
@@ -22,9 +23,11 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::assert_arrays_eq;
+use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::serde::SerializeOptions;
 use crate::validity::Validity;
 
@@ -117,6 +120,100 @@ fn scalar_at_maps_into_piece() -> VortexResult<()> {
     assert_eq!(array.execute_scalar(0, &mut ctx)?, 3u64.into());
     assert_eq!(array.execute_scalar(4, &mut ctx)?, 16u64.into());
     assert_eq!(array.execute_scalar(8, &mut ctx)?, 23u64.into());
+    Ok(())
+}
+
+#[test]
+fn scalar_probe_handles_empty_pieces_mixed_widths_and_revisits() -> VortexResult<()> {
+    let array = PiecewiseSequenceArray::try_new(
+        buffer![100u32, 10, 200, 20, 50].into_array(),
+        buffer![0u16, 2, 0, 3, 1].into_array(),
+        buffer![9u8, 2, 1, 3, 0].into_array(),
+        6,
+    )?
+    .into_array();
+    let expected = [10u64, 12, 20, 23, 26, 50];
+    let mut ctx = array_session().create_execution_ctx();
+    let mut probe = array.repeated_probe();
+    for index in [5, 0, 4, 1, 3, 2, 0, 5] {
+        assert_eq!(probe.execute_scalar(index, &mut ctx)?, expected[index].into());
+        assert_eq!(array.execute_scalar(index, &mut ctx)?, expected[index].into());
+    }
+
+    let slice = array.slice(1..5)?;
+    let mut slice_probe = slice.repeated_probe();
+    for (index, value) in [12u64, 20, 23, 26].into_iter().enumerate() {
+        assert_eq!(slice_probe.execute_scalar(index, &mut ctx)?, value.into());
+    }
+    test_scalar_probe_consistency(&array, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn scalar_probe_preserves_deferred_range_errors() -> VortexResult<()> {
+    let overflow = PiecewiseSequenceArray::try_new(
+        buffer![u64::MAX].into_array(),
+        buffer![2u16].into_array(),
+        buffer![1u8].into_array(),
+        2,
+    )?
+    .into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    assert_eq!(overflow.execute_scalar(0, &mut ctx)?, u64::MAX.into());
+    let mut probe = overflow.repeated_probe();
+    for error in [
+        overflow.execute_scalar(1, &mut ctx).unwrap_err(),
+        probe.execute_scalar(1, &mut ctx).unwrap_err(),
+    ] {
+        assert!(
+            error
+                .to_string()
+                .contains("PiecewiseSequenceArray range overflows usize"),
+            "{error}"
+        );
+    }
+
+    let short = PiecewiseSequenceArray::try_new(
+        buffer![3u32].into_array(),
+        buffer![2u16].into_array(),
+        buffer![1u8].into_array(),
+        4,
+    )?
+    .into_array();
+    assert_eq!(short.execute_scalar(1, &mut ctx)?, 4u64.into());
+    let mut probe = short.repeated_probe();
+    assert_eq!(probe.execute_scalar(0, &mut ctx)?, 3u64.into());
+    for error in [
+        short.execute_scalar(2, &mut ctx).unwrap_err(),
+        probe.execute_scalar(2, &mut ctx).unwrap_err(),
+    ] {
+        assert!(error.to_string().contains("index 2 out of bounds"), "{error}");
+    }
+    Ok(())
+}
+
+#[test]
+fn scalar_probe_reads_chunked_lengths() -> VortexResult<()> {
+    let lengths = ChunkedArray::try_new(
+        vec![
+            buffer![2u16, 0].into_array(),
+            buffer![1u16, 2].into_array(),
+        ],
+        DType::from(PType::U16),
+    )?
+    .into_array();
+    let array = PiecewiseSequenceArray::try_new(
+        buffer![0u32, 50, 10, 20].into_array(),
+        lengths,
+        ConstantArray::new(1u8, 4).into_array(),
+        5,
+    )?
+    .into_array();
+    let mut ctx = array_session().create_execution_ctx();
+    for (index, value) in [0u64, 1, 10, 20, 21].into_iter().enumerate() {
+        assert_eq!(array.execute_scalar(index, &mut ctx)?, value.into());
+    }
+    test_scalar_probe_consistency(&array, &mut ctx);
     Ok(())
 }
 

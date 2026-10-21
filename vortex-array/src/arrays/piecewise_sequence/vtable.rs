@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -20,6 +19,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
@@ -28,11 +28,12 @@ use crate::arrays::piecewise_sequence::array::PiecewiseSequenceSlots;
 use crate::arrays::piecewise_sequence::check_index_arrays;
 use crate::arrays::piecewise_sequence::execute_index_arrays;
 use crate::arrays::piecewise_sequence::materialize_ranges;
+use crate::arrays::piecewise_sequence::probe;
+use crate::arrays::piecewise_sequence::probe::PiecewiseProbeState;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
-use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -141,23 +142,22 @@ impl VTable for PiecewiseSequence {
 }
 
 impl OperationsVTable<PiecewiseSequence> for PiecewiseSequence {
-    type ProbeState = ();
+    type ProbeState = PiecewiseProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, PiecewiseSequence>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        probe::scalar_at(state, index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, PiecewiseSequence>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let (starts, lengths, multipliers) = execute_index_arrays(array, ctx)?;
-
-        let value = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                match_each_unsigned_integer_ptype!(multipliers.ptype(), |M| {
-                    scalar_at::<S, L, M>(&starts, &lengths, &multipliers, index)?
-                })
-            })
-        });
-        Ok(value.into())
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -165,39 +165,4 @@ impl ValidityVTable<PiecewiseSequence> for PiecewiseSequence {
     fn validity(_array: ArrayView<'_, PiecewiseSequence>) -> VortexResult<Validity> {
         Ok(Validity::NonNullable)
     }
-}
-
-fn scalar_at<S, L, M>(
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    multipliers: &PrimitiveArray,
-    index: usize,
-) -> VortexResult<u64>
-where
-    S: UnsignedPType,
-    L: UnsignedPType,
-    M: UnsignedPType,
-{
-    let mut remaining = index;
-    for ((&start, &length), &multiplier) in starts
-        .as_slice::<S>()
-        .iter()
-        .zip_eq(lengths.as_slice::<L>())
-        .zip_eq(multipliers.as_slice::<M>())
-    {
-        let length: usize = length.as_();
-        if remaining < length {
-            let start: usize = start.as_();
-            let multiplier: usize = multiplier.as_();
-            let offset = remaining
-                .checked_mul(multiplier)
-                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-            let value = start
-                .checked_add(offset)
-                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-            return Ok(value as u64);
-        }
-        remaining -= length;
-    }
-    vortex_bail!("PiecewiseSequenceArray index {index} out of bounds")
 }
