@@ -20,10 +20,12 @@ use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::bound::and;
+use crate::bound::and_collect;
 use crate::bound::cast;
 use crate::bound::eq;
 use crate::bound::gt;
@@ -37,6 +39,7 @@ use crate::stats::derive::stat_expr;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::falsify;
 use crate::stats::rewrite::helpers::*;
+use crate::stats::rewrite::satisfy;
 use crate::stats::session::StatsSession;
 
 /// Register the stats rewrite rules for the scalar functions vortex-array is built on.
@@ -177,6 +180,14 @@ impl StatsRewriteRule for CompareNanCountStatsRewrite {
     ) -> VortexResult<Option<BoundExpression>> {
         compare_falsify::<NanCountProof>(expr, session)
     }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        compare_satisfy(expr, session)
+    }
 }
 
 #[derive(Debug)]
@@ -210,6 +221,14 @@ impl StatsRewriteRule for BooleanNanCountStatsRewrite {
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         boolean_falsify::<NanCountProof>(expr, session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        boolean_satisfy(expr, session)
     }
 }
 
@@ -319,6 +338,67 @@ fn boolean_falsify<P: NonNanProof>(
                 _ => None,
             }
         }
+    })
+}
+
+/// Proves a comparison true for every row: the bounds of the operands order every pair of
+/// values, and neither operand holds a null or a NaN, for which a comparison is not true.
+fn compare_satisfy(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Compare>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    let value_predicate = match operator {
+        CompareOperator::Gt => min(lhs, session)
+            .zip(max(rhs, session))
+            .map(|(a, b)| gt(a, b)),
+        CompareOperator::Gte => min(lhs, session)
+            .zip(max(rhs, session))
+            .map(|(a, b)| gt_eq(a, b)),
+        CompareOperator::Lt => max(lhs, session)
+            .zip(min(rhs, session))
+            .map(|(a, b)| lt(a, b)),
+        CompareOperator::Lte => max(lhs, session)
+            .zip(min(rhs, session))
+            .map(|(a, b)| lt_eq(a, b)),
+        CompareOperator::Eq | CompareOperator::NotEq => None,
+    };
+    let Some(value_predicate) = value_predicate else {
+        return Ok(None);
+    };
+    let Some(null_checks) = [lhs, rhs]
+        .into_iter()
+        .map(|operand| null_count(operand, session).map(|count| eq(count, lit(0u64))))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(None);
+    };
+    let guarded = and_collect(null_checks.into_iter().chain([value_predicate]))
+        .vortex_expect("at least one predicate");
+    with_non_nan_guards::<NanCountProof>([lhs, rhs], guarded, session)
+}
+
+fn boolean_satisfy(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Boolean>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    Ok(match operator {
+        BooleanOperator::And => match (satisfy(lhs, session)?, satisfy(rhs, session)?) {
+            (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
+            _ => None,
+        },
+        BooleanOperator::Or => or_collect(
+            satisfy(lhs, session)?
+                .into_iter()
+                .chain(satisfy(rhs, session)?),
+        ),
     })
 }
 

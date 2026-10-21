@@ -31,6 +31,7 @@ use vortex_expr::stats::derive::StatDerivation;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_expr::stats::rewrite::falsify;
 use vortex_expr::stats::rewrite::helpers::*;
+use vortex_expr::stats::rewrite::satisfy;
 use vortex_expr::stats::session::StatsSessionExt;
 use vortex_session::VortexSession;
 
@@ -97,6 +98,21 @@ impl StatsRewriteRule for BetweenStatsRewrite {
         let lhs = compare(options.lower_strict.to_operator(), lower, arr.clone());
         let rhs = compare(options.upper_strict.to_operator(), arr, upper);
         falsify(&and(lhs, rhs), session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let options = expr.as_::<Between>();
+        let arr = expr.child(0).clone();
+        let lower = expr.child(1).clone();
+        let upper = expr.child(2).clone();
+
+        let lhs = compare(options.lower_strict.to_operator(), lower, arr.clone());
+        let rhs = compare(options.upper_strict.to_operator(), arr, upper);
+        satisfy(&and(lhs, rhs), session)
     }
 }
 
