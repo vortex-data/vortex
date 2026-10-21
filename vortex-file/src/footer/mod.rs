@@ -3,8 +3,8 @@
 
 //! Vortex file footer metadata.
 //!
-//! A footer contains the root layout, file-level statistics and ordering, the segment map, and the
-//! read contexts needed to resolve array/layout encoding ids during deserialization.
+//! A footer contains the root layout, file-level statistics, the segment map, and the read contexts
+//! needed to resolve array/layout encoding ids during deserialization.
 //!
 //! The byte-level footer and postscript layout is part of the file-format spec; this module exposes
 //! the structured Rust representation and serializer/deserializer state machine.
