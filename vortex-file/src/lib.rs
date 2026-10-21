@@ -126,6 +126,8 @@ pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
+pub use sort_key::SortKey;
+pub use sort_key::SortKeyRef;
 pub use strategy::*;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;

@@ -9,16 +9,21 @@
 //! # About sort keys
 //!
 //! Sort keys are a compound key that describes how the rows in a file are sorted.
-//! For example, these rows are lexicographically sorted by (user_id, city):
+//! A vortex file can store one or more sorting keys, each of which must hold
+//! for the same rows. For example, these rows are lexicographically sorted by
+//! both (user_id, city) and (timestamp, user_id):
 //!
 //! ```text
-//! user_id | city
-//! --------+-----------
-//! 1       | Bangkok
-//! 1       | Mumbai
-//! 2       | Tokyo
-//! 3       | Copenhagen
+//! user_id | city       | timestamp
+//! --------+------------+----------
+//! 1       | Bangkok    | 10
+//! 1       | Mumbai     | 20
+//! 2       | Tokyo      | 20
+//! 3       | Copenhagen | 30
 //! ```
+//!
+//! The first sort key orders cities within each user. The second key orders user IDs
+//! within each timestamp.
 //!
 //! # Difference from sortedness stats
 //!
@@ -58,8 +63,12 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::flatbuffers::footer as fb;
 
+/// Represents a compound sort key, with fields listed in comparison order.
+pub type SortKey = [FieldPath];
+pub type SortKeyRef = Arc<SortKey>;
+
 /// Check that the key is non-empty and its fields exist and appear only once.
-pub(crate) fn validate_sort_key(dtype: &DType, fields: &[FieldPath]) -> VortexResult<()> {
+pub(crate) fn validate_sort_key(dtype: &DType, fields: &SortKey) -> VortexResult<()> {
     vortex_ensure!(
         !fields.is_empty(),
         "A file sort key must contain at least one field"
@@ -90,11 +99,8 @@ pub(crate) fn validate_sort_key(dtype: &DType, fields: &[FieldPath]) -> VortexRe
 }
 
 /// Reads and validates the footer's sort key.
-pub(crate) fn read_sort_key(
-    key: fb::SortKeySpec<'_>,
-    dtype: &DType,
-) -> VortexResult<Arc<[FieldPath]>> {
-    let fields: Arc<[_]> = key
+pub(crate) fn read_sort_key(key: fb::SortKeySpec<'_>, dtype: &DType) -> VortexResult<SortKeyRef> {
+    let fields: SortKeyRef = key
         .fields()
         .iter()
         .map(|field| field.path().iter().map(Field::from).collect())
@@ -107,7 +113,7 @@ pub(crate) fn read_sort_key(
 /// Writes the sort key into the footer.
 pub(crate) fn write_sort_key<'fb>(
     fbb: &mut FlatBufferBuilder<'fb>,
-    fields: &[FieldPath],
+    fields: &SortKey,
 ) -> VortexResult<WIPOffset<fb::SortKeySpec<'fb>>> {
     let mut offsets = Vec::with_capacity(fields.len());
 
