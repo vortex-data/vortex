@@ -20,8 +20,6 @@ include "vortex-layout/layout.fbs";
 ///
 /// The segments pointed to by the postscript have inline compression and encryption specs to avoid
 /// the need to fetch encryption schemes up-front.
-///
-/// Add new fields at the end so older readers can still read the footer.
 table Postscript {
     /// Segment containing the root `DType` flatbuffer.
     dtype: PostscriptSegment;
@@ -125,10 +123,8 @@ table SortKey {
     fields: [FieldPath] (required);
 }
 
-/// The `Footer` stores dictionary-encoded segment and encoding specifications, plus an optional
-/// sort key for the file.
-///
-/// Add new fields at the end so older readers can still read the footer.
+/// The `Registry` object stores dictionary-encoded configuration for segments,
+/// compression schemes, encryption schemes, etc.
 table Footer {
     // Dictionary-encoded array specs, up to u16::MAX.
     array_specs: [ArraySpec];

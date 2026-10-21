@@ -347,8 +347,6 @@ pub enum PostscriptOffset {}
 ///
 /// The segments pointed to by the postscript have inline compression and encryption specs to avoid
 /// the need to fetch encryption schemes up-front.
-///
-/// Add new fields at the end so older readers can still read the footer.
 pub struct Postscript<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -1416,10 +1414,8 @@ impl ::core::fmt::Debug for SortKey<'_> {
 pub enum FooterOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// The `Footer` stores dictionary-encoded segment and encoding specifications, plus an optional
-/// sort key for the file.
-///
-/// Add new fields at the end so older readers can still read the footer.
+/// The `Registry` object stores dictionary-encoded configuration for segments,
+/// compression schemes, encryption schemes, etc.
 pub struct Footer<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
