@@ -121,7 +121,7 @@ table FieldPath {
 
 /// Sort key supplied by the caller. Fields are compared in order, ascending with nulls first.
 /// Duplicate keys are allowed.
-table SortKey {
+table SortKeySpec {
     fields: [FieldPath] (required);
 }
 
@@ -139,7 +139,7 @@ table Footer {
     // Dictionary-encoded encryption specs, up to u16::MAX.
     encryption_specs: [EncryptionSpec];
     /// Sort key for the rows in this file. If absent, the row order is unknown.
-    sort_key_spec: SortKey;
+    sort_key_spec: SortKeySpec;
 }
 
 /// An `ArraySpec` describes the type of a particular array.

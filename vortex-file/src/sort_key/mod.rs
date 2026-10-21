@@ -90,7 +90,10 @@ pub(crate) fn validate_sort_key(dtype: &DType, fields: &[FieldPath]) -> VortexRe
 }
 
 /// Reads and validates the footer's sort key.
-pub(crate) fn read_sort_key(key: fb::SortKey<'_>, dtype: &DType) -> VortexResult<Arc<[FieldPath]>> {
+pub(crate) fn read_sort_key(
+    key: fb::SortKeySpec<'_>,
+    dtype: &DType,
+) -> VortexResult<Arc<[FieldPath]>> {
     let fields: Arc<[_]> = key
         .fields()
         .iter()
@@ -105,7 +108,7 @@ pub(crate) fn read_sort_key(key: fb::SortKey<'_>, dtype: &DType) -> VortexResult
 pub(crate) fn write_sort_key<'fb>(
     fbb: &mut FlatBufferBuilder<'fb>,
     fields: &[FieldPath],
-) -> VortexResult<WIPOffset<fb::SortKey<'fb>>> {
+) -> VortexResult<WIPOffset<fb::SortKeySpec<'fb>>> {
     let mut offsets = Vec::with_capacity(fields.len());
 
     for field in fields {
@@ -128,9 +131,9 @@ pub(crate) fn write_sort_key<'fb>(
     }
 
     let fields = fbb.create_vector(&offsets);
-    Ok(fb::SortKey::create(
+    Ok(fb::SortKeySpec::create(
         fbb,
-        &fb::SortKeyArgs {
+        &fb::SortKeySpecArgs {
             fields: Some(fields),
         },
     ))
