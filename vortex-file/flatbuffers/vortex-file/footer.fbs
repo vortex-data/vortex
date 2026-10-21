@@ -21,7 +21,7 @@ include "vortex-layout/layout.fbs";
 /// The segments pointed to by the postscript have inline compression and encryption specs to avoid
 /// the need to fetch encryption schemes up-front.
 ///
-/// New fields must be appended to preserve FlatBuffers field-order compatibility with old readers.
+/// Add new fields at the end so older readers can still read the footer.
 table Postscript {
     /// Segment containing the root `DType` flatbuffer.
     dtype: PostscriptSegment;
@@ -113,8 +113,22 @@ table FileStatistics {
     partials: [ubyte];
 }
 
-/// The `Registry` object stores dictionary-encoded configuration for segments,
-/// compression schemes, encryption schemes, etc.
+/// A field path in the file's sort key.
+table FieldPath {
+    /// Field names that make up the path. An empty path selects a non-struct root.
+    path: [string] (required);
+}
+
+/// Sort key supplied by the caller. Fields are compared in order, ascending with nulls first.
+/// Duplicate keys are allowed.
+table SortKey {
+    fields: [FieldPath] (required);
+}
+
+/// The `Footer` stores dictionary-encoded segment and encoding specifications, plus an optional
+/// sort key for the file.
+///
+/// Add new fields at the end so older readers can still read the footer.
 table Footer {
     // Dictionary-encoded array specs, up to u16::MAX.
     array_specs: [ArraySpec];
@@ -126,6 +140,8 @@ table Footer {
     compression_specs: [CompressionSpec];
     // Dictionary-encoded encryption specs, up to u16::MAX.
     encryption_specs: [EncryptionSpec];
+    /// Sort key for the rows in this file. If absent, the row order is unknown.
+    sort_key_spec: SortKey;
 }
 
 /// An `ArraySpec` describes the type of a particular array.

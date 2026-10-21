@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
+use vortex_array::dtype::FieldPath;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
 use vortex_error::VortexResult;
@@ -18,6 +19,7 @@ use vortex_session::registry::ReadContext;
 
 use crate::flatbuffers::footer as fb;
 use crate::footer::segment::SegmentSpec;
+use crate::sort_key::write_sort_key;
 
 /// A writer for serializing a file layout to a FlatBuffer.
 ///
@@ -30,6 +32,8 @@ pub(crate) struct FooterFlatBufferWriter {
     pub(crate) layout_ctx: ReadContext,
     /// Specifications for all segments in the file.
     pub(crate) segment_specs: Arc<[SegmentSpec]>,
+    /// Optional sort key, with fields listed in comparison order.
+    pub(crate) sort_key: Option<Arc<[FieldPath]>>,
 }
 
 impl FlatBufferRoot for FooterFlatBufferWriter {}
@@ -65,6 +69,11 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             })
             .collect::<Vec<_>>();
         let layout_specs = fbb.create_vector(layout_specs.as_slice());
+        let sort_key_spec = self
+            .sort_key
+            .as_deref()
+            .map(|key| write_sort_key(fbb, key))
+            .transpose()?;
 
         Ok(fb::Footer::create(
             fbb,
@@ -74,6 +83,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
                 layout_specs: Some(layout_specs),
                 compression_specs: None,
                 encryption_specs: None,
+                sort_key_spec,
             },
         ))
     }

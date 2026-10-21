@@ -169,6 +169,7 @@ impl FooterSerializer {
                 ctx: self.footer.array_read_ctx.clone(),
                 layout_ctx: ReadContext::new(layout_ctx.to_ids()),
                 segment_specs: Arc::clone(&self.footer.segments),
+                sort_key: self.footer.sort_key.clone(),
             },
         )?;
         buffers.push(buffer);

@@ -3,8 +3,8 @@
 
 //! Vortex file footer metadata.
 //!
-//! A footer contains the root layout, file-level statistics, the segment map, and the read contexts
-//! needed to resolve array/layout encoding ids during deserialization.
+//! A footer contains the root layout, file-level statistics and ordering, the segment map, and the
+//! read contexts needed to resolve array/layout encoding ids during deserialization.
 //!
 //! The byte-level footer and postscript layout is part of the file-format spec; this module exposes
 //! the structured Rust representation and serializer/deserializer state machine.
@@ -27,6 +27,7 @@ use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -39,6 +40,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::flatbuffers::footer as fb;
+use crate::sort_key::read_sort_key;
 
 /// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
 /// footer and required segments still fit the initial tail read.
@@ -60,6 +62,7 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    sort_key: Option<Arc<[FieldPath]>>,
     metadata: Arc<[(String, SegmentSpec)]>,
     // `segments` followed by the `metadata` segments, which is the segment table a file is opened
     // with. Precomputed so opening a file with a cached footer does not copy every segment spec.
@@ -89,6 +92,7 @@ impl Footer {
             segments_end: segments_end(&segments),
             segments,
             statistics,
+            sort_key: None,
             metadata: Arc::from([]),
             array_read_ctx,
             approx_byte_size: None,
@@ -97,6 +101,11 @@ impl Footer {
 
     pub(crate) fn with_approx_byte_size(mut self, approx_byte_size: usize) -> Self {
         self.approx_byte_size = Some(approx_byte_size);
+        self
+    }
+
+    pub(crate) fn with_sort_key(mut self, sort_key: Option<Arc<[FieldPath]>>) -> Self {
+        self.sort_key = sort_key;
         self
     }
 
@@ -115,6 +124,10 @@ impl Footer {
             .sum();
         let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
         let fb_footer = root::<fb::Footer>(footer_bytes)?;
+        let sort_key = fb_footer
+            .sort_key_spec()
+            .map(|key| read_sort_key(key, &dtype))
+            .transpose()?;
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
@@ -165,6 +178,7 @@ impl Footer {
             segments_with_metadata,
             segments,
             statistics,
+            sort_key,
             metadata,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
@@ -198,6 +212,11 @@ impl Footer {
     /// Returns the statistics of the file.
     pub fn statistics(&self) -> Option<&FileStatistics> {
         self.statistics.as_ref()
+    }
+
+    /// Returns the sort key supplied when the file was written.
+    pub fn sort_key(&self) -> Option<&[FieldPath]> {
+        self.sort_key.as_deref()
     }
 
     /// Returns the user-defined metadata segment locators stored in the postscript.
