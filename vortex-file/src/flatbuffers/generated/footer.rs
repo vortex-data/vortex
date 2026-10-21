@@ -1314,36 +1314,36 @@ impl ::core::fmt::Debug for FieldPath<'_> {
       ds.finish()
   }
 }
-pub enum SortKeyOffset {}
+pub enum SortKeySpecOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// Sort key supplied by the caller. Fields are compared in order, ascending with nulls first.
 /// Duplicate keys are allowed.
-pub struct SortKey<'a> {
+pub struct SortKeySpec<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
 
-impl<'a> ::flatbuffers::Follow<'a> for SortKey<'a> {
-  type Inner = SortKey<'a>;
+impl<'a> ::flatbuffers::Follow<'a> for SortKeySpec<'a> {
+  type Inner = SortKeySpec<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
     Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
   }
 }
 
-impl<'a> SortKey<'a> {
+impl<'a> SortKeySpec<'a> {
   pub const VT_FIELDS: ::flatbuffers::VOffsetT = 4;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
-    SortKey { _tab: table }
+    SortKeySpec { _tab: table }
   }
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args SortKeyArgs<'args>
-  ) -> ::flatbuffers::WIPOffset<SortKey<'bldr>> {
-    let mut builder = SortKeyBuilder::new(_fbb);
+    args: &'args SortKeySpecArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<SortKeySpec<'bldr>> {
+    let mut builder = SortKeySpecBuilder::new(_fbb);
     if let Some(x) = args.fields { builder.add_fields(x); }
     builder.finish()
   }
@@ -1354,11 +1354,11 @@ impl<'a> SortKey<'a> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<FieldPath>>>>(SortKey::VT_FIELDS, None).unwrap()}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<FieldPath>>>>(SortKeySpec::VT_FIELDS, None).unwrap()}
   }
 }
 
-impl ::flatbuffers::Verifiable for SortKey<'_> {
+impl ::flatbuffers::Verifiable for SortKeySpec<'_> {
   #[inline]
   fn run_verifier(
     v: &mut ::flatbuffers::Verifier, pos: usize
@@ -1369,46 +1369,46 @@ impl ::flatbuffers::Verifiable for SortKey<'_> {
     Ok(())
   }
 }
-pub struct SortKeyArgs<'a> {
+pub struct SortKeySpecArgs<'a> {
     pub fields: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<FieldPath<'a>>>>>,
 }
-impl<'a> Default for SortKeyArgs<'a> {
+impl<'a> Default for SortKeySpecArgs<'a> {
   #[inline]
   fn default() -> Self {
-    SortKeyArgs {
+    SortKeySpecArgs {
       fields: None, // required field
     }
   }
 }
 
-pub struct SortKeyBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+pub struct SortKeySpecBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
   fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
   start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SortKeyBuilder<'a, 'b, A> {
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> SortKeySpecBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_fields(&mut self, fields: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<FieldPath<'b >>>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SortKey::VT_FIELDS, fields);
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(SortKeySpec::VT_FIELDS, fields);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SortKeyBuilder<'a, 'b, A> {
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> SortKeySpecBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
-    SortKeyBuilder {
+    SortKeySpecBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> ::flatbuffers::WIPOffset<SortKey<'a>> {
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<SortKeySpec<'a>> {
     let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, SortKey::VT_FIELDS,"fields");
+    self.fbb_.required(o, SortKeySpec::VT_FIELDS,"fields");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
 
-impl ::core::fmt::Debug for SortKey<'_> {
+impl ::core::fmt::Debug for SortKeySpec<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-    let mut ds = f.debug_struct("SortKey");
+    let mut ds = f.debug_struct("SortKeySpec");
       ds.field("fields", &self.fields());
       ds.finish()
   }
@@ -1495,11 +1495,11 @@ impl<'a> Footer<'a> {
   }
   /// Sort key for the rows in this file. If absent, the row order is unknown.
   #[inline]
-  pub fn sort_key_spec(&self) -> Option<SortKey<'a>> {
+  pub fn sort_key_spec(&self) -> Option<SortKeySpec<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<SortKey>>(Footer::VT_SORT_KEY_SPEC, None)}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<SortKeySpec>>(Footer::VT_SORT_KEY_SPEC, None)}
   }
 }
 
@@ -1514,7 +1514,7 @@ impl ::flatbuffers::Verifiable for Footer<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, SegmentSpec>>>("segment_specs", Self::VT_SEGMENT_SPECS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CompressionSpec>>>>("compression_specs", Self::VT_COMPRESSION_SPECS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<EncryptionSpec>>>>("encryption_specs", Self::VT_ENCRYPTION_SPECS, false)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<SortKey>>("sort_key_spec", Self::VT_SORT_KEY_SPEC, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<SortKeySpec>>("sort_key_spec", Self::VT_SORT_KEY_SPEC, false)?
      .finish();
     Ok(())
   }
@@ -1525,7 +1525,7 @@ pub struct FooterArgs<'a> {
     pub segment_specs: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, SegmentSpec>>>,
     pub compression_specs: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CompressionSpec<'a>>>>>,
     pub encryption_specs: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<EncryptionSpec<'a>>>>>,
-    pub sort_key_spec: Option<::flatbuffers::WIPOffset<SortKey<'a>>>,
+    pub sort_key_spec: Option<::flatbuffers::WIPOffset<SortKeySpec<'a>>>,
 }
 impl<'a> Default for FooterArgs<'a> {
   #[inline]
@@ -1567,8 +1567,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Footer::VT_ENCRYPTION_SPECS, encryption_specs);
   }
   #[inline]
-  pub fn add_sort_key_spec(&mut self, sort_key_spec: ::flatbuffers::WIPOffset<SortKey<'b >>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<SortKey>>(Footer::VT_SORT_KEY_SPEC, sort_key_spec);
+  pub fn add_sort_key_spec(&mut self, sort_key_spec: ::flatbuffers::WIPOffset<SortKeySpec<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<SortKeySpec>>(Footer::VT_SORT_KEY_SPEC, sort_key_spec);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> FooterBuilder<'a, 'b, A> {
