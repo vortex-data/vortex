@@ -15,7 +15,8 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::dynamic_expression::is_currently_true;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::scalar_fn::fns::optional::Optional;
+use vortex_array::scalar_fn::fns::switch::Switch;
+use vortex_array::scalar_fn::fns::switch::SwitchState;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -36,12 +37,12 @@ const MIN_REMOVED_FRACTION: f64 = 1e-6;
 
 /// When a scan skips an optional filter conjunct that keeps most of its input rows.
 ///
-/// An optional conjunct, marked with [`Optional`], only removes rows that the caller removes
+/// An optional conjunct, a predicate under a [`Switch`], only removes rows that the caller removes
 /// again, so evaluating it only pays off when it removes enough rows. The scan measures the
 /// selectivity of each optional conjunct over [`Self::sample_rows`] input rows. If the conjunct
-/// keeps more than [`Self::max_selectivity`] of them, the scan skips it for the next
-/// [`Self::backoff_rows`] input rows and then measures it again. A new value of a dynamic
-/// conjunct ends the skip.
+/// keeps more than [`Self::max_selectivity`] of them, the scan turns its switch off for the next
+/// [`Self::backoff_rows`] input rows and then on again to measure it. A new value of a dynamic
+/// conjunct turns the switch back on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OptionalFilterBackoff {
     /// The largest fraction of its input rows that an optional conjunct can keep and still be
@@ -112,9 +113,9 @@ struct OptionalConjunct {
     sampled_rows: u64,
     /// Rows kept of the sampled input rows.
     kept_rows: u64,
-    /// Input rows still to skip.
+    /// Input rows still to skip while the switch is off.
     skip_rows: u64,
-    /// The dynamic version of the conjunct when the skip started.
+    /// The dynamic version of the conjunct when the switch was turned off.
     skipped_version: Option<u64>,
     /// Whether a split measured the conjunct.
     measured: bool,
@@ -143,6 +144,8 @@ pub struct FilterExpr {
     dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
     /// The skip state of each optional conjunct, if the scan skips optional conjuncts.
     optional_conjuncts: Vec<Option<Mutex<OptionalConjunct>>>,
+    /// The switch of each optional conjunct, which is off while the scan skips it.
+    switches: Vec<Option<SwitchState>>,
     /// Set once each optional conjunct has its first measurement.
     first_measurements: Vec<Option<FirstMeasurement>>,
     /// When to skip optional conjuncts, or `None` to always evaluate them.
@@ -153,29 +156,36 @@ pub struct FilterExpr {
     selectivity_quantile: f64,
 }
 
-/// Split `expr` into its distinct conjuncts, and whether each one is optional. The [`Optional`]
-/// marker is removed, so readers see the predicate itself.
-fn bound_conjuncts(expr: &BoundExpression) -> Vec<(BoundExpression, bool)> {
-    let mut conjuncts = Vec::new();
-    let mut pending = vec![(expr, false)];
+/// Split `expr` into its distinct conjuncts, and the switch of each optional one. The [`Switch`] is
+/// removed, so readers and pruning see the predicate itself, and the scan turns it on and off.
+fn bound_conjuncts(expr: &BoundExpression) -> Vec<(BoundExpression, Option<SwitchState>)> {
+    let mut conjuncts: Vec<(BoundExpression, Option<SwitchState>)> = Vec::new();
+    let mut pending = vec![(expr, None)];
 
-    while let Some((expr, optional)) = pending.pop() {
+    while let Some((expr, switch)) = pending.pop() {
         if expr
             .as_scalar()
             .and_then(|scalar_fn| scalar_fn.as_opt::<Binary>())
             .is_some_and(|operator| *operator == Operator::And)
         {
-            pending.extend(expr.children().iter().rev().map(|child| (child, optional)));
-        } else if expr.is::<Optional>() {
-            pending.push((expr.child(0), true));
-        } else if let Some((_, existing_optional)) =
+            pending.extend(
+                expr.children()
+                    .iter()
+                    .rev()
+                    .map(|child| (child, switch.clone())),
+            );
+        } else if let Some(state) = expr.as_opt::<Switch>() {
+            pending.push((expr.child(0), Some(state.clone())));
+        } else if let Some((_, existing_switch)) =
             conjuncts.iter_mut().find(|(conjunct, _)| conjunct == expr)
         {
             // An engine can push the same predicate twice, such as a range it also sends as a
             // between. The duplicate is only optional if both copies are.
-            *existing_optional &= optional;
+            if switch.is_none() {
+                *existing_switch = None;
+            }
         } else {
-            conjuncts.push((expr.clone(), optional));
+            conjuncts.push((expr.clone(), switch));
         }
     }
 
@@ -185,7 +195,8 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<(BoundExpression, bool)> {
 impl FilterExpr {
     /// Create a filter that skips optional conjuncts as `optional_backoff` describes.
     pub fn new(expr: BoundExpression, optional_backoff: Option<OptionalFilterBackoff>) -> Self {
-        let (conjuncts, optional): (Vec<_>, Vec<_>) = bound_conjuncts(&expr).into_iter().unzip();
+        let (conjuncts, switches): (Vec<_>, Vec<_>) = bound_conjuncts(&expr).into_iter().unzip();
+        let optional = switches.iter().map(Option::is_some).collect_vec();
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
@@ -214,6 +225,7 @@ impl FilterExpr {
             projection_cost: Mutex::new(ConjunctCost::default()),
             dynamic_conjuncts,
             optional_conjuncts,
+            switches,
             first_measurements,
             optional_backoff,
             // The initial ordering is naive, we could order this by how well we expect each
@@ -244,24 +256,31 @@ impl FilterExpr {
         {
             return false;
         }
-        let Some(state) = &self.optional_conjuncts[conjunct_idx] else {
+        let (Some(state), Some(switch)) = (
+            &self.optional_conjuncts[conjunct_idx],
+            &self.switches[conjunct_idx],
+        ) else {
             return true;
         };
         let mut state = state.lock();
-        if state.skip_rows == 0 {
+        if switch.is_on() {
             return true;
         }
 
-        // A new value of a dynamic conjunct can remove more rows, so it ends the skip.
+        // A new value of a dynamic conjunct can remove more rows, so it turns the switch on.
         let version = self.dynamic_conjuncts[conjunct_idx]
             .as_ref()
             .map(DynamicExprUpdates::version);
         if version != state.skipped_version {
             state.skip_rows = 0;
+            switch.set(true);
             return true;
         }
 
         state.skip_rows = state.skip_rows.saturating_sub(input_rows as u64);
+        if state.skip_rows == 0 {
+            switch.set(true);
+        }
         false
     }
 
@@ -310,11 +329,14 @@ impl FilterExpr {
         {
             return true;
         }
-        let Some(state) = &self.optional_conjuncts[conjunct_idx] else {
+        let (Some(state), Some(switch)) = (
+            &self.optional_conjuncts[conjunct_idx],
+            &self.switches[conjunct_idx],
+        ) else {
             return false;
         };
         let state = state.lock();
-        state.skip_rows > 0
+        !switch.is_on()
             && state.skipped_version
                 == self.dynamic_conjuncts[conjunct_idx]
                     .as_ref()
@@ -384,6 +406,9 @@ impl FilterExpr {
             state.skipped_version = self.dynamic_conjuncts[conjunct_idx]
                 .as_ref()
                 .map(DynamicExprUpdates::version);
+            if let Some(switch) = &self.switches[conjunct_idx] {
+                switch.set(false);
+            }
         }
     }
 
@@ -500,13 +525,16 @@ mod tests {
     use vortex_array::expr::dynamic;
     use vortex_array::expr::lit;
     use vortex_array::expr::not;
-    use vortex_array::expr::optional;
     use vortex_array::expr::root;
+    use vortex_array::expr::switch;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_error::VortexResult;
 
     use super::FilterExpr;
     use super::OptionalFilterBackoff;
+    use super::Switch;
+    use super::SwitchState;
 
     #[test]
     fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
@@ -551,7 +579,7 @@ mod tests {
     }
 
     fn optional_filter(dtype: &DType) -> VortexResult<FilterExpr> {
-        let expr = and(root(), optional(not(root())));
+        let expr = and(root(), switch(not(root())));
         Ok(FilterExpr::new(
             expr.bind(dtype)?,
             Some(OptionalFilterBackoff {
@@ -592,8 +620,8 @@ mod tests {
     fn duplicate_conjuncts_are_evaluated_once() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::Nullable);
         let expr = and(
-            and(not(root()), optional(and(not(root()), root()))),
-            optional(root()),
+            and(not(root()), switch(and(not(root()), root()))),
+            switch(root()),
         );
         let filter = FilterExpr::new(expr.bind(&dtype)?, Some(OptionalFilterBackoff::default()));
         assert_eq!(
@@ -670,6 +698,29 @@ mod tests {
     }
 
     #[test]
+    fn backoff_turns_the_switch_off_and_on() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let state = SwitchState::new();
+        let expr = and(root(), Switch.new_expr(state.clone(), [not(root())]));
+        let filter = FilterExpr::new(
+            expr.bind(&dtype)?,
+            Some(OptionalFilterBackoff {
+                max_selectivity: 0.75,
+                sample_rows: 100,
+                backoff_rows: 1000,
+                prune_zones: true,
+            }),
+        );
+
+        filter.report_evaluation(1, 100, 90);
+        assert!(!state.is_on());
+        assert!(!filter.should_evaluate(1, 1000));
+        assert!(state.is_on());
+        assert!(filter.should_evaluate(1, 100));
+        Ok(())
+    }
+
+    #[test]
     fn selective_optional_conjunct_is_evaluated() -> VortexResult<()> {
         let filter = optional_filter(&DType::Bool(Nullability::Nullable))?;
         filter.report_evaluation(1, 60, 30);
@@ -683,7 +734,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let threshold = Arc::new(AtomicI32::new(100));
         let value = Arc::clone(&threshold);
-        let expr = optional(dynamic(
+        let expr = switch(dynamic(
             CompareOperator::Lt,
             move || Some(value.load(Ordering::SeqCst).into()),
             dtype.clone(),
