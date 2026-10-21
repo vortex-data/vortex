@@ -347,6 +347,8 @@ pub enum PostscriptOffset {}
 ///
 /// The segments pointed to by the postscript have inline compression and encryption specs to avoid
 /// the need to fetch encryption schemes up-front.
+///
+/// New fields must be appended to preserve FlatBuffers field-order compatibility with old readers.
 pub struct Postscript<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
