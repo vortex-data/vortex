@@ -13,21 +13,19 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::runend::RunEnd;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
-use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
 const LEN: usize = 2_048;
 const RUN_LENGTH: usize = 64;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
+    VortexSession::empty()
         .with::<ArraySession>()
         .with::<KernelSession>()
-        .with::<AggregateFnSession>();
-    vortex_runend::initialize(&session);
-    session
+        .with::<AggregateFnSession>()
 });
 
 #[global_allocator]

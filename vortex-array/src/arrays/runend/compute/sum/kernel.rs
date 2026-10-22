@@ -7,22 +7,6 @@
 
 use std::ops::Range;
 
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
-use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability::Nullable;
-use vortex_array::dtype::UnsignedPType;
-use vortex_array::match_each_native_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar::PValue;
-use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -31,9 +15,25 @@ use super::runs::add_float_run;
 use super::runs::add_signed_run;
 use super::runs::add_unsigned_run;
 use super::runs::sum_range;
-use crate::RunEnd;
-use crate::RunEndArrayExt;
-use crate::RunEndArraySlotsExt;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::sum_v2::SumV2;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::RunEndArrayExt;
+use crate::arrays::runend::RunEndArraySlotsExt;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability::Nullable;
+use crate::dtype::UnsignedPType;
+use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
 
 /// Whole-array primitive sum kernel for [`RunEnd`].
 #[derive(Debug)]

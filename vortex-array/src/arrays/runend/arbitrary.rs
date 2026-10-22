@@ -5,22 +5,22 @@ use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
 use arbitrary::unstructured::Int;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
-use vortex_array::arrays::arbitrary::ArbitraryWith;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::dtype::UnsignedPType;
-use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
-use crate::RunEnd;
-use crate::RunEndArray;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::arbitrary::ArbitraryArray;
+use crate::arrays::arbitrary::ArbitraryArrayConfig;
+use crate::arrays::arbitrary::ArbitraryWith;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::RunEndArray;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
+use crate::validity::Validity;
 
 /// A wrapper type to implement `Arbitrary` for `RunEndArray`.
 #[derive(Clone, Debug)]

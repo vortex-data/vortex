@@ -19,11 +19,12 @@ use std::ops::Range;
 
 use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
-use vortex_array::dtype::NativePType;
-use vortex_array::dtype::UnsignedPType;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
+
+use crate::dtype::NativePType;
+use crate::dtype::UnsignedPType;
 
 /// Return `None` if the run's product or the accumulated sum exceeds `u64`.
 pub(super) fn add_unsigned_run<T: AsPrimitive<u64>>(sum: u64, value: T, len: usize) -> Option<u64> {

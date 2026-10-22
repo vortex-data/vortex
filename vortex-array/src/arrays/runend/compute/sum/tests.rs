@@ -4,26 +4,6 @@
 use std::ops::Range;
 
 use rstest::rstest;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::AggregateFnVTableExt;
-use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
-use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::Nullability::NonNullable;
-use vortex_array::dtype::Nullability::Nullable;
-use vortex_array::dtype::PType;
-use vortex_array::scalar::Scalar;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::trace::trace_op;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -33,8 +13,28 @@ use vortex_mask::Mask;
 use super::RunEndSumKernel;
 use super::runs::add_unsigned_run;
 use super::runs::sum_range;
-use crate::RunEnd;
-use crate::tests::SESSION;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFnVTableExt;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::sum_v2::SumV2;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::ConstantArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::tests::SESSION;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::Nullability::NonNullable;
+use crate::dtype::Nullability::Nullable;
+use crate::dtype::PType;
+use crate::scalar::Scalar;
+#[cfg(not(codspeed))]
+use crate::test_harness::trace::trace_op;
+use crate::validity::Validity;
 
 /// Compare registered dispatch and the direct kernel with a decoded primitive reference.
 #[track_caller]

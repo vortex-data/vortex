@@ -1,25 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::IntoArray;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::scalar_fn::AnyScalarFn;
-use vortex_array::arrays::scalar_fn::ScalarFn;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex_array::dtype::DType;
-use vortex_array::optimizer::rules::ArrayParentReduceRule;
-use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::IntoArray;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::scalar_fn::AnyScalarFn;
+use crate::arrays::scalar_fn::ScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::dtype::DType;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 
 pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed

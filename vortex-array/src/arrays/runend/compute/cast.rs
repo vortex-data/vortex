@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::IntoArray;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::IntoArray;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastReduce;
 impl CastReduce for RunEnd {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
@@ -37,27 +37,23 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
-    use crate::RunEndArray;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::arrays::runend::RunEndArray;
+    use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
+    use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_runend_i32_to_i64() {
@@ -152,30 +148,30 @@ mod tests {
         );
     }
 
-    type RunEndBuilder = fn(&mut vortex_array::ExecutionCtx) -> RunEndArray;
+    type RunEndBuilder = fn(&mut crate::ExecutionCtx) -> RunEndArray;
 
     #[rstest]
-    #[case(|ctx: &mut vortex_array::ExecutionCtx| RunEnd::try_new(
+    #[case(|ctx: &mut crate::ExecutionCtx| RunEnd::try_new(
         buffer![3u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array(),
         ctx,
     ).unwrap())]
-    #[case(|ctx: &mut vortex_array::ExecutionCtx| RunEnd::try_new(
+    #[case(|ctx: &mut crate::ExecutionCtx| RunEnd::try_new(
         buffer![1u64, 4, 10].into_array(),
         buffer![1.5f32, 2.5, 3.5].into_array(),
         ctx,
     ).unwrap())]
-    #[case(|ctx: &mut vortex_array::ExecutionCtx| RunEnd::try_new(
+    #[case(|ctx: &mut crate::ExecutionCtx| RunEnd::try_new(
         buffer![2u64, 3, 5].into_array(),
         PrimitiveArray::from_option_iter([Some(42i32), None, Some(84)]).into_array(),
         ctx,
     ).unwrap())]
-    #[case(|ctx: &mut vortex_array::ExecutionCtx| RunEnd::try_new(
+    #[case(|ctx: &mut crate::ExecutionCtx| RunEnd::try_new(
         buffer![10u64].into_array(),
         buffer![255u8].into_array(),
         ctx,
     ).unwrap())]
-    #[case(|ctx: &mut vortex_array::ExecutionCtx| RunEnd::try_new(
+    #[case(|ctx: &mut crate::ExecutionCtx| RunEnd::try_new(
         buffer![2u64, 4, 6, 8, 10].into_array(),
         BoolArray::from_iter(vec![true, false, true, false, true]).into_array(),
         ctx,

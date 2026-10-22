@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::Dict;
-use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::dtype::DType;
-use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Dict;
+use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::dtype::DType;
+use crate::kernel::ExecuteParentKernel;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;
@@ -55,27 +55,23 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::ExecutionCtx;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::kernel::ExecuteParentKernel;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
-    use crate::RunEndArray;
-    use crate::array::RunEndArraySlotsExt;
-    use crate::compute::take_from::RunEndTakeFrom;
+    use crate::ExecutionCtx;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::arrays::runend::RunEndArray;
+    use crate::arrays::runend::array::RunEndArraySlotsExt;
+    use crate::arrays::runend::compute::take_from::RunEndTakeFrom;
+    use crate::assert_arrays_eq;
+    use crate::kernel::ExecuteParentKernel;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Build a DictArray whose codes are run-end encoded.
     ///

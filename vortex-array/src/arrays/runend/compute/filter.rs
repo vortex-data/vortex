@@ -6,25 +6,25 @@ use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::dtype::NativePType;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer_mut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
-use crate::compute::take::take_indices_unchecked;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::filter::FilterKernel;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::runend::compute::take::take_indices_unchecked;
+use crate::dtype::NativePType;
+use crate::match_each_unsigned_integer_ptype;
+use crate::validity::Validity;
 
 /// Takes directly below this average number of selected rows per source run.
 ///
@@ -146,16 +146,16 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::RunEnd;
-    use crate::RunEndArray;
-    use crate::tests::SESSION;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::arrays::runend::RunEndArray;
+    use crate::arrays::runend::tests::SESSION;
+    use crate::assert_arrays_eq;
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(

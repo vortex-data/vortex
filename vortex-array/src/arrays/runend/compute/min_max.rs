@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
-use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::array::RunEndArraySlotsExt;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
+use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::scalar::Scalar;
 
 /// RunEnd-specific min/max kernel.
 ///

@@ -7,24 +7,24 @@
 //! (0s or 1s) and only fills the minority runs, minimizing work for skewed distributions.
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar::Scalar;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::iter::trimmed_ends_iter;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 /// Threshold for number of runs below which we use sequential append instead of prefill.
 /// With few runs, the overhead of prefilling the entire buffer dominates.
@@ -103,7 +103,7 @@ pub fn runend_decode_typed_bool(
 /// for small numbers of runs.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-fn decode_few_runs_no_offset<E: vortex_array::dtype::IntegerPType>(
+fn decode_few_runs_no_offset<E: crate::dtype::IntegerPType>(
     ends: &[E],
     values: &BitBuffer,
     validity: Mask,
@@ -250,22 +250,18 @@ fn decode_nullable_sequential(
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::runend_decode_bools;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn decode_bools_alternating() -> VortexResult<()> {
@@ -356,7 +352,7 @@ mod tests {
 
     #[test]
     fn decode_bools_nullable() -> VortexResult<()> {
-        use vortex_array::validity::Validity;
+        use crate::validity::Validity;
 
         let mut ctx = SESSION.create_execution_ctx();
         // 3 runs: T (valid), F (null), T (valid) -> [T, T, null, null, null, T, T, T, T, T]

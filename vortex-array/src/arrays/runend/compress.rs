@@ -2,29 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::decimal::DecimalArrayExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::match_each_decimal_value_type;
-use vortex_array::match_each_native_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar::Scalar;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -34,7 +11,30 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::iter::trimmed_ends_iter;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::buffer::BufferHandle;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
 pub fn runend_encode(
@@ -432,23 +432,19 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::compress::runend_decode_primitive;
-    use crate::compress::runend_encode;
+    use crate::VortexSessionExecute;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::compress::runend_decode_primitive;
+    use crate::arrays::runend::compress::runend_encode;
+    use crate::assert_arrays_eq;
+    use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn encode() -> VortexResult<()> {

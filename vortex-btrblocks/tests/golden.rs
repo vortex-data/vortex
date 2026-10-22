@@ -448,7 +448,6 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     vortex_fastlanes::initialize(&session);
     vortex_fsst::initialize(&session);
     vortex_onpair::initialize(&session);
-    vortex_runend::initialize(&session);
     vortex_sequence::initialize(&session);
     vortex_sparse::initialize(&session);
     vortex_zigzag::initialize(&session);

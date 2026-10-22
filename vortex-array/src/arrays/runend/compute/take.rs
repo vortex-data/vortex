@@ -3,18 +3,6 @@
 
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::dict::TakeExecute;
-use vortex_array::dtype::UnsignedPType;
-use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar::Scalar;
-use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -22,10 +10,22 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
-use crate::iter::trimmed_ends_iter;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::TakeExecute;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::dtype::UnsignedPType;
+use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 const SORTED_LINEAR_RUNS_PER_INDEX_THRESHOLD: usize = 16;
 const UNSORTED_LINEAR_RUNS_PER_INDEX_THRESHOLD: usize = 4;
@@ -488,15 +488,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -505,14 +496,19 @@ mod tests {
     use super::physical_indices_linear_sorted;
     use super::physical_indices_linear_unsorted;
     use super::physical_indices_table;
-    use crate::RunEnd;
-    use crate::RunEndArray;
+    use crate::ArrayRef;
+    use crate::Canonical;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::arrays::runend::RunEndArray;
+    use crate::assert_arrays_eq;
+    use crate::compute::conformance::take::test_take_conformance;
+    use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(

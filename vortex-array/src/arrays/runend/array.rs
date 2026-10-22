@@ -8,36 +8,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use prost::Message;
-use vortex_array::AnyCanonical;
-use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
-use vortex_array::ArrayId;
-use vortex_array::ArrayParts;
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::EqMode;
-use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionResult;
-use vortex_array::IntoArray;
-use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
-use vortex_array::array_slots;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::ListViewArray;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::listview::ListViewArraySlotsExt;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::require_child;
-use vortex_array::serde::ArrayChildren;
-use vortex_array::validity::Validity;
-use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -48,14 +18,44 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::compress::runend_decode_decimal;
-use crate::compress::runend_decode_primitive;
-use crate::compress::runend_decode_varbinview;
-use crate::compress::runend_encode;
-use crate::decompress_bool::runend_decode_bools;
-use crate::ops::find_physical_index;
-use crate::ops::find_slice_end_index;
-use crate::rules::RULES;
+use crate::AnyCanonical;
+use crate::Array;
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::ArrayId;
+use crate::ArrayParts;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::EqMode;
+use crate::ExecutionCtx;
+use crate::ExecutionResult;
+use crate::IntoArray;
+use crate::TypedArrayRef;
+use crate::VortexSessionExecute;
+use crate::array_slots;
+use crate::arrays::DecimalArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::runend::compress::runend_decode_decimal;
+use crate::arrays::runend::compress::runend_decode_primitive;
+use crate::arrays::runend::compress::runend_decode_varbinview;
+use crate::arrays::runend::compress::runend_encode;
+use crate::arrays::runend::decompress_bool::runend_decode_bools;
+use crate::arrays::runend::ops::find_physical_index;
+use crate::arrays::runend::ops::find_slice_end_index;
+use crate::arrays::runend::rules::RULES;
+use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::require_child;
+use crate::serde::ArrayChildren;
+use crate::validity::Validity;
+use crate::vtable::VTable;
+use crate::vtable::ValidityVTable;
 
 /// A [`RunEnd`]-encoded Vortex array.
 pub type RunEndArray = Array<RunEnd>;
@@ -136,7 +136,7 @@ impl VTable for RunEnd {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_array::vtable::with_empty_buffers(self, array, buffers)
+        crate::vtable::with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(
@@ -433,15 +433,14 @@ impl RunEndData {
     ///
     /// ```
     /// # use vortex_array::arrays::BoolArray;
+    /// # use vortex_array::arrays::runend::RunEnd;
     /// # use vortex_array::IntoArray;
     /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
     /// # use vortex_buffer::buffer;
     /// # use vortex_error::VortexResult;
-    /// # use vortex_runend::RunEnd;
     /// # fn main() -> VortexResult<()> {
     /// let session = VortexSession::empty();
-    /// vortex_runend::initialize(&session);
     /// let mut ctx = session.create_execution_ctx();
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
@@ -589,36 +588,32 @@ mod tests {
     use std::sync::LazyLock;
 
     use prost::Message;
-    use vortex_array::ArrayRef;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::DecimalArray;
-    use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::ListArray;
-    use vortex_array::arrays::ListViewArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::listview::ListViewArraySlotsExt;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::builders::VarBinBuilder;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::DecimalDType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::dtype::i256;
-    use vortex_array::validity::Validity;
-    use vortex_array::vtable::VTable;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::RunEndMetadata;
-    use crate::RunEnd;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::listview::ListViewArraySlotsExt;
+    use crate::arrays::runend::RunEnd;
+    use crate::assert_arrays_eq;
+    use crate::builders::VarBinBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::i256;
+    use crate::validity::Validity;
+    use crate::vtable::VTable;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_runend_constructor() {

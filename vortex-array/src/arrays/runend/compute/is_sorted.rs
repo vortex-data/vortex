@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray as _;
-use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
-use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::array::RunEndArraySlotsExt;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray as _;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
+use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::scalar::Scalar;
 
 /// RunEnd-specific is_sorted kernel.
 ///

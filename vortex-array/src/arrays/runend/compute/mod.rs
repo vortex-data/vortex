@@ -17,21 +17,17 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
-    use crate::RunEndArray;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::arrays::runend::RunEndArray;
+    use crate::compute::conformance::consistency::test_array_consistency;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // Simple run-end arrays

@@ -2,27 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
-use vortex_array::ArrayProbe;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::RepeatedArrayProbe;
-use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::assert_arrays_eq;
-use vortex_array::builders::builder_with_capacity_in;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::tests::SESSION;
+use crate::ArrayProbe;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::RepeatedArrayProbe;
+use crate::VortexSessionExecute;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::tests::SESSION;
+use crate::assert_arrays_eq;
+use crate::builders::builder_with_capacity_in;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::scalar::Scalar;
+use crate::scalar_fn::fns::operators::Operator;
+use crate::validity::Validity;
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.
 fn probe_for<'a>(

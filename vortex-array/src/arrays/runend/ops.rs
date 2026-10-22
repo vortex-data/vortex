@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::ProbeState;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar::Scalar;
-use vortex_array::search_sorted::SearchResult;
-use vortex_array::search_sorted::SearchSorted;
-use vortex_array::search_sorted::SearchSortedPrimitiveArray;
-use vortex_array::search_sorted::SearchSortedSide;
-use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::ProbeState;
+use crate::arrays::runend::RunEnd;
+use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::Scalar;
+use crate::search_sorted::SearchResult;
+use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedPrimitiveArray;
+use crate::search_sorted::SearchSortedSide;
+use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     type ProbeState = ();
@@ -24,7 +24,7 @@ impl OperationsVTable<RunEnd> for RunEnd {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        crate::probe::scalar_at(state, index, ctx)
+        super::probe::scalar_at(state, index, ctx)
     }
 
     fn scalar_at(
@@ -32,7 +32,7 @@ impl OperationsVTable<RunEnd> for RunEnd {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        crate::probe::scalar_at(&mut ProbeState::once(array), index, ctx)
+        super::probe::scalar_at(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -78,24 +78,20 @@ pub fn find_physical_index(
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::is_constant::is_constant;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn slice_array() {

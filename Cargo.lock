@@ -11348,7 +11348,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-parquet-variant",
  "vortex-pco",
- "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -11471,7 +11470,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-onpair",
- "vortex-runend",
  "vortex-session",
  "vortex-zstd",
 ]
@@ -11573,7 +11571,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-onpair",
  "vortex-pco",
- "vortex-runend",
  "vortex-sequence",
  "vortex-session",
  "vortex-sparse",
@@ -11894,7 +11891,6 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
- "vortex-runend",
  "vortex-sequence",
  "vortex-spatial",
  "vortex-utils",
@@ -12030,7 +12026,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-onpair",
  "vortex-pco",
- "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -12084,7 +12079,6 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-row",
- "vortex-runend",
  "vortex-session",
  "vortex-utils",
 ]
@@ -12229,7 +12223,6 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
- "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -12393,26 +12386,6 @@ dependencies = [
  "rand 0.10.3",
  "rstest",
  "smallvec",
- "vortex-array",
- "vortex-buffer",
- "vortex-error",
- "vortex-mask",
- "vortex-session",
-]
-
-[[package]]
-name = "vortex-runend"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "codspeed-divan-compat",
- "insta",
- "itertools 0.14.0",
- "mimalloc",
- "num-traits",
- "prost 0.14.4",
- "rand 0.10.3",
- "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",

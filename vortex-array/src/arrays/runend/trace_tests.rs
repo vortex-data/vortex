@@ -3,34 +3,30 @@
 
 //! Snapshot tests tracing how reductions and executions flow through run-end arrays.
 
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::assert_arrays_eq;
-use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
-use vortex_array::test_harness::trace::trace_op;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::RunEnd;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::DictArray;
+use crate::arrays::FilterArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::runend::RunEnd;
+use crate::assert_arrays_eq;
+use crate::optimizer::ArrayOptimizer;
+use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
+use crate::session::ArraySession;
+use crate::test_harness::trace::trace_op;
 
 fn execution_ctx() -> ExecutionCtx {
-    let session = VortexSession::empty().with::<ArraySession>();
-    // Execute-parent kernels live in the session registry; without registering RunEnd's own
-    // kernels the traces below would show plain canonicalization instead of the pushdowns.
-    crate::initialize(&session);
-    ExecutionCtx::new(session)
+    ExecutionCtx::new(VortexSession::empty().with::<ArraySession>())
 }
 
 /// Run-end encoding of `[1, 1, 1, 2, 2, 3, 3, 3, 3]`: ends `[3, 5, 9]`, values `[1, 2, 3]`.

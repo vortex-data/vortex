@@ -3,15 +3,15 @@
 
 //! RunEnd probes retain their ends and values child probes across lookups.
 
-use vortex_array::ExecutionCtx;
-use vortex_array::ProbeState;
-use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::RunEnd;
-use crate::RunEndArrayExt;
-use crate::RunEndSlots;
+use crate::ExecutionCtx;
+use crate::ProbeState;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::RunEndArrayExt;
+use crate::arrays::runend::RunEndSlots;
+use crate::scalar::Scalar;
 
 pub(crate) fn scalar_at(
     state: &mut ProbeState<'_, RunEnd>,

@@ -10,7 +10,7 @@ pub use iter::trimmed_ends_iter;
 
 mod array;
 pub mod compress;
-mod compute;
+pub(crate) mod compute;
 pub mod decompress_bool;
 mod iter;
 mod kernel;
@@ -29,45 +29,10 @@ pub mod _benchmarking {
     use super::*;
 }
 
-use vortex_array::ArrayVTable;
-use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
-/// Initialize run-end encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(RunEnd);
+pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
-
-    // Register the RunEnd-specific aggregate kernels.
-    session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
-        Some(MinMax.id()),
-        &compute::min_max::RunEndMinMaxKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
-        Some(IsConstant.id()),
-        &compute::is_constant::RunEndIsConstantKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
-        Some(IsSorted.id()),
-        &compute::is_sorted::RunEndIsSortedKernel,
-    );
-    for sum in [Sum.id(), SumV2.id()] {
-        session.aggregate_fns().register_aggregate_kernel(
-            RunEnd.id(),
-            Some(sum),
-            &compute::sum::RunEndSumKernel,
-        );
-    }
 }
 
 #[cfg(test)]
@@ -75,17 +40,13 @@ mod tests {
     use std::sync::LazyLock;
 
     use prost::Message;
-    use vortex_array::dtype::PType;
-    use vortex_array::test_harness::check_metadata;
     use vortex_session::VortexSession;
 
-    use crate::RunEndMetadata;
+    use crate::arrays::runend::RunEndMetadata;
+    use crate::dtype::PType;
+    use crate::test_harness::check_metadata;
 
-    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[cfg_attr(miri, ignore)]
     #[test]

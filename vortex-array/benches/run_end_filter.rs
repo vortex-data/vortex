@@ -20,8 +20,8 @@ use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
+use vortex_array::arrays::runend::_benchmarking::filter_run_end_primitive;
 use vortex_buffer::BitBuffer;
-use vortex_runend::_benchmarking::filter_run_end_primitive;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

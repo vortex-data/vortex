@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
-use crate::decompress_bool::runend_decode_bools;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::runend::decompress_bool::runend_decode_bools;
+use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
 
 impl CompareKernel for RunEnd {
     fn compare(
@@ -51,25 +51,21 @@ impl CompareKernel for RunEnd {
 mod test {
     use std::sync::LazyLock;
 
-    use vortex_array::ExecutionCtx;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
-    use crate::RunEndArray;
+    use crate::ExecutionCtx;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::arrays::runend::RunEndArray;
+    use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
+    use crate::scalar_fn::fns::operators::Operator;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn ree_array(ctx: &mut ExecutionCtx) -> RunEndArray {
         RunEnd::encode(

@@ -14,11 +14,11 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::runend::RunEnd;
+use vortex_array::arrays::runend::RunEndArray;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
-use vortex_runend::RunEnd;
-use vortex_runend::RunEndArray;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -58,12 +58,10 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
+    VortexSession::empty()
         .with::<ArraySession>()
         .with::<KernelSession>()
-        .with::<AggregateFnSession>();
-    vortex_runend::initialize(&session);
-    session
+        .with::<AggregateFnSession>()
 });
 
 #[divan::bench(args = BENCH_ARGS)]

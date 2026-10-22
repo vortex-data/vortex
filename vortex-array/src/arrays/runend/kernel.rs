@@ -3,29 +3,29 @@
 
 use std::ops::Range;
 
-use vortex_array::ArrayRef;
-use vortex_array::ArrayVTable;
-use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::Dict;
-use vortex_array::arrays::Filter;
-use vortex_array::arrays::Slice;
-use vortex_array::arrays::dict::TakeExecuteAdaptor;
-use vortex_array::arrays::filter::FilterExecuteAdaptor;
-use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::optimizer::kernels::ArrayKernelsExt;
-use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
-use crate::compute::take_from::RunEndTakeFrom;
+use crate::ArrayRef;
+use crate::ArrayVTable;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::Dict;
+use crate::arrays::Filter;
+use crate::arrays::Slice;
+use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::filter::FilterExecuteAdaptor;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::runend::compute::take_from::RunEndTakeFrom;
+use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
