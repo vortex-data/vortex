@@ -32,7 +32,6 @@ pub const SPATIAL_2026_08: EditionId = EditionId::new("spatial", 2026, 8, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: SPATIAL_2026_08,
-        unstable: false,
         min_library_version: None,
     },
     added: &[

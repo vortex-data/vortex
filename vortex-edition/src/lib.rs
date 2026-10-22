@@ -2,26 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Definitions of Vortex *editions*: named sets of serialized component IDs. Frozen editions
-//! carry a forever read-compatibility guarantee; draft and unstable editions do not. Unstable
-//! editions permit membership and wire contracts to change under the same IDs.
+//! carry a forever read-compatibility guarantee; draft editions do not, and their members can
+//! change or be removed.
 //!
 //! Editions live on the session, like encodings do: [`EditionSession`] holds the registered
 //! editions and [`EnabledEditions`] selects which of them a writer may emit. Declarations
 //! are plain constants — an [`EditionId`] plus an [`Edition`] record, and one
 //! [`EditionInclusion`] per member stating that it is a member of an edition *and every
-//! later non-unstable edition of the same family*. Unstable membership applies only to that edition.
-//! Any crate can register declarations into a session, so inclusions can live next to the component
-//! they describe.
+//! later edition of the same family*. Any crate can register declarations into a session,
+//! so inclusions can live next to the component they describe.
 //!
 //! Every membership is typed by a [`ComponentKind`], and members are resolved one kind at a
-//! time with [`EditionSessionExt::enabled_component_ids`], restricting arrays, layouts, extension
-//! dtypes, and aggregates separately. Array memberships name wire IDs rather than in-memory array
-//! representations. An array plugin may
+//! time with [`EditionSessionExt::enabled_component_ids`]: the file writer restricts the
+//! arrays, layouts, extension dtypes, and aggregates it writes from separate id sets. Array
+//! memberships name wire IDs rather than in-memory array representations. An array plugin may
 //! serialize one current in-memory representation under several historical IDs. The serialization
 //! context validates the ID chosen by the plugin before writing it. Readers resolve the ID stored
 //! in the file and either deserialize it into the current representation or reject it as unknown.
 //!
-//! A non-unstable edition is represented as a **draft** until its [`Edition::min_library_version`] is
+//! An edition is represented as a **draft** until its [`Edition::min_library_version`] is
 //! recorded. A stable edition may freeze in the release that cuts it; once that release version
 //! is known, the field is backfilled to document the freeze. The per-edition member sets are
 //! computed from the registered declarations by [`EditionSession::components_in`], and
@@ -206,12 +205,8 @@ impl Display for ComponentKind {
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
-    /// Whether this edition permits changes to membership and wire contracts under existing IDs.
-    /// Unstable editions carry no compatibility guarantee and are not inherited by other editions.
-    /// This policy cannot replace the guarantee of an already frozen edition.
-    pub unstable: bool,
     /// The minimum version of the edition family's [`EditionFamily::origin`] whose reader
-    /// supports every member of this edition. Must be `None` for unstable editions.
+    /// supports every member of this edition. Always `None` for [`UNSTABLE`].
     ///
     /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
     /// version is not known and this remains `None`. The version is then backfilled to document
@@ -224,23 +219,18 @@ pub struct Edition {
 }
 
 impl Edition {
-    /// Whether this edition carries a frozen read-compatibility guarantee.
-    pub fn is_frozen(&self) -> bool {
-        !self.unstable && self.min_library_version.is_some()
-    }
-
-    /// A draft is a non-unstable edition whose `min_library_version` is not recorded yet.
+    /// A draft is an edition whose `min_library_version` has not been recorded yet. Members of a
+    /// draft can change or be removed.
     ///
     /// This describes the absence of a frozen compatibility guarantee, not necessarily the
     /// implementation stability of its members.
     pub fn is_draft(&self) -> bool {
-        !self.unstable && self.min_library_version.is_none()
+        self.min_library_version.is_none()
     }
 }
 
 /// Declares that a serialized component is a member of an edition — and of every later edition of
-/// the same family. Unstable membership applies only to that edition and is never inherited.
-/// Registered with [`EditionSession::declare_inclusion`].
+/// the same family. Registered with [`EditionSession::declare_inclusion`].
 #[derive(Clone, Copy, Debug)]
 pub struct EditionInclusion {
     /// What the membership covers. Ids are unique per kind, so this is part of the
@@ -343,8 +333,7 @@ pub struct EditionDeclaration {
     /// The edition being declared.
     pub edition: Edition,
     /// The members that join the family at this edition, each tagged with its [`ComponentKind`].
-    /// Earlier non-unstable entries are inherited and never restated. Unstable editions list
-    /// their own independent membership.
+    /// Earlier entries are inherited and never restated.
     pub added: &'static [EditionMember],
 }
 

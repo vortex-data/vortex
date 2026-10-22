@@ -14,7 +14,6 @@ pub const PREVIEW_2026_08_0: EditionId = EditionId::new("preview", 2026, 8, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: PREVIEW_2026_08_0,
-        unstable: false,
         min_library_version: None,
     },
     added: &[],

@@ -409,7 +409,6 @@ mod tests {
         let editions = session.editions();
         editions.declare_edition(Edition {
             id: TEST_EDITION,
-            unstable: false,
             min_library_version: None,
         })?;
         let component_ids = [

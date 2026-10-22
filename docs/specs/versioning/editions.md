@@ -1,8 +1,8 @@
 # Edition registry
 
 Each entry lists the components added by that edition, which also permits every component from
-earlier non-unstable editions in the same family. See [Using editions](using-editions.md) for
-configuration and [Versioning design](design.md) for the compatibility rules.
+earlier editions in the same family. See [Using editions](using-editions.md) for configuration and
+[Versioning design](design.md) for the compatibility rules.
 
 ## Frozen `core` editions
 
@@ -62,10 +62,17 @@ Minimum Vortex Rust crate version: `0.85.0`.
 
 ## Draft editions
 
-Draft editions have no recorded minimum version of their origin project's code, and each new format
-or revision requires a new draft edition. Vortex-maintained draft formats are expected to remain
-compatible unless a defect blocks promotion into `core`, while independent plugin projects state
-their own policy.
+Draft editions have no recorded minimum version of their origin project's code. Until a draft
+freezes, its members can change or be removed. Except for `UNSTABLE`, Vortex-maintained draft
+formats are expected to remain compatible unless a defect blocks promotion into `core`, while
+independent plugin projects state their own policy.
+
+### `unstable`
+
+`UNSTABLE` is a draft edition that never freezes. It holds formats whose contracts are still
+changing, so its members and their wire contracts can change under the same IDs. Plugins can add
+members through ordinary edition inclusions. See
+[Unstable edition](using-editions.md#unstable-edition) for configuration.
 
 ### `preview2026.08.0`
 
@@ -118,43 +125,25 @@ must belong to a selected edition, including `UNSTABLE` for experimental formats
 aggregates are in-memory pruning predicates and do not need entries. Legacy file statistics also
 do not need entries.
 
-## Unstable edition
-
-`UNSTABLE` is a mutable edition with no minimum reader version or compatibility guarantee. Its
-members and their wire contracts can change under the same IDs. It is selected using the ordinary
-edition API and has no dated version.
-
-The built-in declaration contains:
-
-- `array`: `fastlanes.bitpacked.v2`, `fastlanes.delta`, `fastlanes.for.v2`,
-  `vortex.decimal_byte_parts.v2`, `vortex.patched`, `vortex.union`
-- `layout`: `vortex.list`
-- `aggregate`: `vortex.bloom_filter.sbbf`, `vortex.sum_v2`
-
-Plugins can register additional members through ordinary edition inclusions, with no central list
-of allowed IDs. See [Unstable edition](using-editions.md#unstable-edition) for configuration.
-
 ## Format testing and promotion
 
-A format with a changing contract belongs in `UNSTABLE`. Its declaration can be added, changed, or
+A format with a changing contract belongs in `UNSTABLE`. Its inclusion can be added, changed, or
 removed without a new edition or wire ID. Applications writing these formats need readers with
 matching implementations.
 
-Once the contract is settled, remove its unstable inclusion and add it to a new draft edition. A
-format intended for `core` enters `preview` for broader opt-in use, then a later `core` edition for
-default use. Optional modules use their own families. The format can retain its ID, but earlier
-experimental files acquire no compatibility guarantee.
+Once the contract is settled, move its inclusion from `UNSTABLE` to another edition. A format
+intended for `core` enters `preview` for broader opt-in use, then a later `core` edition for default
+use. Optional modules use their own families. The format can keep its ID, but earlier experimental
+files acquire no compatibility guarantee.
 
-Unstable membership is never inherited. Ordinary edition membership remains additive, and a
-contract frozen in any edition cannot change even if it also appears in `UNSTABLE`. A reader-visible
-correction to a frozen format requires a new wire ID and a later edition.
-
-The current `preview` edition is empty, so its first component must go into a new edition.
+A frozen contract cannot change. A reader-visible correction to a frozen format requires a new wire
+ID and a later edition.
 
 ## Freezing an edition
 
-A non-unstable edition can freeze when its origin publishes the code that first supports all its
-members. For `core`, this is a Vortex Rust crate release. Independent plugins use their own versions.
+A draft edition other than `UNSTABLE` can freeze when its origin publishes the code that first
+supports all its members. For `core`, this is a Vortex Rust crate release. Independent plugins use
+their own versions.
 
 Until the release version is known, the declaration uses `min_library_version: None`. Once it is
 known, the field records the first release that supports all members, usually while the next release
@@ -171,9 +160,9 @@ with their implementation code. The exported TOML records are under `vortex/edit
 family.
 
 1. Register a changing format in `UNSTABLE`. Third-party plugins use ordinary edition inclusions.
-2. Once its contract is settled, remove the unstable inclusion and add it to a new draft
-   edition. Formats intended for `core` pass through `preview`; optional modules use their own
-   families. Revisions to edition members require a new ID and a later edition.
+2. Once its contract is settled, move its inclusion from `UNSTABLE` to a draft edition. Formats
+   intended for `core` pass through `preview`; optional modules use their own families. Revisions
+   to frozen members require a new ID and a later edition.
 3. When an edition freezes, record the first release of its origin that supports every permitted
    component, including inherited members.
 4. Regenerate the records:
@@ -182,7 +171,7 @@ family.
    cargo run -p xtask -- generate-editions
    ```
 
-CI's `check-editions` command rejects changes to frozen records, including renames, unfreezing,
-relabeling as unstable, and deletion, so changes to permitted wire formats require a later edition.
-The command also rejects a new ordinary edition that does not follow its family's chronology.
-Unstable records are exempt from immutability and chronology checks.
+CI's `check-editions` command rejects changes to frozen records, including renames, unfreezing, and
+deletion, so changes to permitted wire formats require a later edition. The command also rejects a
+new edition that does not follow its family's chronology. Draft records, including `UNSTABLE`, can
+change or be deleted.

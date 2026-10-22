@@ -28,7 +28,6 @@ pub const TENSOR_2026_04: EditionId = EditionId::new("tensor", 2026, 4, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: TENSOR_2026_04,
-        unstable: false,
         min_library_version: None,
     },
     added: &[

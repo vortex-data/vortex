@@ -13,20 +13,20 @@ use crate::EditionMember;
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "unstable",
     origin: "vortex",
-    doc: "Opt-in experimental formats with no compatibility guarantee. Membership and wire \
-contracts may change under existing IDs. Plugins can register additional members using ordinary \
-edition inclusions. Settled formats move into preview or a plugin edition before freezing; \
-earlier experimental files acquire no compatibility guarantee.",
+    doc: "Opt-in experimental formats in a draft edition that never freezes, so they have no \
+compatibility guarantee. Membership and wire contracts may change under existing IDs. Plugins \
+can register additional members using ordinary edition inclusions. Settled formats move into \
+preview or a plugin edition before freezing; earlier experimental files acquire no compatibility \
+guarantee.",
 };
 
-/// The shared mutable edition, with no compatibility guarantee.
+/// The shared draft edition. It never freezes, so it has no compatibility guarantee.
 pub const UNSTABLE: EditionId = EditionId::new("unstable", 0, 0, 0);
 
 /// Built-in serialized components awaiting stabilization in [`UNSTABLE`].
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: UNSTABLE,
-        unstable: true,
         min_library_version: None,
     },
     added: &[

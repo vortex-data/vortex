@@ -50,7 +50,7 @@ can add formats without changing an application's `core` selection.
 
 A writer selects at most one edition per family. Selecting `core2026.08.0` and `tensor2026.04.0`
 permits every component in either edition. Within one family, a later edition includes all earlier
-non-unstable members. Across families, however, the selections are independent.
+members. Across families, however, the selections are independent.
 
 Check the [registry](editions.md#edition-registry) before enabling an optional family. For example,
 `tensor2026.04.0` is a draft and has no frozen minimum reader version. Adding it does not extend
@@ -75,11 +75,9 @@ plugin available.
 
 ## Unstable edition
 
-`UNSTABLE` is an ordinary edition selection with no compatibility guarantee. Its membership and
-wire contracts may change under existing IDs, without creating a new edition. The default session
-registers it but does not enable it.
-
-Enable it before constructing a compressor or starting a write:
+[`UNSTABLE`](editions.md#unstable) is a draft edition for formats whose contracts are still
+changing. The default session registers it but does not enable it. Enable it before constructing a
+compressor or starting a write:
 
 ```rust
 use vortex::VortexSessionDefault;
@@ -118,16 +116,9 @@ fn register_experiment(session: &VortexSession) -> VortexResult<()> {
 }
 ```
 
-Registration does not enable the edition or install an implementation. Use
-`session.editions().components_in(&UNSTABLE, kind)` to discover its registered members.
-
-Producers and readers of unstable formats need matching implementations. Selecting a frozen `core`
-edition alongside `UNSTABLE` does not extend its guarantee to unstable formats. A contract already
-frozen in any edition remains immutable, even if its ID is also registered in `UNSTABLE`.
-
-Unstable membership is independent and is never inherited by other editions. A settled format must
-be explicitly added to an ordinary edition, and it can keep its ID. Earlier experimental files
-remain outside the compatibility guarantee.
+Producers and readers of unstable formats need matching implementations. When a format's contract
+is settled, it moves to another edition and can keep its ID. Earlier experimental files remain
+outside the compatibility guarantee.
 
 ## Write errors
 

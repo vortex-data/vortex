@@ -135,29 +135,23 @@ impl EditionSession {
     }
 
     /// Declare an edition inclusion. A component may belong to multiple families but joins each
-    /// family only once, apart from independent unstable memberships. Kind is part of the
+    /// family only once. A newer wire representation uses a new component ID. Kind is part of the
     /// key, so an array encoding and a layout may share an id.
     pub fn declare_inclusion(&self, inclusion: EditionInclusion) -> VortexResult<()> {
         let mut inner = self.inner.write();
-        let unstable = inner
-            .editions
-            .get(&inclusion.since.to_string())
-            .is_some_and(|e| e.unstable);
-        let previous = inner
-            .inclusions
-            .get(&inclusion.kind)
-            .and_then(|by_id| by_id.get(&inclusion.component_id))
-            .into_iter()
-            .flatten()
-            .find(|existing| {
-                existing.since == inclusion.since
-                    || (existing.since.family == inclusion.since.family
-                        && !unstable
-                        && !inner
-                            .editions
-                            .get(&existing.since.to_string())
-                            .is_some_and(|e| e.unstable))
+        let by_id = inner.inclusions.entry(inclusion.kind).or_default();
+        let history = by_id.entry(inclusion.component_id).or_default();
+        let previous = history
+            .iter()
+            .filter(|existing| existing.since.family == inclusion.since.family)
+            .max_by_key(|existing| {
+                (
+                    existing.since.year,
+                    existing.since.month,
+                    existing.since.version,
+                )
             });
+
         if let Some(previous) = previous {
             vortex_bail!(
                 "{} {} already joined family {} in edition {}",
@@ -167,12 +161,6 @@ impl EditionSession {
                 previous.since,
             );
         }
-        let history = inner
-            .inclusions
-            .entry(inclusion.kind)
-            .or_default()
-            .entry(inclusion.component_id)
-            .or_default();
         history.push(inclusion);
         history.sort_by_key(|entry| {
             (
@@ -199,40 +187,27 @@ impl EditionSession {
         self.inner.read().editions.get(&id.to_string()).copied()
     }
 
-    /// The newest frozen edition of a family, if any. Draft and unstable editions are never current.
+    /// The newest frozen edition of a family, if any. Drafts are never current.
     pub fn current(&self, family: &str) -> Option<Edition> {
         self.editions()
             .into_iter()
-            .rfind(|e| e.id.family == family && e.is_frozen())
+            .rfind(|e| e.id.family == family && !e.is_draft())
     }
 
     /// Compute an edition's members of one kind, sorted by component id. For each id, this returns
     /// its inclusion in the edition's family when it joined at or before the requested edition.
-    /// Unstable editions have independent membership and are never inherited.
     /// Only that kind's declarations are scanned.
     pub fn components_in(&self, edition: &EditionId, kind: ComponentKind) -> Vec<EditionInclusion> {
         let inner = self.inner.read();
         let Some(by_id) = inner.inclusions.get(&kind) else {
             return vec![];
         };
-        let unstable = inner
-            .editions
-            .get(&edition.to_string())
-            .is_some_and(|e| e.unstable);
         by_id
             .values()
             .filter_map(|history| {
                 history
                     .iter()
-                    .filter(|inclusion| {
-                        inclusion.since == *edition
-                            || (!unstable
-                                && inclusion.since.is_at_or_before(edition)
-                                && !inner
-                                    .editions
-                                    .get(&inclusion.since.to_string())
-                                    .is_some_and(|e| e.unstable))
-                    })
+                    .filter(|inclusion| inclusion.since.is_at_or_before(edition))
                     .max_by_key(|inclusion| {
                         (
                             inclusion.since.year,
@@ -266,14 +241,8 @@ impl EditionSession {
                     edition.id.family,
                 );
             }
-            if edition.unstable && edition.min_library_version.is_some() {
-                vortex_bail!(
-                    "unstable edition {} cannot promise a minimum reader version",
-                    edition.id
-                );
-            }
-            if edition.id == UNSTABLE && !edition.unstable {
-                vortex_bail!("UNSTABLE must remain unstable; promote members into a new edition");
+            if edition.id == UNSTABLE && !edition.is_draft() {
+                vortex_bail!("UNSTABLE must remain a draft; promote members into a new edition");
             }
             if let Some(version) = edition.min_library_version
                 && parse_release(version).is_none()
@@ -287,10 +256,9 @@ impl EditionSession {
 
         // Within each family, frozen editions must precede drafts: a frozen edition after
         // an unversioned one would imply the draft was skipped.
-        let stable: Vec<_> = editions.iter().filter(|e| !e.unstable).collect();
-        for pair in stable.windows(2) {
+        for pair in editions.windows(2) {
             let (prev, next) = (&pair[0], &pair[1]);
-            if prev.id.family == next.id.family && prev.is_draft() && next.is_frozen() {
+            if prev.id.family == next.id.family && prev.is_draft() && !next.is_draft() {
                 vortex_bail!(
                     "frozen edition {} follows draft {}; drafts must be newest in a family",
                     next.id,
