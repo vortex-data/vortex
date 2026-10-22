@@ -272,6 +272,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 array_read_ctx: &self.array_read_ctx,
             };
             encoding.build(
+                encoding_id,
                 dtype,
                 fb_child.row_count(),
                 fb_child

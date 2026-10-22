@@ -244,9 +244,10 @@ impl Footer {
         validate_segments_within_file(&self.segments_with_metadata, file_size)
     }
 
-    /// Returns a serializer for this footer.
-    pub fn into_serializer(self) -> FooterSerializer {
-        FooterSerializer::new(self)
+    /// Returns a serializer for this footer, writing each layout with the plugin `session`
+    /// registers for it.
+    pub fn into_serializer(self, session: &VortexSession) -> FooterSerializer {
+        FooterSerializer::new(self, session.clone())
     }
 
     /// Create a deserializer for a Vortex file footer.

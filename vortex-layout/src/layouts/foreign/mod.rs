@@ -44,6 +44,7 @@ impl LayoutEncoding for ForeignLayoutEncoding {
 
     fn build(
         &self,
+        _serialized_id: LayoutEncodingId,
         dtype: &DType,
         row_count: u64,
         metadata: &[u8],

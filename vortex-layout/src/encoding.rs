@@ -11,9 +11,11 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::DynLayout;
 use crate::LayoutId;
 use crate::LayoutRef;
 use crate::VTable;
@@ -51,15 +53,62 @@ pub struct LayoutBuildContext<'a> {
     pub array_read_ctx: &'a ReadContext,
 }
 
+/// The wire representation of a layout node, chosen by its plugin.
+#[derive(Clone, Debug)]
+pub struct LayoutSerialization {
+    /// The concrete layout ID to write on the wire.
+    pub serialized_id: LayoutId,
+    /// Layout-specific metadata written into the layout node.
+    pub metadata: Vec<u8>,
+}
+
+impl LayoutSerialization {
+    /// Write `layout` under its own in-memory ID with its vtable's metadata.
+    pub fn from_layout(layout: &dyn DynLayout) -> Self {
+        Self {
+            serialized_id: layout.encoding_id(),
+            metadata: layout.metadata(),
+        }
+    }
+}
+
 /// Object-safe plugin registered for a layout ID.
+///
+/// A plugin has one [`id`](Self::id) for the in-memory layout and one or more
+/// [`serialized_ids`](Self::serialized_ids) for wire representations. Its serializer chooses the
+/// wire representation, and the layout context validates that the chosen ID is permitted before
+/// it is written.
+///
+/// Every serialized ID is also registered for deserialization, so a plugin may read several
+/// historical IDs into the same in-memory layout. A reader that predates a newer ID has no
+/// registration for it and reports it as unknown.
 pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
     /// Returns this plugin as [`Any`].
     fn as_any(&self) -> &dyn Any;
-    /// Returns the globally unique layout ID.
+    /// Returns the ID of the in-memory layout handled by this plugin.
     fn id(&self) -> LayoutEncodingId;
-    /// Deserializes a layout node.
+
+    /// Returns the serialized layout IDs understood by this plugin, ordered oldest to newest.
+    ///
+    /// The default uses the in-memory ID as the sole wire ID.
+    fn serialized_ids(&self) -> Vec<LayoutId> {
+        vec![self.id()]
+    }
+
+    /// Serialize `layout` to its wire representation.
+    ///
+    /// This function is called only for layouts whose in-memory ID matches [`id`](Self::id). The
+    /// returned ID must be declared by [`serialized_ids`](Self::serialized_ids).
+    fn serialize(&self, layout: &dyn DynLayout) -> VortexResult<LayoutSerialization> {
+        Ok(LayoutSerialization::from_layout(layout))
+    }
+
+    /// Deserializes a layout node written under `serialized_id`, the exact layout ID found on the
+    /// wire.
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
+        serialized_id: LayoutId,
         dtype: &DType,
         row_count: u64,
         metadata: &[u8],
@@ -89,6 +138,7 @@ impl<V: VTable> LayoutVTablePlugin for V {
 
     fn build(
         &self,
+        serialized_id: LayoutId,
         dtype: &DType,
         row_count: u64,
         metadata: &[u8],
@@ -96,6 +146,11 @@ impl<V: VTable> LayoutVTablePlugin for V {
         children: &dyn LayoutChildren,
         build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
+        vortex_ensure_eq!(
+            VTable::id(self),
+            serialized_id,
+            "layout plugin does not recognize the serialized ID",
+        );
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         Ok(V::build(
             self,
