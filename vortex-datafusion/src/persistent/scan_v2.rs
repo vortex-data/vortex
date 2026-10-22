@@ -3,13 +3,13 @@
 
 //! Drives a V2 scan for DataFusion.
 //!
-//! A planner says what it needs: compute, or reads. This driver decides where each runs. It
-//! composes the planners over a [`PreparedScan`], the zone proofs first when the scan has a
-//! filter and the chunks of the rows they keep after, and runs them on planning runs it owns:
-//! the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned chunk on a
-//! task of its own, or on the root run when the engine's partitions already fill the cores.
-//! Every read is a `spawn_io` task of the file's segment source. The DataFusion thread polling
-//! the stream does no scan work itself.
+//! A planner says what it needs: compute, or reads. This driver decides where each runs. The
+//! opener composes the planners over a [`PreparedScan`] and hands the driver the first; the
+//! driver runs it and everything it emits on planning runs it owns: the root run stepped on
+//! `spawn_cpu` tasks as the stream is polled, each spawned chunk on a task of its own, or on the
+//! root run when the engine's partitions already fill the cores. Every read is a `spawn_io` task
+//! of the file's segment source. The DataFusion thread polling the stream does no scan work
+//! itself.
 
 use std::future;
 use std::sync::Arc;
@@ -27,11 +27,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::request::IoSource;
 use vortex::io::runtime::Handle;
-use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
-use vortex::layout::scan::v2::PrunePlanner;
-use vortex::layout::scan::v2::ScanBuilder;
-use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
@@ -59,32 +55,15 @@ impl ScanDriver {
         }
     }
 
-    /// Prepares `builder` where compute runs, composes its planners, and streams their batches
-    /// mapped by `map`. Preparation errors are the stream's first item.
+    /// Runs `root`, the first planner composed over `scan`, and everything it emits, and
+    /// streams their batches mapped by `map`.
     pub(crate) fn run(
         self,
-        builder: ScanBuilder,
+        scan: Arc<PreparedScan>,
+        root: Box<dyn Planner>,
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
-        let handle = self.handle.clone();
         let map: MapBatch = Arc::new(map);
-        stream::once(async move {
-            handle
-                .spawn_cpu(move || {
-                    let scan = Arc::new(builder.prepare()?);
-                    VortexResult::Ok(self.execute(scan, map))
-                })
-                .await
-        })
-        .try_flatten()
-        .boxed()
-    }
-
-    fn execute(
-        self,
-        scan: Arc<PreparedScan>,
-        map: MapBatch,
-    ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
         let scope = WorkScope {
@@ -92,7 +71,6 @@ impl ScanDriver {
             rows: scan.rows().clone(),
         };
         let io = scan.io();
-        let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
         let batches = run_stream(self.handle, root, scope, io.session(), map, inline)
@@ -126,25 +104,6 @@ impl ScanDriver {
         })
         .try_flatten()
         .boxed()
-    }
-}
-
-/// The planners of a scan, composed: with a filter, its proofs first over the whole scan,
-/// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
-    let rows = scan.rows().clone();
-    let chunks = {
-        let scan = Arc::clone(scan);
-        let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
-            let selection = scan.selection().clone();
-            Box::new(ChunkPlanner::new(scan, rows, selection, kept))
-        }
-    };
-    if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(chunks)))
-    } else {
-        chunks(None)
     }
 }
 
