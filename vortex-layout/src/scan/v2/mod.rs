@@ -24,6 +24,7 @@ mod io;
 #[cfg(test)]
 mod tests;
 
+use std::collections::VecDeque;
 use std::future;
 use std::ops::Range;
 use std::sync::Arc;
@@ -32,11 +33,9 @@ use arrow_array::RecordBatch;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
-use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::channel::mpsc;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
@@ -45,8 +44,11 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::request::IoService;
+use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::planning::driver::Batch;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::planner::WorkScope;
@@ -321,22 +323,14 @@ impl<A: 'static + Send> ScanRun<A> {
         })
     }
 
-    /// Runs the scan as one task on the session's runtime and yields its mapped batches.
+    /// Runs the scan on a planning run the returned stream owns and drives as it is polled.
     ///
-    /// The task owns one planning run, admits the scan's first planner to it, and drives it:
-    /// the run advances the planners and morsels the scan emits and awaits their reads between
-    /// steps, on whichever thread polls the task. Batches of an unordered scan are yielded as
-    /// morsels finish; an ordered scan yields them in row order once every morsel has.
+    /// Every CPU step of the run, the planners' and morsels' compute, is a [`Handle::spawn_cpu`]
+    /// task; every read is a `spawn_io` task of the segment source; the stream's own poll only
+    /// awaits one or the other, so the engine thread polling it does no scan work itself and the
+    /// scan advances only as fast as its consumer pulls. Batches of an unordered scan are yielded
+    /// as morsels finish; an ordered scan yields them in row order once every morsel has.
     fn execute_stream(self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        let handle = self.session.handle();
-        let (send, recv) = mpsc::channel(1);
-        let task = handle.spawn(self.run(send));
-        let errors = stream::once(task).filter_map(|result| future::ready(result.err().map(Err)));
-        Ok(stream::select(recv, errors).boxed())
-    }
-
-    async fn run(self, mut send: mpsc::Sender<VortexResult<A>>) -> VortexResult<()> {
-        let _cache = &self.cache;
         let mut run = Run::new();
         run.admit(
             self.scan.planner(self.rows.clone(), self.selection),
@@ -346,30 +340,71 @@ impl<A: 'static + Send> ScanRun<A> {
             },
             self.io.session(),
         );
-        let mut held = Vec::new();
+        let driver = Driver {
+            handle: self.session.handle(),
+            run: Some(run),
+            map_fn: self.map_fn,
+            ordered: self.ordered,
+            held: VecDeque::new(),
+            done: false,
+            cache: self.cache,
+        };
+        Ok(stream::try_unfold(driver, Driver::next).boxed())
+    }
+}
+
+/// The state of a scan's stream: its planning run and what it holds back.
+struct Driver<A> {
+    handle: Handle,
+    /// Taken while a CPU step runs on its task and put back with its result.
+    run: Option<Run>,
+    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    ordered: bool,
+    /// Batches of an ordered scan, in row order once the run is done.
+    held: VecDeque<Batch>,
+    done: bool,
+    /// Held until the scan ends, so scans of the file that start meanwhile share it.
+    #[expect(dead_code, reason = "kept alive, never read")]
+    cache: ScanCache,
+}
+
+impl<A: 'static + Send> Driver<A> {
+    /// The next mapped batch, or `None` once the run has retired everything.
+    async fn next(mut self) -> VortexResult<Option<(A, Self)>> {
         loop {
-            match run.advance()? {
-                Progress::Batch(batch) if self.ordered => held.push(batch),
+            if self.done {
+                return match self.held.pop_front() {
+                    Some(batch) => Ok(Some(((self.map_fn)(batch.array)?, self))),
+                    None => Ok(None),
+                };
+            }
+            let run = self
+                .run
+                .take()
+                .ok_or_else(|| vortex_err!("the scan's run is missing"))?;
+            let (run, progress) = self
+                .handle
+                .spawn_cpu(move || {
+                    let mut run = run;
+                    let progress = run.advance();
+                    (run, progress)
+                })
+                .await;
+            let run = self.run.insert(run);
+            match progress? {
+                Progress::Batch(batch) if self.ordered => self.held.push_back(batch),
                 Progress::Batch(batch) => {
-                    let batch = (self.map_fn)(batch.array);
-                    let failed = batch.is_err();
-                    if send.send(batch).await.is_err() || failed {
-                        return Ok(());
-                    }
+                    return Ok(Some(((self.map_fn)(batch.array)?, self)));
                 }
-                Progress::RootDone(_) | Progress::Idle => break,
+                Progress::RootDone(_) | Progress::Idle => {
+                    self.done = true;
+                    // Morsels finish in whatever order their reads arrive.
+                    self.held
+                        .make_contiguous()
+                        .sort_by_key(|batch| batch.scope.rows.start);
+                }
                 Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }
-        // Morsels finish in whatever order their reads arrive.
-        held.sort_by_key(|batch| batch.scope.rows.start);
-        for batch in held {
-            let batch = (self.map_fn)(batch.array);
-            let failed = batch.is_err();
-            if send.send(batch).await.is_err() || failed {
-                return Ok(());
-            }
-        }
-        Ok(())
     }
 }
