@@ -20,7 +20,6 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
-use vortex_session::VortexSession;
 
 use super::PreparedScan;
 use super::adaptor::AdaptorStep;
@@ -29,24 +28,8 @@ use super::filter::hint;
 use super::filter::piece_mask;
 use super::filter::segments_read;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::Zoned;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
-
-/// Whether every zone proof in `plan` has already been proved, so compiling it reads no zones.
-fn is_proved(plan: &PlanRef, session: &VortexSession) -> VortexResult<bool> {
-    if let Some(zoned) = plan.as_opt::<Zoned>()
-        && zoned.is_pruning()
-    {
-        return zoned.is_proved(session);
-    }
-    for child in plan.children().iter() {
-        if !is_proved(&child?, session)? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
 
 /// The planner a prune planner continues into, given the rows the proofs kept, or `None` when
 /// no proof ran.
@@ -124,17 +107,11 @@ impl Planner for PrunePlanner {
         }
         if !self.announced {
             self.announced = true;
-            // A proof whose zones an earlier scan of the file proved reads nothing: a shared
-            // plan keeps its proved zones, so only unproved proofs need their zone maps.
-            let mut unproved = Vec::new();
-            for proof in self.proofs.as_slice() {
-                if !is_proved(proof, &self.scan.session)? {
-                    unproved.push(proof);
-                }
-            }
+            // A proof whose zones an earlier scan of the file proved compiles to its kept
+            // result and lists no segment, so only unproved proofs prefetch their zone maps.
             let segments = segments_read(
                 &self.scan.session,
-                unproved.into_iter(),
+                self.proofs.as_slice().iter(),
                 self.rows.clone(),
                 &self.mask,
             )?;
