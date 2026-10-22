@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -24,19 +25,14 @@ impl OperationsVTable<ScalarFn> for ScalarFn {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Self::scalar_at(state.array(), index, ctx)
-    }
-
-    fn scalar_at(
-        array: ArrayView<'_, ScalarFn>,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        let inputs: Vec<_> = array
-            .children()
-            .iter()
-            .map(|child| Ok(ConstantArray::new(child.execute_scalar(index, ctx)?, 1).into_array()))
-            .collect::<VortexResult<_>>()?;
+        let array = state.array();
+        let mut inputs = Vec::with_capacity(array.child_count());
+        for slot in 0..array.child_count() {
+            let mut child = state
+                .slot(slot)?
+                .vortex_expect("ScalarFnArray child slot is present");
+            inputs.push(ConstantArray::new(child.execute_scalar(index, ctx)?, 1).into_array());
+        }
 
         let args = VecExecutionArgs::new(inputs, 1);
         let result = array.scalar_fn().execute(&args, ctx)?;
@@ -63,6 +59,14 @@ impl OperationsVTable<ScalarFn> for ScalarFn {
 
         Ok(scalar)
     }
+
+    fn scalar_at(
+        array: ArrayView<'_, ScalarFn>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
+    }
 }
 
 #[cfg(test)]
@@ -87,6 +91,7 @@ mod tests {
     use crate::arrays::scalar_fn::array::ScalarFnData;
     use crate::arrays::scalar_fn::vtable::ScalarFn;
     use crate::assert_arrays_eq;
+    use crate::compute::conformance::consistency::test_scalar_probe_consistency;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -199,6 +204,11 @@ mod tests {
         let scalar_fn_array = ScalarFnArray::try_new_with_len(scalar_fn, vec![], 3)?;
         assert_eq!(scalar_fn_array.len(), 3);
         assert_eq!(scalar_fn_array.child_count(), 0);
+        let scalar_fn_array = scalar_fn_array.into_array();
+        test_scalar_probe_consistency(
+            &scalar_fn_array,
+            &mut array_session().create_execution_ctx(),
+        );
         assert_arrays_eq!(
             scalar_fn_array,
             ConstantArray::new(list, 3),
@@ -328,6 +338,13 @@ mod tests {
         assert!(probe.execute_is_valid(9, ctx)?);
         assert_eq!(probe.execute_scalar(9, ctx)?, Scalar::from(Some(162i64)));
 
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_fn_probe_preserves_nested_nulls_and_slices() -> VortexResult<()> {
+        let array = scalar_nested_add()?;
+        test_scalar_probe_consistency(&array, &mut array_session().create_execution_ctx());
         Ok(())
     }
 
