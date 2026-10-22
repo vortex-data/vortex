@@ -16,6 +16,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::zoned::legacy_stats_to_aggregates;
+use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanChildren;
@@ -30,6 +31,7 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plans::zoned::is_zone_proof;
 
 const DATA: usize = 0;
 const ZONES: usize = 1;
@@ -38,8 +40,9 @@ const ZONES: usize = 1;
 /// than by aggregate function.
 ///
 /// The optimizer rewrites it into a [`Zoned`] plan over the zone table converted to the aggregate
-/// schema, or into its data alone when a [`Zoned`] plan already summarises the same data. Compiled
-/// unoptimized, it reads its data and prunes nothing.
+/// schema, or into its data alone when a [`Zoned`] plan already summarises the same data; a plan
+/// that reads the data is then optimized to the data alone. Compiled unoptimized, it reads its
+/// data and prunes nothing.
 #[derive(Clone, Debug)]
 pub struct LegacyStats;
 
@@ -178,25 +181,29 @@ impl PlanReduceRule<LegacyStats> for LegacyStatsRule {
     }
 }
 
-/// Drops legacy stats beneath a [`Zoned`] plan: its aggregate zone map already summarises the
-/// same rows.
+/// Converts the legacy stats beneath a zone proof in place, so the proof meets a [`Zoned`] plan
+/// before the data path optimizes the stats away.
 #[derive(Debug)]
-pub(crate) struct ZonedLegacyStatsRule;
+pub(crate) struct ExpressionLegacyStatsRule;
 
-impl PlanParentReduceRule<LegacyStats> for ZonedLegacyStatsRule {
-    type Parent = Zoned;
+impl PlanParentReduceRule<LegacyStats> for ExpressionLegacyStatsRule {
+    type Parent = Eval;
 
     fn reduce_parent(
         &self,
         child: &LegacyStatsPlan,
-        parent: &ZonedPlan,
-        child_idx: usize,
-        _session: &VortexSession,
+        parent: &Plan<Eval>,
+        _child_idx: usize,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        if child_idx != DATA || parent.is_pruning() {
+        if !is_zone_proof(parent)? {
             return Ok(None);
         }
-        let children = vec![child.data_plan()?, parent.zones_plan()?];
-        Ok(Some(parent.clone().into_plan().with_children(children)?))
+        let Some(converted) = LegacyStatsRule.reduce(child, session)? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            EvalPlan::try_new(parent.expression().clone(), converted)?.into_plan(),
+        ))
     }
 }

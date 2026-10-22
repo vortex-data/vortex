@@ -263,21 +263,17 @@ impl<A: 'static + Send> ScanRun<A> {
             .filter
             .map(|filter| FilterPlans::new(filter, &root, &builder.session).map(Arc::new))
             .transpose()?;
-        // An identity projection needs no rewrites. Keep the lowered children lazy, including
-        // statistics that a projection-only scan never reads.
+        // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
+        // chunked column lazy, so an identity projection is optimized like any other.
         let identity = builder.projection.is_root() && builder.projection.dtype() == root.dtype();
-        let projection = if identity {
-            root
-        } else {
-            match cache.projection(&builder.projection) {
-                Some(plan) => plan,
-                None => {
-                    let plan = optimize(
-                        plan_row_idx_expression(builder.projection.clone(), root)?,
-                        &builder.session,
-                    )?;
-                    cache.insert_projection(builder.projection, plan)
-                }
+        let projection = match cache.projection(&builder.projection) {
+            Some(plan) => plan,
+            None => {
+                let plan = optimize(
+                    plan_row_idx_expression(builder.projection.clone(), root)?,
+                    &builder.session,
+                )?;
+                cache.insert_projection(builder.projection, plan)
             }
         };
         let chunk_rows = if filter.is_some() {

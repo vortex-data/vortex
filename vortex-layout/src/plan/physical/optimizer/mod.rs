@@ -25,11 +25,12 @@ use super::Take;
 use super::Zoned;
 use super::plans::EvalIdentityRule;
 use super::plans::ExpressionConcatRule;
+use super::plans::ExpressionLegacyStatsRule;
 use super::plans::ExpressionPackRule;
 use super::plans::ExpressionTakeRule;
 use super::plans::ExpressionZonedRule;
 use super::plans::LegacyStatsRule;
-use super::plans::ZonedLegacyStatsRule;
+use super::plans::ZonedDataRule;
 use crate::plan::physical::plans::EvalEvalRule;
 use crate::plan::physical::plans::EvalPackRule;
 
@@ -39,10 +40,14 @@ static EVAL_IDENTITY_RULE: PlanReduceRuleAdapter<Eval, EvalIdentityRule> =
 static LEGACY_STATS_RULE: PlanReduceRuleAdapter<LegacyStats, LegacyStatsRule> =
     PlanReduceRuleAdapter::new(LegacyStatsRule);
 
+static ZONED_DATA_RULE: PlanReduceRuleAdapter<Zoned, ZonedDataRule> =
+    PlanReduceRuleAdapter::new(ZonedDataRule);
+
 static PLAN_RULES: PlanRuleSet = PlanRuleSet::new(&[
     &EVAL_IDENTITY_RULE,
     &PlanReduceRuleAdapter::new(EvalPackRule),
     &LEGACY_STATS_RULE,
+    &ZONED_DATA_RULE,
 ]);
 
 static EXPRESSION_CONCAT_RULE: PlanParentReduceRuleAdapter<Concat, ExpressionConcatRule> =
@@ -53,9 +58,10 @@ static EXPRESSION_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRul
     PlanParentReduceRuleAdapter::new(ExpressionPackRule);
 static EXPRESSION_ZONED_RULE: PlanParentReduceRuleAdapter<Zoned, ExpressionZonedRule> =
     PlanParentReduceRuleAdapter::new(ExpressionZonedRule);
-
-static ZONED_LEGACY_STATS_RULE: PlanParentReduceRuleAdapter<LegacyStats, ZonedLegacyStatsRule> =
-    PlanParentReduceRuleAdapter::new(ZonedLegacyStatsRule);
+static EXPRESSION_LEGACY_STATS_RULE: PlanParentReduceRuleAdapter<
+    LegacyStats,
+    ExpressionLegacyStatsRule,
+> = PlanParentReduceRuleAdapter::new(ExpressionLegacyStatsRule);
 
 static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
     &PlanParentReduceRuleAdapter::new(EvalEvalRule),
@@ -63,7 +69,7 @@ static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
     &EXPRESSION_TAKE_RULE,
     &EXPRESSION_PACK_RULE,
     &EXPRESSION_ZONED_RULE,
-    &ZONED_LEGACY_STATS_RULE,
+    &EXPRESSION_LEGACY_STATS_RULE,
 ]);
 
 /// Attempts a static rewrite for `plan`.
