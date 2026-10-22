@@ -59,9 +59,9 @@ pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u
 }
 
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
-/// its owner may run it beside the others. A chunk none of whose rows is selected and kept is
+/// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
-pub(in crate::scan) struct ChunkPlanner {
+pub struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
     chunks: IntoIter<Range<u64>>,
@@ -71,7 +71,9 @@ pub(in crate::scan) struct ChunkPlanner {
 }
 
 impl ChunkPlanner {
-    pub(super) fn new(
+    /// The planner of the chunks of `rows`, planning only what `selection` and `kept`, the rows
+    /// zone pruning left over `rows`, leave something of.
+    pub fn new(
         scan: Arc<PreparedScan>,
         rows: Range<u64>,
         selection: Selection,

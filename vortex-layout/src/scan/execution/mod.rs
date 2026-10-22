@@ -3,13 +3,13 @@
 
 //! The planners of a V2 scan, and the prepared plans they run.
 //!
-//! A [`PreparedScan`] holds a scan's plans over one file and makes its planners. The planners
-//! form a chain, each emitting the next through the planning protocol: a [`PrunePlanner`]
-//! proves the filter's zone maps over the scan's rows and emits one [`ChunkPlanner`] for the rows
-//! they keep; the chunk planner cuts those rows into chunks and emits a [`FilterPlanner`] or a
-//! [`ProjectionPlanner`] per chunk; a filter planner runs its chunk's conjuncts and emits a
-//! projection planner for the rows that survive; a projection planner emits one morsel per piece
-//! of its rows. A stage with nothing to do is never made.
+//! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
+//! and drives them: a [`PrunePlanner`] proves the filter's zone maps over the scan's rows and
+//! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
+//! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
+//! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
+//! that survive; a projection planner emits one morsel per piece of its rows. A planner only
+//! says what it needs, compute or reads; where either runs is the engine's driver's decision.
 
 mod adaptor;
 mod chunk;
@@ -22,6 +22,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::Alignment;
+use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
 use vortex_scan::planning::planner::Planner;
@@ -29,7 +30,7 @@ use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
-pub(in crate::scan) use self::chunk::ChunkPlanner;
+pub use self::chunk::ChunkPlanner;
 pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::ROW_BLOCK_SIZE;
@@ -37,11 +38,16 @@ pub(crate) use self::chunk::ROW_BLOCK_SIZE;
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
 use self::filter::FilterPlanner;
-pub(super) use self::filter::FilterPlans;
+pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
-use self::prune::PrunePlanner;
+pub use self::prune::PruneNext;
+pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
+use crate::scan::v2::ScanCache;
+use crate::scan::v2::io::SegmentRanges;
+use crate::scan::v2::io::SegmentScanIo;
+use crate::segments::SegmentSource;
 
 /// Where a segment's bytes live in the file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,9 +73,20 @@ impl SegmentLocation {
 
 /// A scan's plans over one file, built once from the file's footer and read by every planner of
 /// the scan. Nothing here touches a segment, and no planner plans again.
-pub(crate) struct PreparedScan {
+pub struct PreparedScan {
     /// The session used for decoding and expression evaluation.
     pub(super) session: VortexSession,
+    /// The rows of the root row domain the scan covers.
+    pub(super) rows: Range<u64>,
+    /// The rows of `rows` the scan selects.
+    pub(super) selection: Selection,
+    /// Fetches segment bytes by id.
+    pub(super) segments: Arc<dyn SegmentSource>,
+    /// The segments' byte ranges, back to their ids.
+    pub(super) ranges: SegmentRanges,
+    /// Held for the scan's life, so scans of the file that start meanwhile share it.
+    #[expect(dead_code, reason = "kept alive, never read")]
+    pub(super) cache: ScanCache,
     /// The location of every segment, indexed by segment id.
     pub(super) locations: Arc<[SegmentLocation]>,
     /// The optimized projection plan, over the scan's root row domain.
@@ -86,40 +103,28 @@ pub(crate) struct PreparedScan {
 }
 
 impl PreparedScan {
-    /// The first planner a scan of `rows` needs. Every later planner is emitted by the one before
-    /// it: the zone proofs run first when the filter has any, then one planner per chunk of the
-    /// rows they keep.
-    pub(crate) fn planner(
-        self: &Arc<Self>,
-        rows: Range<u64>,
-        selection: Selection,
-    ) -> Box<dyn Planner> {
-        let proofs = self
-            .filter
-            .as_ref()
-            .is_some_and(|filter| filter.proofs().next().is_some());
-        if proofs && !rows.is_empty() {
-            let scan = Arc::clone(self);
-            let chunks = rows.clone();
-            Box::new(PrunePlanner::new(
-                Arc::clone(self),
-                rows,
-                Box::new(move |kept| Box::new(scan.chunk_planner(chunks, selection, Some(kept)))),
-            ))
-        } else {
-            Box::new(self.chunk_planner(rows, selection, None))
-        }
+    /// The rows of the file's row domain the scan covers.
+    pub fn rows(&self) -> &Range<u64> {
+        &self.rows
     }
 
-    /// The planner cutting `rows` into chunks, planning only the chunks `selection` and `kept`
-    /// leave something of.
-    pub(super) fn chunk_planner(
-        self: &Arc<Self>,
-        rows: Range<u64>,
-        selection: Selection,
-        kept: Option<Mask>,
-    ) -> ChunkPlanner {
-        ChunkPlanner::new(Arc::clone(self), rows, selection, kept)
+    /// The rows of [`rows`](Self::rows) the scan selects.
+    pub fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    /// The filter's plans, when the scan has a filter.
+    pub fn filter(&self) -> Option<&FilterPlans> {
+        self.filter.as_deref()
+    }
+
+    /// The service a driver takes IO sessions from: every read a planner of the scan requests is
+    /// served from it by segment.
+    pub fn io(&self) -> Arc<dyn IoService> {
+        Arc::new(SegmentScanIo::new(
+            Arc::clone(&self.segments),
+            Arc::clone(&self.ranges),
+        ))
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else

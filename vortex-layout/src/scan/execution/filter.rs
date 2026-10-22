@@ -45,7 +45,7 @@ use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
 
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
-pub(in crate::scan) struct FilterPlans {
+pub struct FilterPlans {
     expression: FilterExpr,
     predicates: Vec<PlanRef>,
     /// A metadata-only proof per conjunct, where the conjunct has one.
@@ -53,7 +53,7 @@ pub(in crate::scan) struct FilterPlans {
 }
 
 impl FilterPlans {
-    pub(in crate::scan) fn new(
+    pub(crate) fn new(
         expression: BoundExpression,
         root: &PlanRef,
         session: &VortexSession,
@@ -94,7 +94,7 @@ impl FilterPlans {
     }
 
     /// The pruning proofs, run once over a scan's rows before its chunks are planned.
-    pub(in crate::scan) fn proofs(&self) -> impl Iterator<Item = &PlanRef> {
+    pub(crate) fn proofs(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
 }

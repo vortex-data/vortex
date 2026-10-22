@@ -48,17 +48,21 @@ fn is_proved(plan: &PlanRef, session: &VortexSession) -> VortexResult<bool> {
     Ok(true)
 }
 
-/// The planner a prune planner continues into, given the rows the proofs kept.
-pub(super) type Next = Box<dyn FnOnce(Mask) -> Box<dyn Planner> + Send>;
+/// The planner a prune planner continues into, given the rows the proofs kept, or `None` when
+/// no proof ran.
+pub type PruneNext = Box<dyn FnOnce(Option<Mask>) -> Box<dyn Planner> + Send>;
 
 /// Runs the filter's zone-map proofs over the scan's rows and emits the planner it was built
 /// to continue into, with the rows no proof excludes. The zone maps are the only reads,
-/// started together. Rows every proof excludes end the scan here: nothing is emitted.
-pub(super) struct PrunePlanner {
+/// started together. Rows every proof excludes end the scan here: nothing is emitted. A filter
+/// without proofs emits the next planner at once.
+pub struct PrunePlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
     /// What to emit once every proof has run, taken when it is.
-    next: Option<Next>,
+    next: Option<PruneNext>,
+    /// Whether any proof ran, so the kept rows mean something.
+    proved: bool,
     /// The rows no proof has excluded yet, over `rows`.
     mask: Mask,
     proofs: IntoIter<PlanRef>,
@@ -71,7 +75,8 @@ pub(super) struct PrunePlanner {
 }
 
 impl PrunePlanner {
-    pub(super) fn new(scan: Arc<PreparedScan>, rows: Range<u64>, next: Next) -> Self {
+    /// The planner of the proofs of `scan`'s filter over `rows`, continuing into `next`.
+    pub fn new(scan: Arc<PreparedScan>, rows: Range<u64>, next: PruneNext) -> Self {
         let proofs: Vec<_> = scan
             .filter
             .iter()
@@ -82,6 +87,7 @@ impl PrunePlanner {
             scan,
             rows,
             next: Some(next),
+            proved: false,
             mask: Mask::new_true(len),
             proofs: proofs.into_iter(),
             active: None,
@@ -170,6 +176,7 @@ impl Planner for PrunePlanner {
             );
             self.active = None;
             self.pieces.clear();
+            self.proved = true;
         }
         if self.mask.all_false() {
             self.done = true;
@@ -201,7 +208,9 @@ impl Planner for PrunePlanner {
             .next
             .take()
             .ok_or_else(|| vortex_err!("the prune planner has nothing to continue into"))?;
-        let kept = std::mem::replace(&mut self.mask, Mask::new_true(0));
+        let kept = self
+            .proved
+            .then(|| std::mem::replace(&mut self.mask, Mask::new_true(0)));
         Ok(PlannerOutput::Planner(
             WorkScope {
                 file_ordinal: 0,
