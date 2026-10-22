@@ -43,18 +43,24 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::planning::driver::Batch;
+use vortex_scan::planning::driver::Progress;
+use vortex_scan::planning::driver::Run;
+use vortex_scan::planning::planner::Planner;
+use vortex_scan::planning::planner::PlannerOutput;
+use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::MAX_ROWS_PER_CHUNK;
-use super::PreparedScan;
 use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
-use super::row_chunks;
+use super::ScanRun;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -66,6 +72,7 @@ use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::row_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
@@ -190,6 +197,45 @@ fn builder(
     ))
 }
 
+/// Runs `rows` of a prepared scan on a planning run of its own and returns its batches, in row
+/// order, each with the rows it stands for.
+async fn run_batches<A: 'static + Send>(
+    scan: &ScanRun<A>,
+    rows: Range<u64>,
+) -> VortexResult<Vec<Batch>> {
+    let mut run = Run::new();
+    run.admit(
+        scan.scan.planner(rows.clone(), scan.selection.clone()),
+        WorkScope {
+            file_ordinal: 0,
+            rows,
+        },
+        scan.io.session(),
+    );
+    let mut batches = Vec::new();
+    loop {
+        match run.advance()? {
+            Progress::Batch(batch) => batches.push(batch),
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    batches.sort_by_key(|batch| batch.scope.rows.start);
+    Ok(batches)
+}
+
+/// Runs `rows` of a prepared scan on a planning run of its own and returns its arrays.
+async fn run_rows<A: 'static + Send>(
+    scan: &ScanRun<A>,
+    rows: Range<u64>,
+) -> VortexResult<Vec<ArrayRef>> {
+    Ok(run_batches(scan, rows)
+        .await?
+        .into_iter()
+        .map(|batch| batch.array)
+        .collect())
+}
+
 async fn collect(
     dtype: DType,
     stream: impl futures::Stream<Item = VortexResult<ArrayRef>>,
@@ -216,8 +262,7 @@ async fn assert_same_as_v1(
         .with_some_filter(builder.filter.clone())
         .with_selection(builder.selection.clone())
         .with_row_offset(builder.row_offset)
-        .with_ordered(builder.ordered)
-        .with_concurrency(builder.concurrency);
+        .with_ordered(builder.ordered);
     if let Some(rows) = builder.row_range.clone() {
         v1 = v1.with_row_range(rows);
     }
@@ -471,27 +516,26 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
         reads: AtomicUsize::new(0),
     });
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
-    let scan = PreparedScan::try_new(builder(&session, &segments, &layout)?)?;
-    let splits = scan.split_plans();
+    let scan = ScanRun::try_new(builder(&session, &segments, &layout)?)?;
+    let chunks = row_chunks(scan.rows.clone(), scan.scan.chunk_rows);
     assert_eq!(
-        splits.len(),
+        chunks.len(),
         (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(MAX_ROWS_PER_CHUNK)
     );
-    for (index, split) in splits.into_iter().enumerate() {
-        let rows = split.scope.rows.clone();
+    for (index, rows) in chunks.into_iter().enumerate() {
         let before = counted.reads.load(Ordering::Relaxed);
-        let arrays = split.run(Arc::clone(&scan.io)).await?;
+        let arrays = run_rows(&scan, rows.clone()).await?;
         let reads = counted.reads.load(Ordering::Relaxed) - before;
         let code_chunks =
             (rows.end - 1) / STORED_CHUNK_ROWS as u64 - rows.start / STORED_CHUNK_ROWS as u64 + 1;
-        // The first split reads every values chunk once for the whole scan, plus its codes.
-        let code_chunks = usize::try_from(code_chunks)?;
+        // The first chunk reads every values chunk once for the whole scan; its codes are one of
+        // them, and the session shares that read. Later chunks read only their codes.
         assert_eq!(
             reads,
             if index == 0 {
-                STORED_CHUNKS + code_chunks
+                STORED_CHUNKS
             } else {
-                code_chunks
+                usize::try_from(code_chunks)?
             }
         );
         let expected =
@@ -537,7 +581,7 @@ async fn projection_skips_unsupported_unselected_layouts() -> VortexResult<()> {
 async fn unordered_returns_every_row() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, table().as_ref()).await?;
-    let scan = PreparedScan::try_new(builder(&session, &segments, &layout)?.with_ordered(false))?;
+    let scan = ScanRun::try_new(builder(&session, &segments, &layout)?.with_ordered(false))?;
     let chunks: Vec<ArrayRef> = scan.execute_stream()?.try_collect().await?;
     let rows: usize = chunks.iter().map(|chunk| chunk.len()).sum();
     assert_eq!(rows, CHUNKS * CHUNK_ROWS);
@@ -605,10 +649,11 @@ async fn unordered_yields_before_the_split_finishes() -> VortexResult<()> {
         blocked,
         release: gate.shared(),
     });
-    let mut scan =
-        PreparedScan::try_new(builder(&session, &segments, &layout)?.with_ordered(false))?;
-    // Put both projection morsels in one split, as a dense filtered scan would.
-    scan.splits = std::iter::once(0..layout.row_count()).collect();
+    let mut scan = ScanRun::try_new(builder(&session, &segments, &layout)?.with_ordered(false))?;
+    // Put both projection morsels in one chunk, as a dense filtered scan would.
+    Arc::get_mut(&mut scan.scan)
+        .ok_or_else(|| vortex_err!("the prepared scan is not shared yet"))?
+        .chunk_rows = usize::try_from(layout.row_count())?;
     let mut batches = scan.execute_stream()?;
     let first = batches.try_next().await;
     let _ = release.send(());
@@ -631,7 +676,7 @@ async fn primitive_column() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, table().as_ref()).await?;
     let dtype = layout.dtype().clone();
-    let scan = PreparedScan::try_new(
+    let scan = ScanRun::try_new(
         builder(&session, &segments, &layout)?
             .with_projection(get_item("ints", root()).bind(&dtype)?)
             .with_row_range(990..1010),
@@ -657,8 +702,11 @@ async fn work_chunks_ignore_layout_boundaries(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
-    let scan = PreparedScan::try_new(builder(&session, &segments, &layout)?)?;
-    assert_eq!(scan.splits, vec![0..(CHUNKS * CHUNK_ROWS) as u64]);
+    let scan = ScanRun::try_new(builder(&session, &segments, &layout)?)?;
+    assert_eq!(
+        row_chunks(scan.rows.clone(), scan.scan.chunk_rows),
+        vec![0..(CHUNKS * CHUNK_ROWS) as u64]
+    );
     let arrays: Vec<_> = scan.execute_stream()?.try_collect().await?;
     assert_eq!(arrays.len(), 1);
     assert_eq!(arrays[0].len(), CHUNKS * CHUNK_ROWS);
@@ -736,13 +784,18 @@ async fn scan_cache_reuses_values_between_scans(
 async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, table().as_ref()).await?;
-    let scan = PreparedScan::try_new(
+    let scan = ScanRun::try_new(
         builder(&session, &segments, &layout)?
             .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![7, 2001]))?),
     )?;
-    let splits = scan.split_plans();
-    assert_eq!(splits.len(), 1);
-    assert_eq!(splits[0].scope.rows, 7..2002);
+    let mut chunks = scan
+        .scan
+        .chunk_planner(scan.rows.clone(), scan.selection.clone(), None);
+    let PlannerOutput::Planner(scope, _) = chunks.compute()? else {
+        vortex_bail!("the selected rows were not planned");
+    };
+    assert_eq!(scope.rows, 7..2002);
+    assert!(matches!(chunks.compute()?, PlannerOutput::Done));
     Ok(())
 }
 
@@ -802,4 +855,32 @@ fn partition_rows_tile_the_file_on_row_blocks() {
         0..0,
         "a range inside one block owns no rows"
     );
+}
+
+/// Zone proofs run once before any chunk is planned: rows every proof excludes are never
+/// given a chunk, and a scan whose zones all fail plans nothing.
+#[rstest]
+#[case::tail(2_999, Some(3_000..4_000))]
+#[case::nothing(10_000, None)]
+#[tokio::test]
+async fn pruned_rows_get_no_chunk(
+    #[case] above: i32,
+    #[case] expected: Option<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
+    let scan = ScanRun::try_new(
+        builder(&session, &segments, &layout)?.with_some_filter(Some(
+            gt(get_item("ints", root()), lit(above)).bind(layout.dtype())?,
+        )),
+    )?;
+    let batches = run_batches(&scan, scan.rows.clone()).await?;
+    assert_eq!(
+        batches
+            .iter()
+            .map(|batch| batch.scope.rows.clone())
+            .collect::<Vec<_>>(),
+        expected.into_iter().collect::<Vec<_>>()
+    );
+    Ok(())
 }

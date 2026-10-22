@@ -80,7 +80,8 @@ pub(super) struct SegmentIoSource {
     ranges: SegmentRanges,
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
     ready: Mutex<VecDeque<Completion>>,
-    /// Reads started by prefetches, consumed by the next fetch of their segment.
+    /// Every read the session has started, by segment, shared by later fetches of the segment
+    /// until the session is cleared.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
     /// Announced segments, requested and never polled.
     announced: Mutex<HashMap<SegmentId, VecDeque<SegmentFuture>>>,
@@ -146,19 +147,24 @@ impl IoSource for SegmentIoSource {
                 });
                 continue;
             }
-            let mut bytes = match prefetched.remove(&segment) {
-                Some(read) => read
-                    .map_err(move |err| {
-                        vortex_err!("prefetched read of segment {segment} failed: {err}")
-                    })
-                    .boxed(),
-                None => self
-                    .announced
-                    .lock()
-                    .get_mut(&segment)
-                    .and_then(VecDeque::pop_front)
-                    .unwrap_or_else(|| self.segments.request(segment)),
-            };
+            // A segment stays with the session once read, so a later stage or morsel of the
+            // split that reads it again shares the read instead of starting another once the
+            // first has completed.
+            let mut bytes = prefetched
+                .entry(segment)
+                .or_insert_with(|| {
+                    self.announced
+                        .lock()
+                        .get_mut(&segment)
+                        .and_then(VecDeque::pop_front)
+                        .unwrap_or_else(|| self.segments.request(segment))
+                        .map_err(Arc::new)
+                        .boxed()
+                        .shared()
+                })
+                .clone()
+                .map_err(move |err| vortex_err!("read of segment {segment} failed: {err}"))
+                .boxed();
             let id = request.request;
             // In-memory and cached segments need no allocated asynchronous task. A pending
             // read is polled again by FuturesUnordered before the driver can go to sleep.
@@ -325,7 +331,7 @@ mod tests {
     }
 
     /// A fetch of a prefetched segment waits on the prefetch's read rather than reading again,
-    /// and only the fetch is delivered.
+    /// only the fetch is delivered, and a later fetch of the segment shares the same read.
     #[tokio::test]
     async fn fetch_reuses_a_prefetched_read() -> VortexResult<()> {
         let segments = Arc::new(CountingSegments::default());
@@ -350,6 +356,16 @@ mod tests {
         let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
         assert_eq!(completion.request, IoRequestId(2));
         assert!(completion.result.is_ok());
+        assert_eq!(segments.0.load(Ordering::Relaxed), 1);
+
+        io.clear();
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 3)])?;
+        assert!(
+            std::future::poll_fn(|cx| io.poll_completion(cx))
+                .await?
+                .result
+                .is_ok()
+        );
         assert_eq!(segments.0.load(Ordering::Relaxed), 2);
         Ok(())
     }
@@ -379,10 +395,9 @@ mod tests {
                     .result
                     .is_ok()
             );
-            assert_eq!(
-                segments.0.load(Ordering::Relaxed),
-                if id < 4 { 2 } else { 3 }
-            );
+            // The first fetch takes one announcement and the session keeps its read, so the
+            // later fetches share it and the other announcement is never consumed.
+            assert_eq!(segments.0.load(Ordering::Relaxed), 2);
         }
         Ok(())
     }

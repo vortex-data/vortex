@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::vec::IntoIter;
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoConsumer;
@@ -23,7 +23,7 @@ use vortex_scan::planning::planner::WorkScope;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 use crate::plan::physical::selection::selected;
-use crate::scan::execution::ScanPlans;
+use crate::scan::execution::PreparedScan;
 use crate::scan::execution::SelectedRows;
 use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
@@ -34,13 +34,13 @@ const MAX_OUTPUT_ROWS: usize = 65_536;
 /// Keeps sparse selections together and subdivides dense selections to avoid large copies when
 /// converting chunked projection results to Arrow.
 pub(super) struct ProjectionPlanner {
-    plans: ScanPlans,
+    scan: Arc<PreparedScan>,
     selected: IntoIter<SelectedRows>,
 }
 
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
-    pub(super) fn new(plans: ScanPlans, selected: SelectedRows) -> Self {
+    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
         let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
             vec![selected]
         } else {
@@ -64,7 +64,7 @@ impl ProjectionPlanner {
                 .collect()
         };
         Self {
-            plans,
+            scan,
             selected: selected.into_iter(),
         }
     }
@@ -92,7 +92,7 @@ impl Planner for ProjectionPlanner {
         }
         Ok(PlannerOutput::Morsel(
             selected.scope.clone(),
-            Box::new(ProjectionMorsel::new(self.plans.clone(), selected)),
+            Box::new(ProjectionMorsel::new(Arc::clone(&self.scan), selected)),
         ))
     }
 }
@@ -100,7 +100,7 @@ impl Planner for ProjectionPlanner {
 /// Runs the projection plan over a split's selected rows and returns them as one batch, in row
 /// order. A selection that projects to no rows finishes without a batch.
 struct ProjectionMorsel {
-    plans: Option<ScanPlans>,
+    scan: Arc<PreparedScan>,
     dtype: DType,
     selected: SelectedRows,
     adaptor: Option<ScanAdaptor>,
@@ -110,10 +110,10 @@ struct ProjectionMorsel {
 
 impl ProjectionMorsel {
     /// Creates a morsel projecting `selected`.
-    fn new(plans: ScanPlans, selected: SelectedRows) -> Self {
+    fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
         Self {
-            dtype: plans.projection.dtype().clone(),
-            plans: Some(plans),
+            dtype: scan.projection.dtype().clone(),
+            scan,
             selected,
             adaptor: None,
             pieces: Vec::new(),
@@ -163,14 +163,10 @@ impl Morsel for ProjectionMorsel {
             vortex_bail!("ProjectionMorsel: compute called after Done");
         }
         let Some(adaptor) = self.adaptor.as_mut() else {
-            let plans = self
-                .plans
-                .take()
-                .vortex_expect("an uncompiled projection still has its plans");
             let scan = Scan::try_new(
-                plans.session,
+                self.scan.session.clone(),
                 selected(
-                    plans.projection,
+                    self.scan.projection.clone(),
                     self.selected.scope.rows.clone(),
                     self.selected.mask.clone(),
                 ),
@@ -179,9 +175,9 @@ impl Morsel for ProjectionMorsel {
                     mask: Mask::new_true(self.selected.mask.len()),
                 }],
             )?
-            .with_row_offset(plans.row_offset)
-            .with_value_cache(plans.values);
-            self.adaptor = Some(ScanAdaptor::new(scan, plans.locations));
+            .with_row_offset(self.scan.row_offset)
+            .with_value_cache(self.scan.values.clone());
+            self.adaptor = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(MorselOutput::Continue);
         };
         if adaptor.state() == State::Done {
