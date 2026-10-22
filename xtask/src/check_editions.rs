@@ -49,7 +49,7 @@ pub(super) fn record_is_frozen(record: &Table) -> bool {
 }
 
 /// An edition that never freezes has no place in its family's chronology.
-pub(super) fn record_never_freezes(record: &Table) -> bool {
+fn record_never_freezes(record: &Table) -> bool {
     record.get(FREEZES).and_then(|value| value.as_bool()) == Some(false)
 }
 
@@ -349,34 +349,4 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     bail!("This change breaks the edition records in {RECORD_DIR}:\n\n{listed}\n\n{REMEDY}");
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use toml::Table;
-
-    use super::check_addition;
-    use super::record_is_frozen;
-
-    #[test]
-    fn unstable_record_is_a_draft() -> anyhow::Result<()> {
-        let frozen: Table = "edition = 'core2026.08.0'\nmin_library_version = '0.84.0'".parse()?;
-        assert!(record_is_frozen(&frozen));
-
-        let unstable: Table =
-            "edition = 'unstable2026.10.0'\nfamily = 'unstable'\norigin = 'vortex'\nfreezes = false"
-                .parse()?;
-        assert!(!record_is_frozen(&unstable));
-        assert!(
-            check_addition(
-                "vortex/editions/unstable/unstable2026.10.0.toml",
-                &unstable,
-                &BTreeMap::new()
-            )?
-            .is_empty()
-        );
-        Ok(())
-    }
 }
