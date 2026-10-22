@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
+use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
@@ -167,23 +168,23 @@ impl FilterPlanner {
     }
 }
 
-/// Publishes a hint for each of `segments` not already in `batch`.
+/// Publishes a hint for each of `segments` not in `seen`, and adds it there.
 pub(super) fn hint(
     locations: &[SegmentLocation],
     next_hint: &mut u32,
     intent: IoIntent,
     segments: &[SegmentId],
+    seen: &mut FxHashSet<SegmentId>,
     batch: &mut IoBatch,
 ) {
-    for segment in segments {
-        let target = locations[**segment as usize].target();
-        if batch.iter().any(|request| request.target == target) {
+    for &segment in segments {
+        if !seen.insert(segment) {
             continue;
         }
         batch.push(IoRequest {
             intent,
             request: IoRequestId(*next_hint),
-            target,
+            target: locations[*segment as usize].target(),
         });
         *next_hint -= 1;
     }
@@ -235,12 +236,14 @@ impl Planner for FilterPlanner {
                 &selected.mask,
             )?;
             let mut batch = Vec::new();
+            let mut seen = FxHashSet::default();
             let locations = &self.scan.locations;
             hint(
                 locations,
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &predicates,
+                &mut seen,
                 &mut batch,
             );
             hint(
@@ -248,6 +251,7 @@ impl Planner for FilterPlanner {
                 &mut self.next_hint,
                 IoIntent::Announce,
                 &projection,
+                &mut seen,
                 &mut batch,
             );
             if !batch.is_empty() {

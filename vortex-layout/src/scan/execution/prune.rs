@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use rustc_hash::FxHashSet;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -132,11 +133,13 @@ impl Planner for PrunePlanner {
                 &self.mask,
             )?;
             let mut batch = Vec::new();
+            let mut seen = FxHashSet::default();
             hint(
                 &self.scan.locations,
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &segments,
+                &mut seen,
                 &mut batch,
             );
             if !batch.is_empty() {
@@ -188,6 +191,12 @@ impl Planner for PrunePlanner {
         }
         // Every proof has run: the planner this one continues into gets the kept rows.
         self.done = true;
+        tracing::debug!(
+            row_start = self.rows.start,
+            row_end = self.rows.end,
+            kept_rows = self.mask.true_count(),
+            "v2 zone proofs finished"
+        );
         let next = self
             .next
             .take()
