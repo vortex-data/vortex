@@ -8,7 +8,7 @@
 edition = "unstable2026.10.0"
 family = "unstable"
 origin = "vortex"
-freezes = false
+immutable = false
 
 # Components added by this edition.
 [added]

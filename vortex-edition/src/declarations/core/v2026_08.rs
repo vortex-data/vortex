@@ -23,7 +23,7 @@ pub const CORE_2026_08_0: EditionId = EditionId::new("core", 2026, 8, 0);
 pub static DECLARATION_0: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2026_08_0,
-        freezes: true,
+        immutable: true,
         min_library_version: Some("0.84.0"),
     },
     added: &[
@@ -44,7 +44,7 @@ pub const CORE_2026_08_1: EditionId = EditionId::new("core", 2026, 8, 1);
 pub static DECLARATION_1: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CORE_2026_08_1,
-        freezes: true,
+        immutable: true,
         min_library_version: Some("0.84.0"),
     },
     added: &[EditionMember::array(&"vortex.onpair")],

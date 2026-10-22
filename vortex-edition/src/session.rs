@@ -240,7 +240,7 @@ impl EditionSession {
                     edition.id.family,
                 );
             }
-            if !edition.freezes && !edition.is_draft() {
+            if !edition.immutable && !edition.is_draft() {
                 vortex_bail!(
                     "edition {} never freezes, so it cannot record a min_library_version; \
                      promote members into a new edition",

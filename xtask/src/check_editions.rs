@@ -41,8 +41,8 @@ pub const RECORD_DIR: &str = "vortex/editions";
 /// A record carries this key once the edition's freeze has been documented.
 const FROZEN_MARKER: &str = "min_library_version";
 
-/// A record of an edition that never freezes carries `freezes = false`.
-const FREEZES: &str = "freezes";
+/// A record of an edition that never freezes carries `immutable = false`.
+const IMMUTABLE: &str = "immutable";
 
 pub(super) fn record_is_frozen(record: &Table) -> bool {
     record.contains_key(FROZEN_MARKER)
@@ -50,7 +50,7 @@ pub(super) fn record_is_frozen(record: &Table) -> bool {
 
 /// An edition that never freezes has no place in its family's chronology.
 fn record_never_freezes(record: &Table) -> bool {
-    record.get(FREEZES).and_then(|value| value.as_bool()) == Some(false)
+    record.get(IMMUTABLE).and_then(|value| value.as_bool()) == Some(false)
 }
 
 const REMEDY: &str = "\

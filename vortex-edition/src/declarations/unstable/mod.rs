@@ -28,7 +28,7 @@ pub const UNSTABLE: EditionId = EditionId::new("unstable", 2026, 10, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: UNSTABLE,
-        freezes: false,
+        immutable: false,
         min_library_version: None,
     },
     added: &[

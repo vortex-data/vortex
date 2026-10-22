@@ -86,7 +86,7 @@ const TEST_EDITION: EditionId = EditionId::new("vortex-reverse-index-test", 2026
 static TEST_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: TEST_EDITION,
-        freezes: true,
+        immutable: true,
         min_library_version: None,
     },
     added: &[

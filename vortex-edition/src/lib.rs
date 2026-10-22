@@ -199,9 +199,10 @@ impl Display for ComponentKind {
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
-    /// Whether this edition can freeze. An edition that never freezes, such as [`UNSTABLE`], stays
-    /// a draft, so its members can always change or be removed.
-    pub freezes: bool,
+    /// Whether this edition becomes immutable when it freezes. An edition that is not immutable,
+    /// such as [`UNSTABLE`], never freezes and stays a draft, so its members can always change or
+    /// be removed.
+    pub immutable: bool,
     /// The minimum version of the edition family's [`EditionFamily::origin`] whose reader
     /// supports every member of this edition. Always `None` for an edition that never freezes.
     ///

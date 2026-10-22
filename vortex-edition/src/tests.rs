@@ -37,7 +37,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
     EditionDeclaration {
         edition: Edition {
             id: FIRST,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         },
         added: &[
@@ -48,7 +48,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
     EditionDeclaration {
         edition: Edition {
             id: SECOND,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         },
         added: &[
@@ -152,14 +152,14 @@ fn drafts_and_current() {
     editions
         .declare_edition(Edition {
             id: FIRST,
-            freezes: true,
+            immutable: true,
             min_library_version: Some("0.60.0"),
         })
         .unwrap();
     editions
         .declare_edition(Edition {
             id: SECOND,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         })
         .unwrap();
@@ -229,7 +229,7 @@ fn enabled_editions_are_independent_across_families() -> VortexResult<()> {
     static OTHER_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: OTHER,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"other.delta")],
@@ -257,7 +257,7 @@ fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> VortexResult<()> {
     static OPT_IN_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: OPT_IN,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"test.alpha_v2")],
@@ -290,7 +290,7 @@ fn duplicate_declarations_error() {
         editions
             .declare_edition(Edition {
                 id: FIRST,
-                freezes: true,
+                immutable: true,
                 min_library_version: None,
             })
             .is_err()
@@ -320,7 +320,7 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
-        freezes: true,
+        immutable: true,
         min_library_version: Some("0.70.0"),
     })?;
     editions.declare_inclusion(EditionInclusion {
@@ -340,12 +340,12 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
-        freezes: true,
+        immutable: true,
         min_library_version: None,
     })?;
     editions.declare_edition(Edition {
         id: SECOND,
-        freezes: true,
+        immutable: true,
         min_library_version: Some("0.70.0"),
     })?;
     assert!(
@@ -364,7 +364,7 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
         editions.declare_family(&TEST_FAMILY)?;
         editions.declare_edition(Edition {
             id,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         })?;
         let error = editions.validate().unwrap_err().to_string();
@@ -376,7 +376,7 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
-        freezes: true,
+        immutable: true,
         min_library_version: None,
     })?;
     editions.declare_inclusion(EditionInclusion::array("Test.ALPHA", FIRST))?;
@@ -455,7 +455,7 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
     static MIXED: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: FIRST,
-            freezes: true,
+            immutable: true,
             min_library_version: None,
         },
         added: &[
@@ -500,7 +500,7 @@ fn edition_that_never_freezes_must_remain_a_draft() -> VortexResult<()> {
     editions.declare_family(&unstable::FAMILY)?;
     editions.declare_edition(Edition {
         id: UNSTABLE,
-        freezes: false,
+        immutable: false,
         min_library_version: Some("1.0.0"),
     })?;
 

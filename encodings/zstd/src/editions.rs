@@ -27,7 +27,7 @@ pub const ZSTD_2026_02: EditionId = EditionId::new("zstd", 2026, 2, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: ZSTD_2026_02,
-        freezes: true,
+        immutable: true,
         min_library_version: None,
     },
     added: &[EditionMember::array(&"vortex.zstd_buffers")],
