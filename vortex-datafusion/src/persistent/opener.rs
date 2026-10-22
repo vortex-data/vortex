@@ -122,7 +122,7 @@ pub(crate) struct VortexOpener {
     /// shared layout reader.
     pub segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
-    /// projection plans, proved zones and dictionary values, built once per file.
+    /// projection plans, pruned zones and dictionary values, built once per file.
     pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
@@ -475,7 +475,7 @@ impl FileOpener for VortexOpener {
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
                 let scan = Arc::new(scan);
 
-                // The planners, composed: with a filter, its zone proofs first over the whole
+                // The planners, composed: with a filter, its pruning plans first over the whole
                 // partition, continuing into the chunks of the rows they keep; without a
                 // filter, the chunks directly. A chunk plans its conjuncts, then its
                 // projection.

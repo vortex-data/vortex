@@ -66,7 +66,7 @@ pub struct ChunkPlanner {
     rows: Range<u64>,
     chunks: IntoIter<Range<u64>>,
     selection: Selection,
-    /// The rows zone pruning kept, over `rows`, or `None` when nothing was proved.
+    /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
 }
 

@@ -17,7 +17,7 @@
 //! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
 //! serialized bytes per row are high.
 //!
-//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and proved
+//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, and dictionary values with every other scan of that file, like a cached
 //! layout reader does for V1 scans.
 

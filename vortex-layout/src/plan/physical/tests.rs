@@ -1602,7 +1602,7 @@ fn zoned_over_legacy_stats_read_as_data_keeps_only_the_data() -> VortexResult<()
 }
 
 /// Legacy stats over a zoned plan are dropped: read as data only the data remains, and a zone
-/// proof is proved over the aggregate zones, never the legacy table.
+/// pruning plan is evaluated over the aggregate zones, never the legacy table.
 #[test]
 fn legacy_stats_over_zoned_are_dropped() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);

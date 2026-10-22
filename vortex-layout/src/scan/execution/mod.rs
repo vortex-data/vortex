@@ -4,7 +4,7 @@
 //! The planners of a V2 scan, and the prepared plans they run.
 //!
 //! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
-//! and drives them: a [`PrunePlanner`] proves the filter's zone maps over the scan's rows and
+//! and drives them: a [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and
 //! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
 //! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
 //! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
@@ -91,7 +91,7 @@ pub struct PreparedScan {
     pub(super) locations: Arc<[SegmentLocation]>,
     /// The optimized projection plan, over the scan's root row domain.
     pub(super) projection: PlanRef,
-    /// The filter's conjuncts, their plans and their proofs.
+    /// The filter's conjuncts, their plans and their pruning plans.
     pub(super) filter: Option<Arc<FilterPlans>>,
     /// The global row index of the root row domain's first row.
     pub(super) row_offset: u64,

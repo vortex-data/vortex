@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Proves a filter's zone maps once over a scan's rows, before any chunk is planned.
+//! Evaluates a filter's pruning plans once over a scan's rows, before any chunk is planned.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -31,24 +31,24 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 
-/// The planner a prune planner continues into, given the rows the proofs kept, or `None` when
-/// no proof ran.
+/// The planner a prune planner continues into, given the rows pruning kept, or `None` when
+/// no pruning plan ran.
 pub type PruneNext = Box<dyn FnOnce(Option<Mask>) -> Box<dyn Planner> + Send>;
 
-/// Runs the filter's zone-map proofs over the scan's rows and emits the planner it was built
-/// to continue into, with the rows no proof excludes. The zone maps are the only reads,
-/// started together. Rows every proof excludes end the scan here: nothing is emitted. A filter
-/// without proofs emits the next planner at once.
+/// Evaluates the filter's pruning plans over the scan's rows and emits the planner it was
+/// built to continue into, with the rows no plan pruned. The zone maps are the only reads,
+/// started together. Rows every plan prunes end the scan here: nothing is emitted. A filter
+/// without pruning plans emits the next planner at once.
 pub struct PrunePlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
-    /// What to emit once every proof has run, taken when it is.
+    /// What to emit once every pruning plan has run, taken when it is.
     next: Option<PruneNext>,
-    /// Whether any proof ran, so the kept rows mean something.
-    proved: bool,
-    /// The rows no proof has excluded yet, over `rows`.
+    /// Whether any pruning plan ran, so the kept rows mean something.
+    pruned: bool,
+    /// The rows no pruning plan has excluded yet, over `rows`.
     mask: Mask,
-    proofs: IntoIter<PlanRef>,
+    pruning: IntoIter<PlanRef>,
     active: Option<ScanAdaptor>,
     pieces: Vec<Mask>,
     announced: bool,
@@ -58,21 +58,21 @@ pub struct PrunePlanner {
 }
 
 impl PrunePlanner {
-    /// The planner of the proofs of `scan`'s filter over `rows`, continuing into `next`.
+    /// The planner of `scan`'s filter's pruning plans over `rows`, continuing into `next`.
     pub fn new(scan: Arc<PreparedScan>, rows: Range<u64>, next: PruneNext) -> Self {
-        let proofs: Vec<_> = scan
+        let pruning: Vec<_> = scan
             .filter
             .iter()
-            .flat_map(|filter| filter.proofs().cloned())
+            .flat_map(|filter| filter.pruning().cloned())
             .collect();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
             scan,
             rows,
             next: Some(next),
-            proved: false,
+            pruned: false,
             mask: Mask::new_true(len),
-            proofs: proofs.into_iter(),
+            pruning: pruning.into_iter(),
             active: None,
             pieces: Vec::new(),
             announced: false,
@@ -107,11 +107,11 @@ impl Planner for PrunePlanner {
         }
         if !self.announced {
             self.announced = true;
-            // A proof whose zones an earlier scan of the file proved compiles to its kept
-            // result and lists no segment, so only unproved proofs prefetch their zone maps.
+            // A pruning plan whose zones an earlier scan of the file pruned compiles to its kept
+            // result and lists no segment, so only unpruned plans prefetch their zone maps.
             let segments = segments_read(
                 &self.scan.session,
-                self.proofs.as_slice().iter(),
+                self.pruning.as_slice().iter(),
                 self.rows.clone(),
                 &self.mask,
             )?;
@@ -149,20 +149,20 @@ impl Planner for PrunePlanner {
                 row_end = self.rows.end,
                 input_rows = input,
                 output_rows = self.mask.true_count(),
-                "v2 zone proof evaluated"
+                "v2 pruning plan evaluated"
             );
             self.active = None;
             self.pieces.clear();
-            self.proved = true;
+            self.pruned = true;
         }
         if self.mask.all_false() {
             self.done = true;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(proof) = self.proofs.next() {
+        if let Some(plan) = self.pruning.next() {
             let scan = Scan::try_new(
                 self.scan.session.clone(),
-                proof,
+                plan,
                 vec![Split {
                     rows: self.rows.clone(),
                     mask: self.mask.clone(),
@@ -173,20 +173,20 @@ impl Planner for PrunePlanner {
             self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);
         }
-        // Every proof has run: the planner this one continues into gets the kept rows.
+        // Every pruning plan has run: the planner this one continues into gets the kept rows.
         self.done = true;
         tracing::debug!(
             row_start = self.rows.start,
             row_end = self.rows.end,
             kept_rows = self.mask.true_count(),
-            "v2 zone proofs finished"
+            "v2 pruning finished"
         );
         let next = self
             .next
             .take()
             .ok_or_else(|| vortex_err!("the prune planner has nothing to continue into"))?;
         let kept = self
-            .proved
+            .pruned
             .then(|| std::mem::replace(&mut self.mask, Mask::new_true(0)));
         Ok(PlannerOutput::Planner(
             WorkScope {

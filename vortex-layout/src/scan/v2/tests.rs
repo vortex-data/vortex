@@ -197,7 +197,7 @@ fn builder(
     ))
 }
 
-/// Composes a scan's planners the way an engine does: the proofs first when there is a filter,
+/// Composes a scan's planners the way an engine does: the pruning plans first when there is a filter,
 /// continuing into the chunks of the rows they keep.
 fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
     let chunks = {
@@ -805,7 +805,7 @@ fn partition_rows_tile_the_file_on_row_blocks() {
     );
 }
 
-/// Zone proofs run once before any chunk is planned: rows every proof excludes are never
+/// Pruning runs once before any chunk is planned: rows every pruning plan excludes are never
 /// given a chunk, and a scan whose zones all fail plans nothing.
 #[rstest]
 #[case::tail(2_999, Some(3_000..4_000))]
@@ -835,10 +835,10 @@ async fn pruned_rows_get_no_chunk(
     Ok(())
 }
 
-/// Scans of one file that share a cache share their filter plans, so the zone proofs run once:
+/// Scans of one file that share a cache share their filter plans, so the pruning plans run once:
 /// the second scan with the same filter re-reads the data it needs but never the zone maps.
 #[tokio::test]
-async fn shared_cache_proves_zones_once() -> VortexResult<()> {
+async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
     let counted = Arc::new(CountingSegments {
@@ -866,8 +866,8 @@ async fn shared_cache_proves_zones_once() -> VortexResult<()> {
     let plans = cache
         .filter_plans(&filter)
         .expect("the first scan kept its filter plans");
-    assert_eq!(plans.proofs().count(), 1);
-    // Each scan reads the one chunk the proof keeps; only the first reads the zone map.
+    assert_eq!(plans.pruning().count(), 1);
+    // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
     Ok(())
 }

@@ -4,7 +4,7 @@
 //! Drives a V2 scan of a file for callers without an engine of their own.
 //!
 //! A planner says what it needs: compute, or reads. This driver decides where each runs. It
-//! composes the planners over a [`PreparedScan`], the zone proofs first when the scan has a
+//! composes the planners over a [`PreparedScan`], the pruning plans first when the scan has a
 //! filter and the chunks of the rows they keep after, and runs them on planning runs it owns:
 //! the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned chunk on a
 //! task of its own, up to the concurrency, or on the root run at a concurrency of one. Every
@@ -112,7 +112,7 @@ impl ScanDriver {
     }
 }
 
-/// The planners of a scan, composed: with a filter, its proofs first over the whole scan,
+/// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
 fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
