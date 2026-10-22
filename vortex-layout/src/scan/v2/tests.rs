@@ -216,6 +216,10 @@ async fn run_batches<A: 'static + Send>(
     loop {
         match run.advance()? {
             Progress::Batch(batch) => batches.push(batch),
+            Progress::Spawn(scope, chunk) => {
+                run.admit(chunk, scope, scan.io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,
             Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
         }
@@ -791,7 +795,7 @@ async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()>
     let mut chunks = scan
         .scan
         .chunk_planner(scan.rows.clone(), scan.selection.clone(), None);
-    let PlannerOutput::Planner(scope, _) = chunks.compute()? else {
+    let PlannerOutput::Spawn(scope, _) = chunks.compute()? else {
         vortex_bail!("the selected rows were not planned");
     };
     assert_eq!(scope.rows, 7..2002);

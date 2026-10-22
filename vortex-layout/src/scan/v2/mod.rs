@@ -24,10 +24,10 @@ mod io;
 #[cfg(test)]
 mod tests;
 
-use std::collections::VecDeque;
 use std::future;
 use std::ops::Range;
 use std::sync::Arc;
+use std::task::Poll;
 
 use arrow_array::RecordBatch;
 use arrow_schema::ArrowError;
@@ -46,15 +46,17 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::request::IoService;
+use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_scan::planning::driver::Batch;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
+use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
@@ -115,6 +117,7 @@ pub struct ScanBuilder<A = ArrayRef> {
     ordered: bool,
     row_range: Option<Range<u64>>,
     selection: Selection,
+    concurrency: usize,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     row_offset: u64,
 }
@@ -130,6 +133,7 @@ impl ScanBuilder<ArrayRef> {
             ordered: true,
             row_range: None,
             selection: Selection::default(),
+            concurrency: 4,
             map_fn: Arc::new(Ok),
             row_offset: 0,
         }
@@ -199,10 +203,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Kept for callers of the default executor: a V2 scan runs on one task, its chunks
-    /// overlapping their reads inside one planning run, so this sets nothing.
-    pub fn with_concurrency(self, concurrency: usize) -> Self {
+    /// Sets the number of chunks run at once per worker thread. Must be greater than zero.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
+        self.concurrency = concurrency;
         self
     }
 
@@ -220,6 +224,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             ordered: self.ordered,
             row_range: self.row_range,
             selection: self.selection,
+            concurrency: self.concurrency,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |array| old_map_fn(array).and_then(&map_fn)),
         }
@@ -250,6 +255,7 @@ struct ScanRun<A: 'static + Send> {
     selection: Selection,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     ordered: bool,
+    concurrency: usize,
     /// Held until the scan ends, so scans of the file that start meanwhile share it.
     cache: ScanCache,
 }
@@ -319,92 +325,162 @@ impl<A: 'static + Send> ScanRun<A> {
             selection: builder.selection,
             map_fn: builder.map_fn,
             ordered: builder.ordered,
+            concurrency: builder.concurrency,
             cache,
         })
     }
 
-    /// Runs the scan on a planning run the returned stream owns and drives as it is polled.
+    /// Runs the scan on planning runs the returned stream owns and drives as it is polled.
     ///
-    /// Every CPU step of the run, the planners' and morsels' compute, is a [`Handle::spawn_cpu`]
-    /// task; every read is a `spawn_io` task of the segment source; the stream's own poll only
-    /// awaits one or the other, so the engine thread polling it does no scan work itself and the
-    /// scan advances only as fast as its consumer pulls. Batches of an unordered scan are yielded
-    /// as morsels finish; an ordered scan yields them in row order once every morsel has.
+    /// The scan's first planner runs on one run. Every chunk it spawns runs on a run of its own,
+    /// with a session of its own, up to `concurrency` chunks per worker thread at once. Every CPU
+    /// step of a run, the planners' and morsels' compute and the batch mapping, is a
+    /// [`Handle::spawn_cpu`] task; every read is a `spawn_io` task of the segment source; the
+    /// stream's own poll awaits one or the other, so the engine thread polling it does no scan
+    /// work itself, and a chunk is started only when the consumer has room for its batches.
+    /// Batches of an unordered scan are yielded as morsels finish; an ordered scan yields them in
+    /// row order once every morsel has.
     fn execute_stream(self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        let mut run = Run::new();
-        run.admit(
-            self.scan.planner(self.rows.clone(), self.selection),
-            WorkScope {
-                file_ordinal: 0,
-                rows: self.rows.clone(),
-            },
-            self.io.session(),
-        );
-        let driver = Driver {
-            handle: self.session.handle(),
-            run: Some(run),
-            map_fn: self.map_fn,
-            ordered: self.ordered,
-            held: VecDeque::new(),
-            done: false,
-            cache: self.cache,
+        let handle = self.session.handle();
+        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let root = self.scan.planner(self.rows.clone(), self.selection);
+        let scope = WorkScope {
+            file_ordinal: 0,
+            rows: self.rows.clone(),
         };
-        Ok(stream::try_unfold(driver, Driver::next).boxed())
+        let io = self.io;
+        let map_fn = self.map_fn;
+        let (chunk_handle, chunk_io, chunk_map) =
+            (handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
+        let batches = run_stream(handle, root, scope, io.session(), map_fn, true)
+            .map_ok(move |yielded| match yielded {
+                Yielded::Batch(start, batch) => {
+                    stream::once(future::ready(Ok((start, batch)))).boxed()
+                }
+                Yielded::Spawn(scope, chunk) => run_stream(
+                    chunk_handle.clone(),
+                    chunk,
+                    scope,
+                    chunk_io.session(),
+                    Arc::clone(&chunk_map),
+                    false,
+                )
+                .try_filter_map(|yielded| {
+                    future::ready(Ok(match yielded {
+                        Yielded::Batch(start, batch) => Some((start, batch)),
+                        Yielded::Spawn(..) => None,
+                    }))
+                })
+                .boxed(),
+            })
+            .try_flatten_unordered(in_flight);
+        let cache = self.cache;
+        let batches = batches.chain(stream::poll_fn(move |_| {
+            let _ = &cache;
+            Poll::Ready(None)
+        }));
+        if !self.ordered {
+            return Ok(batches.map_ok(|(_, batch)| batch).boxed());
+        }
+        Ok(stream::once(async move {
+            let mut held: Vec<(u64, A)> = batches.try_collect().await?;
+            // Morsels finish in whatever order their reads arrive.
+            held.sort_by_key(|(start, _)| *start);
+            VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
+        })
+        .try_flatten()
+        .boxed())
     }
 }
 
-/// The state of a scan's stream: its planning run and what it holds back.
-struct Driver<A> {
+/// What a planning run's stream yields: a mapped batch with the row it starts at, or a planner
+/// a planner of the run spawned as independent.
+enum Yielded<A> {
+    Batch(u64, A),
+    Spawn(WorkScope, Box<dyn Planner>),
+}
+
+/// One CPU step of a run, taken on a `spawn_cpu` task with the run.
+enum Step<A> {
+    Batch(u64, A),
+    Spawn(WorkScope, Box<dyn Planner>),
+    RootDone,
+    Idle,
+    Waiting,
+}
+
+/// The state of a run's stream.
+struct RunState<A> {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
+    io: Arc<dyn IoSource>,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    ordered: bool,
-    /// Batches of an ordered scan, in row order once the run is done.
-    held: VecDeque<Batch>,
-    done: bool,
-    /// Held until the scan ends, so scans of the file that start meanwhile share it.
-    #[expect(dead_code, reason = "kept alive, never read")]
-    cache: ScanCache,
+    /// Whether a spawned planner is yielded to the owner, or admitted to this run as another
+    /// root and run here.
+    yield_spawns: bool,
 }
 
-impl<A: 'static + Send> Driver<A> {
-    /// The next mapped batch, or `None` once the run has retired everything.
-    async fn next(mut self) -> VortexResult<Option<(A, Self)>> {
+/// Runs `root` over `scope` on a planning run of its own, reading through `io`, and yields its
+/// mapped batches and, when `yield_spawns`, the planners it spawns.
+fn run_stream<A: 'static + Send>(
+    handle: Handle,
+    root: Box<dyn Planner>,
+    scope: WorkScope,
+    io: Arc<dyn IoSource>,
+    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    yield_spawns: bool,
+) -> BoxStream<'static, VortexResult<Yielded<A>>> {
+    let mut run = Run::new();
+    run.admit(root, scope, Arc::clone(&io));
+    let state = RunState {
+        handle,
+        run: Some(run),
+        io,
+        map_fn,
+        yield_spawns,
+    };
+    stream::try_unfold(state, |mut state| async move {
         loop {
-            if self.done {
-                return match self.held.pop_front() {
-                    Some(batch) => Ok(Some(((self.map_fn)(batch.array)?, self))),
-                    None => Ok(None),
-                };
-            }
-            let run = self
+            let run = state
                 .run
                 .take()
                 .ok_or_else(|| vortex_err!("the scan's run is missing"))?;
-            let (run, progress) = self
+            let map_fn = Arc::clone(&state.map_fn);
+            let (run, step) = state
                 .handle
                 .spawn_cpu(move || {
                     let mut run = run;
-                    let progress = run.advance();
-                    (run, progress)
+                    let step = run.advance().and_then(|progress| {
+                        Ok(match progress {
+                            Progress::Batch(batch) => {
+                                Step::Batch(batch.scope.rows.start, map_fn(batch.array)?)
+                            }
+                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::RootDone(_) => Step::RootDone,
+                            Progress::Idle => Step::Idle,
+                            Progress::Waiting => Step::Waiting,
+                        })
+                    });
+                    (run, step)
                 })
                 .await;
-            let run = self.run.insert(run);
-            match progress? {
-                Progress::Batch(batch) if self.ordered => self.held.push_back(batch),
-                Progress::Batch(batch) => {
-                    return Ok(Some(((self.map_fn)(batch.array)?, self)));
+            let run = state.run.insert(run);
+            match step? {
+                Step::Batch(start, batch) => {
+                    return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
-                Progress::RootDone(_) | Progress::Idle => {
-                    self.done = true;
-                    // Morsels finish in whatever order their reads arrive.
-                    self.held
-                        .make_contiguous()
-                        .sort_by_key(|batch| batch.scope.rows.start);
+                Step::Spawn(scope, child) if state.yield_spawns => {
+                    return Ok(Some((Yielded::Spawn(scope, child), state)));
                 }
-                Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
+                Step::Spawn(scope, child) => {
+                    run.admit(child, scope, Arc::clone(&state.io));
+                }
+                Step::RootDone if run.live_roots() > 0 => {}
+                Step::RootDone | Step::Idle => return Ok(None),
+                Step::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }
-    }
+    })
+    .boxed()
 }

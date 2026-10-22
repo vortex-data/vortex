@@ -58,11 +58,9 @@ pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u
         .collect()
 }
 
-/// Emits one planner per chunk of a scan's rows, in row order. A chunk none of whose rows is
-/// selected and kept is never planned.
-///
-/// The run drives an emitted chunk ahead of this planner's next compute, so a chunk waiting on
-/// its reads lets the next chunk start its own, and the reads of the chunks in flight overlap.
+/// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
+/// its owner may run it beside the others. A chunk none of whose rows is selected and kept is
+/// never planned.
 pub(in crate::scan) struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
@@ -112,7 +110,7 @@ impl Planner for ChunkPlanner {
             };
             if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
             {
-                return Ok(PlannerOutput::Planner(scope, planner));
+                return Ok(PlannerOutput::Spawn(scope, planner));
             }
         }
         Ok(PlannerOutput::Done)

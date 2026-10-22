@@ -503,6 +503,7 @@ fn drain(run: &mut Run) -> VortexResult<Vec<String>> {
         events.push(match run.advance()? {
             Progress::Batch(batch) => format!("batch {:?} {:?}", batch.root, batch.scope.rows),
             Progress::RootDone(root) => format!("done {root:?}"),
+            Progress::Spawn(scope, _) => format!("spawn {:?}", scope.rows),
             Progress::Waiting => {
                 events.push("waiting".to_string());
                 return Ok(events);
