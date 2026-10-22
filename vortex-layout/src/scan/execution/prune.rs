@@ -9,6 +9,7 @@ use std::vec::IntoIter;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequestId;
@@ -18,7 +19,6 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
-use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use super::PreparedScan;
@@ -47,15 +47,17 @@ fn is_proved(plan: &PlanRef, session: &VortexSession) -> VortexResult<bool> {
     Ok(true)
 }
 
-/// Runs the filter's zone-map proofs over the scan's rows and emits one chunk planner for the
-/// rows no proof excludes. The zone maps are the only reads, started together.
-///
-/// Rows a proof excludes are never planned: a chunk none of whose rows survive is skipped by
-/// the chunk planner, and the chunks that remain run their conjuncts over the kept rows only.
+/// The planner a prune planner continues into, given the rows the proofs kept.
+pub(super) type Next = Box<dyn FnOnce(Mask) -> Box<dyn Planner> + Send>;
+
+/// Runs the filter's zone-map proofs over the scan's rows and emits the planner it was built
+/// to continue into, with the rows no proof excludes. The zone maps are the only reads,
+/// started together. Rows every proof excludes end the scan here: nothing is emitted.
 pub(super) struct PrunePlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
-    selection: Option<Selection>,
+    /// What to emit once every proof has run, taken when it is.
+    next: Option<Next>,
     /// The rows no proof has excluded yet, over `rows`.
     mask: Mask,
     proofs: IntoIter<PlanRef>,
@@ -68,7 +70,7 @@ pub(super) struct PrunePlanner {
 }
 
 impl PrunePlanner {
-    pub(super) fn new(scan: Arc<PreparedScan>, rows: Range<u64>, selection: Selection) -> Self {
+    pub(super) fn new(scan: Arc<PreparedScan>, rows: Range<u64>, next: Next) -> Self {
         let proofs: Vec<_> = scan
             .filter
             .iter()
@@ -78,7 +80,7 @@ impl PrunePlanner {
         Self {
             scan,
             rows,
-            selection: Some(selection),
+            next: Some(next),
             mask: Mask::new_true(len),
             proofs: proofs.into_iter(),
             active: None,
@@ -184,19 +186,19 @@ impl Planner for PrunePlanner {
             self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);
         }
-        // Every proof has run: the chunks of the kept rows are planned from here on.
+        // Every proof has run: the planner this one continues into gets the kept rows.
         self.done = true;
-        let selection = self.selection.take().unwrap_or_default();
+        let next = self
+            .next
+            .take()
+            .ok_or_else(|| vortex_err!("the prune planner has nothing to continue into"))?;
         let kept = std::mem::replace(&mut self.mask, Mask::new_true(0));
         Ok(PlannerOutput::Planner(
             WorkScope {
                 file_ordinal: 0,
                 rows: self.rows.clone(),
             },
-            Box::new(
-                self.scan
-                    .chunk_planner(self.rows.clone(), selection, Some(kept)),
-            ),
+            next(kept),
         ))
     }
 }

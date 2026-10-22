@@ -99,7 +99,13 @@ impl PreparedScan {
             .as_ref()
             .is_some_and(|filter| filter.proofs().next().is_some());
         if proofs && !rows.is_empty() {
-            Box::new(PrunePlanner::new(Arc::clone(self), rows, selection))
+            let scan = Arc::clone(self);
+            let chunks = rows.clone();
+            Box::new(PrunePlanner::new(
+                Arc::clone(self),
+                rows,
+                Box::new(move |kept| Box::new(scan.chunk_planner(chunks, selection, Some(kept)))),
+            ))
         } else {
             Box::new(self.chunk_planner(rows, selection, None))
         }
