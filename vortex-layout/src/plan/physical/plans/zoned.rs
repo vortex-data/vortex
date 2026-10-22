@@ -241,6 +241,15 @@ impl ZonedPlan {
         self.child_required(index)
     }
 
+    /// Whether an earlier execution already proved this pruning plan's expression over its zones,
+    /// so compiling it emits the kept result without reading the zone table.
+    pub(crate) fn is_proved(&self, session: &VortexSession) -> VortexResult<bool> {
+        match (self.pruned_zones(), self.pruning_expression()) {
+            (Some(pruned), Some(expression)) => Ok(pruned.get(expression, session)?.is_some()),
+            _ => Ok(false),
+        }
+    }
+
     /// Returns whether this plan represents a zone-backed pruning proof.
     pub fn is_pruning(&self) -> bool {
         self.data().pruning.is_some()

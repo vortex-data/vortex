@@ -884,3 +884,40 @@ async fn pruned_rows_get_no_chunk(
     );
     Ok(())
 }
+
+/// Scans of one file that share a cache share their filter plans, so the zone proofs run once:
+/// the second scan with the same filter re-reads the data it needs but never the zone maps.
+#[tokio::test]
+async fn shared_cache_proves_zones_once() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
+    let counted = Arc::new(CountingSegments {
+        inner: segments,
+        reads: AtomicUsize::new(0),
+    });
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    let cache = ScanCache::default();
+    file.cache = Some(cache.clone());
+    let filter = gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype())?;
+    let projection = get_item("ints", root()).bind(layout.dtype())?;
+    assert!(cache.filter_plans(&filter).is_none());
+
+    let mut reads = Vec::new();
+    for _ in 0..2 {
+        let before = counted.reads.load(Ordering::Relaxed);
+        let scan = ScanBuilder::new(session.clone(), file.clone())
+            .with_projection(projection.clone())
+            .with_some_filter(Some(filter.clone()));
+        let actual = collect(projection.dtype().clone(), scan.into_stream()?).await?;
+        assert_eq!(actual.len(), 1_000);
+        reads.push(counted.reads.load(Ordering::Relaxed) - before);
+    }
+    let plans = cache
+        .filter_plans(&filter)
+        .expect("the first scan kept its filter plans");
+    assert_eq!(plans.proofs().count(), 1);
+    // Each scan reads the one chunk the proof keeps; only the first reads the zone map.
+    assert_eq!(reads, vec![2, 1]);
+    Ok(())
+}

@@ -15,8 +15,9 @@
 //! layout's chunk boundaries.
 //! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.
 //!
-//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, segment index, and dictionary
-//! values with every other scan of that file, like a cached layout reader does for V1 scans.
+//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and proved
+//! zones, segment index, and dictionary values with every other scan of that file, like a cached
+//! layout reader does for V1 scans.
 
 mod cache;
 mod io;
@@ -54,6 +55,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 pub use self::cache::ScanCache;
+pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
@@ -246,6 +248,8 @@ struct ScanRun<A: 'static + Send> {
     selection: Selection,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     ordered: bool,
+    /// Held until the scan ends, so scans of the file that start meanwhile share it.
+    cache: ScanCache,
 }
 
 impl<A: 'static + Send> ScanRun<A> {
@@ -261,7 +265,16 @@ impl<A: 'static + Send> ScanRun<A> {
         let row_count = root.row_count();
         let filter = builder
             .filter
-            .map(|filter| FilterPlans::new(filter, &root, &builder.session).map(Arc::new))
+            .map(|filter| -> VortexResult<_> {
+                match cache.filter_plans(&filter) {
+                    Some(plans) => Ok(plans),
+                    None => {
+                        let plans =
+                            Arc::new(FilterPlans::new(filter.clone(), &root, &builder.session)?);
+                        Ok(cache.insert_filter_plans(filter, plans))
+                    }
+                }
+            })
             .transpose()?;
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
         // chunked column lazy, so an identity projection is optimized like any other.
@@ -304,6 +317,7 @@ impl<A: 'static + Send> ScanRun<A> {
             selection: builder.selection,
             map_fn: builder.map_fn,
             ordered: builder.ordered,
+            cache,
         })
     }
 
@@ -322,6 +336,7 @@ impl<A: 'static + Send> ScanRun<A> {
     }
 
     async fn run(self, mut send: mpsc::Sender<VortexResult<A>>) -> VortexResult<()> {
+        let _cache = &self.cache;
         let mut run = Run::new();
         run.admit(
             self.scan.planner(self.rows.clone(), self.selection),
