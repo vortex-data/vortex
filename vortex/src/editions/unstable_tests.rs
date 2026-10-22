@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
@@ -89,7 +91,7 @@ async fn external_format_requires_opt_in_and_round_trips_with_its_original_id() 
     let mut rejected = ByteBufferMut::empty();
     let error = session
         .write_options()
-        .with_strategy(strategy.clone())
+        .with_strategy(Arc::clone(&strategy))
         .write(&mut rejected, array.clone().to_array_stream())
         .await
         .err()

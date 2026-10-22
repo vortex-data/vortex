@@ -71,8 +71,7 @@ independent plugin projects state their own policy.
 
 `UNSTABLE` is a draft edition that never freezes. It holds formats whose contracts are still
 changing, so its members and their wire contracts can change under the same IDs. Plugins can add
-members through ordinary edition inclusions. See
-[Unstable edition](using-editions.md#unstable-edition) for configuration.
+members through ordinary edition inclusions.
 
 ### `preview2026.08.0`
 

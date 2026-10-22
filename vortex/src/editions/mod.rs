@@ -80,5 +80,6 @@ pub fn enable_default_editions(session: &VortexSession) {
         .vortex_expect("default core edition is registered");
 }
 
-#[cfg(all(test, feature = "files"))]
+#[cfg(test)]
+#[cfg(feature = "files")]
 mod unstable_tests;

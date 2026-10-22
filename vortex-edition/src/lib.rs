@@ -205,8 +205,11 @@ impl Display for ComponentKind {
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
     pub id: EditionId,
+    /// Whether this edition can freeze. An edition that never freezes, such as [`UNSTABLE`], stays
+    /// a draft, so its members can always change or be removed.
+    pub freezes: bool,
     /// The minimum version of the edition family's [`EditionFamily::origin`] whose reader
-    /// supports every member of this edition. Always `None` for [`UNSTABLE`].
+    /// supports every member of this edition. Always `None` for an edition that never freezes.
     ///
     /// A stable edition may freeze in the release that cuts it. Until that release is cut, its
     /// version is not known and this remains `None`. The version is then backfilled to document

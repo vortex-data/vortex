@@ -73,53 +73,6 @@ different origins require a separate version check for each project. In both cas
 register the required implementations, since meeting the version requirement alone does not make a
 plugin available.
 
-## Unstable edition
-
-[`UNSTABLE`](editions.md#unstable) is a draft edition for formats whose contracts are still
-changing. The default session registers it but does not enable it. Enable it before constructing a
-compressor or starting a write:
-
-```rust
-use vortex::VortexSessionDefault;
-use vortex::editions::EditionSessionExt;
-use vortex::editions::UNSTABLE;
-use vortex::error::VortexResult;
-use vortex::session::VortexSession;
-
-fn experimental_session() -> VortexResult<VortexSession> {
-    let session = VortexSession::default();
-    session.enable_edition(UNSTABLE)?;
-    Ok(session)
-}
-```
-
-This permits the union of the selected `core` edition and `UNSTABLE`. The writer still checks every
-serialized component, including children, layouts, extension dtypes, and stored aggregates.
-
-Plugins can add members using the ordinary edition registry; the built-in declarations are not a
-closed list. For example, after registering the plugin's serializer and reader:
-
-```rust
-use vortex::editions::ComponentKind;
-use vortex::editions::EditionInclusion;
-use vortex::editions::EditionSessionExt;
-use vortex::editions::UNSTABLE;
-use vortex::error::VortexResult;
-use vortex::session::VortexSession;
-
-fn register_experiment(session: &VortexSession) -> VortexResult<()> {
-    session.editions().declare_inclusion(EditionInclusion::new(
-        ComponentKind::Array,
-        "my_plugin.experimental_encoding",
-        UNSTABLE,
-    ))
-}
-```
-
-Producers and readers of unstable formats need matching implementations. When a format's contract
-is settled, it moves to another edition and can keep its ID. Earlier experimental files remain
-outside the compatibility guarantee.
-
 ## Write errors
 
 The writer rejects forbidden formats in arrays, children, layouts, nested extension dtypes, and

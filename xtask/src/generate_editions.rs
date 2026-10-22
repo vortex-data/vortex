@@ -145,6 +145,9 @@ fn record(session: &EditionSession, edition: &Edition, family: &EditionFamily) -
         format!("family = \"{}\"", edition.id.family),
         format!("origin = \"{}\"", family.origin),
     ];
+    if !edition.freezes {
+        lines.push("freezes = false".to_string());
+    }
     if let Some(min_library_version) = edition.min_library_version {
         lines.push(format!("min_library_version = \"{min_library_version}\""));
     }

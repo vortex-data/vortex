@@ -369,6 +369,7 @@ const DEMO_EDITION: EditionId = EditionId::new("vortex-layout-reverse-index-exam
 static DEMO_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: DEMO_EDITION,
+        freezes: true,
         min_library_version: None,
     },
     added: &[

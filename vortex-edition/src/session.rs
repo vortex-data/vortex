@@ -22,7 +22,6 @@ use crate::EditionDeclaration;
 use crate::EditionFamily;
 use crate::EditionId;
 use crate::EditionInclusion;
-use crate::UNSTABLE;
 use crate::parse_release;
 
 /// The session's registry of editions and edition inclusions.
@@ -241,8 +240,12 @@ impl EditionSession {
                     edition.id.family,
                 );
             }
-            if edition.id == UNSTABLE && !edition.is_draft() {
-                vortex_bail!("UNSTABLE must remain a draft; promote members into a new edition");
+            if !edition.freezes && !edition.is_draft() {
+                vortex_bail!(
+                    "edition {} never freezes, so it cannot record a min_library_version; \
+                     promote members into a new edition",
+                    edition.id
+                );
             }
             if let Some(version) = edition.min_library_version
                 && parse_release(version).is_none()

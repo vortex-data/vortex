@@ -41,8 +41,16 @@ pub const RECORD_DIR: &str = "vortex/editions";
 /// A record carries this key once the edition's freeze has been documented.
 const FROZEN_MARKER: &str = "min_library_version";
 
+/// A record of an edition that never freezes carries `freezes = false`.
+const FREEZES: &str = "freezes";
+
 pub(super) fn record_is_frozen(record: &Table) -> bool {
     record.contains_key(FROZEN_MARKER)
+}
+
+/// An edition that never freezes has no place in its family's chronology.
+pub(super) fn record_never_freezes(record: &Table) -> bool {
+    record.get(FREEZES).and_then(|value| value.as_bool()) == Some(false)
 }
 
 const REMEDY: &str = "\
@@ -55,9 +63,6 @@ type Chronology = (u16, u8, u8);
 
 /// Split a record file name into its family and its place in that family's chronology.
 fn parse_name(name: &str) -> anyhow::Result<(&str, Chronology)> {
-    if name == "unstable.toml" {
-        return Ok(("unstable", (0, 0, 0)));
-    }
     let malformed = || {
         anyhow!(
             "{RECORD_DIR}/{name} is not a valid record name. Records are named after the \
@@ -121,6 +126,17 @@ fn newest_recorded(
         if !name.ends_with(".toml") || name == FAMILY_FILE {
             return TreeWalkResult::Ok;
         }
+
+        let record = repo.find_blob(entry.id()).ok().and_then(|blob| {
+            std::str::from_utf8(blob.content())
+                .ok()?
+                .parse::<Table>()
+                .ok()
+        });
+        if record.as_ref().is_some_and(record_never_freezes) {
+            return TreeWalkResult::Ok;
+        }
+
         match parse_name(name) {
             Ok((family, chronology)) => {
                 let slot = newest.entry(family.to_string()).or_insert(chronology);
@@ -176,17 +192,25 @@ fn check_addition(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow!("{path} has no file name"))?;
-    let (family, chronology) = parse_name(name)?;
 
-    if let Some(previous) = newest.get(family)
-        && chronology <= *previous
-    {
-        errors.push(format!(
-            "adds {name}, which is not newer than the {family} edition already recorded \
-             ({family}{}.{:02}.{}). Editions may only be added going forward.",
-            previous.0, previous.1, previous.2,
-        ));
-    }
+    let family = if record_never_freezes(record) {
+        record
+            .get("family")
+            .and_then(|family| family.as_str())
+            .ok_or_else(|| anyhow!("adds {name}, which has no `family` field"))?
+    } else {
+        let (family, chronology) = parse_name(name)?;
+        if let Some(previous) = newest.get(family)
+            && chronology <= *previous
+        {
+            errors.push(format!(
+                "adds {name}, which is not newer than the {family} edition already recorded \
+                 ({family}{}.{:02}.{}). Editions may only be added going forward.",
+                previous.0, previous.1, previous.2,
+            ));
+        }
+        family
+    };
 
     // A record's family decides which chronology it extends, so the directory it sits in has
     // to agree with the family its name declares.
@@ -341,7 +365,9 @@ mod tests {
         let frozen: Table = "edition = 'core2026.08.0'\nmin_library_version = '0.84.0'".parse()?;
         assert!(record_is_frozen(&frozen));
 
-        let unstable: Table = "edition = 'unstable'\norigin = 'vortex'".parse()?;
+        let unstable: Table =
+            "edition = 'unstable'\nfamily = 'unstable'\norigin = 'vortex'\nfreezes = false"
+                .parse()?;
         assert!(!record_is_frozen(&unstable));
         assert!(
             check_addition(
